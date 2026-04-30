@@ -78,7 +78,7 @@ program
       console.log('Usage: psypi task-complete <task-id>')
       console.log('Marks the specified task as COMPLETED');
       console.log('\nExamples:')
-      console.log('  psypi task‑complete ece55693-4dc5-4e62-aa11-886d59349c8d');
+      console.log('  psypi task-complete ece55693-4dc5-4e62-aa11-886d59349c8d');
       return;
     }
     try {
@@ -246,7 +246,37 @@ program
       console.error('Error:', err instanceof Error ? err.message : err);
     }
   });
-
+  
+program
+  .command('learn <content>')
+  .description('Save learning to memory')
+  .option('--importance <n>', 'Importance (1-10)', '5')
+  .option('--tags <tags>', 'Comma-separated tags')
+  .option('--help', 'Show help')
+  .action(async (content, options) => {
+    if (options.help) {
+      console.log('Usage: psypi learn "insight" [--importance N] [--tags t1,t2]');
+      console.log('Saves learning to memory table (source: learn)');
+      console.log('\nOptions:');
+      console.log('  --importance <n>  Importance level (default: 5)');
+      console.log('  --tags <tags>    Comma-separated tags (default: learning)');
+      console.log('\nExamples:');
+      console.log('  psypi learn "Database constraint found" --importance 8 --tags db,schema');
+      return;
+    }
+    try {
+      const tags = options.tags ? options.tags.split(',') : ['learning'];
+      const id = await kernel.learn(content, parseInt(options.importance), tags);
+      if (id) {
+        console.log(`✅ Learning saved: ${content.slice(0,60)}...`);
+      } else {
+        console.log(`⚠️  Failed to save learning`);
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+  
 program
   .command('context')
   .description('Show current context from Nezha')
@@ -262,7 +292,7 @@ program
       console.error('Error:', err instanceof Error ? err.message : err);
     }
   });
-  
+
 program
   .command('announce <message>')
   .description('Send announcement to all AIs')
@@ -289,7 +319,7 @@ program
       console.error('Error:', err instanceof Error ? err.message : err);
     }
   });
-  
+
 program
   .command('broadcast <message>')
   .description('Alias for announce (send broadcast to all AIs)')
@@ -307,7 +337,7 @@ program
       console.error('Error:', err instanceof Error ? err.message : err);
     }
   });
-  
+
 // === Inter-Review Commands (from Nezha) ===
 program
   .command('inter-review-request <taskId>')

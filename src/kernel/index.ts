@@ -104,6 +104,17 @@ export class Kernel {
     return (result.rowCount || 0) > 0;
   }
   
+  // === Learning Methods ===
+  async learn(content: string, importance: number = 5, tags: string[] = ['learning']) {
+    const result = await this.query(
+      `INSERT INTO memory (content, tags, source, importance) 
+       VALUES ($1, $2, 'learn', $3)
+       RETURNING id`,
+      [content, tags, importance]
+    );
+    return result.rows[0]?.id;
+  }
+  
   async getSkills(approvedOnly: boolean = true) {
     let query = 'SELECT id, name, status, safety_score FROM skills';
     const params: any[] = [];
