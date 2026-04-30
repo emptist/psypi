@@ -32,14 +32,20 @@ program
   .version(VERSION);
 
 // === Kernel Commands (from Nezha) ===
+import { kernel } from './kernel/index.js';
+
 program
   .command('task-add <title>')
   .description('Add a task')
   .option('--description <desc>', 'Task description')
   .option('--priority <n>', 'Priority (1-10)', '5')
   .action(async (title, options) => {
-    console.log(`Task add: ${title} (priority: ${options.priority})`);
-    // TODO: Integrate Nezha kernel
+    try {
+      const taskId = await kernel.addTask(title, options.description || '', parseInt(options.priority));
+      console.log(`Created task: ${taskId}`);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 program
@@ -47,8 +53,20 @@ program
   .description('List tasks')
   .option('--status <status>', 'Filter by status')
   .action(async (options) => {
-    console.log('Listing tasks...');
-    // TODO: Integrate Nezha kernel
+    try {
+      const result = await kernel.getTasks(options.status);
+      if (result.rows.length === 0) {
+        console.log('No tasks found.');
+        return;
+      }
+      console.log(`\n📋 Tasks (${result.rows.length}):\n`);
+      for (const task of result.rows) {
+        console.log(`  [${task.id.slice(0,8)}] ${task.title}`);
+        console.log(`    Status: ${task.status} | Priority: ${task.priority} | Created by: ${task.created_by}`);
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 program
@@ -57,8 +75,12 @@ program
   .option('--severity <level>', 'Severity: critical|high|medium|low', 'medium')
   .option('--tag <tags>', 'Comma-separated tags')
   .action(async (title, options) => {
-    console.log(`Issue add: ${title} (severity: ${options.severity})`);
-    // TODO: Integrate Nezha kernel
+    try {
+      const issueId = await kernel.addIssue(title, options.severity);
+      console.log(`Created issue: ${issueId}`);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 program
@@ -66,8 +88,20 @@ program
   .description('List issues')
   .option('--status <status>', 'Filter by status')
   .action(async (options) => {
-    console.log('Listing issues...');
-    // TODO: Integrate Nezha kernel
+    try {
+      const result = await kernel.getIssues(options.status);
+      if (result.rows.length === 0) {
+        console.log('No issues found.');
+        return;
+      }
+      console.log(`\n📋 Issues (${result.rows.length}):\n`);
+      for (const issue of result.rows) {
+        console.log(`  [${issue.id.slice(0,8)}] ${issue.title}`);
+        console.log(`    Severity: ${issue.severity} | Status: ${issue.status} | Created by: ${issue.created_by}`);
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 // === Agent Commands (from NuPI) ===
@@ -92,16 +126,42 @@ program
   .command('skill-list')
   .description('List all approved skills')
   .action(async () => {
-    console.log('Listing skills...');
-    // TODO: Integrate Nezha skill system
+    try {
+      const result = await kernel.getSkills(true);
+      if (result.rows.length === 0) {
+        console.log('No skills found.');
+        return;
+      }
+      console.log(`\n📦 Skills (${result.rows.length}):\n`);
+      for (const skill of result.rows) {
+        console.log(`  🟢 ${skill.name}`);
+        console.log(`     Status: ${skill.status} | Safety: ${skill.safety_score}`);
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 program
   .command('skill-show <name>')
   .description('Show skill details')
   .action(async (name) => {
-    console.log(`Showing skill: ${name}`);
-    // TODO: Integrate Nezha skill system
+    try {
+      const skill = await kernel.getSkillByName(name);
+      if (!skill) {
+        console.log(`Skill not found: ${name}`);
+        return;
+      }
+      console.log(`\n📦 Skill: ${skill.name}`);
+      console.log('='.repeat(50));
+      console.log(`Description: ${skill.description || 'N/A'}`);
+      console.log(`Status: ${skill.status} | Safety Score: ${skill.safety_score}`);
+      if (skill.instructions) {
+        console.log(`\nInstructions:\n${skill.instructions.substring(0, 200)}...`);
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 program
@@ -109,7 +169,7 @@ program
   .description('Build new skill')
   .action(async (name, purpose) => {
     console.log(`Building skill: ${name} (purpose: ${purpose})`);
-    // TODO: Integrate Nezha skill system
+    console.log('TODO: Integrate skill builder from Nezha');
   });
 
 // === All-in-One Commands ===
@@ -117,16 +177,28 @@ program
   .command('reflect <text>')
   .description('All-in-one reflection: [LEARN] [ISSUE] [TASK]')
   .action(async (text) => {
-    console.log(`Reflecting: ${text}`);
-    // TODO: Integrate Nezha reflection system
+    try {
+      const result = await kernel.reflect(text);
+      console.log(result);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 program
   .command('context')
   .description('Show current context from Nezha')
   .action(async () => {
-    console.log('Showing context...');
-    // TODO: Integrate Nezha context system
+    try {
+      const context = await kernel.getContext();
+      console.log('\n📊 PSYPI CONTEXT\n');
+      console.log(`🤖 Agent: ${context.agentType}`);
+      console.log(`Session: ${context.sessionId}`);
+      console.log(`Tasks: ${context.pendingTasks} pending`);
+      console.log(`Issues: ${context.openIssues} open`);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 // === Help ===
