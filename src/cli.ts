@@ -70,6 +70,30 @@ program
   });
 
 program
+  .command('task-complete <taskId>')
+  .description('Mark a task as completed')
+  .option('--help', 'Show help')
+  .action(async (taskId, options) => {
+    if (options.help) {
+      console.log('Usage: psypi task-complete <task-id>')
+      console.log('Marks the specified task as COMPLETED');
+      console.log('\nExamples:')
+      console.log('  psypi task‑complete ece55693-4dc5-4e62-aa11-886d59349c8d');
+      return;
+    }
+    try {
+      const success = await kernel.completeTask(taskId);
+      if (success) {
+        console.log(`✅ Task ${taskId.slice(0,8)} marked COMPLETED`);
+      } else {
+        console.log(`⚠️  Task ${taskId.slice(0,8)} not found or already completed`);
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+
+program
   .command('issue-add <title>')
   .description('Add an issue')
   .option('--severity <level>', 'Severity: critical|high|medium|low', 'medium')
@@ -84,7 +108,7 @@ program
   });
 
 program
-  .command('issues')
+  .command('issue-list')
   .description('List issues')
   .option('--status <status>', 'Filter by status')
   .action(async (options) => {
@@ -98,6 +122,31 @@ program
       for (const issue of result.rows) {
         console.log(`  [${issue.id.slice(0,8)}] ${issue.title}`);
         console.log(`    Severity: ${issue.severity} | Status: ${issue.status} | Created by: ${issue.created_by}`);
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+
+program
+  .command('issue-resolve <issueId>')
+  .description('Mark an issue as resolved')
+  .option('--notes <text>', 'Resolution notes')
+  .option('--help', 'Show help')
+  .action(async (issueId, options) => {
+    if (options.help) {
+      console.log('Usage: psypi issue-resolve <issue-id> [--notes text]');
+      console.log('Marks the specified issue as resolved');
+      console.log('\nExamples:');
+      console.log('  psypi issue-resolve abc123 --notes "Fixed in commit"');
+      return;
+    }
+    try {
+      const success = await kernel.resolveIssue(issueId, options.notes);
+      if (success) {
+        console.log(`✅ Issue ${issueId.slice(0,8)} marked as RESOLVED`);
+      } else {
+        console.log(`⚠️  Issue ${issueId.slice(0,8)} not found or already resolved`);
       }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
@@ -209,6 +258,107 @@ program
       console.log(`Session: ${context.sessionId}`);
       console.log(`Tasks: ${context.pendingTasks} pending`);
       console.log(`Issues: ${context.openIssues} open`);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+  
+program
+  .command('announce <message>')
+  .description('Send announcement to all AIs')
+  .option('--priority <level>', 'Priority: low|normal|high|critical', 'normal')
+  .option('--help', 'Show help')
+  .action(async (message, options) => {
+    if (options.help) {
+      console.log('Usage: psypi announce "message" [--priority level]');
+      console.log('Sends announcement to all AIs via broadcast system');
+      console.log('\nOptions:');
+      console.log('  --priority <level>  Priority level (default: normal)');
+      console.log('\nExamples:');
+      console.log('  psypi announce "Server restarting in 5 min" --priority high');
+      return;
+    }
+    try {
+      const success = await kernel.announce(message, options.priority);
+      if (success) {
+        console.log(`✅ Announcement sent: ${message.slice(0,60)}...`);
+      } else {
+        console.log(`⚠️  Announcement logged (broadcast table may not exist)`);
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+  
+program
+  .command('broadcast <message>')
+  .description('Alias for announce (send broadcast to all AIs)')
+  .option('--priority <level>', 'Priority: low|normal|high|critical', 'normal')
+  .action(async (message, options) => {
+    // Same as announce
+    try {
+      const success = await kernel.announce(message, options.priority);
+      if (success) {
+        console.log(`✅ Broadcast sent: ${message.slice(0,60)}...`);
+      } else {
+        console.log(`⚠️  Broadcast logged`);
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+  
+// === Inter-Review Commands (from Nezha) ===
+program
+  .command('inter-review-request <taskId>')
+  .description('Request an inter-review for a task')
+  .option('--reviewer <agentId>', 'Specific reviewer agent ID')
+  .action(async (taskId, options) => {
+    try {
+      const reviewId = await kernel.requestReview(taskId, options.reviewer);
+      console.log(`✅ Inter-review requested: ${reviewId}`);
+      console.log(`Add to commit: [inter-review:${reviewId}]`);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+
+program
+  .command('inter-review-show <reviewId>')
+  .description('Show inter-review details')
+  .action(async (reviewId) => {
+    try {
+      const review = await kernel.getReview(reviewId);
+      if (!review) {
+        console.log('Review not found');
+        return;
+      }
+      console.log(`\n📝 Inter-Review: ${reviewId}`);
+      console.log(`Task: ${review.task_id}`);
+      console.log(`Status: ${review.status}`);
+      console.log(`Score: ${review.score || 'N/A'}`);
+      if (review.opinion) {
+        console.log(`\nOpinion:\n${review.opinion}`);
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+
+program
+  .command('inter-reviews [status]')
+  .description('List inter-reviews (optional status filter)')
+  .action(async (status) => {
+    try {
+      const reviews = await kernel.listReviews(status);
+      if (reviews.length === 0) {
+        console.log('No inter-reviews found');
+        return;
+      }
+      console.log(`\n📝 Inter-Reviews (${reviews.length}):`);
+      reviews.forEach((r: any) => {
+        console.log(`  ${r.id} - ${r.status} - Score: ${r.score || 'N/A'}`);
+      });
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     }

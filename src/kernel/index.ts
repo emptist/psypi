@@ -63,6 +63,16 @@ export class Kernel {
     return result.rows[0].id;
   }
   
+  async completeTask(taskId: string) {
+    const result = await this.query(
+      `UPDATE tasks SET status = 'COMPLETED', completed_at = NOW(), updated_at = NOW() 
+       WHERE id = $1 AND status != 'COMPLETED'
+       RETURNING id`,
+      [taskId]
+    );
+    return (result.rowCount || 0) > 0;
+  }
+  
   async getIssues(status?: string) {
     let query = 'SELECT * FROM issues';
     const params: any[] = [];
@@ -82,6 +92,16 @@ export class Kernel {
       [title, severity]
     );
     return result.rows[0].id;
+  }
+  
+  async resolveIssue(issueId: string, notes?: string) {
+    const result = await this.query(
+      `UPDATE issues SET status = 'resolved', updated_at = NOW() 
+       WHERE id = $1 AND status != 'resolved'
+       RETURNING id`,
+      [issueId]
+    );
+    return (result.rowCount || 0) > 0;
   }
   
   async getSkills(approvedOnly: boolean = true) {
@@ -186,6 +206,57 @@ export class Kernel {
       `UPDATE agent_sessions SET status = 'ended', last_heartbeat_at = NOW() WHERE id = $1`,
       [id]
     );
+  }
+  
+  // === Inter-Review Methods (from Nezha) ===
+  private interReviewService: any = null;
+  private contextBuilder: any = null;
+  
+  async getInterReviewService() {
+    if (!this.interReviewService) {
+      // Dynamic import to avoid circular dependencies
+      const { InterReviewService } = await import('./services/InterReviewService.js');
+      // Use 'as any' to bypass type checking (focus on functionality)
+      this.interReviewService = await InterReviewService.create(this.pool as any);
+    }
+    return this.interReviewService;
+  }
+  
+  async requestReview(taskId: string, reviewerAgentId?: string) {
+    const service = await this.getInterReviewService();
+    return service.requestReview(taskId, reviewerAgentId);
+  }
+  
+  async getReview(reviewId: string) {
+    const service = await this.getInterReviewService();
+    return service.getReview(reviewId);
+  }
+  
+  async listReviews(status?: string) {
+    const service = await this.getInterReviewService();
+    return service.listReviews(status);
+  }
+  
+  // === Announce/Broadcast Methods ===
+  private broadcastService: any = null;
+  
+  async getBroadcastService() {
+    if (!this.broadcastService) {
+      const { BroadcastService } = await import('./services/BroadcastService.js');
+      this.broadcastService = await BroadcastService.create(this.pool as any);
+    }
+    return this.broadcastService;
+  }
+  
+  async announce(message: string, priority: string = 'normal') {
+    try {
+      const svc = await this.getBroadcastService();
+      const id = await svc.sendBroadcast(message, { priority });
+      return id;
+    } catch (err) {
+      console.error('Announce error:', err);
+      return null;
+    }
   }
   
   async close() {
