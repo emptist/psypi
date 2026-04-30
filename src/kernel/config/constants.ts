@@ -1,0 +1,144 @@
+import { TaskStatus } from './types.js';
+
+export const TASK_STATUS = {
+  PENDING: 'PENDING' as const,
+  RUNNING: 'RUNNING' as const,
+  COMPLETED: 'COMPLETED' as const,
+  FAILED: 'FAILED' as const,
+  FAKE_COMPLETE: 'FAKE_COMPLETE' as const,
+} satisfies Record<TaskStatus, string>;
+
+export const TASK_TYPE = {
+  ANALYSIS: 'analysis' as const,
+  IMPLEMENTATION: 'implementation' as const,
+  DOCUMENTATION: 'documentation' as const,
+  BUGFIX: 'bugfix' as const,
+  RESEARCH: 'research' as const,
+  TESTING: 'testing' as const,
+  DEPLOYMENT: 'deployment' as const,
+  MAINTENANCE: 'maintenance' as const,
+} as const;
+
+export type TaskType = (typeof TASK_TYPE)[keyof typeof TASK_TYPE];
+
+export const DATABASE_TABLES = {
+  TASKS: 'tasks',
+  MEMORY: 'memory',
+  CONVERSATIONS: 'conversations',
+  AGENTS: 'agents',
+  SKILLS: 'skills',
+  TASK_OUTCOMES: 'task_outcomes',
+  TASK_PATTERNS: 'task_patterns',
+  KNOWLEDGE_LINKS: 'knowledge_links',
+  LEARNING_INSIGHTS: 'learning_insights',
+  TASK_OUTCOME_FEATURES: 'task_outcome_features',
+  DEAD_LETTER_QUEUE: 'dead_letter_queue',
+  FAILURE_ALERTS: 'failure_alerts',
+  STUCK_TASKS_TRACKING: 'stuck_tasks_tracking',
+  LONG_TASKS_PAUSE: 'long_tasks_pause',
+  PROCESS_PIDS: 'process_pids',
+} as const;
+
+export const DATABASE_CONFIG = {
+  DEFAULT_HOST: 'localhost',
+  DEFAULT_PORT: 5432,
+  DEFAULT_MAX: 20,
+  DEFAULT_IDLE_TIMEOUT_MS: 30000,
+  DEFAULT_CONNECTION_TIMEOUT_MS: 10000,
+} as const;
+
+export const TASK_CONFIG = {
+  DEFAULT_HEARTBEAT_INTERVAL_MS: 30000,
+  DEFAULT_MAX_RETRIES: 3,
+  DEFAULT_RETRY_DELAY_MS: 5000,
+  DEFAULT_TASK_TIMEOUT_MS: 300000,
+  RETRY_BASE_DELAY_MS: 300000, // 5 minutes base delay
+  RETRY_MAX_DELAY_MS: 1800000, // 30 minutes max delay
+} as const;
+
+export const SCHEDULER_CONFIG = {
+  MAX_CONSECUTIVE_FAILURES: 5,
+  PAUSE_DURATION_MS: 60 * 1000,
+  STUCK_TASK_TIMEOUT_MS: 5 * 60 * 1000,
+  MAX_CONCURRENT_SESSIONS: 2, // 允许1个交互会话 + 1个后台任务执行
+} as const;
+
+export const MEMORY_CONFIG = {
+  DEFAULT_BOOTSTRAP_DIR: './bootstrap',
+  DEFAULT_MAX_MEMORY_AGE_MS: 86400000 * 30,
+  DEFAULT_CLEANUP_INTERVAL_MS: 3600000,
+  DEFAULT_MAX_MEMORIES: 10000,
+  DEFAULT_COMPACTION_INTERVAL_MS: 3600000 * 6, // 6 hours
+} as const;
+
+export const ENV_KEYS = {
+  DB_HOST: 'NEZHA_DB_HOST',
+  DB_PORT: 'NEZHA_DB_PORT',
+  DB_NAME: 'NEZHA_DB_NAME',
+  DB_USER: 'NEZHA_DB_USER',
+  DB_PASSWORD: 'NEZHA_DB_PASSWORD',
+  DB_MAX: 'NEZHA_DB_MAX',
+  HEARTBEAT_INTERVAL: 'NEZHA_HEARTBEAT_INTERVAL',
+  MAX_RETRIES: 'NEZHA_MAX_RETRIES',
+  RETRY_DELAY: 'NEZHA_RETRY_DELAY',
+  RETRY_MAX_ATTEMPTS: 'RETRY_MAX_ATTEMPTS',
+  RETRY_DELAY_MS: 'RETRY_DELAY_MS',
+  TASK_TIMEOUT: 'NEZHA_TASK_TIMEOUT',
+  MEMORY_BOOTSTRAP_DIR: 'NEZHA_MEMORY_BOOTSTRAP_DIR',
+  MAX_MEMORY_AGE: 'NEZHA_MAX_MEMORY_AGE',
+  ENV: 'NEZHA_ENV',
+  EMBEDDING_PROVIDER: 'NEZHA_EMBEDDING_PROVIDER',
+  EMBEDDING_MODEL: 'NEZHA_EMBEDDING_MODEL',
+  EMBEDDING_API_URL: 'NEZHA_EMBEDDING_API_URL',
+  ZHIPU_API_KEY: 'ZHIPU_API_KEY',
+  SECRET: 'NEZHA_SECRET',
+  TRANSPORT_MODE: 'NEZHA_TRANSPORT_MODE',
+  OPENCODE_API_URL: 'NEZHA_OPENCODE_API_URL',
+  OPENCODE_PORT: 'NEZHA_OPENCODE_PORT',
+  AGENT_NAME: 'NEZHA_AGENT_NAME',
+} as const;
+
+export const ENV_DEFAULT = {
+  DEVELOPMENT: 'development' as const,
+  PRODUCTION: 'production' as const,
+  TEST: 'test' as const,
+} as const;
+
+export const OPENCODE_API = {
+  DEFAULT_HOST: '127.0.0.1',
+  DEFAULT_PORT: 4096,
+  DEFAULT_TIMEOUT_MS: 300000,
+  POLLING_INTERVAL_MS: 2000,
+  ENDPOINTS: {
+    MESSAGE: '/api/message',
+    SESSION: '/session',
+    SESSION_STATUS: '/session/status',
+  },
+} as const;
+
+export const WATCHDOG_CONFIG = {
+  CHECK_INTERVAL_MS: 30000,
+  DEFAULT_TIMEOUT_SECONDS: 300,
+  MAX_KILLS_PER_TASK: 3,
+  GRACE_PERIOD_MS: 5000,
+  ENABLE_PROCESS_KILL: true,
+} as const;
+
+export const ALERT_CONFIG = {
+  CHECK_INTERVAL_MS: 60000,
+  REPEATED_FAILURE_THRESHOLD: 3,
+  STUCK_TASK_THRESHOLD_SECONDS: 300,
+  DLQ_SIZE_THRESHOLD: 10,
+  CONSECUTIVE_FAILURE_THRESHOLD: 5,
+  AUTO_ACKNOWLEDGE_AFTER_MS: 86400000,
+} as const;
+
+export const LONGTASK_CONFIG = {
+  CHECK_INTERVAL_MS: 60000,
+  DEFAULT_MAX_RUNTIME_SECONDS: 1800,
+  DEFAULT_PAUSE_DURATION_SECONDS: 3600,
+  ENABLE_AUTO_RESUME: true,
+  PROGRESS_REPORT_INTERVAL_MS: 300000,
+  MIN_PROGRESS_INTERVAL_MS: 600000,
+  MIN_PROGRESS_PERCENT: 50,
+} as const;
