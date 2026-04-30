@@ -1,0 +1,30 @@
+{
+  "name": "@psy/psypi",
+  "version": "0.1.0",
+  "description": "Unified AI coordination system - merging Nezha kernel + NuPI agent",
+  "type": "module",
+  "bin": {
+    "psypi": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc && node scripts/replace-hash.js",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/cli.ts",
+    "test": "echo 'Tests coming soon' && exit 0"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.0",
+    "pg": "^8.11.0",
+    "@sinclair/typebox": "^0.33.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.10.0",
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
