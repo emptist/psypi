@@ -115,6 +115,17 @@ export class Kernel {
     return result.rows[0]?.id;
   }
   
+  // === Tool Discovery Methods ===
+  async getTools() {
+    const result = await this.query(
+      `SELECT table_name, usage_context, cli_commands 
+       FROM table_documentation 
+       WHERE ai_can_modify = true
+       ORDER BY table_name ASC`
+    );
+    return result.rows;
+  }
+  
   async getSkills(approvedOnly: boolean = true) {
     let query = 'SELECT id, name, status, safety_score FROM skills';
     const params: any[] = [];
