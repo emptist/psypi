@@ -109,16 +109,24 @@ program
   .command('session-start')
   .description('Start a new agent session')
   .action(async () => {
-    console.log('Starting agent session...');
-    // TODO: Integrate NuPI agent
+    try {
+      const sessionId = await kernel.startSession('psypi');
+      console.log(`✅ Session started: ${sessionId}`);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 program
   .command('session-end')
   .description('End current agent session')
   .action(async () => {
-    console.log('Ending agent session...');
-    // TODO: Integrate NuPI agent
+    try {
+      await kernel.endSession();
+      console.log('✅ Session ended');
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 // === Skill Commands (from Nezha) ===
@@ -168,13 +176,18 @@ program
   .command('skill-build <name> <purpose>')
   .description('Build new skill')
   .action(async (name, purpose) => {
-    console.log(`Building skill: ${name} (purpose: ${purpose})`);
-    console.log('TODO: Integrate skill builder from Nezha');
+    try {
+      const skillId = await kernel.buildSkill(name, purpose);
+      console.log(`✅ Skill built: ${skillId}`);
+      console.log('Note: Skill created with status=pending, safety_score=0');
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
   });
 
 // === All-in-One Commands ===
 program
-  .command('reflect <text>')
+  .command('areflect <text>')
   .description('All-in-one reflection: [LEARN] [ISSUE] [TASK]')
   .action(async (text) => {
     try {

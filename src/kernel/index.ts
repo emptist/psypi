@@ -157,6 +157,37 @@ export class Kernel {
     };
   }
   
+  async buildSkill(name: string, purpose: string) {
+    // Simple skill build - insert into skills table
+    const result = await this.query(
+      `INSERT INTO skills (id, name, description, status, safety_score, created_by) 
+       VALUES (gen_random_uuid(), $1, $2, 'pending', 0, 'psypi') 
+       RETURNING id`,
+      [name, purpose]
+    );
+    return result.rows[0].id;
+  }
+  
+  async startSession(agentType: string = 'psypi') {
+    const sessionId = process.env.AGENT_SESSION_ID || `session_${Date.now()}`;
+    await this.query(
+      `INSERT INTO agent_sessions (id, agent_type, started_at) 
+       VALUES ($1, $2, NOW()) 
+       ON CONFLICT DO NOTHING`,
+      [sessionId, agentType]
+    );
+    return sessionId;
+  }
+  
+  async endSession(sessionId?: string) {
+    const id = sessionId || process.env.AGENT_SESSION_ID || 'unknown';
+    // Update status to 'ended' and update last_heartbeat_at
+    await this.query(
+      `UPDATE agent_sessions SET status = 'ended', last_heartbeat_at = NOW() WHERE id = $1`,
+      [id]
+    );
+  }
+  
   async close() {
     await this.pool.end();
   }
