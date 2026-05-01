@@ -541,6 +541,21 @@ program
       }
       
       // === EXECUTE GIT COMMIT ===
+      
+      // Add agent ID to message for traceability
+      try {
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        if (identity && identity.id) {
+          // Append agent ID if not already present
+          if (!message.includes('[AI:') && !message.includes('[agent:')) {
+            message = `${message} [AI:${identity.id}]`;
+            console.log(`📝 Added agent ID to commit: ${identity.id.slice(0, 8)}`);
+          }
+        }
+      } catch (idErr) {
+        console.warn('Warning: Could not get agent identity:', idErr instanceof Error ? idErr.message : idErr);
+      }
+      
       const { execSync } = await import('child_process');
       const verifyFlag = options['no-inter-review'] ? '--no-verify' : '';
       const result = execSync(`git commit -m "${message}" ${verifyFlag}`, {

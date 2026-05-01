@@ -20,11 +20,22 @@
 - **Lockfile**: `pnpm-lock.yaml` (committed to git)
 - **Note**: pnpm builds faster (10s vs 24s for npm)
 
-### 1. Session Identity (SESSION_ID)
-- **Unique identifier**: `process.env.AGENT_SESSION_ID` (provided by Pi)
-- **Don't use**: Old `CURRENT_AI_IDENTITY` or file caches
-- **Correct approach**: Use `process.env.AGENT_SESSION_ID` directly
-- **Reason**: Simple, reliable, in-session persistent
+### 1. Session Identity (Agent ID from Database)
+- **Single Source of Truth**: `AgentIdentityService.getResolvedIdentity()` (from database)
+- **NEVER use**: `process.env.AGENT_SESSION_ID`, `CURRENT_AI_IDENTITY`, or file caches
+- **Why**: Agent ID must be a **function**, not a variable (from nezha/AGENTS.md)
+- **How it works**: Dynamically computes agent ID from context (project, git hash, machine fingerprint)
+- **Persistence**: Each call queries DB, no caching allowed
+- **Reference**: See `/Users/jk/gits/hub/tools_ai/nezha/AGENTS.md` for full explanation
+
+**Usage in code:**
+```typescript
+import { AgentIdentityService } from './kernel/services/AgentIdentityService.js';
+const identity = await AgentIdentityService.getResolvedIdentity();
+console.log(identity.id); // e.g., 'S-psypi-psypi'
+```
+
+**Auto-added to commits**: `psypi commit` automatically adds `[Agent: <id>]` to commit messages.
 
 ### 2. Database is Source of Truth
 - **PostgreSQL** is the source of truth (psypi DB)
