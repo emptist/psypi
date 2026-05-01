@@ -4,7 +4,7 @@
 import { Command } from 'commander';
 import { config } from 'dotenv';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, basename } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -599,6 +599,70 @@ program
       console.log('  set-model [provider] [model]  Set the current inner AI provider and model');
       console.log('  model                         Show the inner AI agent ID');
       console.log('  review                        Invoke Inner AI to review pending changes');
+    }
+  });
+
+// === Status Command ===
+program
+  .command('status')
+  .description('Show psypi status including inner AI, tools, and hooks')
+  .action(async () => {
+    try {
+      const db = DatabaseClient.getInstance();
+      const apiKeyService = ApiKeyService.getInstance(db);
+      
+      // Project info
+      const cwd = process.cwd();
+      const projectName = basename(cwd);
+      
+      // Inner AI status
+      let thinkerStatus = '🏠 Working locally (no external thinker)';
+      try {
+        const model = await apiKeyService.getCurrentInnerModel();
+        if (model) {
+          thinkerStatus = `🧠 Using: ${model.provider}/${model.model}`;
+        }
+      } catch (err) {
+        thinkerStatus = '⚠️  Inner AI config ured but key decryption failed (using fallback)';
+      }
+      
+      // Tools
+      const tools = [
+        'task-add', 'tasks', 'task-complete',
+        'issue-add', 'issue-list', 'issue-resolve',
+        'skill-list', 'skill-show', 'skill-build',
+        'session-start', 'session-end',
+        'learn', 'areflect', 'context',
+        'announce', 'broadcast',
+        'inter-review-request', 'inter-review-show', 'inter-reviews',
+        'inner', 'meeting', 'think', 'autonomous',
+        'status', 'project', 'visits', 'stats',
+        'doc-save', 'doc-list'
+      ];
+      
+      // Hooks (from extension)
+      const hooks = [
+        'resources_discover',
+        'context',
+        'before_agent_start',
+        'session_start',
+        'tool_result',
+        'tool_call'
+      ];
+      
+      console.log('\n## Psypi Status\n');
+      console.log(`**Project:** ${projectName}`);
+      console.log(`**Inner AI:** ${thinkerStatus}\n`);
+      console.log(`**Tools (${tools.length}):**`);
+      tools.forEach(t => console.log(`  - ${t}`));
+      console.log(`\n**Hooks (${hooks.length}):**`);
+      hooks.forEach(h => console.log(`  - ${h}`));
+      console.log('');
+      
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    } finally {
+      DatabaseClient.resetInstance();
     }
   });
 // === Meeting Commands ===

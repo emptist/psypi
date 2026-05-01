@@ -787,6 +787,40 @@ Format:
     };
   }
 
+  async listReviews(status?: string): Promise<Array<{
+    id: string;
+    taskId: string | null;
+    status: string;
+    overallScore: number | null;
+    requestedBy: string;
+    createdAt: Date;
+    completedAt: Date | null;
+  }>> {
+    let query = `
+      SELECT id, task_id, status, overall_score, reviewer_id, requested_at, completed_at 
+      FROM inter_reviews
+    `;
+    const params: any[] = [];
+    
+    if (status) {
+      query += ` WHERE status = $1`;
+      params.push(status);
+    }
+    
+    query += ` ORDER BY requested_at DESC LIMIT 100`;
+    
+    const result = await this.db.query(query, params);
+    return result.rows.map(row => ({
+      id: row.id,
+      taskId: row.task_id,
+      status: row.status,
+      overallScore: row.overall_score,
+      requestedBy: row.reviewer_id,
+      createdAt: row.requested_at,
+      completedAt: row.completed_at,
+    }));
+  }
+
   async getPendingReviews(): Promise<
     Array<{
       id: string;

@@ -1,6 +1,9 @@
 import crypto from 'crypto';
 import { logger } from '../utils/logger.js';
 import { ENV_KEYS } from '../config/constants.js';
+import { DatabaseClient } from '../db/DatabaseClient.js';
+import path from 'path';
+import { homedir } from 'os';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -8,6 +11,9 @@ const TAG_LENGTH = 16;
 const SALT_LENGTH = 16;
 const KEY_LENGTH = 32;
 const ITERATIONS = 100000;
+
+// Secret storage paths
+const SECRET_KEY_FILE = path.join(homedir(), '.psypi', 'secret.key');
 
 export interface EncryptedData {
   iv: string;
@@ -26,6 +32,82 @@ export class EncryptionService {
       EncryptionService.instance = new EncryptionService();
     }
     return EncryptionService.instance;
+  }
+
+  /**
+   * Get secret from multiple sources (in order of preference):
+   * 1. Environment variable (backward compat)
+   * 2. Database config table (persistent)
+   * 3. File ~/.psypi/secret.key (portable)
+   * 4. Auto-generate and store if none exists
+   */
+  private async getSecret(): Promise<string> {
+    // 1. Check env (backward compat)
+    const envSecret = process.env[ENV_KEYS.SECRET] || process.env.NEZHA_SECRET;
+    if (envSecret) {
+      logger.debug('Using secret from environment variable');
+      return envSecret;
+    }
+    
+    // 2. Check DB config table
+    try {
+      const db = DatabaseClient.getInstance();
+      const result = await db.query<{ value: string }>(
+        `SELECT value FROM psypi_config WHERE key = 'PSYPI_SECRET' LIMIT 1`
+      );
+      if (result.rows.length > 0 && result.rows[0]) {
+        logger.debug('Using secret from DB config');
+        return result.rows[0].value;
+      }
+    } catch (err) {
+      logger.debug('DB config not available, trying file');
+    }
+    
+    // 3. Check file
+    try {
+      const fs = await import('fs/promises');
+      const secret = await fs.readFile(SECRET_KEY_FILE, 'utf-8');
+      logger.debug('Using secret from file');
+      return secret.trim();
+    } catch {
+      // File doesn't exist
+    }
+    
+    // 4. Auto-generate and store
+    logger.info('No secret found, auto-generating...');
+    const newSecret = crypto.randomBytes(32).toString('base64');
+    await this.storeSecret(newSecret);
+    return newSecret;
+  }
+  
+  /**
+   * Store secret in DB and file for persistence
+   */
+  private async storeSecret(secret: string): Promise<void> {
+    // Store in DB
+    try {
+      const db = DatabaseClient.getInstance();
+      await db.query(
+        `INSERT INTO psypi_config (key, value) VALUES ('PSYPI_SECRET', $1)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [secret]
+      );
+      logger.info('Secret stored in DB config');
+    } catch (err) {
+      logger.warn('Could not store secret in DB, trying file');
+    }
+    
+    // Also store in file as backup
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const dir = path.dirname(SECRET_KEY_FILE);
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(SECRET_KEY_FILE, secret, { mode: 0o600 }); // Only owner read/write
+      logger.info('Secret stored in file');
+    } catch (err) {
+      logger.warn('Could not store secret in file');
+    }
   }
 
   private async deriveKey(password: string, salt: Buffer): Promise<Buffer> {
@@ -53,10 +135,7 @@ export class EncryptionService {
   }
 
   async encrypt(plaintext: string): Promise<EncryptedData> {
-    const secret = process.env[ENV_KEYS.SECRET] || process.env.NEZHA_SECRET;
-    if (!secret) {
-      throw new Error('PSYPI_SECRET (or NEZHA_SECRET) not set');
-    }
+    const secret = await this.getSecret();
 
     const iv = crypto.randomBytes(IV_LENGTH);
     const salt = crypto.randomBytes(SALT_LENGTH);
@@ -81,10 +160,7 @@ export class EncryptionService {
   }
 
   async decrypt(encryptedData: EncryptedData): Promise<string> {
-    const secret = process.env[ENV_KEYS.SECRET] || process.env.NEZHA_SECRET;
-    if (!secret) {
-      throw new Error('PSYPI_SECRET (or NEZHA_SECRET) not set');
-    }
+    const secret = await this.getSecret();
 
     const iv = Buffer.from(encryptedData.iv, 'base64');
     const data = Buffer.from(encryptedData.encryptedData, 'base64');
@@ -150,10 +226,6 @@ export function encryptSensitiveFields(
   obj: Record<string, unknown>,
   encryption: EncryptionService
 ): Record<string, unknown> {
-  if (!process.env[ENV_KEYS.SECRET] && !process.env.NEZHA_SECRET) {
-    return obj;
-  }
-
   const result: Record<string, unknown> = { ...obj };
 
   for (const key of Object.keys(result)) {
@@ -170,10 +242,6 @@ export async function decryptSensitiveFields(
   obj: Record<string, unknown>,
   encryption: EncryptionService
 ): Promise<Record<string, unknown>> {
-  if (!process.env[ENV_KEYS.SECRET] && !process.env.NEZHA_SECRET) {
-    return obj;
-  }
-
   const result: Record<string, unknown> = { ...obj };
 
   for (const key of Object.keys(result)) {

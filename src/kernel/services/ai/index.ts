@@ -21,7 +21,7 @@ export class AIProviderFactory {
   static async createInnerProvider(db: DatabaseClient): Promise<AIProvider> {
     const apiKeyService = ApiKeyService.getInstance(db);
     
-    // Try primary provider first (openrouter with hy3)
+    // Try primary provider (openrouter with hy3)
     try {
       const current = await apiKeyService.getCurrentInnerProvider();
       if (current) {
@@ -31,22 +31,11 @@ export class AIProviderFactory {
           return this.create(config);
         }
       }
+      throw new Error('No inner provider configured');
     } catch (error) {
-      logger.warn(`[AIProviderFactory] Primary provider failed, trying fallback: ${error}`);
+      logger.error(`[AIProviderFactory] Primary provider failed: ${error}`);
+      throw new Error(`[AIProviderFactory] No inner provider available: ${error instanceof Error ? error.message : error}`);
     }
-    
-    // Fallback to ollama
-    logger.info('[AIProviderFactory] Falling back to ollama');
-    const fallback = await apiKeyService.getFallbackInnerProvider();
-    if (fallback) {
-      const config = this.buildInnerConfig(fallback.provider as ProviderName, fallback.apiKey, fallback.model);
-      if (config) {
-        logger.info(`[AIProviderFactory] Using fallback provider '${config.provider}', model '${config.model}'`);
-        return this.create(config);
-      }
-    }
-    
-    throw new Error('[AIProviderFactory] No inner provider available (primary and fallback both failed)');
   }
 
   static async createInnerProviderWithIdentity(
