@@ -1,0 +1,133 @@
+#!/bin/sh
+#
+# prepare-commit-msg hook: Quality Control Gate
+# 
+# This hook:
+# 1. Checks for [task:|issue:|inter-review:] in message
+# 2. If [inter-review:] found, validates it's a PASSED review
+# 3. If no [inter-review:], AUTO-RUNS the review
+# 4. Blocks commit if review finds critical issues
+# 5. On pass, auto-appends [inter-review:ID] to message
+#
+
+COMMIT_MSG_FILE="$1"
+COMMIT_SOURCE="$2"
+
+if [ ! -f "$COMMIT_MSG_FILE" ]; then
+    exit 0
+fi
+
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$GIT_ROOT" ]; then
+    exit 0
+fi
+
+cd "$GIT_ROOT"
+
+# Check what's in the commit message
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+HAS_REVIEW=$(echo "$COMMIT_MSG" | grep -oE '\[inter-review:[^]]*\]' || echo "")
+
+# If [inter-review:] exists, validate it
+if [ -n "$HAS_REVIEW" ]; then
+    # Extract review ID
+    REVIEW_ID=$(echo "$HAS_REVIEW" | grep -oE '[a-f0-9-]{36}' | head -1)
+    
+    if [ -z "$REVIEW_ID" ]; then
+        echo ""
+        echo "=========================================="
+        echo " COMMIT BLOCKED - Invalid Review ID"
+        echo "=========================================="
+        echo ""
+        echo "Found [inter-review:...] but couldn't extract valid UUID"
+        echo "Run: psypi inter-review-show <id> to check"
+        echo ""
+        exit 1
+    fi
+    
+    # Check if review passed (using psypi or node directly)
+    if command -v psypi >/dev/null 2>&1; then
+        REVIEW_STATUS=$(psypi inter-review-show "$REVIEW_ID" 2>/dev/null | grep -E "Status:|Score:" || echo "NOT_FOUND")
+    elif [ -f "$GIT_ROOT/dist/cli.js" ] && command -v node >/dev/null 2>&1; then
+        REVIEW_STATUS=$(node "$GIT_ROOT/dist/cli.js" inter-review-show "$REVIEW_ID" 2>/dev/null | grep -E "Status:|Score:" || echo "NOT_FOUND")
+    else
+        echo "Warning: Cannot validate review (psypi not available)"
+        exit 0
+    fi
+    
+    if echo "$REVIEW_STATUS" | grep -q "NOT_FOUND"; then
+        echo ""
+        echo "=========================================="
+        echo " COMMIT BLOCKED - Review Not Found"
+        echo "=========================================="
+        echo ""
+        echo "Review ID $REVIEW_ID not found in database."
+        echo "Run: psypi inner review"
+        echo ""
+        exit 1
+    fi
+    
+    if ! echo "$REVIEW_STATUS" | grep -q "Status: completed"; then
+        echo ""
+        echo "=========================================="
+        echo " COMMIT BLOCKED - Review Not Completed"
+        echo "=========================================="
+        echo ""
+        echo "Review $REVIEW_ID has not completed yet."
+        echo "Status: $(echo "$REVIEW_STATUS" | grep "Status:" | head -1)"
+        echo ""
+        exit 1
+    fi
+    
+    echo "✅ Review $REVIEW_ID validated (completed)"
+    exit 0
+fi
+
+# No [inter-review:] found - AUTO-RUN the review
+echo ""
+echo "=========================================="
+echo " Running Inner AI Code Review..."
+echo "=========================================="
+echo ""
+
+# Run the review
+if command -v psypi >/dev/null 2>&1; then
+    REVIEW_OUTPUT=$(psypi inner review 2>&1)
+    REVIEW_EXIT=$?
+elif [ -f "$GIT_ROOT/dist/cli.js" ] && command -v node >/dev/null 2>&1; then
+    REVIEW_OUTPUT=$(node "$GIT_ROOT/dist/cli.js" inner review 2>&1)
+    REVIEW_EXIT=$?
+else
+    echo "⚠️  Cannot run review (psypi not available)"
+    echo "Please run: psypi inner review"
+    echo ""
+    exit 1
+fi
+
+# Check if review passed
+if [ $REVIEW_EXIT -ne 0 ]; then
+    echo ""
+    echo "=========================================="
+    echo " COMMIT BLOCKED - Code Review Failed"
+    echo "=========================================="
+    echo ""
+    echo "$REVIEW_OUTPUT"
+    echo ""
+    echo "Please fix the issues above and try again."
+    echo ""
+    exit 1
+fi
+
+# Extract review ID from output
+NEW_REVIEW_ID=$(echo "$REVIEW_OUTPUT" | grep -oE 'Review ID: [a-f0-9-]{36}' | grep -oE '[a-f0-9-]{36}' | head -1)
+
+if [ -n "$NEW_REVIEW_ID" ]; then
+    # Append review ID to commit message
+    echo "" >> "$COMMIT_MSG_FILE"
+    echo "[inter-review: $NEW_REVIEW_ID]" >> "$COMMIT_MSG_FILE"
+    echo "✅ Review passed! Review ID: $NEW_REVIEW_ID"
+else
+    echo "⚠️  Review completed but couldn't extract ID"
+fi
+
+exit 0

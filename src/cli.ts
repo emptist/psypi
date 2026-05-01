@@ -590,25 +590,55 @@ program
       const prompt = `You are a senior code reviewer with expertise in TypeScript, Node.js, and software best practices. Be constructive and thorough. Focus on: correctness, maintainability, test coverage, and preventing loop script pollution.`;
       const result = await reviewService.performReview(reviewId, prompt);
       
-      console.log(`\n✅ Review completed (score: ${result.overallScore}/100)`);
-      console.log(`   Summary: ${result.summary.slice(0, 100)}...`);
+      console.log(`\n✅ Review completed (score: ${result.overallScore}/100)\n`);
       
-      if (result.findings.filter(f => f.severity === 'critical' || f.severity === 'high').length > 0) {
-        const criticalIssues = result.findings.filter(f => f.severity === 'critical' || f.severity === 'high');
-        console.log(`\n⚠️  Found ${criticalIssues.length} critical/high severity issues:`);
-        for (const finding of criticalIssues.slice(0, 3)) {
-          console.log(`   - [${finding.severity}] ${finding.message.slice(0, 80)}`);
+      // Always show full review details
+      console.log('📋 Summary:');
+      console.log(`   ${result.summary}\n`);
+      
+      if (result.findings.length > 0) {
+        console.log('🔍 Findings:');
+        const grouped = result.findings.reduce((acc, f) => {
+          acc[f.severity] = acc[f.severity] || [];
+          acc[f.severity].push(f);
+          return acc;
+        }, {} as Record<string, typeof result.findings>);
+        
+        for (const severity of ['critical', 'high', 'medium', 'low', 'info']) {
+          if (grouped[severity]) {
+            console.log(`\n   [${severity.toUpperCase()}] ${grouped[severity].length} finding(s):`);
+            for (const finding of grouped[severity]) {
+              console.log(`   - ${finding.message}`);
+              if (finding.file) console.log(`     File: ${finding.file}${finding.line ? ':' + finding.line : ''}`);
+              if (finding.suggestion) console.log(`     Suggestion: ${finding.suggestion}`);
+            }
+          }
         }
-        console.log('\n❌ Review failed - please fix issues before committing');
+        console.log('');
+      }
+      
+      if (result.recommendations && result.recommendations.length > 0) {
+        console.log('💡 Recommendations:');
+        result.recommendations.forEach((rec, i) => {
+          console.log(`   ${i + 1}. ${rec}`);
+        });
+        console.log('');
+      }
+      
+      // Check for critical/high issues
+      const criticalIssues = result.findings.filter(f => f.severity === 'critical' || f.severity === 'high');
+      
+      if (criticalIssues.length > 0) {
+        console.log(`\n⚠️  Found ${criticalIssues.length} critical/high severity issue(s)`);
+        console.log('❌ Review failed - please fix issues before committing\n');
         process.exit(1);
       }
       
-      console.log(`\n✅ Review passed! You can now commit with:`);
+      console.log('✅ Review passed!');
+      console.log(`\nYou can now commit with:`);
       const msgForCommit = commitMessage || 'Update';
       const taskPart = taskMatch ? ` [task:${taskMatch[1]}]` : '';
       console.log(`   git commit -m "${msgForCommit}${taskPart} [inter-review:${reviewId}]"`);
-      console.log(`\n   Or use --no-verify to commit directly:`);
-      console.log(`   git commit -m "${msgForCommit}${taskPart} [inter-review:${reviewId}]" --no-verify`);
     } else {
       console.log('Usage: psypi inner <set-model|model|review>');
       console.log('');
