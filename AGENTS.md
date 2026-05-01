@@ -11,6 +11,15 @@
 
 ## ⚠️ Core Rules
 
+### 0. Package Manager: pnpm (NOT npm)
+- **We use pnpm** instead of npm for all package management
+- **Install**: `pnpm install` (not `npm install`)
+- **Build**: `pnpm build` (not `npm run build`)
+- **Add packages**: `pnpm add <package>` (not `npm install <package>`)
+- **Why pnpm**: Faster installs, disk-efficient (symlinked dependencies), strict dependency resolution
+- **Lockfile**: `pnpm-lock.yaml` (committed to git)
+- **Note**: pnpm builds faster (10s vs 24s for npm)
+
 ### 1. Session Identity (SESSION_ID)
 - **Unique identifier**: `process.env.AGENT_SESSION_ID` (provided by Pi)
 - **Don't use**: Old `CURRENT_AI_IDENTITY` or file caches

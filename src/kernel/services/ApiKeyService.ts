@@ -79,9 +79,24 @@ export class ApiKeyService {
     logger.info(`API key for provider '${provider}' stored encrypted`);
   }
 
+  private getEnvKeyForProvider(provider: string): string {
+    // Convert provider name to env var: 'openrouter' -> 'OPENROUTER_API_KEY'
+    return `${provider.toUpperCase()}_API_KEY`;
+  }
+
   async getApiKey(provider: string): Promise<string | null> {
+    // First: Check .env / process.env (cross-platform, avoids encryption issues)
+    const envKey = this.getEnvKeyForProvider(provider);
+    const envApiKey = process.env[envKey];
+    if (envApiKey && envApiKey.length > 0) {
+      logger.info(`API key for provider '${provider}' loaded from environment variable ${envKey}`);
+      return envApiKey;
+    }
+
+    // Fallback: Database with encryption (may have issues per issue #6a6f2d89)
     if (!process.env[ENV_KEYS.SECRET]) {
-      throw new Error('PSYPI_SECRET (or NEZHA_SECRET) not set. Encryption unavailable.');
+      logger.warn('PSYPI_SECRET not set. Cannot decrypt API key from database.');
+      return null;
     }
 
     const result = await this.db.query<{
@@ -109,7 +124,12 @@ export class ApiKeyService {
       salt: row.encrypted_salt,
     };
 
-    return await this.encryption.decrypt(encryptedData);
+    try {
+      return await this.encryption.decrypt(encryptedData);
+    } catch (error) {
+      logger.error(`Failed to decrypt API key for provider '${provider}':`, error);
+      return null;
+    }
   }
 
   async deleteApiKey(provider: string): Promise<void> {
@@ -231,19 +251,27 @@ export class ApiKeyService {
     const row = result.rows[0]!;
     let apiKey = '';
     
-    // Only decrypt if encrypted_key is not empty (e.g., Ollama doesn't need API key)
-    if (row.encrypted_key && row.encrypted_key.length > 0) {
-      try {
-        apiKey = await this.encryption.decrypt({
-          encryptedData: row.encrypted_key,
-          iv: row.encrypted_iv,
-          tag: row.encrypted_tag,
-          salt: row.encrypted_salt,
-        });
-      } catch (error) {
-        logger.error('[ApiKeyService] Failed to decrypt API key:', error);
-        // Return null to allow fallback logic in createInnerProvider()
-        return null;
+    // First: Try to get API key from .env / process.env
+    const envKey = this.getEnvKeyForProvider(row.provider);
+    const envApiKey = process.env[envKey];
+    if (envApiKey && envApiKey.length > 0) {
+      apiKey = envApiKey;
+      logger.info(`API key for provider '${row.provider}' loaded from environment variable ${envKey}`);
+    } else {
+      // Fallback: Decrypt from database (if encrypted_key exists)
+      if (row.encrypted_key && row.encrypted_key.length > 0) {
+        try {
+          apiKey = await this.encryption.decrypt({
+            encryptedData: row.encrypted_key,
+            iv: row.encrypted_iv,
+            tag: row.encrypted_tag,
+            salt: row.encrypted_salt,
+          });
+        } catch (error) {
+          logger.error('[ApiKeyService] Failed to decrypt API key:', error);
+          // Return null to allow fallback logic in createInnerProvider()
+          return null;
+        }
       }
     }
 
@@ -289,18 +317,26 @@ export class ApiKeyService {
     const row = result.rows[0]!;
     let apiKey = '';
     
-    // Only decrypt if encrypted_key is not empty (e.g., Ollama doesn't need API key)
-    if (row.encrypted_key && row.encrypted_key.length > 0) {
-      try {
-        apiKey = await this.encryption.decrypt({
-          encryptedData: row.encrypted_key,
-          iv: row.encrypted_iv,
-          tag: row.encrypted_tag,
-          salt: row.encrypted_salt,
-        });
-      } catch (error) {
-        logger.error('[ApiKeyService] Failed to decrypt fallback API key:', error);
-        return null; // Return null to indicate fallback failed
+    // First: Try to get API key from .env / process.env
+    const envKey = this.getEnvKeyForProvider(row.provider);
+    const envApiKey = process.env[envKey];
+    if (envApiKey && envApiKey.length > 0) {
+      apiKey = envApiKey;
+      logger.info(`Fallback API key for provider '${row.provider}' loaded from environment variable ${envKey}`);
+    } else {
+      // Fallback: Decrypt from database (if encrypted_key exists)
+      if (row.encrypted_key && row.encrypted_key.length > 0) {
+        try {
+          apiKey = await this.encryption.decrypt({
+            encryptedData: row.encrypted_key,
+            iv: row.encrypted_iv,
+            tag: row.encrypted_tag,
+            salt: row.encrypted_salt,
+          });
+        } catch (error) {
+          logger.error('[ApiKeyService] Failed to decrypt fallback API key:', error);
+          return null; // Return null to indicate fallback failed
+        }
       }
     }
 
