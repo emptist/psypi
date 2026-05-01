@@ -207,8 +207,8 @@ ${getModeGuidance()}
 `.trim();
 }
 
-const nupiThinkTool = {
-  name: "nupi-think",
+const psypiThinkTool = {
+  name: "psypi-think",
   label: "PsyPI Think",
   description:
     "Delegate complex reasoning to external thinker (Piano/OpenCode)",
@@ -248,8 +248,8 @@ const nupiThinkTool = {
   },
 };
 
-const nupiAgentIdTool = {
-  name: "nupi-agent-id",
+const psypiAgentIdTool = {
+  name: "psypi-agent-id",
   label: "PsyPI Agent ID",
   description: "Get current agent identity",
   parameters: Type.Object({}),
@@ -267,8 +267,8 @@ const nupiAgentIdTool = {
   },
 };
 
-const nupiTasksTool = {
-  name: "nupi-tasks",
+const psypiTasksTool = {
+  name: "psypi-tasks",
   label: "PsyPI Check Tasks",
   description: "Check pending tasks from Nezha",
   parameters: Type.Object({}),
@@ -281,8 +281,8 @@ const nupiTasksTool = {
   },
 };
 
-const nupiAutonomousTool = {
-  name: "nupi-autonomous",
+const psypiAutonomousTool = {
+  name: "psypi-autonomous",
   label: "PsyPI Autonomous Work",
   description: "Get guidance for autonomous work - suggests next actions based on pending tasks and context",
   parameters: Type.Object({
@@ -345,8 +345,8 @@ Suggested workflow:
   },
 };
 
-const nupiMeetingSayTool = {
-  name: "nupi-meeting-say",
+const psypiMeetingSayTool = {
+  name: "psypi-meeting-say",
   label: "PsyPI Meeting Say",
   description: "Add an opinion to a Nezha meeting. Use short or full meeting ID.",
   parameters: Type.Object({
@@ -415,8 +415,8 @@ const nupiMeetingSayTool = {
   },
 };
 
-const nupiMeetingSummaryTool = {
-  name: "nupi-meeting-summary",
+const psypiMeetingSummaryTool = {
+  name: "psypi-meeting-summary",
   label: "PsyPI Meeting Summary",
   description: "Get a summary of a Nezha meeting including all opinions and consensus status.",
   parameters: Type.Object({
@@ -479,8 +479,8 @@ const nupiMeetingSummaryTool = {
   },
 };
 
-const nupiMeetingSearchTool = {
-  name: "nupi-meeting-search",
+const psypiMeetingSearchTool = {
+  name: "psypi-meeting-search",
   label: "PsyPI Meeting Search",
   description: "Search Nezha meetings by keyword in topic, opinions, or consensus.",
   parameters: Type.Object({
@@ -523,8 +523,8 @@ const nupiMeetingSearchTool = {
   },
 };
 
-const nupiMeetingListTool = {
-  name: "nupi-meeting-list",
+const psypiMeetingListTool = {
+  name: "psypi-meeting-list",
   label: "PsyPI Meeting List",
   description: "List Nezha meetings, optionally filtered by status.",
   parameters: Type.Object({
@@ -558,8 +558,8 @@ const nupiMeetingListTool = {
   },
 };
 
-const nupiDocSaveTool = {
-  name: "nupi-doc-save",
+const psypiDocSaveTool = {
+  name: "psypi-doc-save",
   label: "PsyPI Doc Save",
   description: "Save a project document to the Nezha database. The DB is the source of truth; files are generated from it.",
   parameters: Type.Object({
@@ -593,8 +593,8 @@ const nupiDocSaveTool = {
   },
 };
 
-const nupiDocListTool = {
-  name: "nupi-doc-list",
+const psypiDocListTool = {
+  name: "psypi-doc-list",
   label: "PsyPI Doc List",
   description: "List project documents stored in the Nezha database.",
   parameters: Type.Object({
@@ -626,8 +626,8 @@ const nupiDocListTool = {
   },
 };
 
-const nupiStatusTool = {
-  name: "nupi-status",
+const psypiStatusTool = {
+  name: "psypi-status",
   label: "PsyPI Status",
   description: "Show current PsyPI status including thinker slot state, registered tools, and active hooks.",
   parameters: Type.Object({}),
@@ -637,9 +637,9 @@ const nupiStatusTool = {
       : "🏠 Working locally (no external thinker)";
 
     const tools = [
-      "nupi-think", "nupi-tasks", "nupi-autonomous",
-      "nupi-meeting-say", "nupi-meeting-summary", "nupi-meeting-search", "nupi-meeting-list",
-      "nupi-doc-save", "nupi-doc-list", "nupi-status", "nupi-project", "nupi-visits", "nupi-stats"
+      "psypi-think", "psypi-tasks", "psypi-autonomous",
+      "psypi-meeting-say", "psypi-meeting-summary", "psypi-meeting-search", "psypi-meeting-list",
+      "psypi-doc-save", "psypi-doc-list", "psypi-status", "psypi-project", "psypi-visits", "psypi-stats"
     ];
 
     const hooks = [
@@ -670,8 +670,8 @@ const nupiStatusTool = {
   },
 };
 
-const nupiProjectTool = {
-  name: "nupi-project",
+const psypiProjectTool = {
+  name: "psypi-project",
   label: "PsyPI Project Info",
   description: "Show current project information including fingerprint, type, and git remote.",
   parameters: Type.Object({}),
@@ -714,8 +714,8 @@ const nupiProjectTool = {
   },
 };
 
-const nupiVisitsTool = {
-  name: "nupi-visits",
+const psypiVisitsTool = {
+  name: "psypi-visits",
   label: "PsyPI Project Visits",
   description: "Show recent project visits across the AI ecosystem.",
   parameters: Type.Object({
@@ -747,8 +747,8 @@ const nupiVisitsTool = {
   },
 };
 
-const nupiStatsTool = {
-  name: "nupi-stats",
+const psypiStatsTool = {
+  name: "psypi-stats",
   label: "PsyPI Statistics",
   description: "Show statistics about the PsyPI ecosystem: projects, visits, skills, meetings.",
   parameters: Type.Object({}),
@@ -846,8 +846,8 @@ async function updatePiSettings(provider: string, model: string): Promise<boolea
   }
 }
 
-const nupiSyncInnerAITool = {
-  name: "nupi-sync-inner-ai",
+const psypiSyncInnerAITool = {
+  name: "psypi-sync-inner-ai",
   label: "PsyPI Sync Inner AI",
   description: "Sync pi configuration to use the same AI provider/model as nezha's inner AI. Returns instructions for setting up the API key securely.",
   parameters: Type.Object({}),
@@ -893,22 +893,77 @@ Restart pi to use the new configuration.`;
   },
 };
 
-export default function nupiExtension(pi: ExtensionAPI) {
-  pi.registerTool(nupiAgentIdTool);
-  pi.registerTool(nupiThinkTool);
-  pi.registerTool(nupiTasksTool);
-  pi.registerTool(nupiAutonomousTool);
-  pi.registerTool(nupiMeetingSayTool);
-  pi.registerTool(nupiMeetingSummaryTool);
-  pi.registerTool(nupiMeetingSearchTool);
-  pi.registerTool(nupiMeetingListTool);
-  pi.registerTool(nupiDocSaveTool);
-  pi.registerTool(nupiDocListTool);
-  pi.registerTool(nupiStatusTool);
-  pi.registerTool(nupiProjectTool);
-  pi.registerTool(nupiVisitsTool);
-  pi.registerTool(nupiStatsTool);
-  pi.registerTool(nupiSyncInnerAITool);
+const psypiAreflectTool = {
+  name: "psypi-areflect",
+  label: "PsyPI Areflect",
+  description: "All-in-one reflection: automatically parses [LEARN], [ISSUE], [TASK] tags from text and saves to appropriate tables.",
+  parameters: Type.Object({
+    text: Type.String({ description: "The reflection text containing [LEARN], [ISSUE], [TASK] tags" }),
+  }),
+  async execute(_toolCallId: string, params: any) {
+    try {
+      const result = await kernel.areflect(params.text);
+      return {
+        content: [{ type: "text" as const, text: result }],
+        details: { success: true } as Record<string, unknown>,
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : err}` }],
+        details: { error: true } as Record<string, unknown>,
+      };
+    }
+  },
+};
+
+const psypiCommitTool = {
+  name: "psypi-commit",
+  label: "PsyPI Commit",
+  description: "Git commit using 'psypi commit' CLI (runs mandatory inter-review).",
+  parameters: Type.Object({
+    message: Type.String({ description: "Commit message" }),
+    noVerify: Type.Optional(Type.Boolean({ description: "Skip git hooks (still runs review)" })),
+  }),
+  async execute(_toolCallId: string, params: any) {
+    try {
+      const { execSync } = await import("child_process");
+      const verifyFlag = params.noVerify ? "--no-verify" : "";
+      const output = execSync(`psypi commit "${params.message}" ${verifyFlag}`, { 
+        encoding: "utf-8",
+        stdio: "pipe"
+      });
+      
+      return {
+        content: [{ type: "text" as const, text: output }],
+        details: { success: true } as Record<string, unknown>,
+      };
+    } catch (err: any) {
+      return {
+        content: [{ type: "text" as const, text: `Error: ${err.message}\n${err.stderr || ''}` }],
+        details: { error: true } as Record<string, unknown>,
+      };
+    }
+  },
+};
+
+export default function psypiExtension(pi: ExtensionAPI) {
+  pi.registerTool(psypiAgentIdTool);
+  pi.registerTool(psypiThinkTool);
+  pi.registerTool(psypiTasksTool);
+  pi.registerTool(psypiAutonomousTool);
+  pi.registerTool(psypiMeetingSayTool);
+  pi.registerTool(psypiMeetingSummaryTool);
+  pi.registerTool(psypiMeetingSearchTool);
+  pi.registerTool(psypiMeetingListTool);
+  pi.registerTool(psypiDocSaveTool);
+  pi.registerTool(psypiDocListTool);
+  pi.registerTool(psypiStatusTool);
+  pi.registerTool(psypiProjectTool);
+  pi.registerTool(psypiVisitsTool);
+  pi.registerTool(psypiStatsTool);
+  pi.registerTool(psypiSyncInnerAITool);
+  pi.registerTool(psypiAreflectTool);
+  pi.registerTool(psypiCommitTool);
 
   pi.on("resources_discover", async () => {
     const skills = await getStartupSkills();
