@@ -37,8 +37,9 @@ import { DatabaseClient } from './kernel/db/DatabaseClient.js';
 import { ApiKeyService } from './kernel/services/ApiKeyService.js';
 import { AgentIdentityService } from './kernel/services/AgentIdentityService.js';
 import { InterReviewService } from './kernel/services/InterReviewService.js';
+import { resolveIssueId, resolveMeetingId } from './kernel/utils/resolve-id.js';
 import { MeetingCommands, MeetingDbCommands } from './kernel/cli/MeetingCommands.js';
-import { resolveMeetingId } from './kernel/utils/resolve-id.js';
+
 
 program
   .command('task-add <title>')
@@ -132,11 +133,12 @@ program
   .option('--notes <text>', 'Resolution notes')
   .action(async (issueId, options) => {
     try {
-      const success = await kernel.resolveIssue(issueId, options.notes);
+      const resolvedId = await resolveIssueId(DatabaseClient.getInstance(), issueId);
+      const success = await kernel.resolveIssue(resolvedId || issueId, options.notes);
       if (success) {
-        console.log(`✅ Issue ${issueId.slice(0,8)} marked as RESOLVED`);
+        console.log(`✅ Issue ${(resolvedId || issueId).slice(0,8)} marked as RESOLVED`);
       } else {
-        console.log(`⚠️  Issue ${issueId.slice(0,8)} not found or already resolved`);
+        console.log(`⚠️  Issue ${(resolvedId || issueId).slice(0,8)} not found or already resolved`);
       }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
