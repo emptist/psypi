@@ -361,6 +361,62 @@ program
   });
 
 program
+  .command('commit <message>')
+  .description('Git commit with quality control (requires task/issue ID)')
+  .option('--no-verify', 'Skip quality control check')
+  .action(async (message, options) => {
+    if (options.help) {
+      console.log('Usage: psypi commit "message [task:xxx]" [--no-verify]');
+      console.log('Git commit with quality control check');
+      console.log('\nMessage must contain a task or issue ID in format: [task:xxx] or [issue:xxx]');
+      console.log('\nOptions:');
+      console.log('  --no-verify    Skip quality control check');
+      console.log('\nExamples:');
+      console.log('  psypi commit "Fix bug [task:43b880df]"');
+      console.log('  psypi commit "Fix issue [issue:71f4ddf4]" --no-verify');
+      return;
+    }
+    try {
+      // Check if message contains task/issue ID
+      const hasTaskId = /\[task:\s*[a-f0-9-]+\]/i.test(message);
+      const hasIssueId = /\[issue:\s*[a-f0-9-]+\]/i.test(message);
+      
+      if (!hasTaskId && !hasIssueId && !options['no-verify']) {
+        console.error('\n=========================================');
+        console.error(' COMMIT BLOCKED - Quality Control Check');
+        console.error('===========================================');
+        console.error('\nYour commit message must contain a task or issue ID.');
+        console.error("Example: git commit -m 'Fix bug [task:43b880df-9d65-48b2-8747-495f310010c3]'");
+        console.error('\nTo get valid ID, run:');
+        console.error('  psypi tasks');
+        console.error('  psypi issues');
+        console.error('\nOr use --no-verify to skip this check');
+        process.exit(1);
+      }
+      
+      // Execute git commit
+      const { execSync } = await import('child_process');
+      const verifyFlag = options['no-verify'] ? '--no-verify' : '';
+      const result = execSync(`git commit -m "${message}" ${verifyFlag}`, {
+        encoding: 'utf-8',
+        stdio: 'pipe'
+      });
+      console.log(result);
+    } catch (err) {
+      if (err instanceof Error) {
+        // Check if it's a process exit error (from execSync)
+        if ('status' in err && err.status === 1) {
+          console.error('Commit failed or blocked by quality control');
+        } else {
+          console.error('Error:', err.message);
+        }
+      } else {
+        console.error('Unknown error occurred');
+      }
+    }
+  });
+
+program
   .command('announce <message>')
   .description('Send announcement to all AIs')
   .option('--priority <level>', 'Priority: low|normal|high|critical', 'normal')
