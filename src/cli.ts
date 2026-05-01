@@ -617,13 +617,20 @@ program
         console.log('');
       }
       
-      if (result.recommendations && result.recommendations.length > 0) {
-        console.log('💡 Recommendations:');
-        result.recommendations.forEach((rec, i) => {
-          console.log(`   ${i + 1}. ${rec}`);
+      if (result.learnings && result.learnings.length > 0) {
+        console.log('📚 Learnings:');
+        result.learnings.forEach((learning, i) => {
+          console.log(`   ${i + 1}. ${learning.topic}: ${learning.reminder}`);
         });
         console.log('');
       }
+      
+      console.log('📊 Scores:');
+      console.log(`   Overall: ${result.overallScore}/100`);
+      if (result.codeQualityScore) console.log(`   Code Quality: ${result.codeQualityScore}/100`);
+      if (result.testCoverageScore) console.log(`   Test Coverage: ${result.testCoverageScore}/100`);
+      if (result.documentationScore) console.log(`   Documentation: ${result.documentationScore}/100`);
+      console.log('');
       
       // Check for critical/high issues
       const criticalIssues = result.findings.filter(f => f.severity === 'critical' || f.severity === 'high');

@@ -90,19 +90,25 @@ echo " Running Inner AI Code Review..."
 echo "=========================================="
 echo ""
 
-# Run the review
+# Run the review and capture output
 if command -v psypi >/dev/null 2>&1; then
-    REVIEW_OUTPUT=$(psypi inner review 2>&1)
-    REVIEW_EXIT=$?
+    # Run and display output in real-time
+    psypi inner review 2>&1 | tee /tmp/psypi-review-output
+    REVIEW_EXIT=${PIPESTATUS[0]}
+    REVIEW_OUTPUT=$(cat /tmp/psypi-review-output)
 elif [ -f "$GIT_ROOT/dist/cli.js" ] && command -v node >/dev/null 2>&1; then
-    REVIEW_OUTPUT=$(node "$GIT_ROOT/dist/cli.js" inner review 2>&1)
-    REVIEW_EXIT=$?
+    node "$GIT_ROOT/dist/cli.js" inner review 2>&1 | tee /tmp/psypi-review-output
+    REVIEW_EXIT=${PIPESTATUS[0]}
+    REVIEW_OUTPUT=$(cat /tmp/psypi-review-output)
 else
     echo "⚠️  Cannot run review (psypi not available)"
     echo "Please run: psypi inner review"
     echo ""
     exit 1
 fi
+
+# Display the review output (so AI/human can see it)
+echo "$REVIEW_OUTPUT"
 
 # Check if review passed
 if [ $REVIEW_EXIT -ne 0 ]; then
