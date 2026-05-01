@@ -128,13 +128,13 @@ export class AgentIdentityService {
     };
   }
 
-  private detectSource(): 'nezha' | 'opencode' | 'external' | 'mcp' {
-    // Check environment variable first
-    const envSource = process.env.NEZHA_AGENT_SOURCE;
+  private detectSource(): 'psypi' | 'opencode' | 'external' | 'mcp' {
+    // Check environment variable first (support both PSYPI_AGENT_SOURCE and legacy NEZHA_AGENT_SOURCE)
+    const envSource = process.env.PSYPI_AGENT_SOURCE || process.env.NEZHA_AGENT_SOURCE;
     if (envSource === 'opencode' || envSource === 'external' || envSource === 'mcp') {
       return envSource;
     }
-    return 'nezha';
+    return 'psypi';
   }
 
   private detectTraeEnv(): { source: string | null; sessionId: string | null } {

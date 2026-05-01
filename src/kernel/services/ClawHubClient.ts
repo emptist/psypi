@@ -105,15 +105,15 @@ export class ClawHubClient {
   private getMockSkills(): ClawHubSkill[] {
     return [
       {
-        id: 'nezha-helper',
-        name: 'Nezha Helper',
-        description: 'Essential helper functions for Nezha agent',
-        author: 'nezha-team',
+        id: 'psypi-helper',
+        name: 'Psypi Helper',
+        description: 'Essential helper functions for Psypi agent',
+        author: 'psypi-team',
         version: '1.0.0',
         downloads: 1250,
         rating: 4.8,
-        tags: ['helper', 'utilities', 'nezha'],
-        repository: 'https://github.com/nezha/nezha-helper',
+        tags: ['helper', 'utilities', 'psypi'],
+        repository: 'https://github.com/psypi/psypi-helper',
         verified: true,
         scanStatus: 'clean',
         createdAt: '2026-01-15',

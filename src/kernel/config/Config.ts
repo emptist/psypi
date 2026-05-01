@@ -140,7 +140,7 @@ export class Config implements IConfig {
         yaml?.database?.port || DATABASE_CONFIG.DEFAULT_PORT,
         ENV_KEYS.DB_PORT
       ),
-      database: database || 'nezha',
+      database: database || 'psypi',
       user: user || 'postgres',
       password: password || '',
       max: parseIntEnv(max, yaml?.database?.max || DATABASE_CONFIG.DEFAULT_MAX, ENV_KEYS.DB_MAX),

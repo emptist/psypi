@@ -76,12 +76,9 @@ export class MeetingDbCommands {
         const parts = id.split('-');
         const project = parts[2];
         map.set(id, project ? `TRAE-${project}` : 'TRAE');
-      } else if (id.startsWith('S-nezha-')) {
-        map.set(id, 'nezha');
-      } else if (id.startsWith('Big-Pickle')) {
-        map.set(id, 'Big-Pickle');
       } else if (id.startsWith('S-')) {
-        const project = id.split('-')[1];
+        const parts = id.split('-');
+        const project = parts[1]; // Extract project name (e.g., 'psypi' from 'S-psypi-xxx')
         map.set(id, project || id.slice(0, 8));
       } else if (id.startsWith('bot_')) {
         map.set(id, 'bot');
