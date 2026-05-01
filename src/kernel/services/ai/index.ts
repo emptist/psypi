@@ -10,7 +10,7 @@ import { logger } from '../../utils/logger.js';
 
 const DEFAULT_GLM5_URL = 'https://open.bigmodel.cn/api/paas/v4';
 
-type ProviderName = 'openrouter' | 'glm5' | 'zhipu' | 'openai' | 'anthropic';
+type ProviderName = 'openrouter' | 'glm5' | 'zhipu' | 'openai' | 'anthropic' | 'ollama';
 
 export interface InnerProviderResult {
   provider: AIProvider;
@@ -20,19 +20,33 @@ export interface InnerProviderResult {
 export class AIProviderFactory {
   static async createInnerProvider(db: DatabaseClient): Promise<AIProvider> {
     const apiKeyService = ApiKeyService.getInstance(db);
-    const current = await apiKeyService.getCurrentInnerProvider();
-
-    if (!current) {
-      throw new Error('[AIProviderFactory] createInnerProvider: no current inner provider configured');
+    
+    // Try primary provider first (openrouter with hy3)
+    try {
+      const current = await apiKeyService.getCurrentInnerProvider();
+      if (current) {
+        const config = this.buildInnerConfig(current.provider as ProviderName, current.apiKey, current.model);
+        if (config) {
+          logger.info(`[AIProviderFactory] createInnerProvider: using provider '${config.provider}', model '${config.model}'`);
+          return this.create(config);
+        }
+      }
+    } catch (error) {
+      logger.warn(`[AIProviderFactory] Primary provider failed, trying fallback: ${error}`);
     }
-
-    const config = this.buildInnerConfig(current.provider as ProviderName, current.apiKey, current.model);
-    if (!config) {
-      throw new Error(`[AIProviderFactory] createInnerProvider: unsupported provider '${current.provider}'`);
+    
+    // Fallback to ollama
+    logger.info('[AIProviderFactory] Falling back to ollama');
+    const fallback = await apiKeyService.getFallbackInnerProvider();
+    if (fallback) {
+      const config = this.buildInnerConfig(fallback.provider as ProviderName, fallback.apiKey, fallback.model);
+      if (config) {
+        logger.info(`[AIProviderFactory] Using fallback provider '${config.provider}', model '${config.model}'`);
+        return this.create(config);
+      }
     }
-
-    logger.info(`[AIProviderFactory] createInnerProvider: using provider '${config.provider}', model '${config.model}'`);
-    return this.create(config);
+    
+    throw new Error('[AIProviderFactory] No inner provider available (primary and fallback both failed)');
   }
 
   static async createInnerProviderWithIdentity(
@@ -104,6 +118,13 @@ export class AIProviderFactory {
           provider: 'anthropic',
           model: model || 'claude-sonnet-4-20250514',
           apiKey,
+        };
+      case 'ollama':
+        return {
+          provider: 'ollama',
+          model: model || 'llama3.2:3b',
+          apiKey: apiKey || '', // Ollama doesn't require API key
+          baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
         };
       default:
         return null;

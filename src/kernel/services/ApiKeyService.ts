@@ -228,15 +228,28 @@ export class ApiKeyService {
     }
 
     const row = result.rows[0]!;
+    let apiKey = '';
+    
+    // Only decrypt if encrypted_key is not empty (e.g., Ollama doesn't need API key)
+    if (row.encrypted_key && row.encrypted_key.length > 0) {
+      try {
+        apiKey = await this.encryption.decrypt({
+          encryptedData: row.encrypted_key,
+          iv: row.encrypted_iv,
+          tag: row.encrypted_tag,
+          salt: row.encrypted_salt,
+        });
+      } catch (error) {
+        logger.error('[ApiKeyService] Failed to decrypt API key:', error);
+        // Return null to allow fallback logic in createInnerProvider()
+        return null;
+      }
+    }
+
     return {
       provider: row.provider,
       model: row.model || 'llama3.2:3b',
-      apiKey: await this.encryption.decrypt({
-        encryptedData: row.encrypted_key,
-        iv: row.encrypted_iv,
-        tag: row.encrypted_tag,
-        salt: row.encrypted_salt,
-      }),
+      apiKey,
     };
   }
 
@@ -273,15 +286,27 @@ export class ApiKeyService {
     }
 
     const row = result.rows[0]!;
+    let apiKey = '';
+    
+    // Only decrypt if encrypted_key is not empty (e.g., Ollama doesn't need API key)
+    if (row.encrypted_key && row.encrypted_key.length > 0) {
+      try {
+        apiKey = await this.encryption.decrypt({
+          encryptedData: row.encrypted_key,
+          iv: row.encrypted_iv,
+          tag: row.encrypted_tag,
+          salt: row.encrypted_salt,
+        });
+      } catch (error) {
+        logger.error('[ApiKeyService] Failed to decrypt fallback API key:', error);
+        return null; // Return null to indicate fallback failed
+      }
+    }
+
     return {
       provider: row.provider,
       model: row.model || 'llama3.2:3b',
-      apiKey: await this.encryption.decrypt({
-        encryptedData: row.encrypted_key,
-        iv: row.encrypted_iv,
-        tag: row.encrypted_tag,
-        salt: row.encrypted_salt,
-      }),
+      apiKey,
     };
   }
 
