@@ -25,6 +25,8 @@ import { getCurrentSessionId } from '../services/AgentSessionService.js';
 import * as os from 'os';
 import { DatabaseClient } from '../db/DatabaseClient.js';
 import { AgentIdentityService } from '../services/AgentIdentityService.js';
+import { config } from 'dotenv';
+config();
 
 function parseIntEnv(value: string | undefined, defaultValue: number, key: string): number {
   if (!value) return defaultValue;
