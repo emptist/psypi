@@ -12,6 +12,7 @@ import { Type } from "@sinclair/typebox";
 import { execSync } from "child_process";
 import path from "path";
 import { querySafe, queryOne, execSafe, resolveId, closePool, getNezhaContext, registerProject, detectProjectType, generateFingerprint } from "./db.js";
+import { AgentIdentityService } from '../../kernel/services/AgentIdentityService.js';
 
 const GIT_HASH = "@@GIT_HASH@@";
 
@@ -417,11 +418,13 @@ const nupiMeetingSayTool = {
     const keyPointsArray = params.keyPoints
       ? params.keyPoints.split(",").map((p: string) => p.trim()).filter(Boolean)
       : [];
+    
+    const agentId = (await AgentIdentityService.getResolvedIdentity()).id;
 
     const inserted = await execSafe(
       `INSERT INTO meeting_opinions (id, meeting_id, author, perspective, reasoning, position, created_at)
-       VALUES (gen_random_uuid(), $1, 'nupi', $2, $3, $4, NOW())`,
-      [meetingId, params.perspective, params.reasoning || null, keyPointsArray.length > 0 ? JSON.stringify(keyPointsArray) : null]
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW())`,
+      [meetingId, agentId, params.perspective, params.reasoning || null, keyPointsArray.length > 0 ? JSON.stringify(keyPointsArray) : null]
     );
 
     if (!inserted) {
@@ -1050,9 +1053,10 @@ When user asks complex questions or asks about planning/architecture/research:
       );
     }
 
+    const agentId = (await AgentIdentityService.getResolvedIdentity()).id;
     await execSafe(
-      "INSERT INTO tasks (id, title, description, status, priority, category, created_by) VALUES (gen_random_uuid(), $1, $2, 'PENDING', 3, 'system', 'nupi')",
-      [`[Pi Session Started] ${event.reason}`, "Auto-created by NuPI extension"]
+      "INSERT INTO tasks (id, title, description, status, priority, category, created_by) VALUES (gen_random_uuid(), $1, $2, 'PENDING', 3, 'system', $3)",
+      [`[Pi Session Started] ${event.reason}`, "Auto-created by NuPI extension", agentId]
     );
 
     const taskStatus = checkStartupTasks();
@@ -1062,9 +1066,10 @@ When user asks complex questions or asks about planning/architecture/research:
   pi.on("tool_result", async (event: ToolResultEvent) => {
     if (event.isError) {
       const toolName = event.toolName;
+      const agentId = (await AgentIdentityService.getResolvedIdentity()).id;
       await execSafe(
-        "INSERT INTO issues (id, title, severity, status, created_by) VALUES (gen_random_uuid(), $1, $2, 'open', 'nupi')",
-        [`[Tool Failed] ${toolName}`, "medium"]
+        "INSERT INTO issues (id, title, severity, status, created_by) VALUES (gen_random_uuid(), $1, $2, 'open', $3)",
+        [`[Tool Failed] ${toolName}`, "medium", agentId]
       );
     } else {
       if (
