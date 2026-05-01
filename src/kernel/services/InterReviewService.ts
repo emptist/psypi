@@ -216,7 +216,7 @@ export class InterReviewService extends EventEmitter {
           reviewedBy,
         ]
       );
-      logger.debug(`[InterReview] update_inter_review completed for: ${reviewId} (reviewed_by: ${reviewedBy})`);
+      logger.debug(`[InterReview] update_inter_review completed for: ${reviewId} (reviewer_id: ${reviewedBy})`);
 
       if (reviewResult.learnings.length > 0) {
         const review = await this.getReview(reviewId);
@@ -656,7 +656,7 @@ Format:
     response: string,
     acceptedSuggestions: string[] = [],
     options?: {
-      reviewedBy?: string;
+      reviewerId?: string;
       status?: 'accepted' | 'rejected' | 'partial' | 'superseded';
       leverageRatio?: number;
       reworkCount?: number;
@@ -668,7 +668,7 @@ Format:
         reviewId,
         response,
         JSON.stringify(acceptedSuggestions),
-        options?.reviewedBy || null,
+        options?.reviewerId || null,
         options?.status || 'accepted',
         options?.leverageRatio || null,
         options?.reworkCount || 0,
@@ -696,7 +696,7 @@ Format:
     response?: string,
     acceptedSuggestions?: string[],
     options?: {
-      reviewedBy?: string;
+      reviewerId?: string;
       status?: 'accepted' | 'rejected' | 'partial' | 'superseded';
       leverageRatio?: number;
       reworkCount?: number;
@@ -735,14 +735,14 @@ Format:
           reviewedBy,
         ]
       );
-      logger.debug(`[InterReview] update_inter_review completed for: ${reviewId} (reviewed_by: ${reviewedBy})`);
+      logger.debug(`[InterReview] update_inter_review completed for: ${reviewId} (reviewer_id: ${reviewedBy})`);
 
       if (response || acceptedSuggestions) {
         await this.db.query(`SELECT respond_to_inter_review($1, $2, $3, $4, $5, $6, $7, $8)`, [
           reviewId,
           response || null,
           JSON.stringify(acceptedSuggestions || []),
-          options?.reviewedBy || null,
+          options?.reviewerId || null,
           options?.status || 'accepted',
           options?.leverageRatio || null,
           options?.reworkCount || 0,
@@ -780,6 +780,8 @@ Format:
     findings: ReviewFinding[];
     overallScore: number | null;
     response: string | null;
+    requesterId: string | null;
+    reviewerId: string | null;
     requestedAt: Date;
     completedAt: Date | null;
   } | null> {
@@ -791,6 +793,8 @@ Format:
       findings: ReviewFinding[];
       overall_score: number | null;
       response: string | null;
+      requester_id: string | null;
+      reviewer_id: string | null;
       requested_at: Date;
       completed_at: Date | null;
     }>(`SELECT * FROM inter_reviews WHERE id = $1`, [reviewId]);
@@ -806,6 +810,8 @@ Format:
       findings: row.findings || [],
       overallScore: row.overall_score,
       response: row.response,
+      requesterId: row.requester_id,
+      reviewerId: row.reviewer_id,
       requestedAt: row.requested_at,
       completedAt: row.completed_at,
     };
@@ -816,12 +822,13 @@ Format:
     taskId: string | null;
     status: string;
     overallScore: number | null;
-    requestedBy: string;
+    requesterId: string;
+    reviewerId: string | null;
     createdAt: Date;
     completedAt: Date | null;
   }>> {
     let query = `
-      SELECT id, task_id, status, overall_score, reviewer_id, requested_at, completed_at 
+      SELECT id, task_id, status, overall_score, requester_id, reviewer_id, requested_at, completed_at 
       FROM inter_reviews
     `;
     const params: any[] = [];
@@ -839,7 +846,8 @@ Format:
       taskId: row.task_id,
       status: row.status,
       overallScore: row.overall_score,
-      requestedBy: row.reviewer_id,
+      requesterId: row.requester_id,
+      reviewerId: row.reviewer_id,
       createdAt: row.requested_at,
       completedAt: row.completed_at,
     }));
@@ -849,7 +857,8 @@ Format:
     Array<{
       id: string;
       taskId: string | null;
-      reviewerId: string;
+      requesterId: string;
+      reviewerId: string | null;
       requestedAt: Date;
       pendingMinutes: number;
     }>
@@ -857,14 +866,16 @@ Format:
     const result = await this.db.query<{
       id: string;
       task_id: string | null;
-      reviewer_id: string;
+      requester_id: string;
+      reviewer_id: string | null;
       requested_at: Date;
       pending_minutes: number;
-    }>(`SELECT id, task_id, reviewer_id, requested_at, pending_minutes FROM pending_inter_reviews`);
+    }>(`SELECT id, task_id, requester_id, reviewer_id, requested_at, pending_minutes FROM pending_inter_reviews`);
 
     return result.rows.map(row => ({
       id: row.id,
       taskId: row.task_id,
+      requesterId: row.requester_id,
       reviewerId: row.reviewer_id,
       requestedAt: row.requested_at,
       pendingMinutes: row.pending_minutes,

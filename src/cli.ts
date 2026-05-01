@@ -420,9 +420,9 @@ program
           const currentIdentity = await AgentIdentityService.getResolvedIdentity();
           const currentAgentId = currentIdentity.id;
           
-          // Note: review.reviewed_by field contains the Inner AI ID who performed the review
-          if (review.reviewed_by === currentAgentId) {
-            console.error(`\nError: You performed this inter-review yourself (reviewed_by: ${review.reviewed_by})`);
+          // Note: review.reviewerId contains the Inner AI ID who performed the review
+          if (review.reviewerId === currentAgentId) {
+            console.error(`\nError: You performed this inter-review yourself (reviewerId: ${review.reviewerId})`);
             console.error('You cannot use your own inter-review - ask another AI to review your code first.');
             process.exit(1);
           }

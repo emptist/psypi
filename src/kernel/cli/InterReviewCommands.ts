@@ -92,7 +92,7 @@ export async function respondToReview(
   response: string,
   accepted?: string[],
   options?: {
-    reviewedBy?: string;
+    reviewerId?: string;
     status?: 'accepted' | 'rejected' | 'partial' | 'superseded';
     leverageRatio?: number;
     reworkCount?: number;
