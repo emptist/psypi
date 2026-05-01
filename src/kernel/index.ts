@@ -253,6 +253,7 @@ exit 0
   
   async areflect(text: string) {
     const results: string[] = [];
+    const agentId = await this.getAgentId();
     
     // Simple check for [LEARN] marker
     if (text.includes('[LEARN]')) {
@@ -270,8 +271,8 @@ exit 0
       const title = text.replace('[ISSUE]', '').trim();
       const result = await this.query(
         `INSERT INTO issues (id, title, status, created_by) 
-         VALUES (gen_random_uuid(), $1, 'open', 'psypi') RETURNING id`,
-        [title]
+         VALUES (gen_random_uuid(), $1, 'open', $2) RETURNING id`,
+        [title, agentId]
       );
       results.push(`✅ Issue created: ${result.rows[0].id}`);
     }
@@ -287,7 +288,7 @@ exit 0
       } else {
         await this.query(
           `INSERT INTO issue_comments (issue_id, author, content) VALUES ($1, $2, $3)`,
-          [issueId, 'psypi', comment]
+          [issueId, agentId, comment]
         );
         results.push(`✅ Commented on issue: ${issueResult.rows[0].title.substring(0, 50)}...`);
       }
@@ -300,7 +301,7 @@ exit 0
       const resolution = resolveMatch[2].trim();
       await this.query(
         `UPDATE issues SET status = 'resolved', resolution = $1, resolved_at = NOW(), resolved_by = $2 WHERE id = $3`,
-        [resolution, 'psypi', issueId]
+        [resolution, agentId, issueId]
       );
       results.push(`✅ Issue resolved: ${issueId.slice(0, 8)}`);
     }
@@ -322,8 +323,8 @@ exit 0
       const title = text.replace('[TASK]', '').trim();
       const result = await this.query(
         `INSERT INTO tasks (id, title, status, priority, category, created_by) 
-         VALUES (gen_random_uuid(), $1, 'PENDING', 5, 'general', 'psypi') RETURNING id`,
-        [title]
+         VALUES (gen_random_uuid(), $1, 'PENDING', 5, 'general', $2) RETURNING id`,
+        [title, agentId]
       );
       results.push(`✅ Task created: ${result.rows[0].id}`);
     }
@@ -332,7 +333,8 @@ exit 0
   }
   
   async getContext() {
-    const agentType = process.env.AGENT_TYPE || 'psypi';
+    const agentId = await this.getAgentId();
+    const agentType = agentId;
     const sessionId = process.env.AGENT_SESSION_ID || 'unknown';
     
     const tasks = await this.query("SELECT COUNT(*) as count FROM tasks WHERE status = 'PENDING'");
@@ -347,23 +349,25 @@ exit 0
   }
   
   async buildSkill(name: string, purpose: string) {
+    const agentId = await this.getAgentId();
     // Simple skill build - insert into skills table
     const result = await this.query(
       `INSERT INTO skills (id, name, description, status, safety_score, created_by) 
-       VALUES (gen_random_uuid(), $1, $2, 'pending', 0, 'psypi') 
+       VALUES (gen_random_uuid(), $1, $2, 'pending', 0, $3) 
        RETURNING id`,
-      [name, purpose]
+      [name, purpose, agentId]
     );
     return result.rows[0].id;
   }
   
-  async startSession(agentType: string = 'psypi') {
+  async startSession(agentType?: string) {
+    const agentId = agentType || await this.getAgentId();
     const sessionId = process.env.AGENT_SESSION_ID || `session_${Date.now()}`;
     await this.query(
       `INSERT INTO agent_sessions (id, agent_type, started_at) 
        VALUES ($1, $2, NOW()) 
        ON CONFLICT DO NOTHING`,
-      [sessionId, agentType]
+      [sessionId, agentId]
     );
     return sessionId;
   }
