@@ -450,7 +450,7 @@ program
               taskId: undefined,
               commitHash,
               branch,
-              requesterId: identity.id,
+              reviewerId: identity.id,
               context: {
                 message: commitMessage,
               },
@@ -766,7 +766,7 @@ program
         taskId,
         commitHash: commitHash || undefined,
         branch,
-        requesterId: currentIdentity.id,
+        reviewerId: currentIdentity.id,
         context: {
           message: commitMessage,
           files,

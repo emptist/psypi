@@ -59,7 +59,7 @@ export class ReviewService {
     const reviewerId = identity.id;
 
     await this.db.query(
-      `INSERT INTO system_reviews (id, review_type, status, title, target_id, target_type, description, reviewer_id)
+      `INSERT INTO reviews (id, review_type, status, title, target_id, target_type, description, reviewer_id)
        VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7)`,
       [id, reviewType, title, targetId, targetType, description, reviewerId]
     );
@@ -97,7 +97,7 @@ export class ReviewService {
     const reviewerId = identity.id;
 
     await this.db.query(
-      `UPDATE system_reviews SET status = 'in_progress', reviewer_id = $1, updated_at = NOW() WHERE id = $2`,
+      `UPDATE reviews SET status = 'in_progress', reviewer_id = $1, updated_at = NOW() WHERE id = $2`,
       [reviewerId, reviewId]
     );
 
@@ -117,7 +117,7 @@ export class ReviewService {
     }));
 
     await this.db.query(
-      `UPDATE system_reviews 
+      `UPDATE reviews 
        SET status = CASE WHEN $2::jsonb != '[]'::jsonb THEN 'follow_up' ELSE 'completed' END,
            findings = $2,
            action_items = $3,
@@ -153,7 +153,7 @@ export class ReviewService {
   ): Promise<void> {
     try {
       const result = await this.db.query<{ target_id: string; title: string; reviewer_id: string }>(
-        `SELECT target_id, title, reviewer_id FROM system_reviews WHERE id = $1`,
+        `SELECT target_id, title, reviewer_id FROM reviews WHERE id = $1`,
         [reviewId]
       );
 
@@ -208,7 +208,7 @@ export class ReviewService {
       created_at: Date;
       updated_at: Date;
     }>(
-      `SELECT * FROM system_reviews 
+      `SELECT * FROM reviews 
        WHERE status = 'follow_up' 
          AND (follow_up_status = 'pending' OR follow_up_status = 'overdue')
        ORDER BY follow_up_due ASC
@@ -223,7 +223,7 @@ export class ReviewService {
     const agentId = identity.id;
 
     await this.db.query(
-      `UPDATE system_reviews 
+      `UPDATE reviews 
        SET action_items = (
          SELECT jsonb_agg(
            CASE WHEN item->>'id' = $2 
@@ -241,13 +241,13 @@ export class ReviewService {
       `SELECT jsonb_array_length(
          SELECT jsonb_agg(item) FROM jsonb_array_elements(action_items) AS item
          WHERE item->>'status' = 'pending'
-       ) as pending FROM system_reviews WHERE id = $1`,
+       ) as pending FROM reviews WHERE id = $1`,
       [reviewId]
     );
 
     if (parseInt(remainingPending.rows[0]?.pending || '0') === 0) {
       await this.db.query(
-        `UPDATE system_reviews SET status = 'completed', current_state = 'approved', completed_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        `UPDATE reviews SET status = 'completed', current_state = 'approved', completed_at = NOW(), updated_at = NOW() WHERE id = $1`,
         [reviewId]
       );
       logger.info(`[Review] All action items completed, review ${reviewId} marked as completed`);
@@ -256,7 +256,7 @@ export class ReviewService {
 
   async markOverdueFollowUps(): Promise<number> {
     const result = await this.db.query(
-      `UPDATE system_reviews 
+      `UPDATE reviews 
        SET follow_up_status = 'overdue', updated_at = NOW()
        WHERE status = 'follow_up' 
          AND follow_up_status = 'pending' 
@@ -297,7 +297,7 @@ export class ReviewService {
          COUNT(*) FILTER (WHERE status = 'follow_up') as follow_up,
          COUNT(*) FILTER (WHERE follow_up_status = 'overdue') as overdue,
          AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 3600) FILTER (WHERE status = 'completed') as avg_hours
-       FROM system_reviews`
+       FROM reviews`
     );
 
     const row = result.rows[0];

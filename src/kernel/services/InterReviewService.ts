@@ -27,7 +27,7 @@ export interface ReviewRequest {
   taskId?: string;
   commitHash?: string;
   branch?: string;
-  requesterId: string;  // FIXED: Was incorrectly named 'reviewerId' - this is the REQUESTER
+  reviewerId: string;
   context: {
     changes?: string;
     files?: string[];
@@ -151,7 +151,7 @@ export class InterReviewService extends EventEmitter {
         taskId,
         request.commitHash || null,
         request.branch || null,
-        request.requesterId,
+        request.reviewerId,
         JSON.stringify(request.context),
       ]
     );
@@ -821,7 +821,7 @@ Format:
     completedAt: Date | null;
   }>> {
     let query = `
-      SELECT id, task_id, status, overall_score, requester_id, requested_at, completed_at 
+      SELECT id, task_id, status, overall_score, reviewer_id, requested_at, completed_at 
       FROM inter_reviews
     `;
     const params: any[] = [];
@@ -849,7 +849,7 @@ Format:
     Array<{
       id: string;
       taskId: string | null;
-      requesterId: string;
+      reviewerId: string;
       requestedAt: Date;
       pendingMinutes: number;
     }>
@@ -865,7 +865,7 @@ Format:
     return result.rows.map(row => ({
       id: row.id,
       taskId: row.task_id,
-      requesterId: row.reviewer_id,
+      reviewerId: row.reviewer_id,
       requestedAt: row.requested_at,
       pendingMinutes: row.pending_minutes,
     }));

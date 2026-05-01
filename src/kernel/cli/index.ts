@@ -460,7 +460,7 @@ case 'broadcast': {
           taskId: taskMatch?.[1] || undefined,
           commitHash: commitHash || undefined,
           branch,
-          requesterId: currentIdentity.id,
+          reviewerId: currentIdentity.id,
           context: {
             message: commitMessage,
             files,
@@ -666,7 +666,7 @@ case 'broadcast': {
           taskId: taskMatch?.[1] || undefined,
           commitHash,
           branch,
-          requesterId: currentIdentity.id,
+          reviewerId: currentIdentity.id,
           context: {
             message: 'Auto-requested from commit validation',
             taskDescription: taskMatch?.[1] ? `Task: ${taskMatch[1]}` : undefined,
