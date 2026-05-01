@@ -5,48 +5,24 @@
  * No server, no strange things - just core services
  */
 
-import { Pool } from 'pg';
 import { config } from 'dotenv';
+import { DatabaseClient } from './db/DatabaseClient.js';
+import { Config } from './config/Config.js';
 
 // Load env
 config();
 
-export interface DatabaseConfig {
-  host: string;
-  port: number;
-  database: string;
-  user: string;
-  password: string;
-}
-
 export class Kernel {
-  private pool: Pool;
+  private db: DatabaseClient;
   
   constructor() {
-    const dbPassword = process.env.DB_PASSWORD;
-    
-    // Security: Fail if no password configured (don't use known default)
-    if (!dbPassword) {
-      throw new Error('DB_PASSWORD environment variable is required. No default password will be used.');
-    }
-    
-    this.pool = new Pool({
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432'),
-      database: process.env.DB_NAME || 'nezha',
-      user: process.env.DB_USER || 'postgres',
-      password: dbPassword,
-    });
+    // Use Config for database configuration
+    const configInstance = Config.getInstance();
+    this.db = new DatabaseClient(configInstance);
   }
   
   async query(text: string, params?: any[]) {
-    const client = await this.pool.connect();
-    try {
-      const result = await client.query(text, params);
-      return result;
-    } finally {
-      client.release();
-    }
+    return this.db.query(text, params);
   }
   
   async getTasks(status?: string) {
@@ -401,8 +377,7 @@ exit 0
     if (!this.interReviewService) {
       // Dynamic import to avoid circular dependencies
       const { InterReviewService } = await import('./services/InterReviewService.js');
-      // Use 'as any' to bypass type checking (focus on functionality)
-      this.interReviewService = await InterReviewService.create(this.pool as any);
+      this.interReviewService = await InterReviewService.create(this.db);
     }
     return this.interReviewService;
   }
@@ -428,7 +403,7 @@ exit 0
   async getBroadcastService() {
     if (!this.broadcastService) {
       const { BroadcastService } = await import('./services/BroadcastService.js');
-      this.broadcastService = await BroadcastService.create(this.pool as any);
+      this.broadcastService = await BroadcastService.create(this.db);
     }
     return this.broadcastService;
   }
@@ -445,7 +420,7 @@ exit 0
   }
   
   async close() {
-    await this.pool.end();
+    await this.db.close();
   }
 }
 
