@@ -412,6 +412,21 @@ Format:
     const row = result.rows[0]!;
     let context = '';
 
+    // 🆕 Load AGENTS.md and project docs from database (source of truth)
+    try {
+      const docsResult = await this.db.query<{ name: string; content: string }>(
+        "SELECT name, content FROM project_docs WHERE status = 'current' ORDER BY priority DESC"
+      );
+      
+      for (const doc of docsResult.rows) {
+        if (doc.name === 'AGENTS' || doc.name === 'PROJECT_CONTEXT' || doc.name === 'README') {
+          context += `## ${doc.name}.md\n\n${doc.content}\n\n`;
+        }
+      }
+    } catch (err) {
+      logger.warn('[InterReview] Failed to load project docs from DB:', err);
+    }
+
     if (row.commit_hash) {
       const diff = getCommitDiff(row.commit_hash);
       if (diff.stat && diff.content) {
