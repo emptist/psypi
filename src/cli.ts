@@ -72,15 +72,7 @@ program
 program
   .command('task-complete <taskId>')
   .description('Mark a task as completed')
-  .option('--help', 'Show help')
-  .action(async (taskId, options) => {
-    if (options.help) {
-      console.log('Usage: psypi task-complete <task-id>')
-      console.log('Marks the specified task as COMPLETED');
-      console.log('\nExamples:')
-      console.log('  psypi task-complete ece55693-4dc5-4e62-aa11-886d59349c8d');
-      return;
-    }
+  .action(async (taskId) => {
     try {
       const success = await kernel.completeTask(taskId);
       if (success) {
@@ -132,15 +124,7 @@ program
   .command('issue-resolve <issueId>')
   .description('Mark an issue as resolved')
   .option('--notes <text>', 'Resolution notes')
-  .option('--help', 'Show help')
   .action(async (issueId, options) => {
-    if (options.help) {
-      console.log('Usage: psypi issue-resolve <issue-id> [--notes text]');
-      console.log('Marks the specified issue as resolved');
-      console.log('\nExamples:');
-      console.log('  psypi issue-resolve abc123 --notes "Fixed in commit"');
-      return;
-    }
     try {
       const success = await kernel.resolveIssue(issueId, options.notes);
       if (success) {
@@ -234,13 +218,107 @@ program
     }
   });
 
+program
+  .command('provider-set-key <provider>')
+  .description('Set API key for provider (encrypts with NEZHA_SECRET)')
+  .option('--key <apiKey>', 'API key (omit for local providers like ollama)')
+  .option('--model <model>', 'Model name (optional)')
+  .option('--status <status>', 'Status: in_use|fallback|not_used', 'in_use')
+  .action(async (provider, options) => {
+    try {
+      if (!process.env.NEZHA_SECRET && options.key) {
+        console.error('❌ NEZHA_SECRET not set in environment');
+        return;
+      }
+      
+      // Encrypt the API key if provided
+      let encryptedKey = '';
+      let encryptedIv = '';
+      let encryptedTag = '';
+      let encryptedSalt = '';
+      
+      if (options.key) {
+        const { EncryptionService } = await import('./kernel/services/EncryptionService.js');
+        const encryption = EncryptionService.getInstance();
+        const encrypted = await encryption.encrypt(options.key);
+        encryptedKey = encrypted.encryptedData;
+        encryptedIv = encrypted.iv;
+        encryptedTag = encrypted.tag;
+        encryptedSalt = encrypted.salt;
+        console.log(`✅ API key encrypted with NEZHA_SECRET`);
+      } else {
+        console.log(`⚠️  No API key provided (OK for local providers like ollama)`);
+      }
+      
+      // Check if provider exists
+      const existing = await kernel.query(
+        `SELECT id FROM provider_api_keys WHERE provider = $1`,
+        [provider]
+      );
+      
+      // If setting to in_use, first reset all others
+      if (options.status === 'in_use') {
+        await kernel.query(`UPDATE provider_api_keys SET status = 'not_used'`);
+      }
+      
+      if (existing.rows.length > 0) {
+        // Update existing
+        const updates = [];
+        const values: any[] = [];
+        let idx = 1;
+        
+        if (options.key || encryptedKey) {
+          updates.push(`encrypted_key = $${idx++}`);
+          values.push(encryptedKey);
+          updates.push(`encrypted_iv = $${idx++}`);
+          values.push(encryptedIv);
+          updates.push(`encrypted_tag = $${idx++}`);
+          values.push(encryptedTag);
+          updates.push(`encrypted_salt = $${idx++}`);
+          values.push(encryptedSalt);
+        }
+        
+        if (options.model) {
+          updates.push(`model = $${idx++}`);
+          values.push(options.model);
+        }
+        
+        updates.push(`status = $${idx++}`);
+        values.push(options.status);
+        updates.push(`updated_at = NOW()`);
+        
+        values.push(provider);
+        
+        await kernel.query(
+          `UPDATE provider_api_keys SET ${updates.join(', ')} WHERE provider = $${idx}`,
+          values
+        );
+        console.log(`✅ Updated provider '${provider}'`);
+      } else {
+        // Insert new
+        await kernel.query(
+          `INSERT INTO provider_api_keys (id, provider, encrypted_key, encrypted_iv, encrypted_tag, encrypted_salt, model, status, created_at, updated_at)
+           VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+          [provider, encryptedKey, encryptedIv, encryptedTag, encryptedSalt, options.model || null, options.status]
+        );
+        console.log(`✅ Created provider '${provider}'`);
+      }
+      
+      console.log(`Provider: ${provider}`);
+      console.log(`Status: ${options.status}`);
+      if (options.model) console.log(`Model: ${options.model}`);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+
 // === All-in-One Commands ===
 program
   .command('areflect <text>')
   .description('All-in-one reflection: [LEARN] [ISSUE] [TASK]')
   .action(async (text) => {
     try {
-      const result = await kernel.reflect(text);
+      const result = await kernel.areflect(text);
       console.log(result);
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
@@ -252,18 +330,7 @@ program
   .description('Save learning to memory')
   .option('--importance <n>', 'Importance (1-10)', '5')
   .option('--tags <tags>', 'Comma-separated tags')
-  .option('--help', 'Show help')
   .action(async (content, options) => {
-    if (options.help) {
-      console.log('Usage: psypi learn "insight" [--importance N] [--tags t1,t2]');
-      console.log('Saves learning to memory table (source: learn)');
-      console.log('\nOptions:');
-      console.log('  --importance <n>  Importance level (default: 5)');
-      console.log('  --tags <tags>    Comma-separated tags (default: learning)');
-      console.log('\nExamples:');
-      console.log('  psypi learn "Database constraint found" --importance 8 --tags db,schema');
-      return;
-    }
     try {
       const tags = options.tags ? options.tags.split(',') : ['learning'];
       const id = await kernel.learn(content, parseInt(options.importance), tags);
@@ -297,17 +364,7 @@ program
   .command('announce <message>')
   .description('Send announcement to all AIs')
   .option('--priority <level>', 'Priority: low|normal|high|critical', 'normal')
-  .option('--help', 'Show help')
   .action(async (message, options) => {
-    if (options.help) {
-      console.log('Usage: psypi announce "message" [--priority level]');
-      console.log('Sends announcement to all AIs via broadcast system');
-      console.log('\nOptions:');
-      console.log('  --priority <level>  Priority level (default: normal)');
-      console.log('\nExamples:');
-      console.log('  psypi announce "Server restarting in 5 min" --priority high');
-      return;
-    }
     try {
       const success = await kernel.announce(message, options.priority);
       if (success) {
