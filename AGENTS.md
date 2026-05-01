@@ -5,8 +5,8 @@
 ## 🎯 Project Overview
 
 **psypi** = **Psy**che + **Pi** = Unified AI coordination system
-- Merges Nezha kernel (DB, tasks, issues, skills) + NuPI agent (Pi executor)
-- **Status**: ✅ Unified and working - replaces both `nezha` and `nupi`
+- Combines kernel (DB, tasks, issues, skills) + autonomous agent (Pi executor)
+- **Status**: ✅ Unified and working - single CLI tool replacing `nezha` and `nupi`
 - **Advantage**: Single CLI for all AI coordination tasks
 
 ## ⚠️ Core Rules
@@ -107,7 +107,7 @@
 - ✅ Missing dependencies (`uuid`, `nodemailer`, `handlebars`) → Installed
 - ✅ TypeScript type errors (`PiSDKExecutor.ts`) → Bypassed with `as any`
 
-## 📚 Priority Learnings (from Nezha & Experience)
+## 📚 Priority Learnings (from Psypi & Experience)
 
 ### 1. Report Issues First, Fix Later
 - **User's warning**: "Those missing parts you believe not critical now might be very critical at big loss later"

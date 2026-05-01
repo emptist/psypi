@@ -26,7 +26,7 @@ export async function querySafe<T extends Record<string, any> = any>(
     const result = await db.query<T>(sql, params);
     return result.rows;
   } catch (e) {
-    console.error(`[NuPI DB] ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`[PsyPI DB] ${e instanceof Error ? e.message : String(e)}`);
     return [];
   }
 }
@@ -48,7 +48,7 @@ export async function execSafe(
     await db.query(sql, params);
     return true;
   } catch (e) {
-    console.error(`[NuPI DB] ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`[PsyPI DB] ${e instanceof Error ? e.message : String(e)}`);
     return false;
   }
 }
@@ -62,7 +62,7 @@ export async function transaction<T>(
     const result = await callback({} as PoolClient);
     return result;
   } catch (e) {
-    console.error(`[NuPI DB TX] ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`[PsyPI DB TX] ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
 }

@@ -32,14 +32,14 @@ export function registerThinker(thinker: ExternalThinker): void {
   const thinkerName = thinker.name || "Unknown";
   delegation = { mode: "delegating", thinker };
   if (VERBOSE) {
-    console.log(`[NuPI@${GIT_HASH}] 🔌 Thinker slot filled: ${thinkerName} (now delegating)`);
+    console.log(`[PsyPI@${GIT_HASH}] 🔌 Thinker slot filled: ${thinkerName} (now delegating)`);
   }
 }
 
 export function unregisterThinker(): void {
   if (VERBOSE) {
     const oldThinker = delegation.mode === "delegating" ? delegation.thinker.name : "none";
-    console.log(`[NuPI@${GIT_HASH}] 🔌 Thinker slot cleared: ${oldThinker} (now self-sufficient)`);
+    console.log(`[PsyPI@${GIT_HASH}] 🔌 Thinker slot cleared: ${oldThinker} (now self-sufficient)`);
   }
   delegation = { mode: "self-sufficient" };
 }
@@ -50,23 +50,11 @@ const VERBOSE = process.env.NUPI_VERBOSE === 'true' || process.env.NODE_ENV !== 
 const SESSION_ID = process.env.AGENT_SESSION_ID || 'unknown-session';
 
 if (VERBOSE) {
-  console.log(`[NuPI@${GIT_HASH}] Starting in verbose mode...`);
+  console.log(`[PsyPI@${GIT_HASH}] Starting in verbose mode...`);
   console.log(`[PsyPI] Session ID: ${SESSION_ID}`);
 }
 
 const LOCAL_TASK_WHITELIST = [
-  'nupi-tasks',
-  'nupi-issues', 
-  'nupi-status',
-  'nupi-autonomous',
-  'nupi-agent-id',
-  'nupi-project',
-  'nupi-visits',
-  'nupi-stats',
-  'nupi-doc-save',
-  'nupi-doc-list',
-  'nezha_get_tasks',
-  'nezha_create_task',
   'pwd',
   'ls',
   'ls -la',
@@ -99,7 +87,7 @@ function shouldAutoDelegate(toolName: string, args?: Record<string, unknown>): b
   
   // Blind delegation: delegate everything else when thinker slot is filled
   if (VERBOSE) {
-    console.log(`[NuPI Auto-Delegate] ${toolName} → delegated to ${delegation.thinker.name || "external thinker"}`);
+    console.log(`[PsyPI Auto-Delegate] ${toolName} → delegated to ${delegation.thinker.name || "external thinker"}`);
   }
   return true;
 }
@@ -221,7 +209,7 @@ ${getModeGuidance()}
 
 const nupiThinkTool = {
   name: "nupi-think",
-  label: "NuPI Think",
+  label: "PsyPI Think",
   description:
     "Delegate complex reasoning to external thinker (Piano/OpenCode)",
   parameters: Type.Object({
@@ -235,16 +223,16 @@ const nupiThinkTool = {
         content: [
           {
             type: "text" as const,
-            text: "NuPI is in self-sufficient mode. Handle thinking yourself.",
+            text: "PsyPI is in self-sufficient mode. Handle thinking yourself.",
           },
         ],
         details: {} as Record<string, unknown>,
       };
     }
     try {
-      console.log(`[NuPI nupi-think] Delegating to external thinker: ${params.question.slice(0, 50)}...`);
+      console.log(`[PsyPI nupi-think] Delegating to external thinker: ${params.question.slice(0, 50)}...`);
       const result = await delegation.thinker.think(params.question);
-      console.log(`[NuPI nupi-think] Got response: ${result.slice(0, 100)}...`);
+      console.log(`[PsyPI nupi-think] Got response: ${result.slice(0, 100)}...`);
       return {
         content: [{ type: "text" as const, text: result }],
         details: { delegated: true } as Record<string, unknown>,
@@ -262,7 +250,7 @@ const nupiThinkTool = {
 
 const nupiAgentIdTool = {
   name: "nupi-agent-id",
-  label: "NuPI Agent ID",
+  label: "PsyPI Agent ID",
   description: "Get current agent identity",
   parameters: Type.Object({}),
   async execute() {
@@ -281,7 +269,7 @@ const nupiAgentIdTool = {
 
 const nupiTasksTool = {
   name: "nupi-tasks",
-  label: "NuPI Check Tasks",
+  label: "PsyPI Check Tasks",
   description: "Check pending tasks from Nezha",
   parameters: Type.Object({}),
   async execute() {
@@ -295,7 +283,7 @@ const nupiTasksTool = {
 
 const nupiAutonomousTool = {
   name: "nupi-autonomous",
-  label: "NuPI Autonomous Work",
+  label: "PsyPI Autonomous Work",
   description: "Get guidance for autonomous work - suggests next actions based on pending tasks and context",
   parameters: Type.Object({
     context: Type.Optional(Type.String({ description: "Current work context or project being worked on" })),
@@ -359,7 +347,7 @@ Suggested workflow:
 
 const nupiMeetingSayTool = {
   name: "nupi-meeting-say",
-  label: "NuPI Meeting Say",
+  label: "PsyPI Meeting Say",
   description: "Add an opinion to a Nezha meeting. Use short or full meeting ID.",
   parameters: Type.Object({
     meetingId: Type.String({ description: "Meeting ID (short 8-char prefix or full UUID)" }),
@@ -429,7 +417,7 @@ const nupiMeetingSayTool = {
 
 const nupiMeetingSummaryTool = {
   name: "nupi-meeting-summary",
-  label: "NuPI Meeting Summary",
+  label: "PsyPI Meeting Summary",
   description: "Get a summary of a Nezha meeting including all opinions and consensus status.",
   parameters: Type.Object({
     meetingId: Type.String({ description: "Meeting ID (short 8-char prefix or full UUID)" }),
@@ -493,7 +481,7 @@ const nupiMeetingSummaryTool = {
 
 const nupiMeetingSearchTool = {
   name: "nupi-meeting-search",
-  label: "NuPI Meeting Search",
+  label: "PsyPI Meeting Search",
   description: "Search Nezha meetings by keyword in topic, opinions, or consensus.",
   parameters: Type.Object({
     query: Type.String({ description: "Search keyword or phrase" }),
@@ -537,7 +525,7 @@ const nupiMeetingSearchTool = {
 
 const nupiMeetingListTool = {
   name: "nupi-meeting-list",
-  label: "NuPI Meeting List",
+  label: "PsyPI Meeting List",
   description: "List Nezha meetings, optionally filtered by status.",
   parameters: Type.Object({
     status: Type.Optional(Type.String({ description: "Filter by status: active, completed, cancelled (default: active)" })),
@@ -572,7 +560,7 @@ const nupiMeetingListTool = {
 
 const nupiDocSaveTool = {
   name: "nupi-doc-save",
-  label: "NuPI Doc Save",
+  label: "PsyPI Doc Save",
   description: "Save a project document to the Nezha database. The DB is the source of truth; files are generated from it.",
   parameters: Type.Object({
     name: Type.String({ description: "Document name (e.g. AGENTS, ARCHITECTURE)" }),
@@ -607,7 +595,7 @@ const nupiDocSaveTool = {
 
 const nupiDocListTool = {
   name: "nupi-doc-list",
-  label: "NuPI Doc List",
+  label: "PsyPI Doc List",
   description: "List project documents stored in the Nezha database.",
   parameters: Type.Object({
     project: Type.Optional(Type.String({ description: "Filter by project name" })),
@@ -640,8 +628,8 @@ const nupiDocListTool = {
 
 const nupiStatusTool = {
   name: "nupi-status",
-  label: "NuPI Status",
-  description: "Show current NuPI status including thinker slot state, registered tools, and active hooks.",
+  label: "PsyPI Status",
+  description: "Show current PsyPI status including thinker slot state, registered tools, and active hooks.",
   parameters: Type.Object({}),
   execute: async (_toolCallId: string, _params: any) => {
     const thinkerStatus = delegation.mode === "delegating" 
@@ -663,7 +651,7 @@ const nupiStatusTool = {
     const projectType = detectProjectType(cwd);
     const projectName = path.basename(cwd);
 
-    let status = `## NuPI Status\n\n`;
+    let status = `## PsyPI Status\n\n`;
     status += `**Project:** ${projectName} (${projectType})\n\n`;
     status += `**Thinker Slot:** ${thinkerStatus}\n\n`;
     status += `**Tools (${tools.length}):**\n${tools.map(t => `- ${t}`).join("\n")}\n\n`;
@@ -684,7 +672,7 @@ const nupiStatusTool = {
 
 const nupiProjectTool = {
   name: "nupi-project",
-  label: "NuPI Project Info",
+  label: "PsyPI Project Info",
   description: "Show current project information including fingerprint, type, and git remote.",
   parameters: Type.Object({}),
   execute: async (_toolCallId: string, _params: any) => {
@@ -728,7 +716,7 @@ const nupiProjectTool = {
 
 const nupiVisitsTool = {
   name: "nupi-visits",
-  label: "NuPI Project Visits",
+  label: "PsyPI Project Visits",
   description: "Show recent project visits across the AI ecosystem.",
   parameters: Type.Object({
     limit: Type.Optional(Type.Number({ default: 10 })),
@@ -761,8 +749,8 @@ const nupiVisitsTool = {
 
 const nupiStatsTool = {
   name: "nupi-stats",
-  label: "NuPI Statistics",
-  description: "Show statistics about the NuPI ecosystem: projects, visits, skills, meetings.",
+  label: "PsyPI Statistics",
+  description: "Show statistics about the PsyPI ecosystem: projects, visits, skills, meetings.",
   parameters: Type.Object({}),
   execute: async (_toolCallId: string, _params: any) => {
     const projectCount = await queryOne<{ count: string }>(
@@ -785,7 +773,7 @@ const nupiStatsTool = {
       "SELECT COUNT(*) as count FROM issues WHERE status != 'resolved'"
     );
     
-    let stats = `## NuPI Ecosystem Statistics\n\n`;
+    let stats = `## PsyPI Ecosystem Statistics\n\n`;
     stats += `| Metric | Count |\n`;
     stats += `|--------|-------|\n`;
     stats += `| Projects | ${projectCount?.count || 0} |\n`;
@@ -860,7 +848,7 @@ async function updatePiSettings(provider: string, model: string): Promise<boolea
 
 const nupiSyncInnerAITool = {
   name: "nupi-sync-inner-ai",
-  label: "NuPI Sync Inner AI",
+  label: "PsyPI Sync Inner AI",
   description: "Sync pi configuration to use the same AI provider/model as nezha's inner AI. Returns instructions for setting up the API key securely.",
   parameters: Type.Object({}),
   execute: async (_toolCallId: string, _params: any) => {
@@ -959,14 +947,14 @@ export default function nupiExtension(pi: ExtensionAPI) {
       try {
         const contextPath = "/tmp/nupi-context.json";
         writeFileSync(contextPath, contextJson);
-        console.log(`[NuPI resources_discover] Added nezha context JSON to ${contextPath}`);
+        console.log(`[PsyPI resources_discover] Added nezha context JSON to ${contextPath}`);
       } catch {
         console.error(`[PsyPI] Failed to write nezha context JSON`);
       }
     }
 
     if (skillPaths.length > 0) {
-      console.log(`[NuPI resources_discover] Generated ${skillPaths.length} resource files (${skills.length} skills, ${docs.length} docs)`);
+      console.log(`[PsyPI resources_discover] Generated ${skillPaths.length} resource files (${skills.length} skills, ${docs.length} docs)`);
     }
 
     return {
@@ -1038,11 +1026,11 @@ When user asks complex questions or asks about planning/architecture/research:
     const agentId = (await AgentIdentityService.getResolvedIdentity()).id;
     await execSafe(
       "INSERT INTO tasks (id, title, description, status, priority, category, created_by) VALUES (gen_random_uuid(), $1, $2, 'PENDING', 3, 'system', $3)",
-      [`[Pi Session Started] ${event.reason}`, "Auto-created by NuPI extension", agentId]
+      [`[Pi Session Started] ${event.reason}`, "Auto-created by PsyPI extension", agentId]
     );
 
     const taskStatus = checkStartupTasks();
-    console.log(`[NuPI Startup] ${taskStatus}`);
+    console.log(`[PsyPI Startup] ${taskStatus}`);
   });
 
   pi.on("tool_result", async (event: ToolResultEvent) => {
@@ -1087,15 +1075,15 @@ When user asks complex questions or asks about planning/architecture/research:
     
     if (delegation.mode === "delegating") {
       const thinkerName = delegation.thinker.name || "external thinker";
-      console.log(`[NuPI tool_call] ${toolName} → Mode: delegating to ${thinkerName}`);
+      console.log(`[PsyPI tool_call] ${toolName} → Mode: delegating to ${thinkerName}`);
     } else {
-      console.log(`[NuPI tool_call] ${toolName} → Mode: self-sufficient`);
+      console.log(`[PsyPI tool_call] ${toolName} → Mode: self-sufficient`);
     }
 
     if (delegation.mode !== "delegating") return;
 
     if (shouldAutoDelegate(toolName, args)) {
-      console.log(`[NuPI Auto-Delegate] ${toolName} → delegating to external thinker`);
+      console.log(`[PsyPI Auto-Delegate] ${toolName} → delegating to external thinker`);
 
       return {
         block: true,
@@ -1103,7 +1091,7 @@ When user asks complex questions or asks about planning/architecture/research:
       };
     }
 
-    console.log(`[NuPI Auto-Delegate] ${toolName} → allowed locally`);
+    console.log(`[PsyPI Auto-Delegate] ${toolName} → allowed locally`);
   });
 
     // TODO: Pi SDK types are complex unions - AgentMessage type doesn't have simple 'content'
@@ -1165,7 +1153,7 @@ When user asks complex questions or asks about planning/architecture/research:
 
     const contextMsg = {
       role: "user" as const,
-      content: `[NuPI Context] Relevant skills from Nezha DB (project: ${projectType}, keywords: ${keywords.join(", ")}):\n\n${skillContext}`,
+      content: `[PsyPI Context] Relevant skills from Nezha DB (project: ${projectType}, keywords: ${keywords.join(", ")}):\n\n${skillContext}`,
       timestamp: Date.now(),
     };
 
@@ -1177,11 +1165,11 @@ When user asks complex questions or asks about planning/architecture/research:
   const turnTimings: Map<number, number> = new Map();
 
   pi.on("agent_end", async (_event: AgentEndEvent, ctx) => {
-    console.log(`[NuPI agent_end] Task completed, checking for next task...`);
+    console.log(`[PsyPI agent_end] Task completed, checking for next task...`);
     
     const nextTask = await getNextTask();
     if (nextTask) {
-      console.log(`[NuPI agent_end] Next task: [${nextTask.priority}] ${nextTask.title}`);
+      console.log(`[PsyPI agent_end] Next task: [${nextTask.priority}] ${nextTask.title}`);
       await ctx.ui.notify(
         `📋 Next task: ${nextTask.title}`,
         "info"
@@ -1190,13 +1178,13 @@ When user asks complex questions or asks about planning/architecture/research:
     
     const eventSkills = await getSkillsForEvent("agent_end");
     if (eventSkills.length > 0) {
-      console.log(`[NuPI agent_end] Loaded ${eventSkills.length} skill(s)`);
+      console.log(`[PsyPI agent_end] Loaded ${eventSkills.length} skill(s)`);
     }
   });
 
   pi.on("turn_start", (event: TurnStartEvent) => {
     turnTimings.set(event.turnIndex, event.timestamp);
-    console.log(`[NuPI Turn ${event.turnIndex}] Started`);
+    console.log(`[PsyPI Turn ${event.turnIndex}] Started`);
   });
 
   // TODO: TurnEndEvent type from Pi SDK doesn't expose timestamp directly
@@ -1204,7 +1192,7 @@ When user asks complex questions or asks about planning/architecture/research:
   pi.on("turn_end", (event: TurnEndEvent) => {
     const startTime = turnTimings.get(event.turnIndex);
     const duration = startTime ? ((event as any).timestamp || Date.now()) - startTime : 0;
-    console.log(`[NuPI Turn ${event.turnIndex}] Ended (${duration}ms)`);
+    console.log(`[PsyPI Turn ${event.turnIndex}] Ended (${duration}ms)`);
     turnTimings.delete(event.turnIndex);
   });
 

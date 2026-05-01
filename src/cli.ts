@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Psypi CLI - Unified AI coordination system (Nezha kernel + NuPI agent)
+// Psypi CLI - Unified AI coordination system (Nezha kernel + PsyPI agent)
 
 import { Command } from 'commander';
 import { config } from 'dotenv';
@@ -28,7 +28,7 @@ const VERSION = '0.1.0';
 
 program
   .name('psypi')
-  .description('Unified AI coordination system - Nezha kernel + NuPI agent')
+  .description('Unified AI coordination system - Nezha kernel + PsyPI agent')
   .version(VERSION);
 
 // === Kernel Commands (from Nezha) ===
@@ -145,7 +145,7 @@ program
     }
   });
 
-// === Agent Commands (from NuPI) ===
+// === Agent Commands (from PsyPI) ===
 program
   .command('session-start')
   .description('Start a new agent session')

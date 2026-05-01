@@ -8,7 +8,7 @@
 - **Unified** codebase (no more maintaining two projects)
 - **Simple** integration (no server, no strange things)
 - **Kernel + Agent** in one package
-- **Complete replacement** for `nezha` and `nupi` (which will be deleted once psypi is mature)
+- **Complete replacement** for `nezha` and `nupi` (now unified into psypi)
 
 ## 🎯 Architecture
 
@@ -16,8 +16,8 @@
 psypi/
 ├── src/
 │   ├── cli.ts          # Unified CLI (commander)
-│   ├── kernel/         # Nezha core (DB, tasks, memory, skills)
-│   ├── agent/          # NuPI core (Pi extension, autonomous work)
+│   ├── kernel/         # Kernel core (DB, tasks, memory, skills)
+│   ├── agent/          # Psypi core (Pi extension, autonomous work)
 │   └── shared/         # Shared types/interfaces
 ├── dist/              # Compiled output
 └── package.json        # pnpm-managed
