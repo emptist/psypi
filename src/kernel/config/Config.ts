@@ -22,7 +22,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { getCurrentSessionId } from '../services/AgentSessionService.js';
-import os from 'os';
+import * as os from 'os';
 import { DatabaseClient } from '../db/DatabaseClient.js';
 import { AgentIdentityService } from '../services/AgentIdentityService.js';
 
