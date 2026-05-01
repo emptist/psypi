@@ -10,6 +10,7 @@ yarn-error.log*
 # IDE
 .vscode/
 .idea/
+.trae/
 
 # Build
 *.tsbuildinfo

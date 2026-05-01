@@ -23,12 +23,19 @@ export class Kernel {
   private pool: Pool;
   
   constructor() {
+    const dbPassword = process.env.DB_PASSWORD;
+    
+    // Security: Fail if no password configured (don't use known default)
+    if (!dbPassword) {
+      throw new Error('DB_PASSWORD environment variable is required. No default password will be used.');
+    }
+    
     this.pool = new Pool({
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '5432'),
       database: process.env.DB_NAME || 'nezha',
       user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'postgres',
+      password: dbPassword,
     });
   }
   

@@ -37,7 +37,8 @@ export class DatabaseClient {
       const branch = await this.getGitBranch();
       if (branch) {
         try {
-          await client.query(`SET app.git_branch = '${branch}'`);
+          // Use set_config() for parameterized query (SET doesn't support params)
+          await client.query(`SELECT set_config('app.git_branch', $1, false)`, [branch]);
         } catch {
           // Ignore errors - branch setting is optional
         }
