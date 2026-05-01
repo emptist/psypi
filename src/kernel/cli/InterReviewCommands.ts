@@ -39,7 +39,7 @@ export async function requestReviewFromAI(
     taskId,
     commitHash: commit,
     branch,
-    reviewerId: REVIWER_ID,
+    requesterId: REVIWER_ID,
     context: {
       changes: 'Code changes from recent commits',
       files,
@@ -122,7 +122,7 @@ export async function showReview(reviewId?: string): Promise<void> {
       console.log('\n📋 Pending Reviews\n');
       for (const r of pending) {
         console.log(
-          `   ${r.id.slice(0, 8)}... | ${r.reviewerId} | ${Math.round(r.pendingMinutes)}m ago`
+          `   ${r.id.slice(0, 8)}... | ${r.requesterId} | ${Math.round(r.pendingMinutes)}m ago`
         );
       }
       console.log('');
