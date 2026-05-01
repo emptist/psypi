@@ -1,12 +1,12 @@
 export interface DbConfig {
-  host: string;
-  port: number;
-  database: string;
-  user: string;
-  password: string;
-  max: number;
-  idleTimeoutMillis: number;
-  connectionTimeoutMillis: number;
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+  max?: number;
+  idleTimeoutMillis?: number;
+  connectionTimeoutMillis?: number;
 }
 
 export interface TaskConfig {

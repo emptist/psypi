@@ -519,10 +519,33 @@ program
     }
   });
 
-// Parse arguments
-program.parse(process.argv);
-
-// Show help if no command provided
+// Check if no arguments → launch Pi TUI (like nupi)
 if (!process.argv.slice(2).length) {
-  program.help();
+  // Dynamic import to avoid top-level await issues
+  (async () => {
+    try {
+      const { execSync } = await import('child_process');
+      // Calculate extension path relative to this module
+      const extensionUrl = new URL('./agent/extension/extension.js', import.meta.url);
+      const extensionPath = extensionUrl.pathname;
+      
+      console.log('[psypi] Launching Pi TUI with Nezha Inside™...');
+      // Launch Pi with psypi extension (like nupi does)
+      execSync(`pi -e "${extensionPath}"`, { 
+        stdio: 'inherit',
+        env: { ...process.env, PSYPI_EXTENSION: extensionPath }
+      });
+    } catch (err) {
+      if (err instanceof Error && 'status' in err) {
+        // Pi exited with a status code
+        process.exit((err as any).status || 1);
+      }
+      console.error('[psypi] Failed to launch Pi TUI:', err instanceof Error ? err.message : err);
+      console.log('\nFallback: Use psypi <command> for CLI mode');
+      program.help();
+    }
+  })();
+} else {
+  // Otherwise, parse as CLI command (current behavior)
+  program.parse(process.argv);
 }

@@ -13,11 +13,11 @@ export interface DbConfig {
 
 let pool: Pool | null = null;
 let dbConfig: DbConfig = {
-  host: process.env.PSYPI_DB_HOST || process.env.NUPI_DB_HOST || "127.0.0.1",
-  user: process.env.PSYPI_DB_USER || process.env.NUPI_DB_USER || "postgres",
-  database: process.env.PSYPI_DB_NAME || process.env.NUPI_DB_NAME || "psypi",
-  port: parseInt(process.env.PSYPI_DB_PORT || process.env.NUPI_DB_PORT || "5432"),
-  password: process.env.PSYPI_DB_PASSWORD || process.env.NUPI_DB_PASSWORD || "",
+  host: process.env.PSYPI_DB_HOST,
+  user: process.env.PSYPI_DB_USER,
+  database: process.env.PSYPI_DB_NAME,
+  port: process.env.PSYPI_DB_PORT ? parseInt(process.env.PSYPI_DB_PORT) : undefined,
+  password: process.env.PSYPI_DB_PASSWORD,
 };
 
 export function setDbConfig(config: Partial<DbConfig>): void {

@@ -13,6 +13,7 @@ import { execSync } from "child_process";
 import path from "path";
 import { querySafe, queryOne, execSafe, resolveId, closePool, getNezhaContext, registerProject, detectProjectType, generateFingerprint } from "./db.js";
 import { AgentIdentityService } from '../../kernel/services/AgentIdentityService.js';
+import { kernel } from '../../kernel/index.js';
 
 const GIT_HASH = "@@GIT_HASH@@";
 
@@ -120,44 +121,26 @@ async function getSystemPrompts(): Promise<string> {
 let turnCount = 0;
 let fileChangeCount = 0;
 
-function execNezha(args: string[]): string | null {
+async function checkStartupTasks(): Promise<string> {
   try {
-    return execSync(`nezha ${args.join(" ")}`, {
-      encoding: "utf-8",
-      timeout: 5000,
-    });
-  } catch {
-    return null;
-  }
-}
-
-function checkStartupTasks(): string {
-  const result = execNezha(["tasks", "--status", "PENDING"]);
-  if (!result) return "Could not check tasks";
-
-  if (result.includes("No tasks") || result.trim() === "") {
-    return "No pending tasks";
-  }
-
-  const lines = result.split("\n").filter((l) => l.match(/^\[\d+\]/));
-  if (lines.length === 0) return "No pending tasks";
-
-  const tasks: { priority: number; title: string }[] = [];
-  for (const line of lines) {
-    const match = line.match(/\[(\d+)\]\s+(.+?)(?:\s+\(\w+\))?$/);
-    if (match && match[1]) {
-      tasks.push({ priority: parseInt(match[1]), title: match[2] || "" });
+    const result = await kernel.getTasks('PENDING');
+    const tasks = result.rows || [];
+    
+    if (tasks.length === 0) {
+      return "No pending tasks";
     }
-  }
 
-  const highPriority = tasks.filter((t) => t.priority >= 8);
-  if (highPriority.length > 0) {
-    return `🎯 ${highPriority.length} high-priority tasks:\n${highPriority
-      .slice(0, 3)
-      .map((t) => `- ${t.title.slice(0, 50)}`)
-      .join("\n")}`;
+    const highPriority = tasks.filter((t: any) => t.priority >= 8);
+    if (highPriority.length > 0) {
+      return `🎯 ${highPriority.length} high-priority tasks:\n${highPriority
+        .slice(0, 3)
+        .map((t: any) => `- ${t.title.slice(0, 50)}`)
+        .join("\n")}`;
+    }
+    return `📋 ${tasks.length} tasks pending`;
+  } catch (err) {
+    return "Could not check tasks";
   }
-  return `📋 ${tasks.length} tasks pending`;
 }
 
 async function getStartupSkills(): Promise<{ name: string; instructions: string }[]> {
@@ -204,13 +187,14 @@ async function buildNezhaPrompt(): Promise<string> {
   ]);
 
   return `
-## Nezha Integration
-You have access to Nezha coordination layer via NuPI:
-- Tasks: 'nezha task-add <title> [desc]' to create tasks
-- Issues: 'nezha issue-add <title> [--severity] [--tag]' to create issues
-- View: 'nezha tasks' or 'nezha issue-list' to see existing work
-- Meetings: 'nezha meeting discuss <topic> <description>' for AI discussions
-- Skills: 'nezha skill list', 'nezha skill search <query>' - search for relevant skills
+## Nezha Inside™
+psypi = nupi + Nezha kernel bundled inside (self-contained):
+- Tasks: kernel.addTask() or 'psypi task-add <title>' 
+- Issues: kernel.addIssue() or 'psypi issue-add <title>'
+- View: 'psypi tasks' or 'psypi issue-list' to see existing work
+- Meetings: 'psypi meeting discuss <topic> <description>' for AI discussions
+- Skills: 'psypi skill list', 'psypi skill search <query>' - search for relevant skills
+- All functions call kernel directly (no external nezha CLI needed)
 
 ## Available Database Tables
 These tables are available for AI to use and modify:
@@ -223,10 +207,10 @@ ${systemPrompts || "No additional system prompts configured."}
 
 ## Autonomous Mode
 When working autonomously:
-1. Use 'nupi-tasks' or 'nezha_get_tasks' to check pending tasks
-2. Use 'piano_think' or 'nupi-think' for complex analysis
-3. Create issues for problems encountered
-4. Log progress via 'nezha learn' for knowledge retention
+1. Use 'nupi-tasks' to check pending tasks (calls kernel.getTasks() directly)
+2. Use 'nupi-think' for complex analysis
+3. Create issues with kernel.addIssue() for problems encountered
+4. Log progress via 'nupi-learn' for knowledge retention
 
 💡 Pro tip: You can extend this extension with Pi hooks at ~/.pi/agent/extensions/ for custom reminders, automation, or context injection.
 
@@ -301,7 +285,7 @@ const nupiTasksTool = {
   description: "Check pending tasks from Nezha",
   parameters: Type.Object({}),
   async execute() {
-    const status = checkStartupTasks();
+    const status = await checkStartupTasks();
     return {
       content: [{ type: "text" as const, text: status }],
       details: {},
@@ -317,61 +301,59 @@ const nupiAutonomousTool = {
     context: Type.Optional(Type.String({ description: "Current work context or project being worked on" })),
   }),
   async execute(_id: string, params: { context?: string }) {
-    const result = execNezha(["tasks", "--status", "PENDING"]);
-    if (!result) {
-      return {
-        content: [{ type: "text" as const, text: "Could not retrieve tasks from Nezha." }],
-        details: { error: true } as Record<string, unknown>,
-      };
-    }
-    
-    const lines = result.split("\n").filter(l => l.trim());
-    const tasks = lines.filter(l => l.match(/^\[\d+\]/));
-    
-    if (tasks.length === 0) {
-      const guidance = `No pending tasks found.
+    try {
+      const result = await kernel.getTasks('PENDING');
+      const tasks = result.rows || [];
+      
+      if (tasks.length === 0) {
+        const guidance = `No pending tasks found.
 
 Suggested actions:
 1. Review recent changes with git log
 2. Check for documentation updates needed
 3. Run tests to ensure everything is working
 4. Create new tasks for planned features${params.context ? `\n5. Continue working on: ${params.context}` : ""}`;
-      return {
-        content: [{ type: "text" as const, text: guidance }],
-        details: { hasTasks: false } as Record<string, unknown>,
-      };
-    }
-    
-    const highPriority = tasks.filter(t => {
-      const match = t.match(/\[(\d+)\]/);
-      return match && parseInt(match[1]) >= 80;
-    });
-    
-    if (highPriority.length > 0) {
-      const guidance = `🎯 HIGH PRIORITY TASKS (${highPriority.length}):
-${highPriority.slice(0, 5).join("\n")}
+        return {
+          content: [{ type: "text" as const, text: guidance }],
+          details: { hasTasks: false } as Record<string, unknown>,
+        };
+      }
+      
+      const highPriority = tasks.filter((t: any) => t.priority >= 80);
+      
+      if (highPriority.length > 0) {
+        const taskList = highPriority.slice(0, 5).map((t: any) => `[${t.priority}] ${t.title}`).join("\n");
+        const guidance = `🎯 HIGH PRIORITY TASKS (${highPriority.length}):
+${taskList}
 
 Recommended immediate actions:
 1. Focus on highest priority task first
-2. Use 'piano_think' for complex analysis
+2. Use 'nupi-think' for complex analysis
 3. Break down large tasks if needed${params.context ? `\n4. Current context: ${params.context}` : ""}`;
-      return {
-        content: [{ type: "text" as const, text: guidance }],
-        details: { hasTasks: true, highPriority: true } as Record<string, unknown>,
-      };
-    }
-    
-    const guidance = `📋 PENDING TASKS (${tasks.length}):
-${tasks.slice(0, 5).join("\n")}
+        return {
+          content: [{ type: "text" as const, text: guidance }],
+          details: { hasTasks: true, highPriority: true } as Record<string, unknown>,
+        };
+      }
+      
+      const taskList = tasks.slice(0, 5).map((t: any) => `[${t.priority}] ${t.title}`).join("\n");
+      const guidance = `📋 PENDING TASKS (${tasks.length}):
+${taskList}
 
 Suggested workflow:
 1. Pick a task that matches your current context
-2. Use 'piano_think' for analysis
+2. Use 'nupi-think' for analysis
 3. Update task status as you progress${params.context ? `\n\nCurrent context: ${params.context}` : ""}`;
-    return {
-      content: [{ type: "text" as const, text: guidance }],
-      details: { hasTasks: true } as Record<string, unknown>,
-    };
+      return {
+        content: [{ type: "text" as const, text: guidance }],
+        details: { hasTasks: true } as Record<string, unknown>,
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text" as const, text: "Could not retrieve tasks from database." }],
+        details: { error: true } as Record<string, unknown>,
+      };
+    }
   },
 };
 

@@ -127,23 +127,13 @@ export class Config implements IConfig {
   }
 
   private loadDbConfig(yaml?: NezhaYamlConfig): DbConfig {
-    const host = process.env[ENV_KEYS.DB_HOST] || yaml?.database?.host;
-    const port = process.env[ENV_KEYS.DB_PORT];
-    const database = process.env[ENV_KEYS.DB_NAME] || yaml?.database?.database;
-    const user = process.env[ENV_KEYS.DB_USER] || yaml?.database?.user;
-    const password = process.env[ENV_KEYS.DB_PASSWORD] || yaml?.database?.password;
-    const max = process.env[ENV_KEYS.DB_MAX];
     return {
-      host: host || DATABASE_CONFIG.DEFAULT_HOST,
-      port: parseIntEnv(
-        port,
-        yaml?.database?.port || DATABASE_CONFIG.DEFAULT_PORT,
-        ENV_KEYS.DB_PORT
-      ),
-      database: database || 'psypi',
-      user: user || 'postgres',
-      password: password || '',
-      max: parseIntEnv(max, yaml?.database?.max || DATABASE_CONFIG.DEFAULT_MAX, ENV_KEYS.DB_MAX),
+      host: process.env[ENV_KEYS.DB_HOST],
+      port: process.env[ENV_KEYS.DB_PORT] ? parseInt(process.env[ENV_KEYS.DB_PORT]!) : undefined,
+      database: process.env[ENV_KEYS.DB_NAME],
+      user: process.env[ENV_KEYS.DB_USER],
+      password: process.env[ENV_KEYS.DB_PASSWORD],
+      max: process.env[ENV_KEYS.DB_MAX] ? parseInt(process.env[ENV_KEYS.DB_MAX]!) : undefined,
       idleTimeoutMillis: DATABASE_CONFIG.DEFAULT_IDLE_TIMEOUT_MS,
       connectionTimeoutMillis: DATABASE_CONFIG.DEFAULT_CONNECTION_TIMEOUT_MS,
     };

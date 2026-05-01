@@ -1,5 +1,5 @@
 {
-  "name": "@psy/psypi",
+  "name": "@emptist/psypi",
   "version": "0.1.0",
   "description": "Unified AI coordination system - merging Nezha kernel + NuPI agent",
   "type": "module",
