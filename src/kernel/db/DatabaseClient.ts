@@ -2,6 +2,7 @@ import pg, { type Pool, type PoolConfig, type QueryResultRow } from 'pg';
 import { type IConfig, type QueryResult } from '../config/types.js';
 import { DATABASE_TABLES } from '../config/constants.js';
 import { logDbQuery, isVerboseMode } from '../utils/verboseLogger.js';
+import { Config } from '../config/Config.js';
 
 const { Pool: PgPool } = pg;
 
@@ -13,11 +14,12 @@ export interface PoolStats {
 }
 
 export class DatabaseClient {
+  private static instance: DatabaseClient | null = null;
   private readonly pool: Pool;
   private readonly config: IConfig;
   private isClosed: boolean = false;
 
-  constructor(config: IConfig) {
+  private constructor(config: IConfig) {
     this.config = config;
     const dbConfig = config.getDbConfig();
     const poolConfig: PoolConfig = {
@@ -44,6 +46,21 @@ export class DatabaseClient {
         }
       }
     });
+  }
+
+  static getInstance(config?: IConfig): DatabaseClient {
+    if (!DatabaseClient.instance) {
+      const cfg = config || Config.getInstance();
+      DatabaseClient.instance = new DatabaseClient(cfg);
+    }
+    return DatabaseClient.instance;
+  }
+
+  static resetInstance(): void {
+    if (DatabaseClient.instance) {
+      DatabaseClient.instance.close();
+      DatabaseClient.instance = null;
+    }
   }
 
   private async getGitBranch(): Promise<string | null> {

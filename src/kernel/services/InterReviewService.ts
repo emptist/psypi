@@ -934,6 +934,10 @@ Extracted from Inter-Review #${taskId || 'unknown'} (Score: ${result.overallScor
   private async createTasksFromFindings(result: ReviewResult, taskId?: string): Promise<number> {
     const severityPriority = { critical: 90, high: 75, medium: 50, low: 25, info: 10 };
     let createdCount = 0;
+    
+    // Get agent identity for created_by fields
+    const identity = await AgentIdentityService.getResolvedIdentity();
+    const agentId = identity.id;
 
     const { isOverloaded, pendingCount } = await this.checkSystemLoad();
     logger.info(
@@ -995,8 +999,8 @@ ${taskId ? `\n**Related Task**: ${taskId}` : ''}`;
         const sessionId = this.getSessionId();
         await this.db.query(
           `INSERT INTO tasks (id, title, description, status, priority, category, tags, created_at, updated_at, session_id, created_by)
-           VALUES (uuid_generate_v4(), $1, $2, 'PENDING', $3, 'review', ARRAY['review', $4, $5], NOW(), NOW(), $6::VARCHAR, COALESCE($6::VARCHAR, 'human'))`,
-          [title, description, priority, finding.type, finding.severity, sessionId]
+           VALUES (uuid_generate_v4(), $1, $2, 'PENDING', $3, 'review', ARRAY['review', $4, $5], NOW(), NOW(), $6::VARCHAR, $7)`,
+          [title, description, priority, finding.type, finding.severity, sessionId, agentId]
         );
         createdCount++;
         logger.info(`[InterReview] Created task from finding: ${title.substring(0, 50)}`);

@@ -13,6 +13,7 @@ import { IssueCommands } from './IssueCommands.js';
 import { TaskCommands } from './TaskCommands.js';
 import { MeetingCommands, MeetingDbCommands } from './MeetingCommands.js';
 import { BroadcastCommands } from './BroadcastCommands.js';
+import { BroadcastPriority } from '../services/BroadcastService.js';
 import { AgentIdentityService } from '../services/AgentIdentityService.js';
 import { ApiKeyService } from '../services/ApiKeyService.js';
 import { EncryptionService } from '../services/EncryptionService.js';
@@ -37,12 +38,15 @@ const VERSION = pkg.version;
 // Load .env from nezha installation directory (where this script is located)
 const nezhaRoot = dirname(fileURLToPath(import.meta.url));
 
-// Load .env from nezha installation directory
+// Load .env from psypi installation directory
 config({ path: join(nezhaRoot, '..', '..', '.env'), quiet: true });
 
-// Also load from user config directory (~/.config/nezha/.env or ~/.nezha/.env)
+// Also load from user config directory (~/.config/psypi/.env, ~/.psypi/.env, with fallback to nezha paths)
 const homeDir = process.env.HOME || process.env.USERPROFILE || '';
 const userConfigPaths = [
+  join(homeDir, '.config', 'psypi', '.env'),
+  join(homeDir, '.psypi', '.env'),
+  // Backward compatibility
   join(homeDir, '.config', 'nezha', '.env'),
   join(homeDir, '.nezha', '.env'),
 ];
@@ -55,13 +59,13 @@ const args = process.argv.slice(2);
 const command = args[0];
 
 const COMMANDS = `
-Nezha CLI - Coordination Layer
+Psypi CLI - Coordination Layer
 
-Usage: nezha <command> [options]
+Usage: psypi <command> [options]
 
-⚠️  IMPORTANT: Run nezha from YOUR project directory!
+⚠️  IMPORTANT: Run psypi from YOUR project directory!
    Your agent ID is derived from: source + project_name (git repo) + session
-   Running 'cd /path/to/nezha && nezha ...' will show you as S-*-nezha-*
+   Running 'cd /path/to/psypi && psypi ...' will show you as S-*-psypi-*
 
 Core Commands:
   task-add <title> [desc] Add a task
@@ -93,16 +97,15 @@ Tool Discovery:
   learnTheseFirst       Priority learnings for new AI
 
 Examples:
-  nezha areflect "[LEARN] insight: ..."
-  nezha areflect "[LEARN] text [TASK] title, COMPLETED [ISSUE] title, RESOLVED"
-  nezha tools learn
+  psypi areflect "[LEARN] insight: ..."
+  psypi areflect "[LEARN] text [TASK] title, COMPLETED [ISSUE] title, RESOLVED"
+  psypi tools learn
 
 For more info: nezha help <command>
 `;
 
 async function getDb(): Promise<DatabaseClient> {
-  const config = Config.getInstance();
-  return new DatabaseClient(config);
+  return DatabaseClient.getInstance();
 }
 
 /**
@@ -384,7 +387,7 @@ async function main() {
         const resolvedId = await resolveMeetingId(db, meetingIdArg);
         const meetingId = resolvedId || meetingIdArg;
         const posIdx = args.indexOf('--position');
-        const position = posIdx !== -1 ? args[posIdx + 1] as any : undefined;
+        const position = posIdx !== -1 ? args[posIdx + 1] as "support" | "oppose" | "neutral" | undefined : undefined;
         const reasoningIdx = args.indexOf('--reasoning');
         const reasoning = reasoningIdx !== -1 ? args.slice(reasoningIdx + 1).join(' ') : undefined;
         const author = (await AgentIdentityService.getResolvedIdentity()).id;
@@ -404,7 +407,7 @@ case 'broadcast': {
         return;
       }
       const priorityIndex = args.indexOf('--priority');
-      const priority = priorityIndex !== -1 ? (args[priorityIndex + 1] as any) : 'normal';
+      const priority = priorityIndex !== -1 ? args[priorityIndex + 1] as BroadcastPriority : 'normal';
       const broadcastCmd = new BroadcastCommands(db);
       await broadcastCmd.send(message, undefined, priority);
       break;

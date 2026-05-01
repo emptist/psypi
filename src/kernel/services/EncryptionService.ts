@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { logger } from '../utils/logger.js';
+import { ENV_KEYS } from '../config/constants.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -52,9 +53,9 @@ export class EncryptionService {
   }
 
   async encrypt(plaintext: string): Promise<EncryptedData> {
-    const secret = process.env.NEZHA_SECRET;
+    const secret = process.env[ENV_KEYS.SECRET] || process.env.NEZHA_SECRET;
     if (!secret) {
-      throw new Error('NEZHA_SECRET not set');
+      throw new Error('PSYPI_SECRET (or NEZHA_SECRET) not set');
     }
 
     const iv = crypto.randomBytes(IV_LENGTH);
@@ -80,9 +81,9 @@ export class EncryptionService {
   }
 
   async decrypt(encryptedData: EncryptedData): Promise<string> {
-    const secret = process.env.NEZHA_SECRET;
+    const secret = process.env[ENV_KEYS.SECRET] || process.env.NEZHA_SECRET;
     if (!secret) {
-      throw new Error('NEZHA_SECRET not set');
+      throw new Error('PSYPI_SECRET (or NEZHA_SECRET) not set');
     }
 
     const iv = Buffer.from(encryptedData.iv, 'base64');
@@ -149,7 +150,7 @@ export function encryptSensitiveFields(
   obj: Record<string, unknown>,
   encryption: EncryptionService
 ): Record<string, unknown> {
-  if (!process.env.NEZHA_SECRET) {
+  if (!process.env[ENV_KEYS.SECRET] && !process.env.NEZHA_SECRET) {
     return obj;
   }
 
@@ -169,7 +170,7 @@ export async function decryptSensitiveFields(
   obj: Record<string, unknown>,
   encryption: EncryptionService
 ): Promise<Record<string, unknown>> {
-  if (!process.env.NEZHA_SECRET) {
+  if (!process.env[ENV_KEYS.SECRET] && !process.env.NEZHA_SECRET) {
     return obj;
   }
 

@@ -1,5 +1,5 @@
 /**
- * Process Guardian - Cleans up orphaned Nezha processes
+ * Process Guardian - Cleans up orphaned Psypi processes
  *
  * Usage:
  *   npx ts-node src/cli/process-guardian.ts run    - Start guardian daemon
@@ -8,25 +8,27 @@
  *   npx ts-node src/cli/process-guardian.ts stop    - Stop guardian
  *
  * Cron example: Add to crontab -e:
- *   every 10 mins: 0,10,20,30,40,50 * * * * cd /path/to/nezha && npx ts-node src/cli/process-guardian.ts once
+ *   every 10 mins: 0,10,20,30,40,50 * * * * cd /path/to/psypi && npx ts-node src/cli/process-guardian.ts once
  *
  * Environment Variables (optional):
- *   NEZHA_GUARDIAN_INTERVAL_MS         - Cycle interval in ms (default: 60000)
- *   NEZHA_GUARDIAN_STALE_THRESHOLD_MS   - Stale threshold in ms (default: 3600000)
- *   NEZHA_GUARDIAN_ALLOWED               - Comma-separated allowed process patterns
- *   NEZHA_GUARDIAN_STALE                 - Comma-separated stale process patterns
- *   NEZHA_GUARDIAN_MAX_INSTANCES        - Comma-separated "process:max" pairs
+ *   PSYPI_GUARDIAN_INTERVAL_MS         - Cycle interval in ms (default: 60000)
+ *   PSYPI_GUARDIAN_STALE_THRESHOLD_MS   - Stale threshold in ms (default: 3600000)
+ *   PSYPI_GUARDIAN_ALLOWED               - Comma-separated allowed process patterns
+ *   PSYPI_GUARDIAN_STALE                 - Comma-separated stale process patterns
+ *   PSYPI_GUARDIAN_MAX_INSTANCES        - Comma-separated "process:max" pairs
+ *
+ * Backward compatible: NEZHA_GUARDIAN_* env vars also work
  *
  * Example:
- *   NEZHA_GUARDIAN_INTERVAL_MS=30000 NEZHA_GUARDIAN_ALLOWED="opencode serve,nezha start" npx ts-node src/cli/process-guardian.ts run
+ *   PSYPI_GUARDIAN_INTERVAL_MS=30000 PSYPI_GUARDIAN_ALLOWED="psypi start" npx ts-node src/cli/process-guardian.ts run
  */
 
 import { execSync } from 'child_process';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 
-const PROCESS_PID_FILE = '/tmp/nezha-guardian.pid';
-const GUARDIAN_INTERVAL_MS = parseInt(process.env.NEZHA_GUARDIAN_INTERVAL_MS || '60000', 10);
-const STALE_THRESHOLD_MS = parseInt(process.env.NEZHA_GUARDIAN_STALE_THRESHOLD_MS || '3600000', 10);
+const PROCESS_PID_FILE = '/tmp/psypi-guardian.pid';
+const GUARDIAN_INTERVAL_MS = parseInt(process.env.PSYPI_GUARDIAN_INTERVAL_MS || process.env.NEZHA_GUARDIAN_INTERVAL_MS || '60000', 10);
+const STALE_THRESHOLD_MS = parseInt(process.env.PSYPI_GUARDIAN_STALE_THRESHOLD_MS || process.env.NEZHA_GUARDIAN_STALE_THRESHOLD_MS || '3600000', 10);
 
 interface GuardianConfig {
   allowedProcesses: string[];
@@ -35,12 +37,14 @@ interface GuardianConfig {
 }
 
 function parseListEnv(key: string, defaultValue: string[]): string[] {
-  const val = process.env[key];
+  const psypiKey = key.replace('NEZHA_', 'PSYPI_');
+  const val = process.env[psypiKey] || process.env[key];
   return val ? val.split(',').map(s => s.trim()) : defaultValue;
 }
 
 function parseDictEnv(key: string, defaultValue: Record<string, number>): Record<string, number> {
-  const val = process.env[key];
+  const psypiKey = key.replace('NEZHA_', 'PSYPI_');
+  const val = process.env[psypiKey] || process.env[key];
   if (!val) return defaultValue;
   const result: Record<string, number> = {};
   for (const item of val.split(',')) {
@@ -53,11 +57,9 @@ function parseDictEnv(key: string, defaultValue: Record<string, number>): Record
 function getConfig(): GuardianConfig {
   return {
     allowedProcesses: parseListEnv('NEZHA_GUARDIAN_ALLOWED', [
-      'opencode serve --port 4096',
       'dist/cli/index.js start',
       'dist/cli/process-guardian.js',
-      'dist/cli/nezha-cli.js daemon',
-      'opencode run --format json',
+      'dist/cli/psypi-cli.js daemon',
     ]),
     staleProcesses: parseListEnv('NEZHA_GUARDIAN_STALE', [
       'auto-dev.js',
@@ -66,11 +68,9 @@ function getConfig(): GuardianConfig {
       'daemon',
     ]),
     maxInstances: parseDictEnv('NEZHA_GUARDIAN_MAX_INSTANCES', {
-      'opencode serve': 1,
       'dist/cli/index.js start': 1,
       'dist/cli/process-guardian.js': 1,
-      'dist/cli/nezha-cli.js daemon': 1,
-      'opencode run --format json': 10,
+      'dist/cli/psypi-cli.js daemon': 1,
     }),
   };
 }

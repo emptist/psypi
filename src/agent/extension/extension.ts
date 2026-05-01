@@ -1106,12 +1106,15 @@ When user asks complex questions or asks about planning/architecture/research:
     console.log(`[NuPI Auto-Delegate] ${toolName} → allowed locally`);
   });
 
-  (pi as any).on("context", async (event: ContextEvent) => {
+    // TODO: Pi SDK types are complex unions - AgentMessage type doesn't have simple 'content'
+    // Need to type-narrow carefully. Using 'as any' as a pragmatic solution.
+    (pi as any).on("context", async (event: ContextEvent) => {
     const lastUserMsg = [...event.messages].reverse().find(
       (m: any) => m.role === "user" && typeof (m as any).content === "string"
     );
     if (!lastUserMsg) return;
 
+    // TODO: Complex Pi SDK message types - content property varies by message type
     const content = (lastUserMsg as any).content as string;
 
     const stopWords = new Set([
@@ -1196,9 +1199,11 @@ When user asks complex questions or asks about planning/architecture/research:
     console.log(`[NuPI Turn ${event.turnIndex}] Started`);
   });
 
+  // TODO: TurnEndEvent type from Pi SDK doesn't expose timestamp directly
+  // Using 'as any' to access potential timestamp property
   pi.on("turn_end", (event: TurnEndEvent) => {
     const startTime = turnTimings.get(event.turnIndex);
-    const duration = startTime ? ((event.message as any).timestamp || Date.now()) - startTime : 0;
+    const duration = startTime ? ((event as any).timestamp || Date.now()) - startTime : 0;
     console.log(`[NuPI Turn ${event.turnIndex}] Ended (${duration}ms)`);
     turnTimings.delete(event.turnIndex);
   });

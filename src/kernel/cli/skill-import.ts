@@ -160,8 +160,7 @@ async function main() {
   const args = process.argv.slice(2);
   const command = args[0] || 'import';
 
-  const config = Config.getInstance();
-  const db = new DatabaseClient(config);
+  const db = DatabaseClient.getInstance();
 
   try {
     // Ensure skills directory exists

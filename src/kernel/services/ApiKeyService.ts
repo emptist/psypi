@@ -5,6 +5,7 @@ import {
   type EncryptedData,
 } from './EncryptionService.js';
 import { logger } from '../utils/logger.js';
+import { ENV_KEYS } from '../config/constants.js';
 
 export interface StoredApiKey {
   id: string;
@@ -57,8 +58,8 @@ export class ApiKeyService {
   }
 
   async storeApiKey(provider: string, apiKey: string): Promise<void> {
-    if (!process.env.NEZHA_SECRET) {
-      throw new Error('NEZHA_SECRET not set. Encryption unavailable.');
+    if (!process.env[ENV_KEYS.SECRET]) {
+      throw new Error('PSYPI_SECRET (or NEZHA_SECRET) not set. Encryption unavailable.');
     }
 
     const encrypted = await this.encryption.encrypt(apiKey);
@@ -79,8 +80,8 @@ export class ApiKeyService {
   }
 
   async getApiKey(provider: string): Promise<string | null> {
-    if (!process.env.NEZHA_SECRET) {
-      throw new Error('NEZHA_SECRET not set. Encryption unavailable.');
+    if (!process.env[ENV_KEYS.SECRET]) {
+      throw new Error('PSYPI_SECRET (or NEZHA_SECRET) not set. Encryption unavailable.');
     }
 
     const result = await this.db.query<{
@@ -132,8 +133,8 @@ export class ApiKeyService {
   }
 
   async storeUserApiKeyEncrypted(apiKeyId: string, apiKey: string): Promise<void> {
-    if (!process.env.NEZHA_SECRET) {
-      throw new Error('NEZHA_SECRET not set. Encryption unavailable.');
+    if (!process.env[ENV_KEYS.SECRET]) {
+      throw new Error('PSYPI_SECRET (or NEZHA_SECRET) not set. Encryption unavailable.');
     }
 
     const encrypted = await this.encryption.encrypt(apiKey);
@@ -152,8 +153,8 @@ export class ApiKeyService {
   }
 
   async getUserApiKeyDecrypted(apiKeyId: string, userRole: string): Promise<string | null> {
-    if (!process.env.NEZHA_SECRET) {
-      throw new Error('NEZHA_SECRET not set. Encryption unavailable.');
+    if (!process.env[ENV_KEYS.SECRET]) {
+      throw new Error('PSYPI_SECRET (or NEZHA_SECRET) not set. Encryption unavailable.');
     }
 
     if (userRole !== 'admin' && userRole !== 'superadmin') {

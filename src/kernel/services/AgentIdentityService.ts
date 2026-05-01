@@ -54,7 +54,7 @@ export class AgentIdentityService {
   }
 
   static async getResolvedIdentity(inner?: boolean): Promise<AgentIdentity> {
-    const db = new DatabaseClient(Config.getInstance());
+    const db = DatabaseClient.getInstance();
     const service = new AgentIdentityService(db);
 
     let innerModel: string | undefined;
@@ -66,10 +66,9 @@ export class AgentIdentityService {
     const identity = await service.resolve(inner, innerModel);
 
     const sessionService = getAgentSessionService(db);
-    const source = service.detectContext().source || 'nezha';
+    const source = service.detectContext().source || 'psypi';
     await sessionService.registerSession(source, identity.id);
 
-    await db.close();
     return identity;
   }
 

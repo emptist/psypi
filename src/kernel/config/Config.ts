@@ -41,9 +41,9 @@ function parseIntEnv(value: string | undefined, defaultValue: number, key: strin
 export async function resolveAgentIdAsync(
   config: IConfig
 ): Promise<{ id: string; displayName?: string }> {
-  const envAgentId = process.env.NEZHA_AGENT_ID;
+  const envAgentId = process.env[ENV_KEYS.AGENT_ID] || process.env.NEZHA_AGENT_ID;
   if (envAgentId && envAgentId.trim()) {
-    const displayName = process.env[ENV_KEYS.AGENT_NAME];
+    const displayName = process.env[ENV_KEYS.AGENT_NAME] || process.env.NEZHA_AGENT_NAME;
     return {
       id: envAgentId,
       displayName: displayName || undefined,
@@ -62,9 +62,9 @@ export async function resolveAgentIdAsync(
 
 // Sync wrapper - returns env var or empty (async resolution should be used for real ID)
 function loadOrCreateAgentId(): { id: string; displayName?: string } {
-  const envAgentId = process.env.NEZHA_AGENT_ID;
+  const envAgentId = process.env[ENV_KEYS.AGENT_ID] || process.env.NEZHA_AGENT_ID;
   if (envAgentId && envAgentId.trim()) {
-    const displayName = process.env[ENV_KEYS.AGENT_NAME];
+    const displayName = process.env[ENV_KEYS.AGENT_NAME] || process.env.NEZHA_AGENT_NAME;
     return {
       id: envAgentId,
       displayName: displayName || undefined,
@@ -179,9 +179,9 @@ export class Config implements IConfig {
   private loadHealthConfig(yaml?: NezhaYamlConfig): HealthConfig {
     return {
       port: parseIntEnv(
-        process.env.NEZHA_HEALTH_PORT,
+        process.env[ENV_KEYS.HEALTH_PORT] || process.env.NEZHA_HEALTH_PORT,
         yaml?.health?.port || 4097,
-        'NEZHA_HEALTH_PORT'
+        'PSYPI_HEALTH_PORT / NEZHA_HEALTH_PORT'
       ),
       requireAuth: yaml?.health?.requireAuth ?? false,
     };

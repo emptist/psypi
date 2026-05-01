@@ -17,9 +17,8 @@ export class Kernel {
   private db: DatabaseClient;
   
   constructor() {
-    // Use Config for database configuration
-    const configInstance = Config.getInstance();
-    this.db = new DatabaseClient(configInstance);
+    // Use singleton DatabaseClient
+    this.db = DatabaseClient.getInstance();
   }
   
   async query(text: string, params?: any[]) {

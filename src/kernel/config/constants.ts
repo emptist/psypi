@@ -98,8 +98,29 @@ export const ENV_KEYS = {
   TRANSPORT_MODE: 'PSYPI_TRANSPORT_MODE',
   OPENCODE_API_URL: 'PSYPI_OPENCODE_API_URL',
   OPENCODE_PORT: 'PSYPI_OPENCODE_PORT',
+  AGENT_ID: 'PSYPI_AGENT_ID',
   AGENT_NAME: 'PSYPI_AGENT_NAME',
+  HEALTH_PORT: 'PSYPI_HEALTH_PORT',
 } as const;
+
+// Backward-compatible env var helper
+// Checks new PSYPI_* first, then falls back to old NEZHA_*
+export function getEnvVar(key: string, fallback?: string): string | undefined {
+  // If key is already a PSYPI_* or NEZHA_* value, use it directly
+  if (key.startsWith('PSYPI_') && process.env[key] !== undefined) {
+    return process.env[key];
+  }
+  
+  // Check for NEZHA_ equivalent
+  if (key.startsWith('PSYPI_')) {
+    const nezhaKey = key.replace('PSYPI_', 'NEZHA_');
+    if (process.env[nezhaKey] !== undefined) {
+      return process.env[nezhaKey];
+    }
+  }
+  
+  return process.env[key] || fallback;
+}
 
 export const ENV_DEFAULT = {
   DEVELOPMENT: 'development' as const,

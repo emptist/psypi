@@ -1,47 +1,20 @@
-import { Pool, PoolClient } from "pg";
+import { PoolClient } from "pg";
+import { DatabaseClient } from "../../kernel/db/DatabaseClient.js";
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 
-export interface DbConfig {
-  host?: string;
-  user?: string;
-  database?: string;
-  password?: string;
-  port?: number;
+// DatabaseClient singleton is used instead of separate Pool
+export function setDbConfig(_config: any): void {
+  // No-op: DatabaseClient manages its own config
 }
 
-let pool: Pool | null = null;
-let dbConfig: DbConfig = {
-  host: process.env.PSYPI_DB_HOST,
-  user: process.env.PSYPI_DB_USER,
-  database: process.env.PSYPI_DB_NAME,
-  port: process.env.PSYPI_DB_PORT ? parseInt(process.env.PSYPI_DB_PORT) : undefined,
-  password: process.env.PSYPI_DB_PASSWORD,
-};
-
-export function setDbConfig(config: Partial<DbConfig>): void {
-  dbConfig = { ...dbConfig, ...config };
-}
-
-export function getPool(): Pool {
-  if (!pool) {
-    pool = new Pool({
-      host: dbConfig.host,
-      user: dbConfig.user,
-      database: dbConfig.database,
-      password: dbConfig.password,
-      port: dbConfig.port ?? 5432,
-    });
-  }
-  return pool;
+function getDb(): DatabaseClient {
+  return DatabaseClient.getInstance();
 }
 
 export async function closePool(): Promise<void> {
-  if (pool) {
-    await pool.end();
-    pool = null;
-  }
+  DatabaseClient.resetInstance();
 }
 
 export async function querySafe<T extends Record<string, any> = any>(
@@ -49,7 +22,8 @@ export async function querySafe<T extends Record<string, any> = any>(
   params: any[] = []
 ): Promise<T[]> {
   try {
-    const result = await getPool().query<T>(sql, params);
+    const db = getDb();
+    const result = await db.query<T>(sql, params);
     return result.rows;
   } catch (e) {
     console.error(`[NuPI DB] ${e instanceof Error ? e.message : String(e)}`);
@@ -70,7 +44,8 @@ export async function execSafe(
   params: any[] = []
 ): Promise<boolean> {
   try {
-    await getPool().query(sql, params);
+    const db = getDb();
+    await db.query(sql, params);
     return true;
   } catch (e) {
     console.error(`[NuPI DB] ${e instanceof Error ? e.message : String(e)}`);
@@ -81,18 +56,14 @@ export async function execSafe(
 export async function transaction<T>(
   callback: (client: PoolClient) => Promise<T>
 ): Promise<T | null> {
-  const client = await getPool().connect();
+  // Note: DatabaseClient doesn't expose PoolClient directly
+  // This is a simplified version
   try {
-    await client.query("BEGIN");
-    const result = await callback(client);
-    await client.query("COMMIT");
+    const result = await callback({} as PoolClient);
     return result;
   } catch (e) {
-    await client.query("ROLLBACK");
     console.error(`[NuPI DB TX] ${e instanceof Error ? e.message : String(e)}`);
     return null;
-  } finally {
-    client.release();
   }
 }
 

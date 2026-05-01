@@ -324,7 +324,7 @@ export class DailyMemoryService {
 }
 
 const dailyMemory = new DailyMemoryService();
-const db = new DatabaseClient(Config.getInstance());
+const db = DatabaseClient.getInstance();
 
 export async function memory_save(input: MemorySaveInput): Promise<string> {
   await dailyMemory.save(input);

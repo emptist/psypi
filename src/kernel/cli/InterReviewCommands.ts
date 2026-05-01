@@ -4,11 +4,10 @@ import { Config } from '../config/Config.js';
 import { getGitHash, getGitBranch, getGitDiff, getLastCommitMessage } from '../utils/git.js';
 import { logger } from '../utils/logger.js';
 
-const REVIWER_ID = `nezha-${Date.now()}`;
+const REVIWER_ID = `psypi-${Date.now()}`;
 
 async function createReviewService(): Promise<InterReviewService> {
-  const config = Config.getInstance();
-  const db = new DatabaseClient(config);
+  const db = DatabaseClient.getInstance();
   return InterReviewService.create(db);
 }
 

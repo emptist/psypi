@@ -37,9 +37,11 @@ export class PiSDKExecutor {
       );
 
       const loader = new DefaultResourceLoader({
+        cwd: this.cwd,
+        agentDir: this.cwd,
         systemPromptOverride: () => systemPrompt,
         appendSystemPromptOverride: () => [],
-      } as any);
+      });
       await loader.reload();
 
       const { session } = await createAgentSession({

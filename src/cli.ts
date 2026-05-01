@@ -33,6 +33,12 @@ program
 
 // === Kernel Commands (from Nezha) ===
 import { kernel } from './kernel/index.js';
+import { DatabaseClient } from './kernel/db/DatabaseClient.js';
+import { ApiKeyService } from './kernel/services/ApiKeyService.js';
+import { AgentIdentityService } from './kernel/services/AgentIdentityService.js';
+import { InterReviewService } from './kernel/services/InterReviewService.js';
+import { MeetingCommands, MeetingDbCommands } from './kernel/cli/MeetingCommands.js';
+import { resolveMeetingId } from './kernel/utils/resolve-id.js';
 
 program
   .command('task-add <title>')
@@ -220,14 +226,14 @@ program
 
 program
   .command('provider-set-key <provider>')
-  .description('Set API key for provider (encrypts with NEZHA_SECRET)')
+  .description('Set API key for provider (encrypts with PSYPI_SECRET or NEZHA_SECRET)')
   .option('--key <apiKey>', 'API key (omit for local providers like ollama)')
   .option('--model <model>', 'Model name (optional)')
   .option('--status <status>', 'Status: in_use|fallback|not_used', 'in_use')
   .action(async (provider, options) => {
     try {
-      if (!process.env.NEZHA_SECRET && options.key) {
-        console.error('❌ NEZHA_SECRET not set in environment');
+      if (!process.env.PSYPI_SECRET && !process.env.NEZHA_SECRET && options.key) {
+        console.error('❌ PSYPI_SECRET (or NEZHA_SECRET) not set in environment');
         return;
       }
       
@@ -245,7 +251,7 @@ program
         encryptedIv = encrypted.iv;
         encryptedTag = encrypted.tag;
         encryptedSalt = encrypted.salt;
-        console.log(`✅ API key encrypted with NEZHA_SECRET`);
+        console.log(`✅ API key encrypted with PSYPI_SECRET (or NEZHA_SECRET)`);
       } else {
         console.log(`⚠️  No API key provided (OK for local providers like ollama)`);
       }
@@ -507,6 +513,161 @@ program
     }
   });
 
+
+// === Inner AI Commands ===
+program
+  .command('inner <subcommand>')
+  .description('Inner AI management: set-model, model, review')
+  .action(async (subcommand) => {
+    const db = DatabaseClient.getInstance();
+    const apiKeyService = ApiKeyService.getInstance(db);
+    const args = process.argv.slice(4); // Skip: node, script, 'inner', subcommand
+    
+    if (subcommand === 'set-model') {
+      const provider = args[0];
+      const model = args[1];
+      if (!provider) {
+        const current = await apiKeyService.getCurrentInnerModel();
+        console.log(current
+          ? `Provider: ${current.provider}, Model: ${current.model}`
+          : 'No inner model provider configured');
+        return;
+      }
+      await apiKeyService.setCurrentInnerProvider(provider, model);
+      console.log(`Inner model provider set to: ${provider}${model ? ` with model '${model}'` : ''}`);
+    } else if (subcommand === 'model') {
+      const identity = await AgentIdentityService.getResolvedIdentity(true);
+      console.log(identity.id);
+    } else if (subcommand === 'review') {
+      const reviewService = await InterReviewService.create(db);
+      const currentIdentity = await AgentIdentityService.getResolvedIdentity();
+      
+      const { getGitHash, getGitBranch, getGitDiff, getLastCommitMessage } = await import('./kernel/utils/git.js');
+      const commitHash = await getGitHash();
+      const branch = await getGitBranch() || 'main';
+      const commitMessage = getLastCommitMessage() || '';
+      const diff = getGitDiff();
+      const files = diff ? diff.split('\n') : [];
+      
+      const taskMatch = commitMessage.match(/\[task:\s*([a-f0-9-]+)\]/i);
+      
+      const request = {
+        taskId: taskMatch?.[1] || undefined,
+        commitHash: commitHash || undefined,
+        branch,
+        reviewerId: currentIdentity.id,
+        context: {
+          message: commitMessage,
+          files,
+          taskDescription: taskMatch?.[1] ? `Task: ${taskMatch[1]}` : undefined,
+        },
+      };
+      
+      console.log('\n🔍 Requesting Inner AI review...\n');
+      const reviewId = await reviewService.requestReview(request, false);
+      console.log(`   Review ID: ${reviewId}`);
+      
+      console.log('\n⏳ Inner AI is reviewing your code...\n');
+      const prompt = `You are a senior code reviewer with expertise in TypeScript, Node.js, and software best practices. Be constructive and thorough. Focus on: correctness, maintainability, test coverage, and preventing loop script pollution.`;
+      const result = await reviewService.performReview(reviewId, prompt);
+      
+      console.log(`\n✅ Review completed (score: ${result.overallScore}/100)`);
+      console.log(`   Summary: ${result.summary.slice(0, 100)}...`);
+      
+      if (result.findings.filter(f => f.severity === 'critical' || f.severity === 'high').length > 0) {
+        const criticalIssues = result.findings.filter(f => f.severity === 'critical' || f.severity === 'high');
+        console.log(`\n⚠️  Found ${criticalIssues.length} critical/high severity issues:`);
+        for (const finding of criticalIssues.slice(0, 3)) {
+          console.log(`   - [${finding.severity}] ${finding.message.slice(0, 80)}`);
+        }
+        console.log('\n❌ Review failed - please fix issues before committing');
+        process.exit(1);
+      }
+      
+      console.log(`\n✅ Review passed! You can now commit with:`);
+      const msgForCommit = commitMessage || 'Update';
+      const taskPart = taskMatch ? ` [task:${taskMatch[1]}]` : '';
+      console.log(`   git commit -m "${msgForCommit}${taskPart} [inter-review:${reviewId}]"`);
+      console.log(`\n   Or use --no-verify to commit directly:`);
+      console.log(`   git commit -m "${msgForCommit}${taskPart} [inter-review:${reviewId}]" --no-verify`);
+    } else {
+      console.log('Usage: psypi inner <set-model|model|review>');
+      console.log('');
+      console.log('Commands:');
+      console.log('  set-model [provider] [model]  Set the current inner AI provider and model');
+      console.log('  model                         Show the inner AI agent ID');
+      console.log('  review                        Invoke Inner AI to review pending changes');
+    }
+  });
+// === Meeting Commands ===
+program
+  .command('meeting <subcommand>')
+  .description('Meeting management: list, show, opinion, complete, cleanup, archive')
+  .option('--limit <n>', 'Limit number of results', parseInt)
+  .option('--status <status>', 'Filter by status (active, completed, archived)')
+  .option('--days <n>', 'Number of days for cleanup/archive', parseInt)
+  .action(async (subcommand, options) => {
+    const db = DatabaseClient.getInstance();
+    const meetingCmd = new MeetingCommands({ db });
+    const args = process.argv.slice(4); // Skip: node, script, 'meeting', subcommand
+    
+    try {
+      if (subcommand === 'list') {
+        const limit = options.limit || 100;
+        const status = options.status;
+        await meetingCmd.list({ limit: Math.min(limit, 500), status: status });
+      } else if (subcommand === 'show') {
+        const meetingId = args[0];
+        if (!meetingId) {
+          console.log('Usage: psypi meeting show <id>');
+          return;
+        }
+        const resolvedId = await resolveMeetingId(DatabaseClient.getInstance(), meetingId);
+        await meetingCmd.show(resolvedId || meetingId);
+      } else if (subcommand === 'opinion') {
+        const meetingId = args[0];
+        // Get perspective (everything between meetingId and --position flag)
+        const posIdx = args.indexOf('--position');
+        const perspectiveArgs = posIdx > 0 ? args.slice(1, posIdx) : args.slice(1);
+        const perspective = perspectiveArgs.join(' ');
+        if (!meetingId || !perspective) {
+          console.log('Usage: psypi meeting opinion <meeting-id> "<perspective>" [--position support|oppose|neutral]');
+          return;
+        }
+        const position = posIdx > 0 && posIdx + 1 < args.length ? args[posIdx + 1] : undefined;
+        const validPosition = position && ['support', 'oppose', 'neutral'].includes(position) ? position as "support" | "oppose" | "neutral" : undefined;
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        const resolvedId = await resolveMeetingId(DatabaseClient.getInstance(), meetingId);
+        await meetingCmd.addOpinion(resolvedId || meetingId, identity.id, perspective, undefined, validPosition);
+      } else if (subcommand === 'complete') {
+        const meetingId = args[0];
+        const consensus = args.slice(1).join(' ') || undefined;
+        if (!meetingId) {
+          console.log('Usage: psypi meeting complete <id> [consensus]');
+          return;
+        }
+        const resolvedId = await resolveMeetingId(DatabaseClient.getInstance(), meetingId);
+        await meetingCmd.complete(resolvedId || meetingId, consensus);
+      } else if (subcommand === 'cleanup') {
+        const days = options.days || 5;
+        await meetingCmd.cleanup(days);
+      } else if (subcommand === 'archive') {
+        const days = options.days || 30;
+        await meetingCmd.archive(days);
+      } else {
+        console.log('Usage: psypi meeting <list|show|opinion|complete|cleanup|archive>');
+        console.log('  list    List meetings (--limit N, --status active|completed)');
+        console.log('  show    Show a meeting by ID');
+        console.log('  opinion Add your opinion to a meeting [--position support|oppose|neutral]');
+        console.log('  complete Complete a meeting with consensus');
+        console.log('  cleanup Cleanup old meetings (--days N, default 5)');
+        console.log('  archive Archive old meetings (--days N, default 30)');
+      }
+    } finally {
+      // Close database pool to allow process to exit
+      DatabaseClient.resetInstance();
+    }
+  });
 // === Help ===
 program
   .command('help [command]')
@@ -538,7 +699,8 @@ if (!process.argv.slice(2).length) {
     } catch (err) {
       if (err instanceof Error && 'status' in err) {
         // Pi exited with a status code
-        process.exit((err as any).status || 1);
+        const errorWithStatus = err as unknown as { status?: number };
+        process.exit(errorWithStatus.status || 1);
       }
       console.error('[psypi] Failed to launch Pi TUI:', err instanceof Error ? err.message : err);
       console.log('\nFallback: Use psypi <command> for CLI mode');

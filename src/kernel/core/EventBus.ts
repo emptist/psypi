@@ -146,7 +146,7 @@ export class EventBus {
 }
 
 // Standard event types for the system
-export const NEZHA_EVENTS = {
+export const PSYPI_EVENTS = {
   // Task lifecycle
   TASK_STARTED: 'task:started',
   TASK_COMPLETED: 'task:completed',
@@ -169,4 +169,9 @@ export const NEZHA_EVENTS = {
   HEALTH_CHECK: 'system:health:check',
 } as const;
 
-export type NezhaEventType = (typeof NEZHA_EVENTS)[keyof typeof NEZHA_EVENTS];
+// Backward compatibility
+export const NEZHA_EVENTS = PSYPI_EVENTS;
+
+export type PsypiEventType = (typeof PSYPI_EVENTS)[keyof typeof PSYPI_EVENTS];
+// Backward compatibility
+export type NezhaEventType = PsypiEventType;
