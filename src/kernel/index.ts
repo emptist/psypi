@@ -395,7 +395,18 @@ exit 0
   
   async requestReview(taskId: string, reviewerAgentId?: string) {
     const service = await this.getInterReviewService();
-    return service.requestReview(taskId, reviewerAgentId);
+    const identity = await AgentIdentityService.getResolvedIdentity();
+    const reviewerId = reviewerAgentId || identity.id;
+    
+    // Resolve short task ID to full UUID
+    const { resolveTaskId } = await import('./utils/resolve-id.js');
+    const resolvedTaskId = await resolveTaskId(this.db, taskId);
+    
+    return service.requestReview({
+      taskId: resolvedTaskId || undefined,
+      reviewerId,
+      context: {},
+    });
   }
   
   async getReview(reviewId: string) {

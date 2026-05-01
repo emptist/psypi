@@ -485,11 +485,11 @@ program
         return;
       }
       console.log(`\n📝 Inter-Review: ${reviewId}`);
-      console.log(`Task: ${review.task_id}`);
+      console.log(`Task: ${review.taskId || 'N/A'}`);
       console.log(`Status: ${review.status}`);
-      console.log(`Score: ${review.score || 'N/A'}`);
-      if (review.opinion) {
-        console.log(`\nOpinion:\n${review.opinion}`);
+      console.log(`Score: ${review.overallScore || 'N/A'}`);
+      if (review.summary) {
+        console.log(`\nSummary:\n${review.summary}`);
       }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
