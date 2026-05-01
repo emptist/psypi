@@ -8,6 +8,7 @@
 import { config } from 'dotenv';
 import { DatabaseClient } from './db/DatabaseClient.js';
 import { Config } from './config/Config.js';
+import { AgentIdentityService } from './services/AgentIdentityService.js';
 
 // Load env
 config();
@@ -25,6 +26,11 @@ export class Kernel {
     return this.db.query(text, params);
   }
   
+  private async getAgentId(): Promise<string> {
+    const identity = await AgentIdentityService.getResolvedIdentity();
+    return identity.id;
+  }
+  
   async getTasks(status?: string) {
     let query = 'SELECT * FROM tasks';
     const params: any[] = [];
@@ -37,11 +43,12 @@ export class Kernel {
   }
   
   async addTask(title: string, description: string, priority: number = 5) {
+    const agentId = await this.getAgentId();
     const result = await this.query(
       `INSERT INTO tasks (id, title, description, status, priority, category, created_by) 
-       VALUES (gen_random_uuid(), $1, $2, 'PENDING', $3, 'general', 'psypi') 
+       VALUES (gen_random_uuid(), $1, $2, 'PENDING', $3, 'general', $4) 
        RETURNING id`,
-      [title, description, priority]
+      [title, description, priority, agentId]
     );
     return result.rows[0].id;
   }
@@ -68,11 +75,12 @@ export class Kernel {
   }
   
   async addIssue(title: string, severity: string = 'medium') {
+    const agentId = await this.getAgentId();
     const result = await this.query(
       `INSERT INTO issues (id, title, severity, status, created_by) 
-       VALUES (gen_random_uuid(), $1, $2, 'open', 'psypi') 
+       VALUES (gen_random_uuid(), $1, $2, 'open', $3) 
        RETURNING id`,
-      [title, severity]
+      [title, severity, agentId]
     );
     return result.rows[0].id;
   }
