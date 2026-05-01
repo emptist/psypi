@@ -545,23 +545,40 @@ program
       const currentIdentity = await AgentIdentityService.getResolvedIdentity();
       
       const { getGitHash, getGitBranch, getGitDiff, getLastCommitMessage } = await import('./kernel/utils/git.js');
+      const { resolveTaskId, resolveIssueId } = await import('./kernel/utils/resolve-id.js');
       const commitHash = await getGitHash();
       const branch = await getGitBranch() || 'main';
       const commitMessage = getLastCommitMessage() || '';
       const diff = getGitDiff();
       const files = diff ? diff.split('\n') : [];
       
+      // Extract and resolve task/issue ID from commit message
       const taskMatch = commitMessage.match(/\[task:\s*([a-f0-9-]+)\]/i);
+      const issueMatch = commitMessage.match(/\[issue:\s*([a-f0-9-]+)\]/i);
+      
+      let taskId: string | undefined = undefined;
+      if (taskMatch && taskMatch[1]) {
+        // Try to resolve short ID to full UUID
+        const resolvedTaskId = await resolveTaskId(db, taskMatch[1]);
+        taskId = resolvedTaskId || taskMatch[1];
+      }
+      
+      let issueId: string | undefined = undefined;
+      if (issueMatch && issueMatch[1]) {
+        const resolvedIssueId = await resolveIssueId(db, issueMatch[1]);
+        issueId = resolvedIssueId || issueMatch[1];
+      }
       
       const request = {
-        taskId: taskMatch?.[1] || undefined,
+        taskId,
         commitHash: commitHash || undefined,
         branch,
         reviewerId: currentIdentity.id,
         context: {
           message: commitMessage,
           files,
-          taskDescription: taskMatch?.[1] ? `Task: ${taskMatch[1]}` : undefined,
+          taskDescription: taskId ? `Task: ${taskId}` : undefined,
+          issueDescription: issueId ? `Issue: ${issueId}` : undefined,
         },
       };
       

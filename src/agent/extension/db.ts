@@ -89,7 +89,7 @@ export async function getNezhaContext(): Promise<string | null> {
     }).trim();
     return output;
   } catch (e) {
-    console.error(`[NuPI] Failed to get nezha context: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`[PsyPI] Failed to get nezha context: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
 }
@@ -166,7 +166,7 @@ export async function registerProject(cwd: string): Promise<ProjectInfo | null> 
   );
   
   if (inserted) {
-    console.log(`[NuPI] Registered project: ${projectName} (${type}) fingerprint=${fingerprint}`);
+    console.log(`[PsyPI] Registered project: ${projectName} (${type}) fingerprint=${fingerprint}`);
   }
   
   return { fingerprint, name: projectName, type, gitRemote, path: cwd };

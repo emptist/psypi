@@ -51,7 +51,7 @@ const SESSION_ID = process.env.AGENT_SESSION_ID || 'unknown-session';
 
 if (VERBOSE) {
   console.log(`[NuPI@${GIT_HASH}] Starting in verbose mode...`);
-  console.log(`[NuPI] Session ID: ${SESSION_ID}`);
+  console.log(`[PsyPI] Session ID: ${SESSION_ID}`);
 }
 
 const LOCAL_TASK_WHITELIST = [
@@ -816,7 +816,7 @@ async function getNezhaInnerAI(): Promise<{ provider: string; model: string } | 
   
   return {
     provider: result.provider,
-    model: result.model || 'llama3.2:3b',
+    model: result.model || 'tencent/hy3-preview:free',
   };
 }
 
@@ -848,12 +848,12 @@ async function updatePiSettings(provider: string, model: string): Promise<boolea
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
     
     if (VERBOSE) {
-      console.log(`[NuPI] Updated pi settings: provider=${provider}, model=${model}`);
+      console.log(`[PsyPI] Updated pi settings: provider=${provider}, model=${model}`);
     }
     
     return true;
   } catch (e) {
-    console.error(`[NuPI] Failed to update pi settings: ${e}`);
+    console.error(`[PsyPI] Failed to update pi settings: ${e}`);
     return false;
   }
 }
@@ -933,7 +933,7 @@ export default function nupiExtension(pi: ExtensionAPI) {
         writeFileSync(fileName, `# ${skill.name}\n\n${skill.instructions}`);
         skillPaths.push(fileName);
       } catch {
-        console.error(`[NuPI] Failed to generate skill file for ${skill.name}`);
+        console.error(`[PsyPI] Failed to generate skill file for ${skill.name}`);
       }
     }
 
@@ -949,7 +949,7 @@ export default function nupiExtension(pi: ExtensionAPI) {
         writeFileSync(targetPath, doc.content);
         skillPaths.push(targetPath);
       } catch {
-        console.error(`[NuPI] Failed to generate doc file for ${doc.name}`);
+        console.error(`[PsyPI] Failed to generate doc file for ${doc.name}`);
       }
     }
 
@@ -961,7 +961,7 @@ export default function nupiExtension(pi: ExtensionAPI) {
         writeFileSync(contextPath, contextJson);
         console.log(`[NuPI resources_discover] Added nezha context JSON to ${contextPath}`);
       } catch {
-        console.error(`[NuPI] Failed to write nezha context JSON`);
+        console.error(`[PsyPI] Failed to write nezha context JSON`);
       }
     }
 
@@ -1012,10 +1012,10 @@ When user asks complex questions or asks about planning/architecture/research:
           `## ${s.name}\n${s.instructions || ''}`
         ).join('\n\n');
         systemPrompt += `\n\n## Project Onboarding Knowledge\n${skillContent}\n`;
-        console.log(`[NuPI] Loaded ${onboardingSkill.length} onboarding skill(s)`);
+        console.log(`[PsyPI] Loaded ${onboardingSkill.length} onboarding skill(s)`);
       }
     } catch (err) {
-      console.warn(`[NuPI] Failed to load onboarding skills: ${err}`);
+      console.warn(`[PsyPI] Failed to load onboarding skills: ${err}`);
     }
     
     return {
@@ -1027,7 +1027,7 @@ When user asks complex questions or asks about planning/architecture/research:
     const cwd = process.cwd();
     const projectInfo = await registerProject(cwd);
     if (projectInfo) {
-      console.log(`[NuPI] Project: ${projectInfo.name} (${projectInfo.type}) [${projectInfo.fingerprint}]`);
+      console.log(`[PsyPI] Project: ${projectInfo.name} (${projectInfo.type}) [${projectInfo.fingerprint}]`);
       
       await execSafe(
         "INSERT INTO project_visits (id, project_fingerprint, visited_at) VALUES (gen_random_uuid(), $1, NOW()) ON CONFLICT DO NOTHING",

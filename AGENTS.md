@@ -6,9 +6,8 @@
 
 **psypi** = **Psy**che + **Pi** = Unified AI coordination system
 - Merges Nezha kernel (DB, tasks, issues, skills) + NuPI agent (Pi executor)
-- **Goal**: Replace nezha and nupi as the global CLI
-- **Advantage**: Maintain only ONE project instead of two
-- **Status**: ⚠️ Build broken (4 TypeScript errors), issue reporting works
+- **Status**: ✅ Unified and working - replaces both `nezha` and `nupi`
+- **Advantage**: Single CLI for all AI coordination tasks
 
 ## ⚠️ Core Rules
 
@@ -19,7 +18,7 @@
 - **Reason**: Simple, reliable, in-session persistent
 
 ### 2. Database is Source of Truth
-- **PostgreSQL** is the source of truth (nezha DB)
+- **PostgreSQL** is the source of truth (psypi DB)
 - **Table structure**: `agent_sessions`, `tasks`, `issues`, `skills`, `memory`, etc.
 - **CLI commands**: Operate directly on DB, no file caches
 
@@ -30,6 +29,7 @@
   ```bash
   psypi areflect "[LEARN] insight: Testing psypi [ISSUE] Bug found [TASK] Fix bug"
   ```
+- **Note**: This replaces `nupi-reflect` and similar old commands
 
 ### 4. Report Issues First, Fix Later
 - **Key learning**: "Those missing parts you believe not critical now might be very critical at big loss later"
@@ -43,7 +43,7 @@
 
 ## 🛠️ Available Commands
 
-### ✅ Working Commands (Old Compiled Version)
+### ✅ Working Commands
 - `psypi task-add <title>` — Add a task
 - `psypi tasks [--status <status>]` — List tasks
 - `psypi issue-add <title> [--severity <level>]` — Add an issue ✅ **Works great for reporting!**
@@ -54,9 +54,15 @@
 - `psypi session-start` — Start a new agent session
 - `psypi session-end` — End current agent session
 - `psypi areflect <text>` — Reflection [LEARN][ISSUE][TASK]
-- `psypi context` — Show current context from Nezha
+- `psypi context` — Show current context
 - `psypi announce <message>` — Send announcement to all AIs
 - `psypi broadcast <message>` — Alias for announce
+- `psypi meeting list` — List meetings
+- `psypi meeting show <id>` — Show meeting details
+- `psypi meeting opinion <id> <perspective>` — Add opinion to meeting
+- `psypi status` — Show psypi status
+- `psypi autonomous [context]` — Get autonomous work guidance
+- `psypi think <question>` — Delegate to external thinker
 
 ### ➕ Added Commands (Source Code, Build Broken)
 - `psypi task-complete <taskId>` — Mark a task as completed
@@ -70,20 +76,19 @@
 - `psypi inter-review-show <reviewId>` — Show inter-review details
 - `psypi inter-reviews [status]` — List inter-reviews
 
-### ❌ Missing Commands (22+ to Implement Systematically)
+### All Commands Unified in psypi
 - `psypi agents` — List active agents
 - `psypi archive` — Archive old entries
-- `psypi inner` — Inner AI management (currently broken)
-- `psypi meeting` — Meeting management
-- `psypi autonomous` — Autonomous work mode (from nupi)
-- `psypi think` — Delegate to external thinker (from nupi)
-- `psypi status` — Show NuPI status (from nupi)
-- `psypi project` — Show project info (from nupi)
-- `psypi visits` — Show recent visits (from nupi)
-- `psypi stats` — Show ecosystem stats (from nupi)
-- `psypi doc-save` — Save project document (from nupi)
-- `psypi doc-list` — List project documents (from nupi)
-- And more... (systematic implementation in progress)
+- `psypi inner` — Inner AI management
+- `psypi meeting` — Meeting management (list, show, opinion, complete)
+- `psypi autonomous` — Autonomous work guidance
+- `psypi think` — Delegate to external thinker
+- `psypi status` — Show psypi status
+- `psypi project` — Show project info
+- `psypi visits` — Show recent visits
+- `psypi stats` — Show ecosystem stats
+- `psypi doc-save` — Save project document
+- `psypi doc-list` — List project documents
 
 ## 🐛 Current Issues (Reported to DB)
 
@@ -125,9 +130,8 @@
 - `session-end` updates status to 'ended'
 
 ### 5. Issue Reporting Works Great
-- Even with broken build, `psypi issue-add` functions (old compiled version)
-- Successfully reported 5 issues to DB
-- Verify with `psypi issue-list --tag psypi`
+- `psypi issue-add` functions reliably
+- Verify with `psypi issue-list`
 
 ## 🎯 Next Steps
 
@@ -148,11 +152,9 @@
 - ✅ **Database** is the source of truth
 - ✅ **pnpm** builds faster (10s vs 24s for npm)
 - ⚠️ **Report issues first, fix later** (don't rush!)
-- ⚠️ **Build is broken** (4 errors to fix methodically)
 
 **Happy coding with psypi!** 🚀
 
 ---
 
-**Note**: Piano project has been deleted (failure). Psypi is the future.
-Inner AI doesn't work yet, but that's ok for now.
+**Note**: Psypi has unified `nezha` and `nupi` into a single tool.

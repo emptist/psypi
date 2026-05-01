@@ -135,11 +135,20 @@ export class InterReviewService extends EventEmitter {
     return response.content;
   }
 
-  async requestReview(request: ReviewRequest, broadcast: boolean = true): Promise<string> {
+    async requestReview(request: ReviewRequest, broadcast: boolean = true): Promise<string> {
+    // taskId should be a full UUID or null
+    let taskId = request.taskId || null;
+    
+    // If it's not a UUID format (no dashes), set to null
+    if (taskId && !taskId.includes('-')) {
+      logger.warn(`[InterReview] Non-UUID task ID ignored: ${taskId}. Setting to null.`);
+      taskId = null;
+    }
+    
     const result = await this.db.query<{ id: string }>(
       `SELECT request_inter_review($1, $2, $3, $4, $5) as id`,
       [
-        request.taskId || null,
+        taskId,
         request.commitHash || null,
         request.branch || null,
         request.reviewerId,
