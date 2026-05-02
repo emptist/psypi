@@ -75,6 +75,7 @@ console.log(identity.id); // e.g., 'S-psypi-psypi'
 - `psypi session-end` — End current agent session
 - `psypi areflect <text>` — Reflection [LEARN][ISSUE][TASK]
 - `psypi context` — Show current context
+- `psypi commit "<message>"` — Git commit with mandatory inter-review and auto [Agent: <id>] tagging
 - `psypi announce <message>` — Send announcement to all AIs
 - `psypi broadcast <message>` — Alias for announce
 - `psypi meeting list` — List meetings

@@ -369,6 +369,50 @@ program
   });
 
 program
+  .command('my-id')
+  .description('Print current agent ID (e.g., S-psypi-psypi)')
+  .action(async () => {
+    try {
+      const identity = await AgentIdentityService.getResolvedIdentity();
+      console.log(identity.id);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+
+program
+  .command('partner-id')
+  .description('Print permanent partner AI ID (e.g., I-tencent/hy3-preview:free-psypi)')
+  .action(async () => {
+    try {
+      const identity = await AgentIdentityService.getResolvedIdentity(true);
+      console.log(identity.id);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+
+program
+  .command('my-session')
+  .description('Print current session ID (e.g., bot_xxx)')
+  .action(async () => {
+    try {
+      const identity = await AgentIdentityService.getResolvedIdentity();
+      const result = await kernel.query(
+        `SELECT id FROM agent_sessions WHERE identity_id = $1 AND status = 'alive' ORDER BY last_heartbeat DESC LIMIT 1`,
+        [identity.id]
+      );
+      if (result.rows.length > 0) {
+        console.log(result.rows[0].id);
+      } else {
+        console.log('No active session found');
+      }
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+
+program
   .command('commit <message>')
   .description('Git commit with MANDATORY inter-review (respect reviewer AI\'s work)')
   .option('--no-inter-review', 'Skip inter-review (NOT RECOMMENDED)')
