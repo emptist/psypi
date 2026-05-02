@@ -18,6 +18,8 @@
   - Available via: `process.env.AGENT_SESSION_ID`
   - Read by extension as: `SESSION_ID`
   - Meaningful: First 48 bits = timestamp (can extract creation time)
+  - **Conversation file example**: `~/.pi/agent/sessions/--Users-jk-gits-hub-tools_ai-refers-self_projects-yourPetLovesYourEyes--/2026-05-02T05-44-41-904Z_019de737-b8ae-7544-b9e0-db913f97a37d.jsonl`
+  - File format: `{timestamp}_{uuidv7}.jsonl`
 
 #### Permanent AI Partner:
 - **Agent Identity ID**: `I-tencent/hy3-preview:free-psypi` (persistent)
@@ -209,31 +211,49 @@ psypi my-session-id   # Prints: 019da0b2-fec1-7288-8920-da0b20ccc74c (Pi UUID v7
 
 ---
 
-## 📝 Files Modified/Created This Session
+### Logs & Artifacts (2026-05-02)
 
-### Created:
-- `docs/vision-permanent-ai-partner.md` - Vision document
-- `docs/session-summary-2026-05-02.md` - This file
+**Pi Session (Morning):**
+- Session ID: `019da0b2-fec1-7288-8920-da0b20ccc74c` (UUID v7)
+- Conversation: `~/.pi/agent/sessions/--Users-jk-gits-hub-tools_ai-refers-self_projects-yourPetLovesYourEyes--/2026-05-02T05-44-41-904Z_019de737-b8ae-7544-b9e0-db913f97a37d.jsonl`
 
-### Modified:
-- `AGENTS.md` - Updated with new commands, fixed build status
-- `src/cli.ts` - Added 3 new commands (my-id, partner-id, my-session)
-- `src/kernel/cli/index.ts` - Updated help text
-- `src/kernel/services/AgentIdentityService.ts` - Fixed crypto import
+**Pi Session (Evening):**
+- Session ID: `019de737-b8ae-7544-b9e0-db913f97a37d` (UUID v7)
+- New conversation started
 
-### Commits Made:
-1. `268ec1d` - Add vision document (inter-review: c0e4b11b-...)
-2. `96bf708` - Add identity/session CLI commands (inter-review: 457c81ec-...)
-3. `95ca105` - Fix crypto import, update AGENTS.md (inter-review: 0d6d5a7e-...)
+**Work Completed (Evening Session):**
+1. ✅ Cleaned up `~/.pi/agent/extensions/` (removed nezha/nupi pollution)
+   - Removed: `NEZHA_WORK.md`, `README.md` (mentioned "NuPI")
+   - Remaining (might still be nezha): `AGENTS.md`, `MEMORY.md`, `SOUL.md`, `USER.md`
+2. ✅ Started updating extension to use `ctx.ui.notify()` per Pi docs
+   - Updated `psypi-think` tool as example
+   - Pattern: Use `ctx.ui.notify(msg, type)` for user-facing TUI notifications
+   - Keep `console.log/error()` for debug messages (allowed per Pi docs)
+3. ✅ Investigated Pi TUI usage compliance
+   - Session files in `~/.pi/agent/sessions/` are created by Pi (NOT pollution)
+   - Extension files were old nezha leftovers (CLEANED)
 
-All commits include:
-- ✅ Mandatory inter-review
-- ✅ Auto `[AI:S-psypi-psypi]` tagging
-- ✅ Broadcast announcements
+**Pi TUI `ctx.ui.notify()` Pattern:**
+```typescript
+// In tool execute functions:
+execute(toolCallId, params, signal, onUpdate, ctx) {
+  // User-facing notification (appears in TUI)
+  ctx.ui.notify("Message to user", "info"); // types: info, success, error, warning
+  
+  // Debug message (visible to AI, not necessarily user)
+  console.log("[PsyPI] Debug message");
+}
+```
+
+**Key Learning:**
+- `ctx.ui.notify()` is for TUI user notifications
+- `console.log/error()` is fine for debug messages (AI-visible per Pi docs)
+- Session files are Pi's own artifacts (not pollution)
+- Extension .md files were nezha pollution (removed)
 
 ---
 
-**Session End: 2026-05-02 14:08 UTC**  
+**Session End (Evening): 2026-05-02 ~14:30 UTC**  
 **Agent**: S-psypi-psypi  
-**Pi Session**: 019da0b2-fec1-7288-8920-da0b20ccc74c  
-**Next**: Database migration, then implement the future! 🚀
+**Pi Session**: 019de737-b8ae-7544-b9e0-db913f97a37d  
+**Next**: Complete extension update, remove remaining nezha files

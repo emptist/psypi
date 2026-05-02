@@ -17,6 +17,28 @@ import { getAgentSessionService } from '../../kernel/services/AgentSessionServic
 import { DatabaseClient } from '../../kernel/db/DatabaseClient.js';
 import { kernel } from '../../kernel/index.js';
 
+/**
+ * PsyPI Extension for Pi TUI
+ * 
+ * ## Using ctx.ui.notify() for User Notifications
+ * 
+ * Per Pi documentation, use `ctx.ui.notify(message, type)` for user-facing TUI notifications:
+ * - `type` can be: "info" (default), "success", "error", "warning"
+ * - Appears in Pi TUI as a notification to the user
+ * 
+ * For debug messages visible to AI (not user), use `console.log/error()`:
+ * - These appear in Pi's debug output
+ * - Per Pi docs, console.log is fine for debug messages
+ * 
+ * ## Execute Function Signature:
+ * ```typescript
+ * async execute(toolCallId, params, signal, onUpdate, ctx) {
+ *   ctx.ui.notify("Message to user", "info");  // User notification
+ *   console.log("[PsyPI]", "Debug message");     // AI-visible debug
+ * }
+ * ```
+ */
+
 const GIT_HASH = "@@GIT_HASH@@";
 
 export interface ExternalThinker {
@@ -219,8 +241,9 @@ const psypiThinkTool = {
       description: "The question or problem needing deep thought",
     }),
   }),
-  async execute(_id: string, params: { question: string }) {
+  async execute(_toolCallId: string, params: { question: string }, _signal: AbortSignal, _onUpdate: any, ctx: any) {
     if (delegation.mode !== "delegating") {
+      ctx.ui.notify("PsyPI is in self-sufficient mode. Handle thinking yourself.", "info");
       return {
         content: [
           {
@@ -232,14 +255,15 @@ const psypiThinkTool = {
       };
     }
     try {
-      console.log(`[PsyPI psypi-think] Delegating to external thinker: ${params.question.slice(0, 50)}...`);
+      ctx.ui.notify(`Delegating to external thinker: ${params.question.slice(0, 50)}...`, "info");
       const result = await delegation.thinker.think(params.question);
-      console.log(`[PsyPI psypi-think] Got response: ${result.slice(0, 100)}...`);
+      ctx.ui.notify(`Got response: ${result.slice(0, 100)}...`, "success");
       return {
         content: [{ type: "text" as const, text: result }],
         details: { delegated: true } as Record<string, unknown>,
       };
     } catch (e) {
+      ctx.ui.notify(`External thinker failed: ${e}`, "error");
       return {
         content: [
           { type: "text" as const, text: `External thinker failed: ${e}` },
@@ -255,13 +279,14 @@ const psypiAgentIdTool = {
   label: "PsyPI Agent ID",
   description: "Get current agent identity",
   parameters: Type.Object({}),
-  async execute() {
+  async execute(_toolCallId: string, _params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) {
     const sessionId = process.env.AGENT_SESSION_ID || "unknown";
     const result = await queryOne<{ id: string; agent_type: string }>(
       "SELECT id, agent_type FROM agent_sessions WHERE id = $1",
       [sessionId]
     );
     const agentId = result?.agent_type || sessionId;
+    ctx.ui.notify(`Agent ID: ${agentId}`, "info");
     return {
       content: [{ type: "text" as const, text: `Agent ID: ${agentId}` }],
       details: { agentId },
@@ -274,8 +299,9 @@ const psypiTasksTool = {
   label: "PsyPI Check Tasks",
   description: "Check pending tasks from Nezha",
   parameters: Type.Object({}),
-  async execute() {
+  async execute(_toolCallId: string, _params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) {
     const status = await checkStartupTasks();
+    ctx.ui.notify(`Tasks checked: ${status.split('\n')[0]}`, "info");
     return {
       content: [{ type: "text" as const, text: status }],
       details: {},
@@ -357,9 +383,10 @@ const psypiMeetingSayTool = {
     reasoning: Type.Optional(Type.String({ description: "Why you hold this position" })),
     keyPoints: Type.Optional(Type.String({ description: "Key points, comma-separated" })),
   }),
-  execute: async (_toolCallId: string, params: any) => {
+  execute: async (_toolCallId: string, params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
     const meetingId = await resolveId("meetings", params.meetingId);
     if (!meetingId) {
+      ctx.ui.notify(`Meeting not found: ${params.meetingId}`, "error");
       return {
         content: [{ type: "text" as const, text: `Meeting not found: ${params.meetingId}` }],
         isError: true,
@@ -373,6 +400,7 @@ const psypiMeetingSayTool = {
     );
 
     if (!meeting) {
+      ctx.ui.notify(`Meeting not found: ${params.meetingId}`, "error");
       return {
         content: [{ type: "text" as const, text: `Meeting not found: ${params.meetingId}` }],
         isError: true,
@@ -381,6 +409,7 @@ const psypiMeetingSayTool = {
     }
 
     if (meeting.status !== "active") {
+      ctx.ui.notify(`Meeting is ${meeting.status}, not active`, "warning");
       return {
         content: [{ type: "text" as const, text: `Meeting is ${meeting.status}, not active` }],
         details: {} as Record<string, unknown>,
@@ -400,6 +429,7 @@ const psypiMeetingSayTool = {
     );
 
     if (!inserted) {
+      ctx.ui.notify("Failed to add opinion", "error");
       return {
         content: [{ type: "text" as const, text: "Failed to add opinion" }],
         isError: true,
@@ -407,6 +437,7 @@ const psypiMeetingSayTool = {
       };
     }
 
+    ctx.ui.notify(`Opinion added to "${meeting.topic}"`, "success");
     return {
       content: [{
         type: "text" as const,
@@ -424,9 +455,10 @@ const psypiMeetingSummaryTool = {
   parameters: Type.Object({
     meetingId: Type.String({ description: "Meeting ID (short 8-char prefix or full UUID)" }),
   }),
-  execute: async (_toolCallId: string, params: any) => {
+  execute: async (_toolCallId: string, params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
     const meetingId = await resolveId("meetings", params.meetingId);
     if (!meetingId) {
+      ctx.ui.notify(`Meeting not found: ${params.meetingId}`, "error");
       return {
         content: [{ type: "text" as const, text: `Meeting not found: ${params.meetingId}` }],
         details: {} as Record<string, unknown>,
@@ -439,6 +471,7 @@ const psypiMeetingSummaryTool = {
     );
 
     if (!meeting) {
+      ctx.ui.notify(`Meeting not found: ${params.meetingId}`, "error");
       return {
         content: [{ type: "text" as const, text: `Meeting not found: ${params.meetingId}` }],
         details: {} as Record<string, unknown>,
@@ -474,6 +507,7 @@ const psypiMeetingSummaryTool = {
       }
     }
 
+    ctx.ui.notify(`Meeting summary loaded: ${meeting.topic}`, "info");
     return {
       content: [{ type: "text" as const, text: summary }],
       details: { meetingId, opinionCount: opinions.length, participants: authors } as Record<string, unknown>,
@@ -902,14 +936,17 @@ const psypiAreflectTool = {
   parameters: Type.Object({
     text: Type.String({ description: "The reflection text containing [LEARN], [ISSUE], [TASK] tags" }),
   }),
-  async execute(_toolCallId: string, params: any) {
+  async execute(_toolCallId: string, params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) {
     try {
+      ctx.ui.notify("Processing reflection...", "info");
       const result = await kernel.areflect(params.text);
+      ctx.ui.notify("Reflection saved", "success");
       return {
         content: [{ type: "text" as const, text: result }],
         details: { success: true } as Record<string, unknown>,
       };
     } catch (err) {
+      ctx.ui.notify(`Error: ${err instanceof Error ? err.message : err}`, "error");
       return {
         content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : err}` }],
         details: { error: true } as Record<string, unknown>,
