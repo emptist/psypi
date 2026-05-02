@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+import * as crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import os from 'node:os';
 import fs from 'node:fs';

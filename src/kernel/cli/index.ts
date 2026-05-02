@@ -75,6 +75,11 @@ Core Commands:
   meeting discuss <t> <d>  Create AI discussion
   meeting opinion <id> <perspective> [--position support|oppose|neutral]
 
+Identity & Session Commands:
+  my-id               Print current agent ID (e.g., S-psypi-psypi)
+  partner-id          Print permanent partner AI ID (e.g., I-tencent/hy3-preview:free-psypi)
+  my-session          Print current session ID (e.g., bot_xxx)
+
 Skill Commands:
   skill list            List all approved skills
   skill show <name>     Show skill details
@@ -564,6 +569,29 @@ case 'broadcast': {
         for (const t of context.nextTasks) {
           console.log(`  [${t.priority || 5}] ${t.title} (${t.id})`);
         }
+      }
+      break;
+    }
+    case 'my-id': {
+      const identity = await AgentIdentityService.getResolvedIdentity();
+      console.log(identity.id);
+      break;
+    }
+    case 'partner-id': {
+      const identity = await AgentIdentityService.getResolvedIdentity(true);
+      console.log(identity.id);
+      break;
+    }
+    case 'my-session': {
+      const identity = await AgentIdentityService.getResolvedIdentity();
+      const result = await db.query(
+        `SELECT id FROM agent_sessions WHERE identity_id = $1 AND status = 'alive' ORDER BY last_heartbeat DESC LIMIT 1`,
+        [identity.id]
+      );
+      if (result.rows.length > 0) {
+        console.log(result.rows[0].id);
+      } else {
+        console.log('No active session found');
       }
       break;
     }

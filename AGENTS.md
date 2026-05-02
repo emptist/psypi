@@ -113,20 +113,12 @@ console.log(identity.id); // e.g., 'S-psypi-psypi'
 
 ## 🐛 Current Issues (Reported to DB)
 
-### Build-Blocking Errors (4 Total):
-1. **`f8f96dbd`**: AgentIdentityService.ts crypto import (TS1192)
-2. **`eb836ac5`**: Config.ts line 25 TS1109 Expression expected
-3. **`b8db9983`**: kernel/index.ts Set<string> needs downlevelIteration
-4. **`0ea2b844`**: cli.ts can't find exported member 'kernel'
-
-### Other Issues:
-5. **`60e140db`**: Inner AI does not work (inter-review fails)
-
 ### Resolved Issues:
 - ✅ `agent_sessions` table missing `ended_at` column → Fixed `endSession()` to use `status='ended'`
 - ✅ Import path errors → Unified to use `.js` extensions
 - ✅ Missing dependencies (`uuid`, `nodemailer`, `handlebars`) → Installed
 - ✅ TypeScript type errors (`PiSDKExecutor.ts`) → Bypassed with `as any`
+- ✅ **All 4 build-blocking TypeScript errors** → Build now succeeds (pnpm build works)
 
 ## 📚 Priority Learnings (from Psypi & Experience)
 
@@ -156,14 +148,15 @@ console.log(identity.id); // e.g., 'S-psypi-psypi'
 
 ## 🎯 Next Steps
 
-**Current priority**: Fix build errors ONE BY ONE (methodically)
+**Current priority**: Build is now ✅ CLEAN! 
 
-1. **Fix 4 TypeScript errors** (one at a time, verify each with build)
-2. **Get clean build** ✅
+1. **✅ Fix 4 TypeScript errors** → COMPLETED (build succeeds)
+2. **✅ Get clean build** → COMPLETED
 3. **Test all 17+ commands** (verify they work)
 4. **Implement missing 22+ commands** (systematically, one at a time)
 5. **Make inner AI functional** (requires DatabaseClient integration)
-6. **Deprecate nezha/nupi** (once psypi is stable)
+6. **Implement Ever-Lasting Permanent AI Partner** (see docs/vision-permanent-ai-partner.md)
+7. **Deprecate nezha/nupi** (once psypi is stable)
 
 ---
 
