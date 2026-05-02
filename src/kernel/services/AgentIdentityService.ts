@@ -53,21 +53,21 @@ export class AgentIdentityService {
     this.db = db;
   }
 
-  static async getResolvedIdentity(inner: boolean = false): Promise<AgentIdentity> {
+  static async getResolvedIdentity(permanent: boolean = false): Promise<AgentIdentity> {
     const db = DatabaseClient.getInstance();
     const service = new AgentIdentityService(db);
 
     let innerModel: string | undefined;
 
-    if (inner) {
+    // If not permanent (e.g., inner AI), resolve the inner model
+    if (!permanent) {
       innerModel = await service.resolveInnerModel();
     }
 
-    const identity = await service.resolve(inner, innerModel);
+    const identity = await service.resolve(!permanent, innerModel);
 
-    // Register session only for non-inner calls (Pi TUI), not for inner AI
-    const shouldRegisterSession = !inner;
-    if (shouldRegisterSession) {
+    // Register session only for permanent (long-running) agents
+    if (permanent) {
       const sessionService = getAgentSessionService(db);
       const source = service.detectContext().source || 'psypi';
       await sessionService.registerSession(source, identity.id);

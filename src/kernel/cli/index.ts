@@ -441,7 +441,7 @@ case 'broadcast': {
         await apiKeyService.setCurrentInnerProvider(provider, model);
         console.log(`Inner model provider set to: ${provider}${model ? ` with model '${model}'` : ''}`);
       } else if (subcmd === 'model') {
-        const identity = await AgentIdentityService.getResolvedIdentity(true);
+        const identity = await AgentIdentityService.getResolvedIdentity(false);
         console.log(identity.id);
       } else if (subcmd === 'review') {
         const reviewService = await InterReviewService.create(db);
