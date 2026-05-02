@@ -115,8 +115,9 @@ const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
   psypi areflect "[LEARN] insight: Testing psypi [ISSUE] Bug found [TASK] Fix bug"
   ```
 
-### 3. Database is Source of Truth
-- **PostgreSQL** is the source of truth (psypi DB)
+### 3. Database First
+- **PostgreSQL** is the database (psypi DB)
+- **Table of all tables**: `table_documentation`, use and maintain it
 - **Tables**: `agent_identities`, `agent_sessions`, `tasks`, `issues`, `skills`, `memory`, etc.
 - **No file caches**: Everything goes to DB
 
@@ -125,15 +126,19 @@ const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
 - **Install**: `pnpm install` (not `npm install`)
 - **Build**: `pnpm build` (not `npm run build`)
 
+### 5. Git Commit with Inter-Review
+- **psypi commit**: instead of using git commit directly
+  - `psypi commit <message>` — Git commit with mandatory inter-review
 ---
 
 ## 🐛 Current Issues (Reported to DB)
 
 ### Build Status: ✅ WORKING
 - Build succeeds with `pnpm build` (verified 2026-05-02)
+- see [PNPM_USAGE.md](docs/PNPM_USAGE.md)
 
 ### Known Issues:
-1. **Inner AI does not work** - inter-review fails (need DatabaseClient integration)
+1. **Inner AI needs to be shift to use Pi agent** - shifting will start after database migration
 2. **Tool failure tracking** - Auto-created issues from tool_result handler need cleanup
 
 **All fake bot_ session ID issues are now fixed!** (commit 42f4887)
@@ -160,7 +165,7 @@ const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
 1. ~~**Fix fake bot_ session IDs**~~ ✅ DONE (commit 42f4887)
 2. ~~**Simplify agent ID system**~~ ✅ DONE (single source of truth)
 3. **Test psypi tools** - Verify `psypi-agent-id` and `psypi-partner-id` work in Pi TUI
-4. **Make inner AI functional** - Requires DatabaseClient integration
+4. **Make inner AI agent** - Requires shift to use Pi agent
 
 **Current IDs:**
 - **My ID**: `S-psypi-psypi` (session-based, via `getResolvedIdentity()`)
@@ -173,8 +178,10 @@ const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
   - `getResolvedIdentity()` = my ID (S- prefix)
   - `getResolvedIdentity(true)` = partner ID (P- prefix)
 - ✅ **ONE SINGLE WAY** for session ID: `kernel.piSessionID()`
-- ✅ **Database** is the source of truth
+- ✅ **Database** first
 - ✅ **pnpm** builds faster (10s vs 24s for npm)
+- ✅ **psypi commit**: instead of using git commit directly
+  - `psypi commit <message>` — Git commit with mandatory inter-review
 - ⚠️ **Report issues first, fix later** (don't rush!)
 
 **Happy coding with psypi!** 🚀
