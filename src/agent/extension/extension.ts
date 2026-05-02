@@ -13,6 +13,8 @@ import { execSync } from "child_process";
 import path from "path";
 import { querySafe, queryOne, execSafe, resolveId, closePool, getNezhaContext, registerProject, detectProjectType, generateFingerprint } from "./db.js";
 import { AgentIdentityService } from '../../kernel/services/AgentIdentityService.js';
+import { getAgentSessionService } from '../../kernel/services/AgentSessionService.js';
+import { DatabaseClient } from '../../kernel/db/DatabaseClient.js';
 import { kernel } from '../../kernel/index.js';
 
 const GIT_HASH = "@@GIT_HASH@@";

@@ -53,7 +53,7 @@ export class AgentIdentityService {
     this.db = db;
   }
 
-  static async getResolvedIdentity(inner?: boolean): Promise<AgentIdentity> {
+  static async getResolvedIdentity(inner: boolean = false): Promise<AgentIdentity> {
     const db = DatabaseClient.getInstance();
     const service = new AgentIdentityService(db);
 
@@ -65,9 +65,13 @@ export class AgentIdentityService {
 
     const identity = await service.resolve(inner, innerModel);
 
-    const sessionService = getAgentSessionService(db);
-    const source = service.detectContext().source || 'psypi';
-    await sessionService.registerSession(source, identity.id);
+    // Register session only for non-inner calls (Pi TUI), not for inner AI
+    const shouldRegisterSession = !inner;
+    if (shouldRegisterSession) {
+      const sessionService = getAgentSessionService(db);
+      const source = service.detectContext().source || 'psypi';
+      await sessionService.registerSession(source, identity.id);
+    }
 
     return identity;
   }
