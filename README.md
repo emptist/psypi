@@ -28,16 +28,21 @@ psypi/
 ### pnpm (Official & Recommended)
 
 ```bash
-# Install globally using pnpm
+# Navigate to psypi directory
 cd ~/gits/hub/tools_ai/psypi
-pnpm install --global-dir /Users/jk/Library/pnpm/global/5 -g .
+
+# Build the project (required before global install)
+pnpm build
+
+# Install globally using official pnpm method
+pnpm add -g .
 
 # Test
 psypi --version
 psypi --help
 ```
 
-**Note**: pnpm uses `--global-dir` + `-g` for global installs.
+**Note**: Uses official `pnpm add -g .` command. No custom flags needed.
 
 **Build time**: pnpm ~10s vs npm ~24s 🚀
 
@@ -59,7 +64,14 @@ psypi --help
 - ✅ `psypi session-end` — End current agent session
 
 ### ✅ Identity & Session Commands (New!)
-- ✅ `psypi my-id` — Print agent identity ID (S-psypi-psypi)
+⚠️ **Mandatory Agent ID Rules (From Nezha AGENTS.md):**
+1. **No caching ever**: Agent ID must be generated dynamically via `AgentIdentityService.getResolvedIdentity()` every time it's needed
+2. **Correct ID format**: Semantic S-/G- prefixes (e.g., `S-psypi-psypi` matching S- format rule)
+3. **Session identifier**: Use `SESSION_ID` for in-session references, never `CURRENT_AI_IDENTITY`
+4. **Source of truth**: PostgreSQL `agent_sessions` table, not files/temp caches like `/tmp/psypi-context.json`
+5. **Violation penalty**: Cached ID = broken tracking system, delete all cache code immediately
+
+- ✅ `psypi my-id` — Print agent identity ID (S-psypi-psypi, dynamically generated)
 - ✅ `psypi partner-id` — Print permanent partner ID (I-tencent/hy3-preview:free-psypi)
 - ✅ `psypi my-session-id` — Print Pi session ID (UUID v7)
 

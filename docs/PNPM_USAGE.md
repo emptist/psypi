@@ -1,3 +1,7 @@
+---
+description: Guide for using pnpm package manager in psypi project
+---
+
 # pnpm Standard Usage Guide
 
 ## Overview
