@@ -15,7 +15,7 @@ We are **one project** to maintain, not two.
 ### 1. Database is Source of Truth
 - PostgreSQL is the **only** source of truth
 - No file caches, no `.nezha/` directories
-- Every state lives in `nezha` database
+- Every state lives in `psypi` database (migrated from `nezha` on 2026-05-03)
 
 ### 2. Session Identity is Simple
 - `process.env.AGENT_SESSION_ID` is the **only** identifier
@@ -43,8 +43,8 @@ We are **one project** to maintain, not two.
 psypi/
 ├── src/
 │   ├── cli.ts          # Unified CLI (commander)
-│   ├── kernel/         # Nezha core (DB, tasks, skills)
-│   ├── agent/          # NuPI core (Pi extension)
+│   ├── kernel/         # Kernel core (DB, tasks, skills)
+│   ├── agent/          # Agent core (Pi extension, autonomous work)
 │   └── shared/         # Shared types
 ├── dist/              # Compiled output
 └── package.json        # pnpm-managed

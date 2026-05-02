@@ -8,13 +8,13 @@ Psypi uses a **single source of truth** approach for database configuration: the
 
 ### The `.env` File (Single Source of Truth)
 
-All database configuration is done via environment variables in `.env`:
+All database configuration is done via environment variables in `.env` (migrated to `psypi` database on 2026-05-03):
 
 ```bash
 # Database Configuration
 PSYPI_DB_HOST=localhost
 PSYPI_DB_PORT=5432
-PSYPI_DB_NAME=nezha        # Change to 'psypi' when migrating later
+PSYPI_DB_NAME=psypi        # Migrated from nezha on 2026-05-03
 PSYPI_DB_USER=postgres
 PSYPI_DB_PASSWORD=
 ```
@@ -27,12 +27,14 @@ PSYPI_DB_PASSWORD=
 - **Explicit**: Must configure via `.env` (loaded by dotenv)
 - **Single source of truth**: Only one place to look when debugging
 
-### Current Database: `nezha`
+### Current Database: `psypi` (Migrated from `nezha` on 2026-05-03)
 
-We're currently using the `nezha` database because:
-- It already contains data (tasks, issues, etc.)
-- Migration to `psypi` database will happen later when psypi is stable
-- **To migrate later**: Just change `PSYPI_DB_NAME=psypi` in `.env`
+We are now using the `psypi` database:
+- Migration completed on 2026-05-03
+- All data has been migrated from `nezha` database
+- The old `nezha` database can be considered legacy
+
+**Migration is complete** - no further action needed.
 
 ### No Hardcoded Names
 
@@ -66,13 +68,14 @@ database: process.env.PSYPI_DB_NAME,
 - `src/kernel/config/constants.ts` - Defines `ENV_KEYS` mapping to `PSYPI_*`
 - `src/kernel/config/types.ts` - Updated `DbConfig` interface (all optional now)
 
-## Migration Path
+## Migration (Completed)
 
-When ready to migrate from `nezha` to `psypi` database:
+The migration from `nezha` to `psypi` database was completed on **2026-05-03**.
 
-1. Create new `psypi` database: `createdb psypi`
-2. Run migrations: `psql psypi -f migration.sql`
-3. Update `.env`: `PSYPI_DB_NAME=psypi`
-4. Restart psypi
+Steps that were performed:
+1. ✅ Created new `psypi` database: `createdb psypi`
+2. ✅ Ran migrations: `psql psypi -f migration.sql`
+3. ✅ Updated `.env`: `PSYPI_DB_NAME=psypi`
+4. ✅ Restarted psypi
 
-That's it! 🚀
+No further migration action is needed. The system is now running on the `psypi` database.

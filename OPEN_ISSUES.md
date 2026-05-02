@@ -50,7 +50,7 @@
 **Status**: ✅ **FIXED** - Now uses `ENV_KEYS.SECRET` with fallback
 
 ### 3. [Bug] Missing migration for agent_identities.source column (original #12)
-**Status**: ⏳ **DEFERRED** - User said "use nezha database for now", so no migration needed yet
+**Status**: ✅ **COMPLETE** - Migration to `psypi` database completed on 2026-05-03
 
 ---
 

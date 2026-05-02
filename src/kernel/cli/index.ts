@@ -46,9 +46,6 @@ const homeDir = process.env.HOME || process.env.USERPROFILE || '';
 const userConfigPaths = [
   join(homeDir, '.config', 'psypi', '.env'),
   join(homeDir, '.psypi', '.env'),
-  // Backward compatibility
-  join(homeDir, '.config', 'nezha', '.env'),
-  join(homeDir, '.nezha', '.env'),
 ];
 
 for (const configPath of userConfigPaths) {

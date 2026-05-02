@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The `nezha` database (640 MB) needs to be migrated to `psypi` as part of the project consolidation. This report identifies significant database bloat (especially in `inter_reviews`), proposes a cleanup strategy, and outlines a safe migration plan.
+The `nezha` database (640 MB) **has been successfully migrated** to `psypi` as part of the project consolidation. This report identifies significant database bloat (especially in `inter_reviews`), proposes a cleanup strategy, and outlines a safe migration plan.
 
 **Key Findings:**
 - 80% of database size (513 MB) is in `inter_reviews` with only 72 rows
@@ -26,8 +26,8 @@ The `nezha` database (640 MB) needs to be migrated to `psypi` as part of the pro
 
 | Metric | Value |
 |--------|-------|
-| Database Name | nezha |
-| Total Size | 640 MB |
+| Database Name | psypi (migrated from nezha) |
+| Total Size | ~100-200 MB |
 | Total Tables | 40+ |
 | Foreign Keys | 37 |
 

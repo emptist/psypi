@@ -30,7 +30,7 @@ Last Updated: 2026-05-01 (After Thoughtful Fixes)
 | 9 | Dual database access | medium | ✅ **FIXED** | agent/extension/db.ts uses DatabaseClient singleton |
 | 10 | Add 'archived' status to issues table | low | ❌ **NOT FIXED** | Feature request, low priority |
 | 11 | [Bug] ApiKeyService only checks NEZHA_SECRET | high | ✅ **FIXED** | Now uses `ENV_KEYS.SECRET` |
-| 12 | [Bug] Missing migration for agent_identities.source column | high | ⏳ **DEFERRED** | User said "use nezha database for now" |
+| 12 | [Bug] Missing migration for agent_identities.source column | high | ✅ **FIXED** | Migration to `psypi` completed 2026-05-03 |
 
 ---
 
@@ -215,4 +215,4 @@ ALTER TABLE issues ADD CONSTRAINT issues_status_check
 **Last Updated:** 2026-05-01
 **Build Status:** ✅ PASSING (hash: 276a2c5)
 **Architecture Status:** 🔄 IN PROGRESS (unified CLI works, dead code cleanup remaining)
-**Database Strategy:** Use nezha database for now, migrate to psypi later (thoughtful, not hasty)
+**Database Strategy:** ✅ Migrated to `psypi` database on 2026-05-03
