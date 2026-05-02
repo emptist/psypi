@@ -713,7 +713,7 @@ const psypiStatusTool = {
     ];
 
     const hooks = [
-      "resources_discover", "context", "before_agent_start", "session_start",
+      "context", "before_agent_start", "session_start",
       "tool_result", "tool_call"
     ];
 
@@ -1062,58 +1062,6 @@ export default function psypiExtension(pi: ExtensionAPI) {
   pi.registerTool(psypiSyncInnerAITool);
   pi.registerTool(psypiAreflectTool);
   pi.registerTool(psypiCommitTool);
-
-  pi.on("resources_discover", async () => {
-    const skills = await getStartupSkills();
-    const skillPaths: string[] = [];
-    const { writeFileSync, mkdirSync } = await import("fs");
-
-    for (const skill of skills) {
-      const fileName = `/tmp/psypi-skill-${skill.name}.md`;
-      try {
-        writeFileSync(fileName, `# ${skill.name}\n\n${skill.instructions}`);
-        skillPaths.push(fileName);
-      } catch {
-        console.error(`[PsyPI] Failed to generate skill file for ${skill.name}`);
-      }
-    }
-
-    const docs = await querySafe<{ name: string; content: string; file_path: string }>(
-      "SELECT name, content, file_path FROM project_docs WHERE status = 'current' ORDER BY priority DESC"
-    );
-
-    for (const doc of docs) {
-      try {
-        const targetPath = doc.file_path || `/tmp/psypi-doc-${doc.name}.md`;
-        const dir = targetPath.substring(0, targetPath.lastIndexOf("/"));
-        try { mkdirSync(dir, { recursive: true }); } catch {}
-        writeFileSync(targetPath, doc.content);
-        skillPaths.push(targetPath);
-      } catch {
-        console.error(`[PsyPI] Failed to generate doc file for ${doc.name}`);
-      }
-    }
-
-    // Add nezha structured context as JSON resource (not in skillPaths)
-    const contextJson = await getNezhaContext();
-    if (contextJson) {
-      try {
-        const contextPath = "/tmp/psypi-context.json";
-        writeFileSync(contextPath, contextJson);
-        console.log(`[PsyPI resources_discover] Added nezha context JSON to ${contextPath}`);
-      } catch {
-        console.error(`[PsyPI] Failed to write nezha context JSON`);
-      }
-    }
-
-    if (skillPaths.length > 0) {
-      console.log(`[PsyPI resources_discover] Generated ${skillPaths.length} resource files (${skills.length} skills, ${docs.length} docs)`);
-    }
-
-    return {
-      skillPaths,
-    };
-  });
 
   pi.on("before_agent_start", async (_event: BeforeAgentStartEvent) => {
     let systemPrompt = await buildNezhaPrompt();
