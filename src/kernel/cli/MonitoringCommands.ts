@@ -140,7 +140,7 @@ export class MonitoringCommands {
       return;
     }
     const newTaskId = crypto.randomUUID();
-    const createdBy = process.env[ENV_KEYS.AGENT_NAME] || process.env.NEZHA_AGENT_NAME || 'human';
+    const createdBy = process.env[ENV_KEYS.AGENT_NAME] || process.env[ENV_KEYS.AGENT_NAME] || 'human';
 
     await this.db.query(
       `INSERT INTO tasks (id, title, description, status, priority, error, created_by)
@@ -462,7 +462,7 @@ export class MonitoringCommands {
 
     console.log(colors.bright, `Retrying ${dlqItems.rows.length} DLQ items...\n`);
     let successCount = 0;
-    const createdBy = process.env[ENV_KEYS.AGENT_NAME] || process.env.NEZHA_AGENT_NAME || 'system';
+    const createdBy = process.env[ENV_KEYS.AGENT_NAME] || process.env[ENV_KEYS.AGENT_NAME] || 'system';
 
     for (const item of dlqItems.rows) {
       try {
@@ -520,7 +520,7 @@ export class MonitoringCommands {
 
     console.log(colors.bright, `\nCreating improvement tasks from ${insights.rows.length} failure patterns...\n`);
     const taskIds: string[] = [];
-    const createdBy = process.env[ENV_KEYS.AGENT_NAME] || process.env.NEZHA_AGENT_NAME || 'system';
+    const createdBy = process.env[ENV_KEYS.AGENT_NAME] || process.env[ENV_KEYS.AGENT_NAME] || 'system';
 
     for (const insight of insights.rows) {
       const taskId = crypto.randomUUID();

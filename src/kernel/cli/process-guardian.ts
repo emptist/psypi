@@ -17,7 +17,7 @@
  *   PSYPI_GUARDIAN_STALE                 - Comma-separated stale process patterns
  *   PSYPI_GUARDIAN_MAX_INSTANCES        - Comma-separated "process:max" pairs
  *
- * Backward compatible: NEZHA_GUARDIAN_* env vars also work
+ * Backward compatible: PSYPI_GUARDIAN_* env vars also work
  *
  * Example:
  *   PSYPI_GUARDIAN_INTERVAL_MS=30000 PSYPI_GUARDIAN_ALLOWED="psypi start" npx ts-node src/cli/process-guardian.ts run
@@ -27,8 +27,8 @@ import { execSync } from 'child_process';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 
 const PROCESS_PID_FILE = '/tmp/psypi-guardian.pid';
-const GUARDIAN_INTERVAL_MS = parseInt(process.env.PSYPI_GUARDIAN_INTERVAL_MS || process.env.NEZHA_GUARDIAN_INTERVAL_MS || '60000', 10);
-const STALE_THRESHOLD_MS = parseInt(process.env.PSYPI_GUARDIAN_STALE_THRESHOLD_MS || process.env.NEZHA_GUARDIAN_STALE_THRESHOLD_MS || '3600000', 10);
+const GUARDIAN_INTERVAL_MS = parseInt(process.env.PSYPI_GUARDIAN_INTERVAL_MS || process.env.PSYPI_GUARDIAN_INTERVAL_MS || '60000', 10);
+const STALE_THRESHOLD_MS = parseInt(process.env.PSYPI_GUARDIAN_STALE_THRESHOLD_MS || process.env.PSYPI_GUARDIAN_STALE_THRESHOLD_MS || '3600000', 10);
 
 interface GuardianConfig {
   allowedProcesses: string[];
@@ -56,18 +56,18 @@ function parseDictEnv(key: string, defaultValue: Record<string, number>): Record
 
 function getConfig(): GuardianConfig {
   return {
-    allowedProcesses: parseListEnv('NEZHA_GUARDIAN_ALLOWED', [
+    allowedProcesses: parseListEnv('PSYPI_GUARDIAN_ALLOWED', [
       'dist/cli/index.js start',
       'dist/cli/process-guardian.js',
       'dist/cli/psypi-cli.js daemon',
     ]),
-    staleProcesses: parseListEnv('NEZHA_GUARDIAN_STALE', [
+    staleProcesses: parseListEnv('PSYPI_GUARDIAN_STALE', [
       'auto-dev.js',
       'self-optimize.js',
       'collaborate.js',
       'daemon',
     ]),
-    maxInstances: parseDictEnv('NEZHA_GUARDIAN_MAX_INSTANCES', {
+    maxInstances: parseDictEnv('PSYPI_GUARDIAN_MAX_INSTANCES', {
       'dist/cli/index.js start': 1,
       'dist/cli/process-guardian.js': 1,
       'dist/cli/psypi-cli.js daemon': 1,

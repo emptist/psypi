@@ -29,9 +29,9 @@ export class EncryptionService {
   }
 
   private getSecret(): string {
-    const secret = process.env[ENV_KEYS.SECRET] || process.env.NEZHA_SECRET;
+    const secret = process.env[ENV_KEYS.SECRET];
     if (!secret) {
-      throw new Error('PSYPI_SECRET (or NEZHA_SECRET) not set in .env file');
+      throw new Error('PSYPI_SECRET not set in .env file');
     }
     return secret;
   }

@@ -46,7 +46,7 @@ export class TaskEncryptionService {
   }
 
   async storeTaskResult(taskId: string, result: Record<string, unknown>): Promise<void> {
-    if (!process.env.NEZHA_SECRET) {
+    if (!process.env.PSYPI_SECRET) {
       await this.storeTaskResultPlain(taskId, result);
       return;
     }
@@ -112,7 +112,7 @@ export class TaskEncryptionService {
       return null;
     }
 
-    if (!process.env.NEZHA_SECRET) {
+    if (!process.env.PSYPI_SECRET) {
       return row.result ? JSON.parse(row.result) : null;
     }
 

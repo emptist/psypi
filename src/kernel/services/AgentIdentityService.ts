@@ -80,8 +80,8 @@ export class AgentIdentityService {
   }
 
   private detectContext(permanent?: boolean, model?: string) {
-    const source = process.env.PSYPI_AGENT_SOURCE || process.env.NEZHA_AGENT_SOURCE || 'psypi';
-    const sessionId = process.env.AGENT_SESSION_ID || process.env.NEZHA_SESSION_ID || undefined;
+    const source = process.env.PSYPI_AGENT_SOURCE || process.env.PSYPI_AGENT_SOURCE || 'psypi';
+    const sessionId = process.env.AGENT_SESSION_ID || process.env.AGENT_SESSION_ID || undefined;
 
     return {
       project: this.getProjectName(),

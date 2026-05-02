@@ -209,7 +209,7 @@ program
   .option('--status <status>', 'Status: in_use|fallback|not_used', 'in_use')
   .action(async (provider, options) => {
     try {
-      if (!process.env.PSYPI_SECRET && !process.env.NEZHA_SECRET && options.key) {
+      if (!process.env.PSYPI_SECRET && !process.env.PSYPI_SECRET && options.key) {
         console.error('❌ PSYPI_SECRET (or NEZHA_SECRET) not set in environment');
         return;
       }

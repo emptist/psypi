@@ -127,6 +127,7 @@ async function getSystemPrompts(): Promise<string> {
 
 let turnCount = 0;
 let fileChangeCount = 0;
+let agentIdentity: string | null = null;
 
 async function checkStartupTasks(): Promise<string> {
   try {
@@ -1077,15 +1078,6 @@ When user asks complex questions or asks about planning/architecture/research:
 `;
     }
     
-    // Inject agent identity
-    const sessionID = await kernel.piSessionID();
-    const agentResult = await queryOne<{ id: string; agent_type: string }>(
-      "SELECT id, agent_type FROM agent_sessions WHERE id = $1",
-      [sessionID]
-    );
-    const agentId = agentResult?.agent_type || sessionID;
-    systemPrompt += `\n\n## Agent Identity\nYour Agent ID: ${agentId}\n`;
-    
     // Inject structured nezha context into prompt
     const contextJson = await getNezhaContext();
     if (contextJson) {
@@ -1132,6 +1124,19 @@ When user asks complex questions or asks about planning/architecture/research:
 
     const taskStatus = checkStartupTasks();
     console.log(`[PsyPI Startup] ${taskStatus}`);
+
+    // Inject agent identity now that session is started and AGENT_SESSION_ID is set
+    try {
+      const sessionID = await kernel.piSessionID();
+      const agentResult = await queryOne<{ id: string; agent_type: string }>(
+        "SELECT id, agent_type FROM agent_sessions WHERE id = $1",
+        [sessionID]
+      );
+      agentIdentity = agentResult?.agent_type || sessionID;
+      console.log(`[PsyPI] Agent identity set: ${agentIdentity}`);
+    } catch (err) {
+      console.error(`[PsyPI] Failed to get agent identity in session_start: ${err}`);
+    }
   });
 
   pi.on("tool_result", async (event: ToolResultEvent) => {
@@ -1246,7 +1251,20 @@ When user asks complex questions or asks about planning/architecture/research:
       allSkills.push(...keywordSkills);
     }
 
-    if (allSkills.length === 0) return;
+    if (allSkills.length === 0) {
+      // Still inject agent identity if available
+      if (agentIdentity) {
+        const identityMsg = {
+          role: "user" as const,
+          content: `[PsyPI Context] Agent Identity: Your Agent ID is ${agentIdentity}`,
+          timestamp: Date.now(),
+        };
+        return {
+          messages: [...event.messages, identityMsg],
+        };
+      }
+      return;
+    }
 
     const skillContext = allSkills
       .map(s => `## Skill: ${s.name}\n${s.instructions.slice(0, 600)}`)
@@ -1258,8 +1276,18 @@ When user asks complex questions or asks about planning/architecture/research:
       timestamp: Date.now(),
     };
 
+    // Add agent identity if available
+    const messagesToAdd = [contextMsg];
+    if (agentIdentity) {
+      messagesToAdd.push({
+        role: "user" as const,
+        content: `[PsyPI Context] Agent Identity: Your Agent ID is ${agentIdentity}`,
+        timestamp: Date.now(),
+      });
+    }
+
     return {
-      messages: [...event.messages, contextMsg],
+      messages: [...event.messages, ...messagesToAdd],
     };
   });
 

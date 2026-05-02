@@ -103,22 +103,10 @@ export const ENV_KEYS = {
   HEALTH_PORT: 'PSYPI_HEALTH_PORT',
 } as const;
 
-// Backward-compatible env var helper
-// Checks new PSYPI_* first, then falls back to old NEZHA_*
+// Environment variable helper
+// PSYPI_* vars are the single source of truth (migration from NEZHA_* complete)
 export function getEnvVar(key: string, fallback?: string): string | undefined {
-  // If key is already a PSYPI_* or NEZHA_* value, use it directly
-  if (key.startsWith('PSYPI_') && process.env[key] !== undefined) {
-    return process.env[key];
-  }
-  
-  // Check for NEZHA_ equivalent
-  if (key.startsWith('PSYPI_')) {
-    const nezhaKey = key.replace('PSYPI_', 'NEZHA_');
-    if (process.env[nezhaKey] !== undefined) {
-      return process.env[nezhaKey];
-    }
-  }
-  
+  // Direct lookup - no fallback to NEZHA_* (migration complete)
   return process.env[key] || fallback;
 }
 

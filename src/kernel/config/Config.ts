@@ -4,7 +4,7 @@ import {
   type MemoryConfig,
   type HealthConfig,
   type EmbeddingConfig,
-  type NezhaConfig,
+  type PsypiConfig,
   type IConfig,
   type TransportConfig,
 } from './types.js';
@@ -17,7 +17,7 @@ import {
   ENV_DEFAULT,
   OPENCODE_API,
 } from './constants.js';
-import { loadYamlConfig, type NezhaYamlConfig } from './YamlConfigLoader.js';
+import { loadYamlConfig, type PsypiYamlConfig } from './YamlConfigLoader.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -39,9 +39,9 @@ function parseIntEnv(value: string | undefined, defaultValue: number, key: strin
 export async function resolveAgentIdAsync(
   config: IConfig
 ): Promise<{ id: string; displayName?: string }> {
-  const envAgentId = process.env[ENV_KEYS.AGENT_ID] || process.env.NEZHA_AGENT_ID;
+  const envAgentId = process.env[ENV_KEYS.AGENT_ID] || process.env.PSYPI_AGENT_ID;
   if (envAgentId && envAgentId.trim()) {
-    const displayName = process.env[ENV_KEYS.AGENT_NAME] || process.env.NEZHA_AGENT_NAME;
+    const displayName = process.env[ENV_KEYS.AGENT_NAME] || process.env.PSYPI_AGENT_NAME;
     return {
       id: envAgentId,
       displayName: displayName || undefined,
@@ -60,9 +60,9 @@ export async function resolveAgentIdAsync(
 
 // Sync wrapper - returns env var or empty (async resolution should be used for real ID)
 function loadOrCreateAgentId(): { id: string; displayName?: string } {
-  const envAgentId = process.env[ENV_KEYS.AGENT_ID] || process.env.NEZHA_AGENT_ID;
+  const envAgentId = process.env[ENV_KEYS.AGENT_ID] || process.env.PSYPI_AGENT_ID;
   if (envAgentId && envAgentId.trim()) {
-    const displayName = process.env[ENV_KEYS.AGENT_NAME] || process.env.NEZHA_AGENT_NAME;
+    const displayName = process.env[ENV_KEYS.AGENT_NAME] || process.env.PSYPI_AGENT_NAME;
     return {
       id: envAgentId,
       displayName: displayName || undefined,
@@ -77,7 +77,7 @@ function loadOrCreateAgentId(): { id: string; displayName?: string } {
 
 export class Config implements IConfig {
   private static instance: Config | null = null;
-  private readonly config: NezhaConfig;
+  private readonly config: PsypiConfig;
 
   private constructor() {
     this.config = this.loadConfig();
@@ -94,7 +94,7 @@ export class Config implements IConfig {
     Config.instance = null;
   }
 
-  private loadConfig(): NezhaConfig {
+  private loadConfig(): PsypiConfig {
     const yamlResult = loadYamlConfig();
     const yamlConfig = yamlResult.config;
 
@@ -124,7 +124,7 @@ export class Config implements IConfig {
     };
   }
 
-  private loadDbConfig(yaml?: NezhaYamlConfig): DbConfig {
+  private loadDbConfig(yaml?: PsypiYamlConfig): DbConfig {
     return {
       host: process.env[ENV_KEYS.DB_HOST],
       port: process.env[ENV_KEYS.DB_PORT] ? parseInt(process.env[ENV_KEYS.DB_PORT]!) : undefined,
@@ -137,7 +137,7 @@ export class Config implements IConfig {
     };
   }
 
-  private loadTaskConfig(yaml?: NezhaYamlConfig): TaskConfig {
+  private loadTaskConfig(yaml?: PsypiYamlConfig): TaskConfig {
     return {
       heartbeatIntervalMs: parseIntEnv(
         process.env[ENV_KEYS.HEARTBEAT_INTERVAL] || process.env.HEARTBEAT_INTERVAL_MS,
@@ -174,10 +174,10 @@ export class Config implements IConfig {
     };
   }
 
-  private loadHealthConfig(yaml?: NezhaYamlConfig): HealthConfig {
+  private loadHealthConfig(yaml?: PsypiYamlConfig): HealthConfig {
     return {
       port: parseIntEnv(
-        process.env[ENV_KEYS.HEALTH_PORT] || process.env.NEZHA_HEALTH_PORT,
+        process.env[ENV_KEYS.HEALTH_PORT] || process.env.PSYPI_HEALTH_PORT,
         yaml?.health?.port || 4097,
         'PSYPI_HEALTH_PORT / NEZHA_HEALTH_PORT'
       ),
@@ -185,7 +185,7 @@ export class Config implements IConfig {
     };
   }
 
-  private loadEmbeddingConfig(yaml?: NezhaYamlConfig): EmbeddingConfig | undefined {
+  private loadEmbeddingConfig(yaml?: PsypiYamlConfig): EmbeddingConfig | undefined {
     const provider = process.env[ENV_KEYS.EMBEDDING_PROVIDER] || yaml?.embedding?.provider;
     if (!provider) {
       return undefined;
@@ -256,7 +256,7 @@ export class Config implements IConfig {
     return OPENCODE_API.DEFAULT_PORT;
   }
 
-  private loadTransportConfig(yaml?: NezhaYamlConfig): TransportConfig {
+  private loadTransportConfig(yaml?: PsypiYamlConfig): TransportConfig {
     const envUrl = process.env[ENV_KEYS.OPENCODE_API_URL];
     const yamlUrl = yaml?.transport?.opencodeApiUrl;
 

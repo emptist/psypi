@@ -1,4 +1,4 @@
-// Prometheus-style metrics for Nezha
+// Prometheus-style metrics for Psypi
 
 import { logger } from '../utils/logger.js';
 
@@ -260,39 +260,39 @@ export function createStandardMetrics() {
   return {
     // Task duration histogram (in seconds)
     taskDurationSeconds: registry.histogram(
-      'nezha_task_duration_seconds',
+      'psypi_task_duration_seconds',
       'Task execution duration in seconds',
       [0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300]
     ),
 
     // Tasks total counter by status
-    tasksTotal: registry.counter('nezha_tasks_total', 'Total number of tasks processed'),
+    tasksTotal: registry.counter('psypi_tasks_total', 'Total number of tasks processed'),
 
     // Worker utilization gauge (0-1)
     workerUtilization: registry.gauge(
-      'nezha_worker_utilization',
+      'psypi_worker_utilization',
       'Current worker utilization (0-1)'
     ),
 
     // Active tasks gauge
-    activeTasks: registry.gauge('nezha_active_tasks', 'Number of currently running tasks'),
+    activeTasks: registry.gauge('psypi_active_tasks', 'Number of currently running tasks'),
 
     // Queue size gauge
-    queueSize: registry.gauge('nezha_queue_size', 'Number of pending tasks in queue'),
+    queueSize: registry.gauge('psypi_queue_size', 'Number of pending tasks in queue'),
 
     // Heartbeat interval gauge
     heartbeatDurationSeconds: registry.histogram(
-      'nezha_heartbeat_duration_seconds',
+      'psypi_heartbeat_duration_seconds',
       'Heartbeat loop duration in seconds'
     ),
 
     // Memory usage gauge (bytes)
-    memoryUsageBytes: registry.gauge('nezha_memory_usage_bytes', 'Process memory usage in bytes'),
+    memoryUsageBytes: registry.gauge('psypi_memory_usage_bytes', 'Process memory usage in bytes'),
   };
 }
 
 // Agent-specific metrics factory
-export function createAgentMetrics(prefix: string = 'nezha_agent') {
+export function createAgentMetrics(prefix: string = 'psypi_agent') {
   const registry = getMetricsRegistry();
 
   return {

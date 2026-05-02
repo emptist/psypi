@@ -33,7 +33,7 @@ export interface EmbeddingConfig {
   apiUrl?: string;
 }
 
-export interface NezhaConfig {
+export interface PsypiConfig {
   db: DbConfig;
   task: TaskConfig;
   memory: MemoryConfig;

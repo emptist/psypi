@@ -3,7 +3,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export interface NezhaYamlConfig {
+export interface PsypiYamlConfig {
   database?: {
     host?: string;
     port?: number;
@@ -44,13 +44,13 @@ export interface NezhaYamlConfig {
 
 export class YamlConfigLoader {
   private configPath: string;
-  private config: NezhaYamlConfig | null = null;
+  private config: PsypiYamlConfig | null = null;
 
   constructor(configPath?: string) {
     this.configPath = configPath || path.join(process.cwd(), 'config.yaml');
   }
 
-  load(): NezhaYamlConfig {
+  load(): PsypiYamlConfig {
     if (this.config) {
       return this.config;
     }
@@ -67,7 +67,7 @@ export class YamlConfigLoader {
     return this.config || {};
   }
 
-  private parseYaml(content: string): NezhaYamlConfig {
+  private parseYaml(content: string): PsypiYamlConfig {
     // Simple YAML parser for our config format
     const result: Record<string, unknown> = {};
     const lines = content.split('\n');
@@ -113,7 +113,7 @@ export class YamlConfigLoader {
       }
     }
 
-    return result as NezhaYamlConfig;
+    return result as PsypiYamlConfig;
   }
 
   private parseValue(value: string): unknown {
@@ -153,7 +153,7 @@ export class YamlConfigLoader {
   }
 
   // Merge with environment variables (env takes precedence)
-  mergeWithEnv(config: NezhaYamlConfig): NezhaYamlConfig {
+  mergeWithEnv(config: PsypiYamlConfig): PsypiYamlConfig {
     const merged = { ...config };
 
     // Database env overrides
@@ -203,7 +203,7 @@ export class YamlConfigLoader {
     return merged;
   }
 
-  validate(config: NezhaYamlConfig): { valid: boolean; errors: string[] } {
+  validate(config: PsypiYamlConfig): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
 
     // Database validation
@@ -235,7 +235,7 @@ export function getYamlConfigLoader(configPath?: string): YamlConfigLoader {
   return configLoader;
 }
 
-export function loadYamlConfig(): { config: NezhaYamlConfig; valid: boolean; errors: string[] } {
+export function loadYamlConfig(): { config: PsypiYamlConfig; valid: boolean; errors: string[] } {
   const loader = getYamlConfigLoader();
   const config = loader.load();
   const merged = loader.mergeWithEnv(config);
