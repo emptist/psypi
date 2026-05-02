@@ -1302,7 +1302,7 @@ program
     }
   });
 
-// Check if no arguments → launch Pi TUI (like nupi)
+// Check if no arguments → launch Pi TUI (psypi unified mode)
 if (!process.argv.slice(2).length) {
   // Dynamic import to avoid top-level await issues
   (async () => {
@@ -1313,7 +1313,7 @@ if (!process.argv.slice(2).length) {
       const extensionPath = extensionUrl.pathname;
       
       console.log('[psypi] Launching Pi TUI with Nezha Inside™...');
-      // Launch Pi with psypi extension (like nupi does)
+      // Launch Pi with psypi extension (unified mode)
       execSync(`pi -e "${extensionPath}"`, { 
         stdio: 'inherit',
         env: { ...process.env, PSYPI_EXTENSION: extensionPath }

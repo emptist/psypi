@@ -44,7 +44,7 @@ export function unregisterThinker(): void {
   delegation = { mode: "self-sufficient" };
 }
 
-const VERBOSE = process.env.NUPI_VERBOSE === 'true' || process.env.NODE_ENV !== 'production';
+const VERBOSE = process.env.PSYPI_VERBOSE === 'true' || process.env.NODE_ENV !== 'production';
 
 // ✅ Pi session ID - the ONLY in-session identifier
 const SESSION_ID = process.env.AGENT_SESSION_ID || 'unknown-session';
@@ -164,7 +164,7 @@ function getModeLabel(): string {
 
 function getModeGuidance(): string {
   return delegation.mode === "delegating"
-    ? "Use 'nupi-think' or 'piano_think' tool to delegate complex reasoning to external thinker."
+    ? "Use 'psypi-think' or 'piano_think' tool to delegate complex reasoning to external thinker."
     : "You handle thinking yourself.";
 }
 
@@ -176,7 +176,7 @@ async function buildNezhaPrompt(): Promise<string> {
 
   return `
 ## Nezha Inside™
-psypi = nupi + Nezha kernel bundled inside (self-contained):
+psypi = psypi + Nezha kernel bundled inside (self-contained):
 - Tasks: kernel.addTask() or 'psypi task-add <title>' 
 - Issues: kernel.addIssue() or 'psypi issue-add <title>'
 - View: 'psypi tasks' or 'psypi issue-list' to see existing work
@@ -195,10 +195,10 @@ ${systemPrompts || "No additional system prompts configured."}
 
 ## Autonomous Mode
 When working autonomously:
-1. Use 'nupi-tasks' to check pending tasks (calls kernel.getTasks() directly)
-2. Use 'nupi-think' for complex analysis
+1. Use 'psypi-tasks' to check pending tasks (calls kernel.getTasks() directly)
+2. Use 'psypi-think' for complex analysis
 3. Create issues with kernel.addIssue() for problems encountered
-4. Log progress via 'nupi-learn' for knowledge retention
+4. Log progress via 'psypi-areflect' for knowledge retention
 
 💡 Pro tip: You can extend this extension with Pi hooks at ~/.pi/agent/extensions/ for custom reminders, automation, or context injection.
 
@@ -230,9 +230,9 @@ const psypiThinkTool = {
       };
     }
     try {
-      console.log(`[PsyPI nupi-think] Delegating to external thinker: ${params.question.slice(0, 50)}...`);
+      console.log(`[PsyPI psypi-think] Delegating to external thinker: ${params.question.slice(0, 50)}...`);
       const result = await delegation.thinker.think(params.question);
-      console.log(`[PsyPI nupi-think] Got response: ${result.slice(0, 100)}...`);
+      console.log(`[PsyPI psypi-think] Got response: ${result.slice(0, 100)}...`);
       return {
         content: [{ type: "text" as const, text: result }],
         details: { delegated: true } as Record<string, unknown>,
@@ -316,7 +316,7 @@ ${taskList}
 
 Recommended immediate actions:
 1. Focus on highest priority task first
-2. Use 'nupi-think' for complex analysis
+2. Use 'psypi-think' for complex analysis
 3. Break down large tasks if needed${params.context ? `\n4. Current context: ${params.context}` : ""}`;
         return {
           content: [{ type: "text" as const, text: guidance }],
@@ -330,7 +330,7 @@ ${taskList}
 
 Suggested workflow:
 1. Pick a task that matches your current context
-2. Use 'nupi-think' for analysis
+2. Use 'psypi-think' for analysis
 3. Update task status as you progress${params.context ? `\n\nCurrent context: ${params.context}` : ""}`;
       return {
         content: [{ type: "text" as const, text: guidance }],
@@ -971,7 +971,7 @@ export default function psypiExtension(pi: ExtensionAPI) {
     const { writeFileSync, mkdirSync } = await import("fs");
 
     for (const skill of skills) {
-      const fileName = `/tmp/nupi-skill-${skill.name}.md`;
+      const fileName = `/tmp/psypi-skill-${skill.name}.md`;
       try {
         writeFileSync(fileName, `# ${skill.name}\n\n${skill.instructions}`);
         skillPaths.push(fileName);
@@ -986,7 +986,7 @@ export default function psypiExtension(pi: ExtensionAPI) {
 
     for (const doc of docs) {
       try {
-        const targetPath = doc.file_path || `/tmp/nupi-doc-${doc.name}.md`;
+        const targetPath = doc.file_path || `/tmp/psypi-doc-${doc.name}.md`;
         const dir = targetPath.substring(0, targetPath.lastIndexOf("/"));
         try { mkdirSync(dir, { recursive: true }); } catch {}
         writeFileSync(targetPath, doc.content);
@@ -1000,7 +1000,7 @@ export default function psypiExtension(pi: ExtensionAPI) {
     const contextJson = await getNezhaContext();
     if (contextJson) {
       try {
-        const contextPath = "/tmp/nupi-context.json";
+        const contextPath = "/tmp/psypi-context.json";
         writeFileSync(contextPath, contextJson);
         console.log(`[PsyPI resources_discover] Added nezha context JSON to ${contextPath}`);
       } catch {
@@ -1026,7 +1026,7 @@ export default function psypiExtension(pi: ExtensionAPI) {
       systemPrompt += `\n\n## Delegation Mode Active
 You have access to an external thinker (${thinkerName}). 
 When user asks complex questions or asks about planning/architecture/research:
-- Use 'nupi-think' or 'piano_think' tool to delegate thinking
+- Use 'psypi-think' or 'piano_think' tool to delegate thinking
 - Or return control and let the system delegate automatically
 `;
     }
@@ -1142,7 +1142,7 @@ When user asks complex questions or asks about planning/architecture/research:
 
       return {
         block: true,
-        reason: `Auto-delegating ${toolName} to external thinker. Use piano_think or nupi-think for complex tasks.`,
+        reason: `Auto-delegating ${toolName} to external thinker. Use piano_think or psypi-think for complex tasks.`,
       };
     }
 
