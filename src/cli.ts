@@ -731,7 +731,7 @@ program
       await apiKeyService.setCurrentInnerProvider(provider, model);
       console.log(`Inner model provider set to: ${provider}${model ? ` with model '${model}'` : ''}`);
     } else if (subcommand === 'model') {
-      const identity = await AgentIdentityService.getResolvedIdentity(false);
+      const identity = await AgentIdentityService.getResolvedIdentity(true);
       console.log(identity.id);
     } else if (subcommand === 'review') {
       const reviewService = await InterReviewService.create(db);
