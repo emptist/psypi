@@ -78,7 +78,7 @@ Core Commands:
 Identity & Session Commands:
   my-id               Print current agent ID (e.g., S-psypi-psypi)
   partner-id          Print permanent partner AI ID (e.g., I-tencent/hy3-preview:free-psypi)
-  my-session          Print current session ID (e.g., bot_xxx)
+  my-session-id       Print Pi session ID (UUID v7, e.g., 019da0b2-...)
 
 Skill Commands:
   skill list            List all approved skills

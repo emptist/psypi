@@ -393,20 +393,13 @@ program
   });
 
 program
-  .command('my-session')
-  .description('Print current session ID (e.g., bot_xxx)')
+  .command('my-session-id')
+  .description('Print Pi session ID (UUID v7, e.g., 019da0b2-...)')
   .action(async () => {
     try {
-      const identity = await AgentIdentityService.getResolvedIdentity();
-      const result = await kernel.query(
-        `SELECT id FROM agent_sessions WHERE identity_id = $1 AND status = 'alive' ORDER BY last_heartbeat DESC LIMIT 1`,
-        [identity.id]
-      );
-      if (result.rows.length > 0) {
-        console.log(result.rows[0].id);
-      } else {
-        console.log('No active session found');
-      }
+      // Pi session ID is provided by Pi TUI via environment variable
+      const sessionId = process.env.AGENT_SESSION_ID || 'unknown-session';
+      console.log(sessionId);
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     }
