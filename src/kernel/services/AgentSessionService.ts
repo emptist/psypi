@@ -40,6 +40,28 @@ export class AgentSessionService {
     try {
       await client.query('BEGIN');
 
+      // Check if there's an existing alive session for this agent type that we can reuse
+      // This prevents creating new sessions every time the CLI is invoked
+      const existingSession = await client.query<{ id: string }>(
+        `SELECT id FROM agent_sessions 
+         WHERE status = 'alive' AND agent_type = $1 
+         AND last_heartbeat > NOW() - INTERVAL '1 hour'
+         ORDER BY last_heartbeat DESC LIMIT 1`,
+        [agentType]
+      );
+
+      if (existingSession.rows[0]) {
+        // Reuse existing session
+        this.sessionId = existingSession.rows[0].id;
+        await client.query(
+          `UPDATE agent_sessions SET last_heartbeat = NOW(), identity_id = COALESCE($1, identity_id) WHERE id = $2`,
+          [identityId || null, this.sessionId]
+        );
+        await client.query('COMMIT');
+        logger.info(`[AgentSession] Reusing existing session: ${this.sessionId}`);
+        return this.sessionId;
+      }
+
       const countResult = await client.query<{ count: string }>(
         `SELECT COUNT(*) as count FROM agent_sessions WHERE status = 'alive' AND agent_type = $1`,
         [agentType]
