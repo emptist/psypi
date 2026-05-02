@@ -60,31 +60,31 @@ psypi --help
 - ✅ `psypi skill-build <name> <purpose>` — Build new skill
 - ✅ `psypi areflect <text>` — Magic: [LEARN] [ISSUE] [TASK] parsing
 - ✅ `psypi my-id` — Print agent identity ID (S-psypi-psypi)
-- ✅ `psypi partner-id` — Print permanent partner ID (I-tencent/hy3-preview:free-psypi)
+- ✅ `psypi partner-id` — Print permanent partner ID (P-tencent/hy3-preview:free-psypi)
 - ✅ `psypi my-session-id` — Print Pi session ID (UUID v7, single source of truth)
 
-### ✅ Identity & Session Commands (New!)
+### ✅ Identity & Session Commands
 ⚠️ **Mandatory Session ID Rule:**
 1. **Single entry point**: `kernel.piSessionID()` is the ONLY way to get session ID
 2. **No direct access**: Never use `process.env.AGENT_SESSION_ID` directly
 3. **Single tool**: `psypi-piSessionID` is the only Pi tool for session ID
-4. **Source of truth**: `process.env.AGENT_SESSION_ID` (set by Pi TUI), no fallback
-5. **No caching**: Session ID from `kernel.piSessionID()` is always fresh
 
-⚠️ **Mandatory Agent ID Rules (From Nezha AGENTS.md):**
-1. **No caching ever**: Agent ID must be generated dynamically via `AgentIdentityService.getResolvedIdentity()` every time it's needed
-2. **Correct ID format**: Semantic S-/G- prefixes (e.g., `S-psypi-psypi` matching S- format rule)
-3. **Session vs Agent**: Session ID ≠ Agent ID! Session ID from `kernel.piSessionID()`, Agent ID from `getResolvedIdentity()`
-4. **Violation penalty**: Cached ID = broken tracking system, delete all cache code immediately
+⚠️ **Mandatory Agent ID Rule:**
+1. **Single source of truth**: `AgentIdentityService.getResolvedIdentity()` is the ONLY way to get agent ID
+2. **No caching ever**: Call `getResolvedIdentity()` every time (never cache in variables)
+3. **Correct prefixes**: `S-` (session), `P-` (permanent/partner), `G-` (global)
+4. **No helper functions**: Deleted `src/kernel/utils/agent.ts` - call `getResolvedIdentity()` directly
+5. **Session vs Agent**: Session ID ≠ Agent ID! Different purposes!
 
-### ✅ Pi Extension Tools (via psypi CLI)
+### ✅ Pi Extension Tools (via psypi extension)
 - ✅ `psypi-think` — Delegate to external thinker
 - ✅ `psypi-tasks` — Check pending tasks
 - ✅ `psypi-autonomous` — Get autonomous work guidance
-- ✅ `psypi-piSessionID` — Get Pi session ID (UUID v7, single source)
-- ✅ `psypi-meeting-*` — Meeting management (say, summary, search, list)
-- ✅ `psypi-areflect` — All-in-one reflection tool
-- ✅ `psypi-commit` — Git commit with mandatory inter-review
+- ✅ `psypi-piSessionID` — Get Pi session ID (UUID v7)
+- ✅ `psypi-agent-id` — Get agent ID (uses ONE SINGLE WAY internally)
+- ✅ `psypi-partner-id` — Get partner/monitor ID (permanent God AI)
+- ✅ `psypi-meeting-*` — Meeting management
+- ✅ `psypi-doc-*` — Document management
 
 ### ✅ Other Commands
 - ✅ `psypi agents` — List active agents
