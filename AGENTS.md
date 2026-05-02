@@ -22,14 +22,20 @@ description: Agent instructions and guidelines for working with psypi project
 const sessionID = await kernel.piSessionID(); // This is your session ID
 ```
 
+### How it works internally (TWO METHODS):
+`kernel.piSessionID()` uses shared utility `getPiSessionID()` from `src/kernel/utils/session.ts`:
+1. **`process.env.AGENT_SESSION_ID`** - Set by Pi TUI when launching extension
+2. **Parse from JSONL file** - Reads most recent `~/.pi/agent/sessions/<project>/<timestamp>_<sessionId>.jsonl`
+
 ### ❌ NEVER DO THESE (WRONG):
 - ❌ Direct access: `process.env.AGENT_SESSION_ID` - MUST go through kernel.piSessionID()
+- ❌ `ctx.sessionManager.getSessionId()` - Pi API, but still use kernel.piSessionID()
 - ❌ Caching in variables: `const SESSION_ID = ...` - BROKEN
-- ❌ Reading from files/temp caches - BROKEN
+- ❌ Reading from files/temp caches - BROKEN (except via kernel.piSessionID())
 
 ### Why?
 - `kernel.piSessionID()` is the ONLY authorized entry point for Session ID
-- It reads from `process.env.AGENT_SESSION_ID` (set by Pi TUI)
+- It tries TWO methods internally (env var first, JSONL fallback)
 - It throws an error if not set (Pi TUI not running = bug)
 - Calling it multiple times is OK - it's a simple wrapper
 
@@ -143,18 +149,14 @@ const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
 
 **All fake bot_ session ID issues are now fixed!** (commit 42f4887)
 
-### Recent Fixes (2026-05-02):
-- ✅ **Session ID unification** - Single source of truth: `kernel.piSessionID()`, deleted `getContext/startSession/endSession`
-- ✅ **Fake bot_ IDs removed** - Deleted `AgentSessionService.ts` and `050_agent_sessions.sql`
-- ✅ **New tool added** - `psypi-piSessionID` is now the only way to get session ID in Pi
-- ✅ **[object Promise] startup bug** - Added missing `await` in extension.ts
-- ✅ **Skill conflicts** - Added YAML frontmatter to AGENTS.md, PNPM_USAGE.md, PROJECT_CONTEXT.md
-- ✅ **psypi-agent-id tool** - Fixed to use `AgentIdentityService.getResolvedIdentity()`
-- ✅ **Agent ID simplification** - Deleted `src/kernel/utils/agent.ts` (helper functions removed)
-- ✅ **Removed `kernel.agentID()`** - Unnecessary wrapper deleted
-- ✅ **Partner ID prefix** - Changed from `I-` to `P-` (permanent/partner agents)
-- ✅ **Commands added** - `psypi my-id` and `psypi partner-id` for CLI
-- ✅ **Tools added** - `psypi-agent-id` and `psypi-partner-id` for Pi TUI
+### Recent Fixes (2026-05-03):
+- ✅ **Session ID TWO METHODS** - `kernel.piSessionID()` now supports TWO ways:
+  - `process.env.AGENT_SESSION_ID` (primary, set by Pi TUI)
+  - Parse from JSONL file (fallback for resilience)
+- ✅ **Extension session_start fixed** - Now gets session ID from `ctx.sessionManager.getSessionId()`
+- ✅ **Shared utility created** - `src/kernel/utils/session.ts` with `getPiSessionID()`
+- ✅ **No more fake IDs** - Removed random UUID generation, proper error reporting
+- ✅ **AgentIdentityService fixed** - Uses `getPiSessionID()` instead of direct env access
 
 ---
 

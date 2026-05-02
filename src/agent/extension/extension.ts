@@ -1115,7 +1115,16 @@ When user asks complex questions or asks about planning/architecture/research:
     };
   });
 
-  pi.on("session_start", async (event) => {
+  pi.on("session_start", async (event, ctx) => {
+    // Get session ID from Pi's SessionManager - TWO WAYS per user:
+    // 1. process.env.AGENT_SESSION_ID (should be set by Pi)
+    // 2. ctx.sessionManager.getSessionId() (the other way)
+    const sessionIdFromCtx = ctx.sessionManager.getSessionId();
+    if (sessionIdFromCtx) {
+      process.env.AGENT_SESSION_ID = sessionIdFromCtx;
+      console.log(`[PsyPI] Session ID set from ctx: ${sessionIdFromCtx}`);
+    }
+
     const cwd = process.cwd();
     const projectInfo = await registerProject(cwd);
     if (projectInfo) {
@@ -1138,14 +1147,9 @@ When user asks complex questions or asks about planning/architecture/research:
 
     // Inject agent identity now that session is started
     try {
-      let sessionID: string;
-      try {
-        sessionID = await kernel.piSessionID();
-      } catch (e) {
-        // AGENT_SESSION_ID not set - generate fallback for standalone/CLI mode
-        console.warn(`[PsyPI] AGENT_SESSION_ID not set, using generated ID`);
-        sessionID = crypto.randomUUID();
-      }
+      // SINGLE SOURCE OF TRUTH: kernel.piSessionID()
+      const sessionID = await kernel.piSessionID();
+      
       const agentResult = await queryOne<{ id: string; agent_type: string }>(
         "SELECT id, agent_type FROM agent_sessions WHERE id = $1",
         [sessionID]
@@ -1153,7 +1157,9 @@ When user asks complex questions or asks about planning/architecture/research:
       agentIdentity = agentResult?.agent_type || sessionID;
       console.log(`[PsyPI] Agent identity set: ${agentIdentity}`);
     } catch (err) {
-      console.error(`[PsyPI] Failed to get agent identity in session_start: ${err}`);
+      console.error(`[PsyPI] Failed to get agent identity in session_start: ${err instanceof Error ? err.message : err}`);
+      // Don't hide the error - this is a bug that needs fixing!
+      throw err;
     }
   });
 

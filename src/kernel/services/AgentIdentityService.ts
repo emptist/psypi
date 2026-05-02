@@ -4,6 +4,7 @@ import { ApiKeyService } from './ApiKeyService.js';
 import * as crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import os from 'node:os';
+import { getPiSessionID } from '../utils/session.js';
 
 const INNER_FALLBACK_MODEL = 'llama3.2:3b';
 
@@ -80,9 +81,16 @@ export class AgentIdentityService {
   }
 
   private detectContext(permanent?: boolean, model?: string) {
-    const source = process.env.PSYPI_AGENT_SOURCE || process.env.PSYPI_AGENT_SOURCE || 'psypi';
-    const sessionId = process.env.AGENT_SESSION_ID || process.env.AGENT_SESSION_ID || undefined;
-
+    const source = process.env.PSYPI_AGENT_SOURCE || process.env.NEZHA_AGENT_SOURCE || 'psypi';
+    
+    // Get session ID via ONE SINGLE WAY
+    let sessionId: string | undefined;
+    try {
+      sessionId = getPiSessionID();
+    } catch (err) {
+      console.warn(`[AgentIdentity] Could not get session ID: ${err}`);
+    }
+    
     return {
       project: this.getProjectName(),
       gitHash: this.getGitHash(),
