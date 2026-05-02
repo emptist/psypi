@@ -19,7 +19,7 @@ export interface AgentContext {
   source?: string;
   branch?: string;
   sessionId?: string;
-  inner?: boolean;
+  permanent?: boolean;
   provider?: string;
   model?: string;
 }
@@ -59,15 +59,16 @@ export class AgentIdentityService {
 
     let innerModel: string | undefined;
 
-    // If not permanent (e.g., inner AI), resolve the inner model
-    if (!permanent) {
+    // If permanent (i.e., inner AI), resolve the inner model
+    if (permanent) {
       innerModel = await service.resolveInnerModel();
     }
 
-    const identity = await service.resolve(!permanent, innerModel);
+    const identity = await service.resolve(permanent, innerModel);
 
-    // Register session only for permanent (long-running) agents
-    if (permanent) {
+    // Register session only for NON-permanent (Pi TUI), not for inner AI
+    const shouldRegisterSession = !permanent;
+    if (shouldRegisterSession) {
       const sessionService = getAgentSessionService(db);
       const source = service.detectContext().source || 'psypi';
       await sessionService.registerSession(source, identity.id);
@@ -94,8 +95,8 @@ export class AgentIdentityService {
     }
   }
 
-  async resolve(inner?: boolean, model?: string): Promise<AgentIdentity> {
-    const context = this.detectContext(inner, model);
+  async resolve(permanent?: boolean, model?: string): Promise<AgentIdentity> {
+    const context = this.detectContext(permanent, model);
     const id = this.generateSemanticId(context);
 
     const existing = await this.getById(id);
@@ -107,7 +108,7 @@ export class AgentIdentityService {
     return identity;
   }
 
-  detectContext(inner?: boolean, model?: string): AgentContext {
+  detectContext(permanent?: boolean, model?: string): AgentContext {
     const traeEnv = this.detectTraeEnv();
 
     const source = traeEnv.source || this.detectSource();
@@ -126,7 +127,7 @@ export class AgentIdentityService {
       source,
       branch,
       sessionId,
-      inner,
+      permanent,
       model,
     };
   }
@@ -246,7 +247,7 @@ export class AgentIdentityService {
   generateSemanticId(context: AgentContext): string {
     const source = context.source || 'unknown';
 
-    if (context.inner) {
+    if (context.permanent) {
       if (context.model) {
         if (context.project) {
           if (context.sessionId) {
