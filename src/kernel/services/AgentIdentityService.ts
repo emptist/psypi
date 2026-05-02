@@ -6,7 +6,6 @@ import path from 'node:path';
 import { DatabaseClient } from '../db/DatabaseClient.js';
 import { Config } from '../config/Config.js';
 import { logger } from '../utils/logger.js';
-import { getAgentSessionService } from './AgentSessionService.js';
 import { ApiKeyService } from './ApiKeyService.js';
 
 const INNER_FALLBACK_MODEL = 'llama3.2:3b';
@@ -69,9 +68,11 @@ export class AgentIdentityService {
     // Register session only for NON-permanent (Pi TUI), not for inner AI
     const shouldRegisterSession = !permanent;
     if (shouldRegisterSession) {
-      const sessionService = getAgentSessionService(db);
-      const source = service.detectContext().source || 'psypi';
-      await sessionService.registerSession(source, identity.id);
+      // Session registration removed - psypi now uses AGENT_SESSION_ID directly
+      // const sessionService = getAgentSessionService(db);
+      // const source = service.detectContext().source || 'psypi';
+      // await sessionService.registerSession(source, identity.id);
+      void 0; // placeholder
     }
 
     return identity;

@@ -331,22 +331,6 @@ exit 0
     return results.join('\n');
   }
   
-  async getContext() {
-    const agentId = await this.getAgentId();
-    const agentType = agentId;
-    const sessionId = process.env.AGENT_SESSION_ID || 'unknown';
-    
-    const tasks = await this.query("SELECT COUNT(*) as count FROM tasks WHERE status = 'PENDING'");
-    const issues = await this.query("SELECT COUNT(*) as count FROM issues WHERE status = 'open'");
-    
-    return {
-      agentType,
-      sessionId,
-      pendingTasks: parseInt(tasks.rows[0].count),
-      openIssues: parseInt(issues.rows[0].count),
-    };
-  }
-  
   async buildSkill(name: string, purpose: string) {
     const agentId = await this.getAgentId();
     // Simple skill build - insert into skills table
@@ -359,25 +343,18 @@ exit 0
     return result.rows[0].id;
   }
   
-  async startSession(agentType?: string) {
-    const agentId = agentType || await this.getAgentId();
-    const sessionId = process.env.AGENT_SESSION_ID || `session_${Date.now()}`;
-    await this.query(
-      `INSERT INTO agent_sessions (id, agent_type, started_at) 
-       VALUES ($1, $2, NOW()) 
-       ON CONFLICT DO NOTHING`,
-      [sessionId, agentId]
-    );
-    return sessionId;
-  }
-  
-  async endSession(sessionId?: string) {
-    const id = sessionId || process.env.AGENT_SESSION_ID || 'unknown';
-    // Update status to 'ended' and update last_heartbeat_at
-    await this.query(
-      `UPDATE agent_sessions SET status = 'ended', last_heartbeat_at = NOW() WHERE id = $1`,
-      [id]
-    );
+  // === Session ID (Single Source of Truth) ===
+  /**
+   * Get current Pi Session ID (UUID v7)
+   * This is the ONLY way to get session ID in psypi.
+   * @throws Error if AGENT_SESSION_ID is not set (Pi TUI not running)
+   */
+  async piSessionID(): Promise<string> {
+    const sessionID = process.env.AGENT_SESSION_ID;
+    if (!sessionID) {
+      throw new Error('AGENT_SESSION_ID not set. Pi TUI must be running.');
+    }
+    return sessionID;
   }
   
   // === Inter-Review Methods (from Nezha) ===

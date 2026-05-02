@@ -21,9 +21,7 @@ import { loadYamlConfig, type NezhaYamlConfig } from './YamlConfigLoader.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { getCurrentSessionId } from '../services/AgentSessionService.js';
 import * as os from 'os';
-import { DatabaseClient } from '../db/DatabaseClient.js';
 import { AgentIdentityService } from '../services/AgentIdentityService.js';
 import { config } from 'dotenv';
 config();
@@ -323,8 +321,6 @@ export class Config implements IConfig {
   }
 
   getAgentName(): string {
-    const sessionId = getCurrentSessionId();
-    if (sessionId) return sessionId;
     return this.config.agentId;
   }
 

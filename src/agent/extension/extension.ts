@@ -13,7 +13,6 @@ import { execSync } from "child_process";
 import path from "path";
 import { querySafe, queryOne, execSafe, resolveId, closePool, getNezhaContext, registerProject, detectProjectType, generateFingerprint } from "./db.js";
 import { AgentIdentityService } from '../../kernel/services/AgentIdentityService.js';
-import { getAgentSessionService } from '../../kernel/services/AgentSessionService.js';
 import { DatabaseClient } from '../../kernel/db/DatabaseClient.js';
 import { kernel } from '../../kernel/index.js';
 
@@ -70,12 +69,8 @@ export function unregisterThinker(): void {
 
 const VERBOSE = process.env.PSYPI_VERBOSE === 'true' || process.env.NODE_ENV !== 'production';
 
-// ✅ Pi session ID - the ONLY in-session identifier
-const SESSION_ID = process.env.AGENT_SESSION_ID || 'unknown-session';
-
 if (VERBOSE) {
   console.log(`[PsyPI@${GIT_HASH}] Starting in verbose mode...`);
-  console.log(`[PsyPI] Session ID: ${SESSION_ID}`);
 }
 
 const LOCAL_TASK_WHITELIST = [
@@ -280,16 +275,31 @@ const psypiAgentIdTool = {
   description: "Get current agent identity",
   parameters: Type.Object({}),
   async execute(_toolCallId: string, _params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) {
-    const sessionId = process.env.AGENT_SESSION_ID || "unknown";
+    const sessionID = await kernel.piSessionID();
     const result = await queryOne<{ id: string; agent_type: string }>(
       "SELECT id, agent_type FROM agent_sessions WHERE id = $1",
-      [sessionId]
+      [sessionID]
     );
-    const agentId = result?.agent_type || sessionId;
+    const agentId = result?.agent_type || sessionID;
     ctx.ui.notify(`Agent ID: ${agentId}`, "info");
     return {
       content: [{ type: "text" as const, text: `Agent ID: ${agentId}` }],
       details: { agentId },
+    };
+  },
+};
+
+const psypiPiSessionIDTool = {
+  name: "psypi-piSessionID",
+  label: "PsyPI Get Pi Session ID",
+  description: "Get current Pi session ID (UUID v7). Single source of truth in psypi.",
+  parameters: Type.Object({}),
+  async execute(_toolCallId: string, _params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) {
+    const sessionID = await kernel.piSessionID();
+    ctx.ui.notify(`Pi Session ID: ${sessionID}`, "info");
+    return {
+      content: [{ type: "text" as const, text: sessionID }],
+      details: { sessionID },
     };
   },
 };
@@ -1024,6 +1034,7 @@ const psypiCommitTool = {
 
 export default function psypiExtension(pi: ExtensionAPI) {
   pi.registerTool(psypiAgentIdTool);
+  pi.registerTool(psypiPiSessionIDTool);
   pi.registerTool(psypiThinkTool);
   pi.registerTool(psypiTasksTool);
   pi.registerTool(psypiAutonomousTool);
@@ -1108,12 +1119,12 @@ When user asks complex questions or asks about planning/architecture/research:
     }
     
     // Inject agent identity
-    const sessionId = process.env.AGENT_SESSION_ID || "unknown";
+    const sessionID = await kernel.piSessionID();
     const agentResult = await queryOne<{ id: string; agent_type: string }>(
       "SELECT id, agent_type FROM agent_sessions WHERE id = $1",
-      [sessionId]
+      [sessionID]
     );
-    const agentId = agentResult?.agent_type || sessionId;
+    const agentId = agentResult?.agent_type || sessionID;
     systemPrompt += `\n\n## Agent Identity\nYour Agent ID: ${agentId}\n`;
     
     // Inject structured nezha context into prompt

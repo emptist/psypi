@@ -145,31 +145,6 @@ program
     }
   });
 
-// === Agent Commands (from PsyPI) ===
-program
-  .command('session-start')
-  .description('Start a new agent session')
-  .action(async () => {
-    try {
-      const sessionId = await kernel.startSession('psypi');
-      console.log(`✅ Session started: ${sessionId}`);
-    } catch (err) {
-      console.error('Error:', err instanceof Error ? err.message : err);
-    }
-  });
-
-program
-  .command('session-end')
-  .description('End current agent session')
-  .action(async () => {
-    try {
-      await kernel.endSession();
-      console.log('✅ Session ended');
-    } catch (err) {
-      console.error('Error:', err instanceof Error ? err.message : err);
-    }
-  });
-
 // === Skill Commands (from Nezha) ===
 program
   .command('skill-list')
@@ -353,22 +328,6 @@ program
   });
   
 program
-  .command('context')
-  .description('Show current context from Nezha')
-  .action(async () => {
-    try {
-      const context = await kernel.getContext();
-      console.log('\n📊 PSYPI CONTEXT\n');
-      console.log(`🤖 Agent: ${context.agentType}`);
-      console.log(`Session: ${context.sessionId}`);
-      console.log(`Tasks: ${context.pendingTasks} pending`);
-      console.log(`Issues: ${context.openIssues} open`);
-    } catch (err) {
-      console.error('Error:', err instanceof Error ? err.message : err);
-    }
-  });
-
-program
   .command('my-id')
   .description('Print current agent ID (e.g., S-psypi-psypi)')
   .action(async () => {
@@ -381,25 +340,12 @@ program
   });
 
 program
-  .command('partner-id')
-  .description('Print permanent partner AI ID (e.g., I-tencent/hy3-preview:free-psypi)')
-  .action(async () => {
-    try {
-      const identity = await AgentIdentityService.getResolvedIdentity(true);
-      console.log(identity.id);
-    } catch (err) {
-      console.error('Error:', err instanceof Error ? err.message : err);
-    }
-  });
-
-program
   .command('my-session-id')
-  .description('Print Pi session ID (UUID v7, e.g., 019da0b2-...)')
+  .description('Print Pi session ID (UUID v7) - single source of truth')
   .action(async () => {
     try {
-      // Pi session ID is provided by Pi TUI via environment variable
-      const sessionId = process.env.AGENT_SESSION_ID || 'unknown-session';
-      console.log(sessionId);
+      const sessionID = await kernel.piSessionID();
+      console.log(sessionID);
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     }
