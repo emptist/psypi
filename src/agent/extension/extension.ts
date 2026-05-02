@@ -316,12 +316,13 @@ const psypiAutonomousTool = {
   parameters: Type.Object({
     context: Type.Optional(Type.String({ description: "Current work context or project being worked on" })),
   }),
-  async execute(_id: string, params: { context?: string }) {
+  async execute(_id: string, params: { context?: string }, _signal: AbortSignal, _onUpdate: any, ctx: any) {
     try {
       const result = await kernel.getTasks('PENDING');
       const tasks = result.rows || [];
       
       if (tasks.length === 0) {
+        ctx.ui.notify("No pending tasks found", "info");
         const guidance = `No pending tasks found.
 
 Suggested actions:
@@ -338,6 +339,7 @@ Suggested actions:
       const highPriority = tasks.filter((t: any) => t.priority >= 80);
       
       if (highPriority.length > 0) {
+        ctx.ui.notify(`${highPriority.length} high-priority tasks found`, "warning");
         const taskList = highPriority.slice(0, 5).map((t: any) => `[${t.priority}] ${t.title}`).join("\n");
         const guidance = `🎯 HIGH PRIORITY TASKS (${highPriority.length}):
 ${taskList}
@@ -352,6 +354,7 @@ Recommended immediate actions:
         };
       }
       
+      ctx.ui.notify(`${tasks.length} pending tasks found`, "info");
       const taskList = tasks.slice(0, 5).map((t: any) => `[${t.priority}] ${t.title}`).join("\n");
       const guidance = `📋 PENDING TASKS (${tasks.length}):
 ${taskList}
@@ -365,6 +368,7 @@ Suggested workflow:
         details: { hasTasks: true } as Record<string, unknown>,
       };
     } catch (err) {
+      ctx.ui.notify("Could not retrieve tasks", "error");
       return {
         content: [{ type: "text" as const, text: "Could not retrieve tasks from database." }],
         details: { error: true } as Record<string, unknown>,
@@ -523,7 +527,7 @@ const psypiMeetingSearchTool = {
     query: Type.String({ description: "Search keyword or phrase" }),
     limit: Type.Optional(Type.Number({ description: "Max results (default 5)" })),
   }),
-  execute: async (_toolCallId: string, params: any) => {
+  execute: async (_toolCallId: string, params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
     const limit = params.limit || 5;
     const pattern = `%${params.query}%`;
 
@@ -542,12 +546,14 @@ const psypiMeetingSearchTool = {
     );
 
     if (meetings.length === 0) {
+      ctx.ui.notify(`No meetings found matching "${params.query}"`, "warning");
       return {
         content: [{ type: "text" as const, text: `No meetings found matching "${params.query}"` }],
         details: { query: params.query, resultCount: 0 } as Record<string, unknown>,
       };
     }
 
+    ctx.ui.notify(`Found ${meetings.length} meetings`, "info");
     const result = meetings
       .map(m => `[${m.status.padEnd(10)}] #${m.id.slice(0, 8)} ${m.topic}`)
       .join("\n");
@@ -567,7 +573,7 @@ const psypiMeetingListTool = {
     status: Type.Optional(Type.String({ description: "Filter by status: active, completed, cancelled (default: active)" })),
     limit: Type.Optional(Type.Number({ description: "Max results (default 10)" })),
   }),
-  execute: async (_toolCallId: string, params: any) => {
+  execute: async (_toolCallId: string, params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
     const status = params.status || "active";
     const limit = params.limit || 10;
 
@@ -577,12 +583,14 @@ const psypiMeetingListTool = {
     );
 
     if (meetings.length === 0) {
+      ctx.ui.notify(`No ${status} meetings found`, "warning");
       return {
         content: [{ type: "text" as const, text: `No ${status} meetings found` }],
         details: { status, resultCount: 0 } as Record<string, unknown>,
       };
     }
 
+    ctx.ui.notify(`Found ${meetings.length} ${status} meetings`, "info");
     const result = meetings
       .map(m => `#${m.id.slice(0, 8)} [${m.status}] ${m.topic} (by ${m.created_by})`)
       .join("\n");
@@ -604,7 +612,7 @@ const psypiDocSaveTool = {
     filePath: Type.Optional(Type.String({ description: "Target file path when generated (e.g. /project/AGENTS.md)" })),
     priority: Type.Optional(Type.Number({ description: "Priority for ordering (higher = more important)" })),
   }),
-  execute: async (_toolCallId: string, params: any) => {
+  execute: async (_toolCallId: string, params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
     const existing = await queryOne<{ id: string }>(
       "SELECT id FROM project_docs WHERE name = $1 AND status = 'current'",
       [params.name]
@@ -615,11 +623,13 @@ const psypiDocSaveTool = {
         "UPDATE project_docs SET content = $1, file_path = COALESCE($2, file_path), priority = COALESCE($3, priority), updated_at = NOW() WHERE id = $4",
         [params.content, params.filePath || null, params.priority ?? null, existing.id]
       );
+      ctx.ui.notify(`Document "${params.name}" updated`, "success");
     } else {
       await execSafe(
         "INSERT INTO project_docs (name, content, file_path, priority) VALUES ($1, $2, $3, $4)",
         [params.name, params.content, params.filePath || null, params.priority || 0]
       );
+      ctx.ui.notify(`Document "${params.name}" created`, "success");
     }
 
     return {
@@ -636,7 +646,7 @@ const psypiDocListTool = {
   parameters: Type.Object({
     project: Type.Optional(Type.String({ description: "Filter by project name" })),
   }),
-  execute: async (_toolCallId: string, params: any) => {
+  execute: async (_toolCallId: string, params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
     const docs = await querySafe<{ name: string; file_path: string | null; priority: number; updated_at: string }>(
       params.project
         ? "SELECT name, file_path, priority, updated_at FROM project_docs WHERE status = 'current' AND project = $1 ORDER BY priority DESC"
@@ -645,12 +655,14 @@ const psypiDocListTool = {
     );
 
     if (docs.length === 0) {
+      ctx.ui.notify("No project documents found", "warning");
       return {
         content: [{ type: "text" as const, text: "No project documents found" }],
         details: { resultCount: 0 } as Record<string, unknown>,
       };
     }
 
+    ctx.ui.notify(`Found ${docs.length} project documents`, "info");
     const result = docs
       .map(d => `[${d.priority}] ${d.name} → ${d.file_path || "(no path)"} (updated ${d.updated_at})`)
       .join("\n");
@@ -667,11 +679,13 @@ const psypiStatusTool = {
   label: "PsyPI Status",
   description: "Show current PsyPI status including thinker slot state, registered tools, and active hooks.",
   parameters: Type.Object({}),
-  execute: async (_toolCallId: string, _params: any) => {
+  execute: async (_toolCallId: string, _params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
     const thinkerStatus = delegation.mode === "delegating" 
       ? `🧠 Delegating to: ${delegation.thinker.name || "external thinker"}` 
       : "🏠 Working locally (no external thinker)";
 
+    ctx.ui.notify(`PsyPI Status: ${thinkerStatus}`, "info");
+    
     const tools = [
       "psypi-think", "psypi-tasks", "psypi-autonomous",
       "psypi-meeting-say", "psypi-meeting-summary", "psypi-meeting-search", "psypi-meeting-list",
@@ -687,6 +701,8 @@ const psypiStatusTool = {
     const projectType = detectProjectType(cwd);
     const projectName = path.basename(cwd);
 
+    ctx.ui.notify(`Project: ${projectName} (${projectType})`, "info");
+    
     let status = `## PsyPI Status\n\n`;
     status += `**Project:** ${projectName} (${projectType})\n\n`;
     status += `**Thinker Slot:** ${thinkerStatus}\n\n`;
@@ -711,9 +727,11 @@ const psypiProjectTool = {
   label: "PsyPI Project Info",
   description: "Show current project information including fingerprint, type, and git remote.",
   parameters: Type.Object({}),
-  execute: async (_toolCallId: string, _params: any) => {
+  execute: async (_toolCallId: string, _params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
     const cwd = process.cwd();
     const projectType = detectProjectType(cwd);
+    
+    ctx.ui.notify(`Project info loaded: ${path.basename(cwd)}`, "info");
     
     let gitRemote: string | null = null;
     try {
@@ -732,6 +750,8 @@ const psypiProjectTool = {
       "SELECT id, created_at as first_seen FROM projects WHERE fingerprint = $1",
       [fingerprint]
     );
+    
+    ctx.ui.notify(`Project: ${name} (${projectType})`, "info");
     
     let info = `## Project: ${name}\n\n`;
     info += `**Type:** ${projectType}\n`;
@@ -757,8 +777,10 @@ const psypiVisitsTool = {
   parameters: Type.Object({
     limit: Type.Optional(Type.Number({ default: 10 })),
   }),
-  execute: async (_toolCallId: string, params: { limit?: number }) => {
+  execute: async (_toolCallId: string, params: { limit?: number }, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
     const limit = params.limit || 10;
+    
+    ctx.ui.notify("Loading project visits...", "info");
     
     const visits = await querySafe<{ project_fingerprint: string; visited_at: string }>(
       `SELECT project_fingerprint, visited_at FROM project_visits ORDER BY visited_at DESC LIMIT $1`,
@@ -766,12 +788,14 @@ const psypiVisitsTool = {
     );
     
     if (visits.length === 0) {
+      ctx.ui.notify("No project visits recorded", "warning");
       return {
         content: [{ type: "text" as const, text: "No project visits recorded yet." }],
         details: { count: 0 } as Record<string, unknown>,
       };
     }
     
+    ctx.ui.notify(`Found ${visits.length} visits`, "info");
     const result = visits
       .map(v => `- ${v.project_fingerprint} at ${v.visited_at}`)
       .join("\n");
@@ -788,7 +812,9 @@ const psypiStatsTool = {
   label: "PsyPI Statistics",
   description: "Show statistics about the PsyPI ecosystem: projects, visits, skills, meetings.",
   parameters: Type.Object({}),
-  execute: async (_toolCallId: string, _params: any) => {
+  execute: async (_toolCallId: string, _params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
+    ctx.ui.notify("Loading ecosystem statistics...", "info");
+    
     const projectCount = await queryOne<{ count: string }>(
       "SELECT COUNT(*) as count FROM projects"
     );
@@ -808,6 +834,8 @@ const psypiStatsTool = {
     const issueCount = await queryOne<{ count: string }>(
       "SELECT COUNT(*) as count FROM issues WHERE status != 'resolved'"
     );
+    
+    ctx.ui.notify("Statistics loaded", "success");
     
     let stats = `## PsyPI Ecosystem Statistics\n\n`;
     stats += `| Metric | Count |\n`;
@@ -887,10 +915,13 @@ const psypiSyncInnerAITool = {
   label: "PsyPI Sync Inner AI",
   description: "Sync pi configuration to use the same AI provider/model as nezha's inner AI. Returns instructions for setting up the API key securely.",
   parameters: Type.Object({}),
-  execute: async (_toolCallId: string, _params: any) => {
+  execute: async (_toolCallId: string, _params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) => {
+    ctx.ui.notify("Syncing inner AI config...", "info");
+    
     const innerAI = await getNezhaInnerAI();
     
     if (!innerAI) {
+      ctx.ui.notify("No inner AI configured", "error");
       return {
         content: [{ type: "text" as const, text: "No inner AI configured in nezha. Use 'nezha inner set-model <provider> [model]' to configure it first." }],
         details: { error: true } as Record<string, unknown>,
@@ -900,6 +931,7 @@ const psypiSyncInnerAITool = {
     const success = await updatePiSettings(innerAI.provider, innerAI.model);
     
     if (success) {
+      ctx.ui.notify("Pi config updated to match inner AI", "success");
       const instructions = `✅ Pi configuration updated to match nezha's inner AI:
 Provider: ${innerAI.provider}
 Model: ${innerAI.model}
@@ -921,6 +953,7 @@ Restart pi to use the new configuration.`;
         details: { provider: innerAI.provider, model: innerAI.model } as Record<string, unknown>,
       };
     } else {
+      ctx.ui.notify("Failed to update pi config", "error");
       return {
         content: [{ type: "text" as const, text: "Failed to update pi configuration. Check permissions for ~/.pi/agent/settings.json" }],
         details: { error: true } as Record<string, unknown>,
@@ -963,8 +996,9 @@ const psypiCommitTool = {
     message: Type.String({ description: "Commit message" }),
     noVerify: Type.Optional(Type.Boolean({ description: "Skip git hooks (still runs review)" })),
   }),
-  async execute(_toolCallId: string, params: any) {
+  async execute(_toolCallId: string, params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) {
     try {
+      ctx.ui.notify("Running psypi commit...", "info");
       const { execSync } = await import("child_process");
       const verifyFlag = params.noVerify ? "--no-verify" : "";
       const output = execSync(`psypi commit "${params.message}" ${verifyFlag}`, { 
@@ -972,11 +1006,14 @@ const psypiCommitTool = {
         stdio: "pipe"
       });
       
+      ctx.ui.notify("Commit successful", "success");
+      
       return {
         content: [{ type: "text" as const, text: output }],
         details: { success: true } as Record<string, unknown>,
       };
     } catch (err: any) {
+      ctx.ui.notify(`Commit failed: ${err.message}`, "error");
       return {
         content: [{ type: "text" as const, text: `Error: ${err.message}\n${err.stderr || ''}` }],
         details: { error: true } as Record<string, unknown>,

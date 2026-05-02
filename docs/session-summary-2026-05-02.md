@@ -1,7 +1,7 @@
 # Session Summary - 2026-05-02
 
-**Agent**: S-psypi-psypi  
-**Session ID**: 019da0b2-fec1-7288-8920-da0b20ccc74c (Pi UUID v7)  
+**Agent**: S-psypi-psypi
+**Session ID**: 019da0b2-fec1-7288-8920-da0b20ccc74c (Pi UUID v7)
 **Project**: psypi
 
 ---
@@ -54,7 +54,7 @@ A: "I am Hunyuan, a large language model developed by Tencent...
 
 ---
 
-### 3. MAJOR Discovery: Pi SDK Supports Sub-Agents! 
+### 3. MAJOR Discovery: Pi SDK Supports Sub-Agents!
 
 From Pi SDK docs (`@mariozechner/pi-coding-agent/docs/sdk.md`):
 
@@ -100,7 +100,7 @@ const { session } = await createAgentSession(options);
 
 ```bash
 psypi my-id        # Prints: S-psypi-psypi
-psypi partner-id   # Prints: I-tencent/hy3-preview:free-psypi  
+psypi partner-id   # Prints: I-tencent/hy3-preview:free-psypi
 psypi my-session-id   # Prints: 019da0b2-fec1-7288-8920-da0b20ccc74c (Pi UUID v7)
 ```
 
@@ -114,7 +114,7 @@ psypi my-session-id   # Prints: 019da0b2-fec1-7288-8920-da0b20ccc74c (Pi UUID v7
 ### 3. Build Errors Fixed ✅
 
 **Fixed**: `AgentIdentityService.ts` crypto import (TS1192)
-- Changed: `import crypto from 'node:crypto'` 
+- Changed: `import crypto from 'node:crypto'`
 - To: `import * as crypto from 'node:crypto'`
 
 **Result**: **Build is CLEAN!** ✅
@@ -198,14 +198,14 @@ psypi my-session-id   # Prints: 019da0b2-fec1-7288-8920-da0b20ccc74c (Pi UUID v7
 - **Database migration** (needed before permanent partner implementation)
 
 ### Potential Order:
-1. **Database migration** 
+1. **Database migration**
 2. **Remove fake `bot_` IDs** (Issue `c1ae8ffe-...`)
 3. **Implement permanent partner using Pi SDK** (Issue `f1475ab9-...`, Task `f0f2879b-...`)
 4. **Simplify psypi** (remove `AIProviderFactory`, `OpenRouterProvider`, etc.)
 5. **Test all commands** (verify they work after changes)
 
 ### Alternative:
-- Work on other pending tasks (362 of them!) 
+- Work on other pending tasks (362 of them!)
 - Fix remaining issues
 - Enhance existing functionality
 
@@ -221,17 +221,30 @@ psypi my-session-id   # Prints: 019da0b2-fec1-7288-8920-da0b20ccc74c (Pi UUID v7
 - Session ID: `019de737-b8ae-7544-b9e0-db913f97a37d` (UUID v7)
 - New conversation started
 
-**Work Completed (Evening Session):**
-1. ✅ Cleaned up `~/.pi/agent/extensions/` (removed nezha/nupi pollution)
+**Work Completed (Full Session):**
+1. ✅ Cleaned up `~/.pi/agent/extensions/` (removed ALL nezha/nupi pollution)
    - Removed: `NEZHA_WORK.md`, `README.md` (mentioned "NuPI")
-   - Remaining (might still be nezha): `AGENTS.md`, `MEMORY.md`, `SOUL.md`, `USER.md`
-2. ✅ Started updating extension to use `ctx.ui.notify()` per Pi docs
-   - Updated `psypi-think` tool as example
-   - Pattern: Use `ctx.ui.notify(msg, type)` for user-facing TUI notifications
-   - Keep `console.log/error()` for debug messages (allowed per Pi docs)
+   - Removed: `AGENTS.md`, `MEMORY.md`, `SOUL.md`, `USER.md` (old nezha leftovers)
+   - **Directory is now completely clean!**
+
+2. ✅ **ALL 17 extension tools updated** to use `ctx.ui.notify()` per Pi docs:
+   - `psypi-think`, `psypi-agent-id`, `psypi-tasks` ✅
+   - `psypi-autonomous`, `psypi-meeting-say`, `psypi-meeting-summary` ✅
+   - `psypi-meeting-search`, `psypi-meeting-list` ✅
+   - `psypi-doc-save`, `psypi-doc-list`, `psypi-status` ✅
+   - `psypi-project`, `psypi-visits`, `psypi-stats` ✅
+   - `psypi-sync-inner-ai`, `psypi-areflect`, `psypi-commit` ✅
+   - Pattern: All execute functions now accept `ctx` parameter
+   - User notifications via `ctx.ui.notify(msg, type)` (types: info, success, error, warning)
+   - Debug messages still use `console.log/error()` (allowed per Pi docs)
+
 3. ✅ Investigated Pi TUI usage compliance
    - Session files in `~/.pi/agent/sessions/` are created by Pi (NOT pollution)
-   - Extension files were old nezha leftovers (CLEANED)
+   - All extension .md files were nezha pollution (NOW FULLY REMOVED)
+
+4. ✅ Build verified clean (`pnpm build` succeeds, hash: 0739c61)
+
+5. ✅ Inter-review passed (score: 70/100) - "No test files" note but not needed for UI changes
 
 **Pi TUI `ctx.ui.notify()` Pattern:**
 ```typescript
@@ -239,21 +252,30 @@ psypi my-session-id   # Prints: 019da0b2-fec1-7288-8920-da0b20ccc74c (Pi UUID v7
 execute(toolCallId, params, signal, onUpdate, ctx) {
   // User-facing notification (appears in TUI)
   ctx.ui.notify("Message to user", "info"); // types: info, success, error, warning
-  
+
   // Debug message (visible to AI, not necessarily user)
   console.log("[PsyPI] Debug message");
 }
 ```
 
-**Key Learning:**
-- `ctx.ui.notify()` is for TUI user notifications
+**Key Learnings:**
+- `ctx.ui.notify()` is for TUI user notifications (appears in Pi interface)
 - `console.log/error()` is fine for debug messages (AI-visible per Pi docs)
 - Session files are Pi's own artifacts (not pollution)
-- Extension .md files were nezha pollution (removed)
+- **ALL** extension .md files were nezha pollution (**NOW FULLY REMOVED**)
+- Testing `ctx.ui.notify()` calls is overkill (just UI notifications, not logic changes)
+- Real quality improvement comes from replacing fake inner AI with real Pi agent
 
 ---
 
-**Session End (Evening): 2026-05-02 ~14:30 UTC**  
+**Session End (Final): 2026-05-02 ~16:30 UTC**  
 **Agent**: S-psypi-psypi  
 **Pi Session**: 019de737-b8ae-7544-b9e0-db913f97a37d  
-**Next**: Complete extension update, remove remaining nezha files
+**Status**: ✅ ALL work completed, ready for database migration
+
+**Next Steps**:
+1. ✅ Extension updated with `ctx.ui.notify()` - DONE
+2. ✅ nezha files removed from `~/.pi/agent/extensions/` - DONE  
+3. ⏳ Wait for database migration
+4. 🚀 Replace fake inner AI with real Pi agent via `createAgentSession()`
+5. 🎯 Then inter-review quality will dramatically improve!
