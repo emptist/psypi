@@ -15,6 +15,26 @@ description: Agent instructions and guidelines for working with psypi project
 
 ---
 
+## ⚠️ THE ONLY RULE YOU NEED: ONE SINGLE WAY FOR SESSION ID
+
+### ✅ CORRECT (Use this EVERY TIME):
+```typescript
+const sessionID = await kernel.piSessionID(); // This is your session ID
+```
+
+### ❌ NEVER DO THESE (WRONG):
+- ❌ Direct access: `process.env.AGENT_SESSION_ID` - MUST go through kernel.piSessionID()
+- ❌ Caching in variables: `const SESSION_ID = ...` - BROKEN
+- ❌ Reading from files/temp caches - BROKEN
+
+### Why?
+- `kernel.piSessionID()` is the ONLY authorized entry point for Session ID
+- It reads from `process.env.AGENT_SESSION_ID` (set by Pi TUI)
+- It throws an error if not set (Pi TUI not running = bug)
+- Calling it multiple times is OK - it's a simple wrapper
+
+---
+
 ## ⚠️ THE ONLY RULE YOU NEED: ONE SINGLE WAY FOR AGENT ID
 
 ### ✅ CORRECT (Use this EVERY TIME):
@@ -24,7 +44,7 @@ const agentId = identity.id; // This is your agent ID
 ```
 
 ### ❌ NEVER DO THESE (WRONG):
-- ❌ `process.env.AGENT_SESSION_ID` - NOT reliable
+- ❌ `process.env.AGENT_SESSION_ID` - NOT agent ID, it's session ID!
 - ❌ Caching in variables: `const SESSION_ID = ...` - BROKEN
 - ❌ Reading from files/temp caches - BROKEN
 - ❌ `CURRENT_AI_IDENTITY` - OLD, don't use
@@ -47,9 +67,7 @@ const agentId = identity.id; // This is your agent ID
 - `psypi skill-list` — List all approved skills (624+)
 - `psypi skill-show <name>` — Show skill details
 - `psypi areflect <text>` — Reflection [LEARN][ISSUE][TASK] auto-parse
-- `psypi session-start` — Start a new agent session
-- `psypi session-end` — End current agent session
-- `psypi context` — Show current context
+- `psypi my-session-id` — Get Pi session ID (UUID v7, single source of truth)
 - `psypi autonomous [context]` — Get autonomous work guidance
 - `psypi think <question>` — Delegate to external thinker
 - `psypi status` — Show psypi status
@@ -61,6 +79,7 @@ const agentId = identity.id; // This is your agent ID
 - `psypi-think` — Delegate complex reasoning
 - `psypi-tasks` — Check pending tasks
 - `psypi-autonomous` — Get work guidance
+- `psypi-piSessionID` — Get Pi session ID (UUID v7)
 - `psypi-meeting-*` — Meeting management
 - `psypi-doc-*` — Document management
 - `psypi-agent-id` — Get agent ID (uses ONE SINGLE WAY internally)
@@ -100,14 +119,17 @@ const agentId = identity.id; // This is your agent ID
 - Build succeeds with `pnpm build` (verified 2026-05-02)
 
 ### Known Issues:
-1. **Fake bot_ session IDs** - AgentSessionService creates invalid IDs with `bot_` prefix
-2. **Inner AI does not work** - inter-review fails (need DatabaseClient integration)
-3. **Tool failure tracking** - Auto-created issues from tool_result handler need cleanup
+1. **Inner AI does not work** - inter-review fails (need DatabaseClient integration)
+2. **Tool failure tracking** - Auto-created issues from tool_result handler need cleanup
+
+**All fake bot_ session ID issues are now fixed!** (commit 42f4887)
 
 ### Recent Fixes (2026-05-02):
+- ✅ **Session ID unification** - Single source of truth: `kernel.piSessionID()`, deleted `getContext/startSession/endSession`
+- ✅ **Fake bot_ IDs removed** - Deleted `AgentSessionService.ts` and `050_agent_sessions.sql`
+- ✅ **New tool added** - `psypi-piSessionID` is now the only way to get session ID in Pi
 - ✅ **[object Promise] startup bug** - Added missing `await` in extension.ts
 - ✅ **Skill conflicts** - Added YAML frontmatter to AGENTS.md, PNPM_USAGE.md, PROJECT_CONTEXT.md
-- ✅ **Agent ID caching** - Removed all caching, now uses ONE SINGLE WAY
 - ✅ **psypi-agent-id tool** - Fixed to use `AgentIdentityService.getResolvedIdentity()`
 
 ---
@@ -116,10 +138,9 @@ const agentId = identity.id; // This is your agent ID
 
 **Current priority**: Fix remaining issues methodically
 
-1. **Fix fake bot_ session IDs** - Use UUID v7 or proper semantic IDs
-2. **Test psypi-agent-id tool** - Verify it works correctly
-3. **Clean up agent_sessions table** - Remove invalid entries
-4. **Make inner AI functional** - Requires DatabaseClient integration
+1. ~~**Fix fake bot_ session IDs**~~ ✅ DONE (commit 42f4887)
+2. **Test psypi-piSessionID tool** - Verify it works correctly in Pi TUI
+3. **Make inner AI functional** - Requires DatabaseClient integration
 
 ---
 
