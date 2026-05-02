@@ -1065,7 +1065,14 @@ export default function psypiExtension(pi: ExtensionAPI) {
   pi.registerTool(psypiCommitTool);
 
   pi.on("before_agent_start", async (_event: BeforeAgentStartEvent) => {
-    let systemPrompt = await buildNezhaPrompt();
+    let systemPrompt = '';
+    
+    try {
+      systemPrompt = await buildNezhaPrompt();
+    } catch (err) {
+      console.warn(`[PsyPI] Failed to build Nezha prompt: ${err instanceof Error ? err.message : err}`);
+      systemPrompt = '\n## Nezha Inside™\n(Unable to load prompt from database)';
+    }
     
     // If thinker slot is filled, inject delegation instruction
     if (delegation.mode === "delegating") {
@@ -1079,10 +1086,14 @@ When user asks complex questions or asks about planning/architecture/research:
     }
     
     // Inject structured nezha context into prompt
-    const contextJson = await getNezhaContext();
-    if (contextJson) {
-      const contextSection = `\n\n## Current Context from Nezha\n\`\`\`json\n${contextJson}\n\`\`\`\n`;
-      systemPrompt += contextSection;
+    try {
+      const contextJson = await getNezhaContext();
+      if (contextJson) {
+        const contextSection = `\n\n## Current Context from Nezha\n\`\`\`json\n${contextJson}\n\`\`\`\n`;
+        systemPrompt += contextSection;
+      }
+    } catch (err) {
+      console.warn(`[PsyPI] Failed to get Nezha context: ${err instanceof Error ? err.message : err}`);
     }
     
     // ✅ NEW: Load project-onboarding skill for proper onboarding
@@ -1122,12 +1133,19 @@ When user asks complex questions or asks about planning/architecture/research:
       [`[Pi Session Started] ${event.reason}`, "Auto-created by PsyPI extension", agentId]
     );
 
-    const taskStatus = checkStartupTasks();
+    const taskStatus = await checkStartupTasks();
     console.log(`[PsyPI Startup] ${taskStatus}`);
 
-    // Inject agent identity now that session is started and AGENT_SESSION_ID is set
+    // Inject agent identity now that session is started
     try {
-      const sessionID = await kernel.piSessionID();
+      let sessionID: string;
+      try {
+        sessionID = await kernel.piSessionID();
+      } catch (e) {
+        // AGENT_SESSION_ID not set - generate fallback for standalone/CLI mode
+        console.warn(`[PsyPI] AGENT_SESSION_ID not set, using generated ID`);
+        sessionID = crypto.randomUUID();
+      }
       const agentResult = await queryOne<{ id: string; agent_type: string }>(
         "SELECT id, agent_type FROM agent_sessions WHERE id = $1",
         [sessionID]
