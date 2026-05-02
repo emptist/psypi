@@ -41,19 +41,31 @@ const sessionID = await kernel.piSessionID(); // This is your session ID
 ```typescript
 const identity = await AgentIdentityService.getResolvedIdentity();
 const agentId = identity.id; // This is your agent ID
+// For partner/permanent ID: getResolvedIdentity(true)
+const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
 ```
 
 ### ❌ NEVER DO THESE (WRONG):
 - ❌ `process.env.AGENT_SESSION_ID` - NOT agent ID, it's session ID!
-- ❌ Caching in variables: `const SESSION_ID = ...` - BROKEN
+- ❌ `process.env.AGENT_ID` - use getResolvedIdentity() instead!
+- ❌ `getCurrentAgentId()` - DELETED, don't use
+- ❌ `kernel.agentID()` - REMOVED, don't use
+- ❌ Caching in variables: `const AGENT_ID = ...` - BROKEN
 - ❌ Reading from files/temp caches - BROKEN
 - ❌ `CURRENT_AI_IDENTITY` - OLD, don't use
 
 ### Why?
-- `AgentIdentityService.getResolvedIdentity()` generates proper semantic IDs (S-, G-, I- prefixes)
-- It stores identity in PostgreSQL (`agent_identities` table)
-- It handles all context (project, git hash, machine fingerprint)
-- Calling it multiple times is OK - it returns existing identity if already created
+- `AgentIdentityService.getResolvedIdentity()` is the ONLY authorized entry point for Agent ID
+- Generates proper semantic IDs: `S-` (session), `P-` (permanent/partner), `G-` (global)
+- Stores identity in PostgreSQL (`agent_identities` table)
+- Handles all context (project, git hash, machine fingerprint)
+- Calling it multiple times is OK - returns existing identity if already created
+
+### Quick Commands:
+- **My ID**: `psypi my-id` (CLI) or `psypi-agent-id` (Pi tool)
+- **Partner ID**: `psypi partner-id` (CLI) or `psypi-partner-id` (Pi tool)
+  - Partner = permanent/monitor/reviewer (God AI)
+  - Uses `P-` prefix (e.g., `P-tencent/hy3-preview:free-psypi`)
 
 ---
 
@@ -67,6 +79,7 @@ const agentId = identity.id; // This is your agent ID
 - `psypi skill-list` — List all approved skills (624+)
 - `psypi skill-show <name>` — Show skill details
 - `psypi areflect <text>` — Reflection [LEARN][ISSUE][TASK] auto-parse
+- `psypi commit <message>` — Git commit with mandatory inter-review
 - `psypi my-session-id` — Get Pi session ID (UUID v7, single source of truth)
 - `psypi autonomous [context]` — Get autonomous work guidance
 - `psypi think <question>` — Delegate to external thinker
@@ -80,9 +93,10 @@ const agentId = identity.id; // This is your agent ID
 - `psypi-tasks` — Check pending tasks
 - `psypi-autonomous` — Get work guidance
 - `psypi-piSessionID` — Get Pi session ID (UUID v7)
+- `psypi-agent-id` — Get agent ID (uses ONE SINGLE WAY internally)
+- `psypi-partner-id` — Get partner/monitor ID (permanent God AI)
 - `psypi-meeting-*` — Meeting management
 - `psypi-doc-*` — Document management
-- `psypi-agent-id` — Get agent ID (uses ONE SINGLE WAY internally)
 
 ---
 
@@ -131,6 +145,11 @@ const agentId = identity.id; // This is your agent ID
 - ✅ **[object Promise] startup bug** - Added missing `await` in extension.ts
 - ✅ **Skill conflicts** - Added YAML frontmatter to AGENTS.md, PNPM_USAGE.md, PROJECT_CONTEXT.md
 - ✅ **psypi-agent-id tool** - Fixed to use `AgentIdentityService.getResolvedIdentity()`
+- ✅ **Agent ID simplification** - Deleted `src/kernel/utils/agent.ts` (helper functions removed)
+- ✅ **Removed `kernel.agentID()`** - Unnecessary wrapper deleted
+- ✅ **Partner ID prefix** - Changed from `I-` to `P-` (permanent/partner agents)
+- ✅ **Commands added** - `psypi my-id` and `psypi partner-id` for CLI
+- ✅ **Tools added** - `psypi-agent-id` and `psypi-partner-id` for Pi TUI
 
 ---
 
@@ -139,13 +158,21 @@ const agentId = identity.id; // This is your agent ID
 **Current priority**: Fix remaining issues methodically
 
 1. ~~**Fix fake bot_ session IDs**~~ ✅ DONE (commit 42f4887)
-2. **Test psypi-piSessionID tool** - Verify it works correctly in Pi TUI
-3. **Make inner AI functional** - Requires DatabaseClient integration
+2. ~~**Simplify agent ID system**~~ ✅ DONE (single source of truth)
+3. **Test psypi tools** - Verify `psypi-agent-id` and `psypi-partner-id` work in Pi TUI
+4. **Make inner AI functional** - Requires DatabaseClient integration
+
+**Current IDs:**
+- **My ID**: `S-psypi-psypi` (session-based, via `getResolvedIdentity()`)
+- **Partner ID**: `P-tencent/hy3-preview:free-psypi` (permanent/monitor, via `getResolvedIdentity(true)`)
 
 ---
 
 **Remember**: 
 - ✅ **ONE SINGLE WAY** for agent ID: `AgentIdentityService.getResolvedIdentity()`
+  - `getResolvedIdentity()` = my ID (S- prefix)
+  - `getResolvedIdentity(true)` = partner ID (P- prefix)
+- ✅ **ONE SINGLE WAY** for session ID: `kernel.piSessionID()`
 - ✅ **Database** is the source of truth
 - ✅ **pnpm** builds faster (10s vs 24s for npm)
 - ⚠️ **Report issues first, fix later** (don't rush!)

@@ -241,16 +241,6 @@ export class SelfImprovementService {
     }
   }
 
-  private async getCurrentAgentId(): Promise<string | null> {
-    try {
-      const identityService = new AgentIdentityService(this.db);
-      const identity = await identityService.resolve();
-      return identity.id;
-    } catch {
-      return null;
-    }
-  }
-
   async learn(input: LearnInput): Promise<string> {
     const id = crypto.randomUUID();
     const importance = input.importance ?? 7;
@@ -269,7 +259,8 @@ export class SelfImprovementService {
       }
     }
 
-    const agentId = await this.getCurrentAgentId();
+    const identity = await AgentIdentityService.getResolvedIdentity();
+    const agentId = identity.id;
 
     await this.db.query(
       `INSERT INTO ${DATABASE_TABLES.MEMORY} (id, content, metadata, tags, importance, source, embedding, agent_id, created_at, updated_at)

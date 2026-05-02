@@ -340,6 +340,18 @@ program
   });
 
 program
+  .command('partner-id')
+  .description('Print permanent partner AI ID (e.g., I-tencent/hy3-preview:free-psypi)')
+  .action(async () => {
+    try {
+      const identity = await AgentIdentityService.getResolvedIdentity(true);
+      console.log(identity.id);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : err);
+    }
+  });
+
+program
   .command('my-session-id')
   .description('Print Pi session ID (UUID v7) - single source of truth')
   .action(async () => {

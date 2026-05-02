@@ -272,19 +272,29 @@ const psypiThinkTool = {
 const psypiAgentIdTool = {
   name: "psypi-agent-id",
   label: "PsyPI Agent ID",
-  description: "Get current agent identity",
+  description: "Get current agent ID. Single source of truth via AgentIdentityService.",
   parameters: Type.Object({}),
   async execute(_toolCallId: string, _params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) {
-    const sessionID = await kernel.piSessionID();
-    const result = await queryOne<{ id: string; agent_type: string }>(
-      "SELECT id, agent_type FROM agent_sessions WHERE id = $1",
-      [sessionID]
-    );
-    const agentId = result?.agent_type || sessionID;
+    const agentId = (await AgentIdentityService.getResolvedIdentity()).id;
     ctx.ui.notify(`Agent ID: ${agentId}`, "info");
     return {
       content: [{ type: "text" as const, text: `Agent ID: ${agentId}` }],
       details: { agentId },
+    };
+  },
+};
+
+const psypiPartnerIdTool = {
+  name: "psypi-partner-id",
+  label: "PsyPI Partner ID",
+  description: "Get your permanent partner AI ID (inner AI).",
+  parameters: Type.Object({}),
+  async execute(_toolCallId: string, _params: any, _signal: AbortSignal, _onUpdate: any, ctx: any) {
+    const identity = await AgentIdentityService.getResolvedIdentity(true);
+    ctx.ui.notify(`Partner ID: ${identity.id}`, "info");
+    return {
+      content: [{ type: "text" as const, text: `Partner ID: ${identity.id}` }],
+      details: { partnerId: identity.id },
     };
   },
 };
@@ -1034,6 +1044,7 @@ const psypiCommitTool = {
 
 export default function psypiExtension(pi: ExtensionAPI) {
   pi.registerTool(psypiAgentIdTool);
+  pi.registerTool(psypiPartnerIdTool);
   pi.registerTool(psypiPiSessionIDTool);
   pi.registerTool(psypiThinkTool);
   pi.registerTool(psypiTasksTool);
