@@ -101,8 +101,8 @@ fn save_learning(
 
   promise.await(db.query(conn, sql, params), fn(query_result) {
     case query_result {
-      Error(_) -> Error(QueryError("Query failed"))
-      Ok(_) -> Ok(Nil)
+      Error(_) -> promise.resolve(Error(QueryError("Query failed")))
+      Ok(_) -> promise.resolve(Ok(Nil))
     }
   })
 }
@@ -139,8 +139,8 @@ fn save_issue(
 
   promise.await(db.query(conn, sql, params), fn(query_result) {
     case query_result {
-      Error(_) -> Error(QueryError("Query failed"))
-      Ok(_) -> Ok(Nil)
+      Error(_) -> promise.resolve(Error(QueryError("Query failed")))
+      Ok(_) -> promise.resolve(Ok(Nil))
     }
   })
 }
@@ -177,8 +177,8 @@ fn save_task(
 
   promise.await(db.query(conn, sql, params), fn(query_result) {
     case query_result {
-      Error(_) -> Error(QueryError("Query failed"))
-      Ok(_) -> Ok(Nil)
+      Error(_) -> promise.resolve(Error(QueryError("Query failed")))
+      Ok(_) -> promise.resolve(Ok(Nil))
     }
   })
 }

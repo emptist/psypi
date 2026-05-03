@@ -56,15 +56,6 @@ fn int_to_priority(i: Int) -> BroadcastPriority {
   }
 }
 
-fn status_to_string(s: BroadcastStatus) -> String {
-  case s {
-    Pending -> "pending"
-    Sent -> "sent"
-    Failed -> "failed"
-    Cancelled -> "cancelled"
-  }
-}
-
 fn string_to_status(s: String) -> BroadcastStatus {
   case s {
     "sent" -> Sent
@@ -97,6 +88,13 @@ fn broadcast_decoder() -> decode.Decoder(Broadcast) {
 fn id_decoder() -> decode.Decoder(String) {
   use id <- decode.field("id", decode.string)
   decode.success(id)
+}
+
+fn stats_decoder() -> decode.Decoder(#(Int, Int, Int)) {
+  use total <- decode.field("total", decode.int)
+  use sent_count <- decode.field("sent_count", decode.int)
+  use high_priority_count <- decode.field("high_priority_count", decode.int)
+  decode.success(#(total, sent_count, high_priority_count))
 }
 
 pub fn send(
@@ -247,10 +245,7 @@ pub fn stats(
             Ok(result) -> {
               case result.rows {
                 [row, ..] -> {
-                  use total <- decode.field("total", decode.int)
-                  use sent_count <- decode.field("sent_count", decode.int)
-                  use high_priority_count <- decode.field("high_priority_count", decode.int)
-                  case decode.run(row, decode.success(#(total, sent_count, high_priority_count))) {
+                  case decode.run(row, stats_decoder()) {
                     Ok(stats) -> promise.resolve(Ok(stats))
                     Error(_) -> promise.resolve(Error(DecodeError("Failed to decode stats")))
                   }

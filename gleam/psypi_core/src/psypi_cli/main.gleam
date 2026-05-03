@@ -72,7 +72,7 @@ pub fn main(args: List(String)) -> promise.Promise(String) {
         case result {
           Ok(issues) -> {
             let issue_lines = list.map(issues, fn(i) {
-              i.title <> " [" <> i.severity <> "]"
+              i.title <> " [" <> severity_to_string(i.severity) <> "]"
             })
             list.fold(issue_lines, "Issues:\n", fn(acc, line) { acc <> line <> "\n" })
           }
@@ -80,8 +80,9 @@ pub fn main(args: List(String)) -> promise.Promise(String) {
         }
       })
     }
-    ["issue-resolve", issue_id] -> {
-      promise.map(issue.resolve(issue_id), fn(result) {
+    ["issue-resolve", issue_id, ..rest] -> {
+      let resolution = get_arg(rest, 0)
+      promise.map(issue.resolve(issue_id, resolution), fn(result) {
         case result {
           Ok(id) -> "Issue resolved: " <> id
           Error(_) -> "Error resolving issue"
@@ -90,9 +91,18 @@ pub fn main(args: List(String)) -> promise.Promise(String) {
     }
     ["meeting", subcmd, ..rest] -> handle_meeting(subcmd, rest)
     ["skill", subcmd, ..rest] -> handle_skill(subcmd, rest)
-    ["my-id"] -> promise.resolve(context.my_id())
-    ["partner-id"] -> promise.resolve(context.partner_id())
-    ["my-session-id"] -> promise.resolve(context.my_session_id())
+    ["my-id"] -> promise.resolve(case context.my_id() {
+      Ok(id) -> id
+      Error(_) -> "Error getting my id"
+    })
+    ["partner-id"] -> promise.resolve(case context.partner_id() {
+      Ok(id) -> id
+      Error(_) -> "Error getting partner id"
+    })
+    ["my-session-id"] -> promise.resolve(case context.my_session_id() {
+      Ok(id) -> id
+      Error(_) -> "Error getting session id"
+    })
     ["areflect", text] -> {
       promise.map(areflect.areflect(text, "cli"), fn(result) {
         case result {
@@ -122,9 +132,19 @@ pub fn main(args: List(String)) -> promise.Promise(String) {
 fn status_to_string(s: task.TaskStatus) -> String {
   case s {
     task.Pending -> "pending"
-    task.InProgress -> "in_progress"
+    task.Running -> "running"
     task.Completed -> "completed"
-    task.Cancelled -> "cancelled"
+    task.Failed -> "failed"
+  }
+}
+
+fn severity_to_string(s: issue.IssueSeverity) -> String {
+  case s {
+    issue.Critical -> "critical"
+    issue.High -> "high"
+    issue.Medium -> "medium"
+    issue.Low -> "low"
+    issue.Cosmetic -> "cosmetic"
   }
 }
 
@@ -271,19 +291,37 @@ fn handle_skill(subcmd: String, args: List(String)) -> promise.Promise(String) {
 }
 
 fn get_arg(args: List(String), index: Int) -> String {
-  case list.at(args, index) {
-    Ok(s) -> s
-    Error(_) -> ""
+  case index_get(args, index) {
+    Some(s) -> s
+    None -> ""
+  }
+}
+
+fn index_get(list: List(a), index: Int) -> option.Option(a) {
+  case index {
+    0 -> {
+      case list {
+        [first, ..] -> Some(first)
+        _ -> None
+      }
+    }
+    n -> {
+      case list {
+        [_, ..rest] -> index_get(rest, n - 1)
+        _ -> None
+      }
+    }
   }
 }
 
 fn get_flag(args: List(String), flag: String) -> String {
-  case list.find_map(args, fn(arg) {
+  let result = list.find_map(args, fn(arg) {
     case string.split(arg, "=") {
-      [key, value] if key == flag -> Some(value)
-      _ -> None
+      [key, value] if key == flag -> Ok(value)
+      _ -> Error(Nil)
     }
-  }) {
+  })
+  case result {
     Ok(s) -> s
     Error(_) -> ""
   }
