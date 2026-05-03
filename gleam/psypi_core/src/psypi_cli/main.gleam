@@ -1,6 +1,8 @@
-// main.gleam - CLI entry point + routing (~90 lines)
-// Small + Pure = Resilience!
-
+import gleam/int
+import gleam/javascript/promise
+import gleam/list
+import gleam/option.{None, Some}
+import gleam/string
 import psypi_cli/task
 import psypi_cli/issue
 import psypi_cli/meeting
@@ -9,125 +11,291 @@ import psypi_cli/context
 import psypi_cli/areflect
 import psypi_cli/broadcast
 
-pub fn main(args: List(String)) -> Result(String, String) {
+pub fn main(args: List(String)) -> promise.Promise(String) {
   case args {
     ["task-add", title, ..rest] -> {
       let desc = get_flag(rest, "--description")
       let priority = get_priority(rest)
-      case task.add_task(title, desc, priority) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error adding task")
-      }
+      promise.map(task.add(title, desc, priority, "cli"), fn(result) {
+        case result {
+          Ok(id) -> "Task added: " <> id
+          Error(_) -> "Error adding task"
+        }
+      })
     }
     ["tasks", ..rest] -> {
       let status = get_flag(rest, "--status")
-      case task.list_tasks(status) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error listing tasks")
+      let status_opt = case status {
+        "" -> None
+        s -> Some(s)
       }
+      promise.map(task.list(status_opt), fn(result) {
+        case result {
+          Ok(tasks) -> {
+            let task_lines = list.map(tasks, fn(t) {
+              t.title <> " [" <> status_to_string(t.status) <> "]"
+            })
+            list.fold(task_lines, "Tasks:\n", fn(acc, line) { acc <> line <> "\n" })
+          }
+          Error(_) -> "Error listing tasks"
+        }
+      })
+    }
+    ["task-complete", task_id] -> {
+      promise.map(task.complete(task_id), fn(result) {
+        case result {
+          Ok(id) -> "Task completed: " <> id
+          Error(_) -> "Error completing task"
+        }
+      })
     }
     ["issue-add", title, ..rest] -> {
       let severity = get_flag(rest, "--severity")
-      case issue.add_issue(title, severity) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error adding issue")
+      let severity_val = case severity {
+        "" -> "medium"
+        s -> s
       }
+      promise.map(issue.add(title, "", severity_val, "bug", "cli"), fn(result) {
+        case result {
+          Ok(id) -> "Issue added: " <> id
+          Error(_) -> "Error adding issue"
+        }
+      })
     }
     ["issue-list", ..rest] -> {
       let status = get_flag(rest, "--status")
-      case issue.list_issues(status) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error listing issues")
+      let status_opt = case status {
+        "" -> None
+        s -> Some(s)
       }
+      promise.map(issue.list(status_opt), fn(result) {
+        case result {
+          Ok(issues) -> {
+            let issue_lines = list.map(issues, fn(i) {
+              i.title <> " [" <> i.severity <> "]"
+            })
+            list.fold(issue_lines, "Issues:\n", fn(acc, line) { acc <> line <> "\n" })
+          }
+          Error(_) -> "Error listing issues"
+        }
+      })
+    }
+    ["issue-resolve", issue_id] -> {
+      promise.map(issue.resolve(issue_id), fn(result) {
+        case result {
+          Ok(id) -> "Issue resolved: " <> id
+          Error(_) -> "Error resolving issue"
+        }
+      })
     }
     ["meeting", subcmd, ..rest] -> handle_meeting(subcmd, rest)
     ["skill", subcmd, ..rest] -> handle_skill(subcmd, rest)
-    ["my-id"] -> context.my_id()
-    ["partner-id"] -> context.partner_id()
-    ["my-session-id"] -> context.my_session_id()
-    ["areflect", text] -> areflect.areflect(text)
+    ["my-id"] -> promise.resolve(context.my_id())
+    ["partner-id"] -> promise.resolve(context.partner_id())
+    ["my-session-id"] -> promise.resolve(context.my_session_id())
+    ["areflect", text] -> {
+      promise.map(areflect.areflect(text, "cli"), fn(result) {
+        case result {
+          Ok(r) -> "Reflection saved: " <> int.to_string(r.learnings) <> " learnings"
+          Error(_) -> "Error saving reflection"
+        }
+      })
+    }
     ["announce", message, ..rest] -> {
       let priority = get_flag(rest, "--priority")
-      case broadcast.announce(message, priority) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error broadcasting")
+      let prio = case priority {
+        "high" -> broadcast.High
+        "urgent" -> broadcast.Urgent
+        _ -> broadcast.Normal
       }
+      promise.map(broadcast.send("cli", message, prio), fn(result) {
+        case result {
+          Ok(id) -> "Announcement sent: " <> id
+          Error(_) -> "Error broadcasting"
+        }
+      })
     }
-    _ -> Ok("Usage: psypi <command> [options]")
+    _ -> promise.resolve("Usage: psypi <command> [options]")
   }
 }
 
-fn handle_meeting(subcmd: String, args: List(String)) -> Result(String, String) {
+fn status_to_string(s: task.TaskStatus) -> String {
+  case s {
+    task.Pending -> "pending"
+    task.InProgress -> "in_progress"
+    task.Completed -> "completed"
+    task.Cancelled -> "cancelled"
+  }
+}
+
+fn meeting_status_to_string(s: meeting.MeetingStatus) -> String {
+  case s {
+    meeting.Pending -> "pending"
+    meeting.Active -> "active"
+    meeting.Completed -> "completed"
+    meeting.Cancelled -> "cancelled"
+  }
+}
+
+fn skill_status_to_string(s: skill.SkillStatus) -> String {
+  case s {
+    skill.Pending -> "pending"
+    skill.Approved -> "approved"
+    skill.Rejected -> "rejected"
+    skill.Blocked -> "blocked"
+    skill.Installed -> "installed"
+    skill.Uninstalled -> "uninstalled"
+  }
+}
+
+fn handle_meeting(subcmd: String, args: List(String)) -> promise.Promise(String) {
   case subcmd {
-    "discuss" -> {
-      case meeting.create_discussion(get_arg(args, 0), get_arg(args, 1)) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error creating discussion")
-      }
+    "create" -> {
+      let topic = get_arg(args, 0)
+      promise.map(meeting.create(topic, "cli"), fn(result) {
+        case result {
+          Ok(id) -> "Meeting created: " <> id
+          Error(_) -> "Error creating meeting"
+        }
+      })
     }
     "list" -> {
-      case meeting.list_meetings(get_flag(args, "--status"), 100) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error listing meetings")
+      let status = get_flag(args, "--status")
+      let status_opt = case status {
+        "" -> None
+        s -> Some(s)
       }
+      promise.map(meeting.list(status_opt), fn(result) {
+        case result {
+          Ok(meetings) -> {
+            let meeting_lines = list.map(meetings, fn(m) {
+              m.topic <> " [" <> meeting_status_to_string(m.status) <> "]"
+            })
+            list.fold(meeting_lines, "Meetings:\n", fn(acc, line) { acc <> line <> "\n" })
+          }
+          Error(_) -> "Error listing meetings"
+        }
+      })
     }
     "show" -> {
-      case meeting.show_meeting(get_arg(args, 0)) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error showing meeting")
-      }
+      let meeting_id = get_arg(args, 0)
+      promise.map(meeting.get(meeting_id), fn(result) {
+        case result {
+          Ok(m) -> "Meeting: " <> m.topic <> " [" <> meeting_status_to_string(m.status) <> "]"
+          Error(_) -> "Error showing meeting"
+        }
+      })
     }
     "opinion" -> {
-      case meeting.add_opinion(get_arg(args, 0), get_arg(args, 1), get_arg(args, 2)) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error adding opinion")
-      }
+      let meeting_id = get_arg(args, 0)
+      let author = get_arg(args, 1)
+      let perspective = get_arg(args, 2)
+      promise.map(meeting.add_opinion(meeting_id, author, perspective, None, None), fn(result) {
+        case result {
+          Ok(id) -> "Opinion added: " <> id
+          Error(_) -> "Error adding opinion"
+        }
+      })
     }
-    _ -> Ok("Unknown meeting command")
+    "complete" -> {
+      let meeting_id = get_arg(args, 0)
+      let consensus = get_arg(args, 1)
+      promise.map(meeting.complete(meeting_id, consensus), fn(result) {
+        case result {
+          Ok(id) -> "Meeting completed: " <> id
+          Error(_) -> "Error completing meeting"
+        }
+      })
+    }
+    _ -> promise.resolve("Unknown meeting command")
   }
 }
 
-fn handle_skill(subcmd: String, args: List(String)) -> Result(String, String) {
+fn handle_skill(subcmd: String, args: List(String)) -> promise.Promise(String) {
   case subcmd {
     "list" -> {
-      case skill.list_skills() {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error listing skills")
-      }
+      promise.map(skill.list(None), fn(result) {
+        case result {
+          Ok(skills) -> {
+            let skill_lines = list.map(skills, fn(s) {
+              s.name <> " [" <> s.version <> "]"
+            })
+            list.fold(skill_lines, "Skills:\n", fn(acc, line) { acc <> line <> "\n" })
+          }
+          Error(_) -> "Error listing skills"
+        }
+      })
     }
     "show" -> {
-      case skill.show_skill(get_arg(args, 0)) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error showing skill")
-      }
+      let name = get_arg(args, 0)
+      promise.map(skill.get(name), fn(result) {
+        case result {
+          Ok(s) -> "Skill: " <> s.name <> " [" <> skill_status_to_string(s.status) <> "]"
+          Error(_) -> "Error showing skill"
+        }
+      })
     }
     "search" -> {
-      case skill.search_skills(get_arg(args, 0)) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error searching skills")
-      }
+      let query = get_arg(args, 0)
+      promise.map(skill.search(query), fn(result) {
+        case result {
+          Ok(skills) -> {
+            let skill_lines = list.map(skills, fn(s) { s.name })
+            list.fold(skill_lines, "Results:\n", fn(acc, line) { acc <> line <> "\n" })
+          }
+          Error(_) -> "Error searching skills"
+        }
+      })
     }
-    "build" -> {
-      case skill.build_skill(get_arg(args, 0), get_arg(args, 1)) {
-        Ok(s) -> Ok(s)
-        Error(_) -> Ok("Error building skill")
-      }
+    "create" -> {
+      let name = get_arg(args, 0)
+      let desc = get_arg(args, 1)
+      promise.map(skill.create(name, desc, "cli"), fn(result) {
+        case result {
+          Ok(id) -> "Skill created: " <> id
+          Error(_) -> "Error creating skill"
+        }
+      })
     }
-    _ -> Ok("Unknown skill command")
+    "approve" -> {
+      let skill_id = get_arg(args, 0)
+      promise.map(skill.approve(skill_id, "cli"), fn(result) {
+        case result {
+          Ok(id) -> "Skill approved: " <> id
+          Error(_) -> "Error approving skill"
+        }
+      })
+    }
+    _ -> promise.resolve("Unknown skill command")
   }
 }
 
-fn get_arg(_args: List(String), _index: Int) -> String {
-  // TODO: Get argument at index
-  ""
+fn get_arg(args: List(String), index: Int) -> String {
+  case list.at(args, index) {
+    Ok(s) -> s
+    Error(_) -> ""
+  }
 }
 
-fn get_flag(_args: List(String), _flag: String) -> String {
-  // TODO: Get flag value
-  ""
+fn get_flag(args: List(String), flag: String) -> String {
+  case list.find_map(args, fn(arg) {
+    case string.split(arg, "=") {
+      [key, value] if key == flag -> Some(value)
+      _ -> None
+    }
+  }) {
+    Ok(s) -> s
+    Error(_) -> ""
+  }
 }
 
-fn get_priority(_args: List(String)) -> Int {
-  // TODO: Parse --priority flag
-  5
+fn get_priority(args: List(String)) -> Int {
+  let prio = get_flag(args, "--priority")
+  case prio {
+    "critical" -> 1
+    "high" -> 2
+    "medium" -> 3
+    "low" -> 4
+    _ -> 5
+  }
 }
