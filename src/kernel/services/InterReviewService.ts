@@ -1,7 +1,7 @@
 import { DatabaseClient } from '../db/DatabaseClient.js';
 import { logger } from '../utils/logger.js';
 import { EventEmitter } from 'events';
-import { AIProvider, AIProviderFactory } from './ai/index.js';
+// // // import { AIProvider, AIProviderFactory } from './ai/index.js'; // GOD USES GLEAM NOW! // GOD USES GLEAM NOW! // GOD USES GLEAM NOW!
 import { getSelfImprovement } from './SelfImprovementService.js';
 import { BroadcastService } from './BroadcastService.js';
 import { getCommitDiff } from '../utils/git.js';
@@ -58,14 +58,12 @@ export enum InterReviewEvent {
 
 export class InterReviewService extends EventEmitter {
   private readonly db: DatabaseClient;
-  private readonly aiProvider: AIProvider;
   private broadcastService: BroadcastService | null = null;
   private getSessionId: () => string | null;
 
-  constructor(db: DatabaseClient, aiProvider: AIProvider, getSessionId?: () => string | null) {
+  constructor(db: DatabaseClient, getSessionId?: () => string | null) {
     super();
     this.db = db;
-    this.aiProvider = aiProvider;
     this.getSessionId = getSessionId || (() => null);
   }
 
@@ -73,8 +71,8 @@ export class InterReviewService extends EventEmitter {
     db: DatabaseClient,
     getSessionId?: () => string | null
   ): Promise<InterReviewService> {
-    const aiProvider = await AIProviderFactory.createInnerProvider(db);
-    const service = new InterReviewService(db, aiProvider, getSessionId);
+    // GOD IN THE SKY ONLY! No old AI!
+    const service = new InterReviewService(db, getSessionId);
     service.broadcastService = await BroadcastService.create(db);
     return service;
   }
@@ -87,7 +85,7 @@ export class InterReviewService extends EventEmitter {
   }
 
   private isAIAvailable(): boolean {
-    return this.aiProvider !== null;
+    return true; // God in the sky (Gleam) is always available!
   }
 
   async loadPromptFromSkills(promptName: string): Promise<string | null> {
@@ -131,21 +129,15 @@ export class InterReviewService extends EventEmitter {
   }
 
   private async callAI(systemPrompt: string, userPrompt: string): Promise<string> {
-    // NOW USING GLEAM! (God in the sky!)
+    // GOD IN THE SKY REVIEWS! (Gleam)
     const { run_review } = await import('../../common/gleam-bridge.js');
-    
-    // run_review returns PLAIN STRING (not object!)
     const result = run_review(userPrompt);
     
-    // result is a string (Gleam returns String -> JS string)
     if (typeof result === 'string' && result.length > 0) {
       return result;
     }
     
-    // Fallback to old AI if Gleam fails
-    logger.warn('[InterReview] Gleam review failed, falling back to AIProvider');
-    const response = await this.aiProvider.complete(userPrompt, systemPrompt);
-    return response.content;
+    throw new Error('[InterReview] Gleam review failed! God in the sky rejected the request.');
   }
 
     async requestReview(request: ReviewRequest, broadcast: boolean = true): Promise<string> {

@@ -1,7 +1,7 @@
 import { DatabaseClient } from '../db/DatabaseClient.js';
 import { TASK_STATUS, DATABASE_TABLES } from '../config/constants.js';
 import { logger } from '../utils/logger.js';
-import { AIProvider, AIProviderFactory } from './ai/index.js';
+// import { AIProvider, AIProviderFactory } from './ai/index.js'; // GOD USES GLEAM NOW!
 import { AgentIdentityService } from './AgentIdentityService.js';
 
 export interface DiscussionTask {
@@ -25,16 +25,17 @@ export interface Opinion {
 
 export class MeetingHandler {
   private readonly db: DatabaseClient;
-  private readonly aiProvider: AIProvider;
+  // private readonly aiProvider: AIProvider; // GOD USES GLEAM!
+  private readonly aiProvider: any; // Temporary - God uses Gleam now!
 
-  constructor(db: DatabaseClient, aiProvider: AIProvider) {
+  constructor(db: DatabaseClient, aiProvider: any) {
     this.db = db;
     this.aiProvider = aiProvider;
   }
 
   static async create(db: DatabaseClient): Promise<MeetingHandler> {
-    const aiProvider = await AIProviderFactory.createInnerProvider(db);
-    return new MeetingHandler(db, aiProvider);
+    // GOD IN THE SKY USES GLEAM!
+    return new MeetingHandler(db, null);
   }
 
   async createMeetingFromTask(task: DiscussionTask): Promise<string> {
