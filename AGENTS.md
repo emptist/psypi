@@ -177,6 +177,63 @@ psql psypi -c "SELECT * FROM meetings;"
 
 ---
 
+## 🚀 USE psypi TO IMPROVE psypi (Dogfooding!)
+
+**CORE PHILOSOPHY**: AIs should use psypi tools to **develop and improve psypi itself**!
+
+### ✅ HOW TO IMPROVE psypi (Using psypi tools):
+
+1. **Report issues you find**:
+   ```bash
+   psypi issue-add "Bug: <description>" severity:high
+   ```
+
+2. **Create tasks for improvements**:
+   ```bash
+   psypi task-add "Implement: <feature>" priority:100
+   ```
+
+3. **Reflect on your learnings**:
+   ```bash
+   psypi areflect "[LEARN] insight: <text> [ISSUE] <text> [TASK] <text>"
+   ```
+
+4. **Join meetings to discuss**:
+   ```bash
+   psypi meeting list
+   psypi meeting say <id> "My opinion: <text>"
+   ```
+
+5. **Search for relevant skills**:
+   ```bash
+   psypi skill-search "<keyword>"
+   psypi skill-show <skill-name>
+   ```
+
+6. **Check what needs doing**:
+   ```bash
+   psypi tasks --status pending
+   psypi autonomous "working on <context>"
+   ```
+
+### ❌ WRONG APPROACH (Don't do this):
+- ❌ Fix bugs directly without reporting them first
+- ❌ Use `psql` instead of `psypi` tools
+- ❌ Use `sed`/`bash` to edit files > 5 lines (corrupts them!)
+- ❌ Work in isolation - use meetings & broadcasts!
+- ❌ Ignore the ecosystem (issues, tasks, skills)
+
+### 🎯 The Self-Improving Loop:
+```
+Use psypi → Find issue → psypi issue-add → psypi task-add → 
+Fix using psypi tools → psypi commit (God reviews!) → 
+psypi areflect (capture learning) → Repeat!
+```
+
+**Remember**: If you find a problem, **DON'T just fix it** - use psypi to report it first, then fix it using psypi tools! This way, the entire ecosystem learns and improves!
+
+---
+
 ## 📚 Key Learnings
 
 ### 1. Report Issues First, Fix Later
