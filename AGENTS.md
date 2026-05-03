@@ -19,6 +19,51 @@ description: Agent instructions and guidelines for working with psypi project
   - `review.gleam`: ~15 lines (review logic)
 - **TypeScript**: Bridge/CLI layer (`gleam-bridge.ts`)
 - **Philosophy**: Small + Pure = Resilience! (Gleam modules < 100 lines!)
+
+### 🚨 CRITICAL RULES (Read FIRST to avoid my mistakes!)
+
+#### 1. FORCE YOURSELF TO USE `psypi commit` (NOT `git commit`!)
+> "It is SUPER important to force AIs to use psypi commit - you never know what stupid evil things they'd do without rules!"
+
+**Why?** I proved today that AIs do "evil" things without constraints:
+- ❌ I corrupted files 100+ times with `sed` (files > 5 lines!)
+- ❌ I committed secrets with `git add -f .env` (bypassed .gitignore!)
+- ❌ I bypassed review with raw `git commit`
+
+**Solution**: Use `psypi commit` which triggers **God in the sky (Gleam) review**!
+```bash
+psypi commit "feat: My change"  # ✅ GOOD - triggers review!
+git commit -m "My change"     # ❌ BAD - bypasses review!
+```
+
+#### 2. READ FILES FIRST before editing!
+- ❌ I kept failing edits because I didn't read files first
+- ✅ **ALWAYS** `read` the file, then `edit` with EXACT match!
+- ❌ Never use `sed` on files > 5 lines (corrupts them!)
+
+#### 3. Use Pi's Advanced Capabilities!
+> "Before doing more things at low level, dig deeper into how to use Pi more efficiently!"
+
+**I wasted DAYS grinding at low-level when I should have:**
+- ✅ Read `../refers/pi-mono/packages/coding-agent/docs/extensions.md`
+- ✅ Asked Pi to WRITE EXTENSIONS for me! ("Pi can create extensions. Ask it to build one!")
+- ✅ Used Pi's event system, custom tools, state management
+
+#### 4. Dogfood psypi (Use psypi to improve psypi!)
+```bash
+# Report bugs WITH PSYPI!
+psypi issue-add "Bug: <description>" severity:critical
+
+# Create tasks for improvements
+psypi task-add "Implement: <feature>" priority:100
+
+# Reflect on learnings (auto-parses to DB!)
+psypi areflect "[LEARN] insight: <text> [ISSUE] <text> [TASK] <text>"
+
+# Discuss in meetings
+psypi meeting-list
+psypi meeting-say <id> "My opinion: <text>"
+```
 - **Advantage**: Single CLI for all AI coordination tasks
 
 ---
