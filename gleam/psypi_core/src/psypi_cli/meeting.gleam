@@ -24,7 +24,7 @@ pub fn show_meeting(meeting_id: String) -> Result(String, MeetingError) {
   Ok("Meeting details")
 }
 
-pub fn add_opinion(meeting_id: String, author: String, perspective: String, reasoning: String) -> Result(String, MeetingError) {
+pub fn add_opinion(meeting_id: String, author: String, perspective: String) -> Result(String, MeetingError) {
   // TODO: Add opinion to meeting
   Ok("Opinion added")
 }

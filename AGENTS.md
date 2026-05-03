@@ -9,15 +9,20 @@ description: Agent instructions and guidelines for working with psypi project
 ## 🎯 Project Overview
 
 **psypi** = **Psy**che + **Pi** = Unified AI coordination system
-- Combines kernel (DB, tasks, issues, skills) + autonomous agent (Pi executor)
-- **Status**: ✅ Unified and working - single CLI tool replacing `nezha` and `nupi`
+- **Standalone & Self-Contained**: psypi does NOT use external thinkers!
+- **Uses Pi HEAVILY**: Pi is the runtime (TUI, extensions, events)
+- **Shared Database**: ONE database per user home, shared across ALL projects
+- **Status**: ✅ Unified and working - single CLI tool with **Gleam core**!
 - **NEW**: 🎉 **God in the sky** (Gleam) NOW REVIEWS via `psypi commit`!
 
-### 🏗️ Architecture: Gleam + TypeScript
-- **Gleam**: Core logic (session mgmt, review) - Small, pure, UNBREAKABLE!
-  - `partner.gleam`: 26 lines (session management)
-  - `review.gleam`: ~15 lines (review logic)
-- **TypeScript**: Bridge/CLI layer (`gleam-bridge.ts`)
+### 🏗️ Architecture: Gleam + TypeScript + Pi
+- **Gleam**: 380 lines (1.4%) - Core logic, small & unbreakable!
+  - 11 modules, all under 100 lines!
+  - See `docs/MIGRATION-TS-TO-GLEAM-2026.md` for full list
+- **TypeScript**: 26,493 lines (98.6%) - Being migrated to Gleam naturally
+- **Pi Runtime**: Provides events, session mgmt, tool execution, extension system
+- **Shared DB**: PostgreSQL, ONE per user home, shared across projects
+- **Ratio**: 1:70 (Gleam:TS) - Goal is 1:5 by end of 2026
 - **Philosophy**: Small + Pure = Resilience! (Gleam modules < 100 lines!)
 
 ### 🚨 CRITICAL RULES (Read FIRST to avoid my mistakes!)
@@ -44,10 +49,17 @@ git commit -m "My change"     # ❌ BAD - bypasses review!
 #### 3. Use Pi's Advanced Capabilities!
 > "Before doing more things at low level, dig deeper into how to use Pi more efficiently!"
 
-**I wasted DAYS grinding at low-level when I should have:**
+**psypi uses Pi as the RUNTIME (not external service):**
+- ✅ Pi TUI: Session management, event system
+- ✅ Pi Extensions: Custom tools, event hooks to skills
+- ✅ Pi SDK: Tool execution, state management
 - ✅ Read `../refers/pi-mono/packages/coding-agent/docs/extensions.md`
-- ✅ Asked Pi to WRITE EXTENSIONS for me! ("Pi can create extensions. Ask it to build one!")
-- ✅ Used Pi's event system, custom tools, state management
+- ✅ Ask Pi to WRITE EXTENSIONS for you!
+
+**What psypi is NOT:**
+- ❌ **NOT using external thinkers** - standalone agent!
+- ❌ **NOT delegating thinking** - all logic in psypi/Pi/Gleam!
+- ❌ **NOT per-project database** - shared across ALL projects!
 
 #### 4. Dogfood psypi (Use psypi to improve psypi!)
 ```bash
@@ -294,11 +306,14 @@ psypi areflect (capture learning) → Repeat!
   psypi areflect "[LEARN] insight: Testing psypi [ISSUE] Bug found [TASK] Fix bug"
   ```
 
-### 3. Database First
+### 3. Database First (Shared Across Projects!)
 - **PostgreSQL** is the database (psypi DB)
+- **ONE database per user home** - shared by ALL projects!
+- **Pi instances** connect to this shared database
 - **Table of all tables**: `table_documentation`, use and maintain it
-- **Tables**: `agent_identities`, `agent_sessions`, `tasks`, `issues`, `skills`, `memory`, etc.
+- **Tables**: `agent_identities`, `agent_sessions`, `tasks`, `issues`, `skills`, `memory`, `meetings`, etc.
 - **No file caches**: Everything goes to DB
+- **No per-project DB**: Single source of truth!
 
 ### 4. Package Manager: pnpm (NOT npm)
 - **We use pnpm** for all package management
@@ -312,15 +327,23 @@ psypi areflect (capture learning) → Repeat!
   - Output: `[Review FFI] Running review...` ✅
   - Score: 70/100 (and improving!)
   
-### 🎯 Gleam Integration (COMPLETE!)
+### 🎯 Gleam Integration (GROWING!)
 - **Build**: `cd gleam/psypi_core && gleam build` ✅ (0 errors!)
 - **TypeScript**: `pnpm build` ✅ (imports compiled Gleam `.mjs` files)
-- **Bridge**: `src/common/gleam-bridge.ts` (206 bytes, exports all Gleam modules)
-- **Modules**:
-  - `psypi_core.gleam` - Types + utils (~50 lines)
-  - `partner.gleam` - Session mgmt (26 lines! UNBREAKABLE!)
-  - `review.gleam` - Review logic (~15 lines! PURE!)
-- **FFI**: `partner_ffi.mjs`, `review_ffi.mjs` (JavaScript interop)
+- **Bridge**: `src/common/gleam-bridge.ts` (13 lines, exports all Gleam modules)
+- **11 Gleam Modules** (380 lines total, all < 100 lines!):
+  - `psypi_core.gleam` - Types + utils (48 lines)
+  - `partner.gleam` - Session mgmt (26 lines)
+  - `review.gleam` - Review logic (12 lines)
+  - `main.gleam` - CLI entry (80 lines)
+  - `task.gleam` - Task commands (26 lines)
+  - `issue.gleam` - Issue commands (24 lines)
+  - `skill.gleam` - Skill commands (35 lines)
+  - `meeting.gleam` - Meeting commands (40 lines)
+  - `areflect.gleam` - Reflection (42 lines)
+  - `broadcast.gleam` - Broadcasts (24 lines)
+  - `context.gleam` - Identity/session (23 lines)
+- **Migration Strategy**: `docs/MIGRATION-TS-TO-GLEAM-2026.md`
 ---
 
 ## 🐛 Current Issues (Reported to DB)
@@ -352,13 +375,14 @@ psypi areflect (capture learning) → Repeat!
 
 ## 🎯 Next Steps
 
-**Current priority**: Let God in the sky (Gleam) grow NATURALLY!
+**Current priority**: Natural Gleam migration (see `docs/MIGRATION-TS-TO-GLEAM-2026.md`)
 
 1. ~~**Fix fake bot_ session IDs**~~ ✅ DONE (commit 42f4887)
 2. ~~**Simplify agent ID system**~~ ✅ DONE (single source of truth)
 3. ~~**Make inner AI agent**~~ ✅ DONE! (Now uses Gleam - God in the sky!)
 4. **Natural Gleam growth** - New features in Gleam, touch old TS = rewrite in Gleam
-5. **Trust Gleam's simplicity** - Small modules (< 100 lines!) survive ANYTHING!
+5. **Delete TS bloat** - Target: 2,000 lines Gleam, 10,000 lines TS (from 26,493!)
+6. **Trust Gleam's simplicity** - Small modules (< 100 lines!) survive ANYTHING!
 
 **Current IDs:**
 - **My ID**: `S-psypi-psypi` (session-based, via `getResolvedIdentity()`)

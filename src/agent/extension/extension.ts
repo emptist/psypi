@@ -41,18 +41,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  registerTool("psypi-think", {
-    label: "Think (Self-Sufficient Mode)",
-    description: "Delegates complex reasoning (but psypi is self-sufficient!)",
-    parameters: Type.Object({
-      question: Type.String({ description: "The question or problem needing deep thought" }),
-    }),
-    async execute(toolCallId: string, params: any, signal?: AbortSignal, onUpdate?: Function, ctx?: any) {
-      return {
-        content: [{ type: "text", text: "PsyPI is in self-sufficient mode. Handle thinking yourself." }],
-      };
-    },
-  });
+  // NOTE: No psypi-think tool - psypi is SELF-SUFFICIENT (no external thinkers!)
 
   // Register commands
   registerCommand("psypi-tasks", {
