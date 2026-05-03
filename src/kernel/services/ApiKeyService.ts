@@ -269,7 +269,7 @@ export class ApiKeyService {
           });
         } catch (error) {
           logger.error('[ApiKeyService] Failed to decrypt API key:', error);
-          // Return null to allow fallback logic in createInnerProvider()
+          // Return null to allow fallback logic in createInnerProvider() // God uses Gleam now!
           return null;
         }
       }
