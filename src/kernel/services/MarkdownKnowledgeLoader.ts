@@ -63,7 +63,7 @@ export const DEFAULT_KNOWLEDGE_DIRS = [
   './knowledge',
   './docs',
   './workspace',
-  './.nezha',
+  './.psypi',
   './bootstrap',
 ];
 

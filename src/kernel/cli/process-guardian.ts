@@ -77,7 +77,7 @@ function getConfig(): GuardianConfig {
 
 function getRunningProcesses(): Array<{ pid: number; command: string; started: Date }> {
   try {
-    const output = execSync('ps aux | grep -E "(nezha|opencode)" | grep -v grep', {
+    const output = execSync('ps aux | grep -E "(psypi|opencode)" | grep -v grep', {
       encoding: 'utf-8',
     });
 

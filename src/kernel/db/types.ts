@@ -1,6 +1,6 @@
 /**
  * DatabaseClient interface for psypi
- * Minimal version matching nezha's interface
+ * Minimal version matching psypi's interface
  */
 
 import { type QueryResultRow, type QueryResult } from 'pg';
