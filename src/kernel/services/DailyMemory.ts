@@ -15,7 +15,7 @@ interface SuggestPromptUpdateInput {
   reason: string;
 }
 
-const DEFAULT_MEMORY_DIR = '.tmp/nezha-memory';
+const DEFAULT_MEMORY_DIR = '.tmp/psypi-memory';
 const DEFAULT_MEMORY_FILE = 'MEMORY.md';
 
 const DEFAULT_MEMORY_CONTENT = `# Nezha Long-term Memory

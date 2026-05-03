@@ -35,13 +35,13 @@ const pkgPath = join(__dirname, '..', '..', 'package.json');
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
 const VERSION = pkg.version;
 
-// Load .env from nezha installation directory (where this script is located)
-const nezhaRoot = dirname(fileURLToPath(import.meta.url));
+// Load .env from psypi installation directory (where this script is located)
+const psypiRoot = dirname(fileURLToPath(import.meta.url));
 
 // Load .env from psypi installation directory
-config({ path: join(nezhaRoot, '..', '..', '.env'), quiet: true });
+config({ path: join(psypiRoot, '..', '..', '.env'), quiet: true });
 
-// Also load from user config directory (~/.config/psypi/.env, ~/.psypi/.env, with fallback to nezha paths)
+// Also load from user config directory (~/.config/psypi/.env, ~/.psypi/.env)
 const homeDir = process.env.HOME || process.env.USERPROFILE || '';
 const userConfigPaths = [
   join(homeDir, '.config', 'psypi', '.env'),
@@ -103,7 +103,7 @@ Examples:
   psypi areflect "[LEARN] text [TASK] title, COMPLETED [ISSUE] title, RESOLVED"
   psypi tools learn
 
-For more info: nezha help <command>
+For more info: psypi help <command>
 `;
 
 async function getDb(): Promise<DatabaseClient> {
@@ -129,7 +129,7 @@ async function main() {
   }
 
   if (command === '--version' || command === '-v') {
-    console.log(`nezha v${VERSION}`);
+    console.log(`psypi v${VERSION}`);
     return;
   }
 
@@ -137,12 +137,12 @@ async function main() {
 
   switch (command) {
     case 'task-add': {
-      if (checkHelp(args, 'Usage: nezha task-add "title" [desc] [--priority N] [--tags t1,t2]')) break;
+      if (checkHelp(args, 'Usage: psypi task-add "title" [desc] [--priority N] [--tags t1,t2]')) break;
       
-      const usage = `Usage: nezha task-add "title" [desc] [--priority N] [--tags t1,t2]
+      const usage = `Usage: psypi task-add "title" [desc] [--priority N] [--tags t1,t2]
   Examples:
-    nezha task-add "Fix bug" "Description of bug" --priority 3
-    nezha task-add "New feature" --priority 1 --tags feature,urgent`;
+    psypi task-add "Fix bug" "Description of bug" --priority 3
+    psypi task-add "New feature" --priority 1 --tags feature,urgent`;
       if (checkHelp(args, usage)) break;
       
       const title = args[1];
@@ -151,7 +151,7 @@ async function main() {
       const priorityIndex = args.indexOf('--priority');
       const priority = priorityIndex !== -1 ? parseInt(args[priorityIndex + 1] || '5', 10) : 5;
       if (!title) {
-        console.log('Usage: nezha task-add "title" "description" --priority 5');
+        console.log('Usage: psypi task-add "title" "description" --priority 5');
         return;
       }
       const taskCmd = new TaskCommands(db);
@@ -189,13 +189,13 @@ async function main() {
       break;
     }
     case 'task-complete': {
-      if (checkHelp(args, 'Usage: nezha task-complete <task-id>')) break;
+      if (checkHelp(args, 'Usage: psypi task-complete <task-id>')) break;
       
-      if (checkHelp(args, 'Usage: nezha task-complete <task-id>')) break;
+      if (checkHelp(args, 'Usage: psypi task-complete <task-id>')) break;
       
       const taskId = args[1];
       if (!taskId) {
-        console.log('Usage: nezha task-complete <task-id>');
+        console.log('Usage: psypi task-complete <task-id>');
         return;
       }
       const taskCmd = new TaskCommands(db);
@@ -204,7 +204,7 @@ async function main() {
       break;
     }
     case 'task-complete-by-commit': {
-      if (checkHelp(args, 'Usage: nezha task-complete-by-commit <commit-hash>')) break;
+      if (checkHelp(args, 'Usage: psypi task-complete-by-commit <commit-hash>')) break;
       
       const taskCmd = new TaskCommands(db);
       const commitMsg = args.slice(1).join(' ') || '';
@@ -225,13 +225,13 @@ async function main() {
       break;
     }
     case 'issue-add': {
-      if (checkHelp(args, 'Usage: nezha issue-add "title" [--severity critical|high|medium|low] [--tag t1,t2]')) break;
+      if (checkHelp(args, 'Usage: psypi issue-add "title" [--severity critical|high|medium|low] [--tag t1,t2]')) break;
       
-      if (checkHelp(args, 'Usage: nezha issue-add "title" [--severity critial|high|medium|low] [--tag t1,t2]')) break;
+      if (checkHelp(args, 'Usage: psypi issue-add "title" [--severity critial|high|medium|low] [--tag t1,t2]')) break;
       
       const title = args[1];
       if (!title) {
-        console.log('Usage: nezha issue-add "title" [--severity critical]');
+        console.log('Usage: psypi issue-add "title" [--severity critical]');
         return;
       }
       const severityIndex = args.indexOf('--severity');
@@ -242,20 +242,20 @@ async function main() {
       break;
     }
     case 'issue-list': {
-      if (checkHelp(args, 'Usage: nezha issue-list [--status open|closed]')) break;
+      if (checkHelp(args, 'Usage: psypi issue-list [--status open|closed]')) break;
       
       const issueCmd = new IssueCommands(db);
       await issueCmd.list();
       break;
     }
     case 'issue-resolve': {
-      if (checkHelp(args, 'Usage: nezha issue-resolve <issue-id> [notes]')) break;
+      if (checkHelp(args, 'Usage: psypi issue-resolve <issue-id> [notes]')) break;
       
-      if (checkHelp(args, 'Usage: nezha issue-resolve <issue-id> [notes]')) break;
+      if (checkHelp(args, 'Usage: psypi issue-resolve <issue-id> [notes]')) break;
       
       const issueId = args[1];
       if (!issueId) {
-        console.log('Usage: nezha issue-resolve <issue-id> [notes]');
+        console.log('Usage: psypi issue-resolve <issue-id> [notes]');
         return;
       }
       const notes = args.slice(2).join(' ') || undefined;
@@ -272,7 +272,7 @@ async function main() {
         const title = args[2];
         const description = args.slice(3).join(' ') || '';
         if (!title) {
-          console.log('Usage: nezha meeting discuss "title" "description"');
+          console.log('Usage: psypi meeting discuss "title" "description"');
           return;
         }
         await meetingCmd.createDiscussion(title, description);
@@ -288,7 +288,7 @@ async function main() {
       } else if (subcmd === 'show') {
         const meetingIdArg = args[2];
         if (!meetingIdArg) {
-          console.log('Usage: nezha meeting show <id>');
+          console.log('Usage: psypi meeting show <id>');
           return;
         }
         const resolvedId = await resolveMeetingId(db, meetingIdArg);
@@ -296,7 +296,7 @@ async function main() {
       } else if (subcmd === 'complete') {
         const meetingIdArg = args[2];
         if (!meetingIdArg) {
-          console.log('Usage: nezha meeting complete <id> [consensus]');
+          console.log('Usage: psypi meeting complete <id> [consensus]');
           return;
         }
         const resolvedId = await resolveMeetingId(db, meetingIdArg);
@@ -315,7 +315,7 @@ async function main() {
       } else if (subcmd === 'search') {
         const term = args.slice(2).join(' ');
         if (!term) {
-          console.log('Usage: nezha meeting search <term>');
+          console.log('Usage: psypi meeting search <term>');
           return;
         }
         const results = await db.query(
@@ -333,7 +333,7 @@ async function main() {
       } else if (subcmd === 'summary') {
         const meetingIdArg = args[2];
         if (!meetingIdArg) {
-          console.log('Usage: nezha meeting summary <id>');
+          console.log('Usage: psypi meeting summary <id>');
           return;
         }
         const resolvedId = await resolveMeetingId(db, meetingIdArg);
@@ -362,7 +362,7 @@ async function main() {
       } else if (subcmd === 'recommend') {
         const term = args.slice(2).join(' ');
         if (!term) {
-          console.log('Usage: nezha meeting recommend <keyword>');
+          console.log('Usage: psypi meeting recommend <keyword>');
           return;
         }
         const results = await db.query(
@@ -383,7 +383,7 @@ async function main() {
         const meetingIdArg = args[2];
         const perspective = args.slice(3).join(' ');
         if (!meetingIdArg || !perspective) {
-          console.log('Usage: nezha meeting opinion <meeting-id> <perspective> [--position support|oppose|neutral] [--reasoning text]');
+          console.log('Usage: psypi meeting opinion <meeting-id> <perspective> [--position support|oppose|neutral] [--reasoning text]');
           return;
         }
         const resolvedId = await resolveMeetingId(db, meetingIdArg);
@@ -395,17 +395,17 @@ async function main() {
         const author = (await AgentIdentityService.getResolvedIdentity()).id;
         await meetingDbCmd.addOpinion(meetingId, author, perspective, reasoning, position);
       } else {
-        console.log('Usage: nezha meeting <discuss|list|show|opinion|search|summary|recommend>');
+        console.log('Usage: psypi meeting <discuss|list|show|opinion|search|summary|recommend>');
       }
       break;
     }
     case 'announce':
 case 'broadcast': {
-      if (checkHelp(args, 'Usage: nezha broadcast "message" [--priority low|normal|high|critical]')) break;
+      if (checkHelp(args, 'Usage: psypi broadcast "message" [--priority low|normal|high|critical]')) break;
       
       const message = args.slice(1).join(' ');
       if (!message) {
-        console.log('Usage: nezha announce "message" [--priority low|normal|high|critical]');
+        console.log('Usage: psypi announce "message" [--priority low|normal|high|critical]');
         return;
       }
       const priorityIndex = args.indexOf('--priority');
@@ -420,7 +420,7 @@ case 'broadcast': {
         const identity = await AgentIdentityService.getResolvedIdentity();
         console.log(identity.id);
       } else if (!subcmd || subcmd === '--help') {
-        console.log('Usage: nezha agents <subcommand>');
+        console.log('Usage: psypi agents <subcommand>');
         console.log('  id - Show current agent ID');
         console.log('  --help - Show this help');
       }
@@ -498,9 +498,9 @@ case 'broadcast': {
         console.log(`\n   Or use --no-verify to commit directly:`);
         console.log(`   git commit -m "${msgForCommit}${taskPart} [inter-review:${reviewId}]" --no-verify`);
       } else {
-        console.log('Usage: nezha inner set-model [provider] [model]');
-        console.log('       nezha inner model');
-        console.log('       nezha inner review');
+        console.log('Usage: psypi inner set-model [provider] [model]');
+        console.log('       psypi inner model');
+        console.log('       psypi inner review');
         console.log('');
         console.log('Commands:');
         console.log('  set-model [provider] [model]  Set the current inner AI provider and model');
@@ -509,16 +509,16 @@ case 'broadcast': {
         console.log('  review                        Invoke Inner AI to review pending changes');
         console.log('');
         console.log('Examples:');
-        console.log('  nezha inner set-model         Show current provider and model');
-        console.log('  nezha inner set-model openrouter');
-        console.log('  nezha inner set-model openrouter llama3.2:3b');
-        console.log('  nezha inner model             Show inner agent ID');
-        console.log('  nezha inner review            Review current changes with Inner AI');
+        console.log('  psypi inner set-model         Show current provider and model');
+        console.log('  psypi inner set-model openrouter');
+        console.log('  psypi inner set-model openrouter llama3.2:3b');
+        console.log('  psypi inner model             Show inner agent ID');
+        console.log('  psypi inner review            Review current changes with Inner AI');
       }
       break;
     }
     case 'context': {
-      if (checkHelp(args, 'Usage: nezha context')) break;
+      if (checkHelp(args, 'Usage: psypi context')) break;
       
       const jsonIndex = args.indexOf('--json');
       const isJson = jsonIndex !== -1;
@@ -595,10 +595,10 @@ case 'broadcast': {
     case 'tools':
     case 'learnTheseFirst':
     case 'learn-first': {
-      const usage = `Usage: nezha tools [tool-name]
-  nezha tools - list all tools
-  nezha tools <tool-name> - show tool details
-  nezha tools learn - show priority learnings`;
+      const usage = `Usage: psypi tools [tool-name]
+  psypi tools - list all tools
+  psypi tools <tool-name> - show tool details
+  psypi tools learn - show priority learnings`;
       if (checkHelp(args, usage)) break;
       
       const isLearnFirst = command === 'learnTheseFirst' || command === 'learn-first';
@@ -618,7 +618,7 @@ case 'broadcast': {
           text = text.replace(/Problem\n.+$/gi, '').replace(/Root Cause\n.+$/gi, '');
           console.log(`  ${text.slice(0, 65)}`);
         }
-        console.log(`\n${learnings.rows.length} priority learnings. More: nezha tools learn`);
+        console.log(`\n${learnings.rows.length} priority learnings. More: psypi tools learn`);
         break;
       }
       
@@ -655,14 +655,14 @@ case 'broadcast': {
             console.log(`    CLI: ${cmdCount}, MCP: ${mcpCount}`);
           }
         }
-        console.log(`\nUse 'nezha tools <name>' for details or 'nezha tools learn' for priority learnings.`);
+        console.log(`\nUse 'psypi tools <name>' for details or 'psypi tools learn' for priority learnings.`);
       }
       break;
     }
     case 'validate-commit': {
       const msgFile = args[1];
       if (!msgFile || msgFile === '--help') {
-        console.log('Usage: nezha validate-commit <commit-message-file>');
+        console.log('Usage: psypi validate-commit <commit-message-file>');
         console.log('  Validates commit message format and requests inter-review if missing');
         console.log('  Commit message should contain: [task:<id>] [inter-review:<id>]');
         process.exit(msgFile === '--help' ? 0 : 1);
@@ -741,7 +741,7 @@ case 'broadcast': {
 
       if (reviewResult.rows.length === 0) {
         console.log(`Error: inter-review ${reviewId} not found in database`);
-        console.log('Create an inter-review first with: nezha inter-review request <task-id>');
+        console.log('Create an inter-review first with: psypi inter-review request <task-id>');
         process.exit(1);
       }
 
@@ -823,7 +823,7 @@ case 'broadcast': {
           }
           if (skills.length > 20) {
             console.log(
-              `  ... and ${skills.length - 20} more. Use 'nezha skill search <query>' to filter.`
+              `  ... and ${skills.length - 20} more. Use 'psypi skill search <query>' to filter.`
             );
           }
           break;
@@ -831,7 +831,7 @@ case 'broadcast': {
         case 'show': {
           const name = subargs[0];
           if (!name) {
-            console.log('Usage: nezha skill show <name>');
+            console.log('Usage: psypi skill show <name>');
             break;
           }
           const skill = await skillSystem.getSkill(name);
@@ -849,7 +849,7 @@ case 'broadcast': {
         case 'search': {
           const query = subargs.join(' ');
           if (!query) {
-            console.log('Usage: nezha skill search <query>');
+            console.log('Usage: psypi skill search <query>');
             break;
           }
           const results = await skillSystem.searchSkills(query);
@@ -868,7 +868,7 @@ case 'broadcast': {
           const name = subargs[0];
           const purpose = subargs.slice(1).join(' ');
           if (!name || !purpose) {
-            console.log('Usage: nezha skill build <name> <purpose>');
+            console.log('Usage: psypi skill build <name> <purpose>');
             break;
           }
           await buildSkillCommand(name, purpose);
@@ -903,18 +903,18 @@ case 'broadcast': {
         }
         default:
           console.log('Skill commands:');
-          console.log('  nezha skill list              - List all skills');
-          console.log('  nezha skill show <name>      - Show skill details');
-          console.log('  nezha skill search <query>   - Search skills');
-          console.log('  nezha skill build <name> <purpose>  - Build new skill');
-          console.log('  nezha skill suggest           - Show suggested skills');
+          console.log('  psypi skill list              - List all skills');
+          console.log('  psypi skill show <name>      - Show skill details');
+          console.log('  psypi skill search <query>   - Search skills');
+          console.log('  psypi skill build <name> <purpose>  - Build new skill');
+          console.log('  psypi skill suggest           - Show suggested skills');
       }
       break;
     }
     case 'learn': {
       const insight = args.slice(1).join(' ');
       if (!insight) {
-        console.log('Usage: nezha learn "insight"');
+        console.log('Usage: psypi learn "insight"');
         break;
       }
       await db.query(
@@ -927,7 +927,7 @@ case 'broadcast': {
     case 'archive': {
       const id = args[1];
       if (!id || id === '--help') {
-        console.log('Usage: nezha archive <memory-id> [--reason <reason>]');
+        console.log('Usage: psypi archive <memory-id> [--reason <reason>]');
         console.log('  <memory-id>: ID of the memory to archive');
         console.log('  --reason: Optional reason for archiving (default: outdated)');
         break;
@@ -942,7 +942,7 @@ case 'broadcast': {
       );
       console.log(`Archived memory ${id}`);
       if (reason === 'outdated') {
-        console.log(`💡 Consider revising if knowledge is still relevant: nezha revise ${id} <new-content>`);
+        console.log(`💡 Consider revising if knowledge is still relevant: psypi revise ${id} <new-content>`);
       }
       break;
     }
@@ -950,7 +950,7 @@ case 'broadcast': {
       const id = args[1];
       const newContent = args.slice(2).join(' ');
       if (!id || !newContent) {
-        console.log('Usage: nezha revise <memory-id> <new-content>');
+        console.log('Usage: psypi revise <memory-id> <new-content>');
         break;
       }
       await db.query(
@@ -967,7 +967,7 @@ case 'broadcast': {
       if (!text) {
         console.log(`areflect - All-in-One Reflection Command
 
-Usage: nezha areflect <text with markers>
+Usage: psypi areflect <text with markers>
 
 Markers:
   [LEARN] insight: <learning>
@@ -978,10 +978,10 @@ Markers:
   [TASK_COMPLETE] id: <uuid> result: <optional result>
 
 Examples:
-  nezha areflect "[LEARN] insight: Always check for pending work"
-  nezha areflect "[ISSUE_COMMENT] id: ebbe7d89 comment: Fixed the bug"
-  nezha areflect "[ISSUE] title: Bug in parser severity: high"
-  nezha areflect "[TASK] title: Fix parser bug"
+  psypi areflect "[LEARN] insight: Always check for pending work"
+  psypi areflect "[ISSUE_COMMENT] id: ebbe7d89 comment: Fixed the bug"
+  psypi areflect "[ISSUE] title: Bug in parser severity: high"
+  psypi areflect "[TASK] title: Fix parser bug"
 `);
         break;
       }

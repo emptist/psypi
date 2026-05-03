@@ -12,7 +12,7 @@ import * as path from 'path';
 import { InterReviewService } from './InterReviewService.js';
 import { SkillSystem } from '../core/SkillSystem.js';
 
-const DEFAULT_MEMORY_DIR = '.tmp/nezha-memory';
+const DEFAULT_MEMORY_DIR = '.tmp/psypi-memory';
 const MEMORY_FILE = 'MEMORY.md';
 const CONTEXT_MEMORY_LIMIT = 5;
 const CURATED_MEMORY_TTL_MS = 60000;

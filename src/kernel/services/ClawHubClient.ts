@@ -23,7 +23,7 @@ export class ClawHubClient {
   private cacheDir: string;
   private cacheTTL: number = 3600000;
 
-  constructor(cacheDir: string = '.nezha/skills-cache') {
+  constructor(cacheDir: string = '.psypi/skills-cache') {
     this.cacheDir = cacheDir;
     this.ensureCacheDir();
   }
@@ -265,7 +265,7 @@ export class ClawHubClient {
     };
 
     await fs.promises.writeFile(
-      path.join(skillPath, '.nezha-manifest.json'),
+      path.join(skillPath, '.psypi-manifest.json'),
       JSON.stringify(manifest, null, 2)
     );
   }
@@ -293,7 +293,7 @@ export class ClawHubClient {
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
 
-        const manifestPath = path.join(installDir, entry.name, '.nezha-manifest.json');
+        const manifestPath = path.join(installDir, entry.name, '.psypi-manifest.json');
 
         if (fs.existsSync(manifestPath)) {
           try {

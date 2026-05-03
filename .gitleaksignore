@@ -1,0 +1,4 @@
+# Temporary gitleaks ignore rules
+# These are examples/docs, not real secrets
+
+src/agent/extension/extension.ts:OPENROUTER_API_KEY

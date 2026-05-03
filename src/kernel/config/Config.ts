@@ -128,7 +128,8 @@ export class Config implements IConfig {
     return {
       host: process.env[ENV_KEYS.DB_HOST],
       port: process.env[ENV_KEYS.DB_PORT] ? parseInt(process.env[ENV_KEYS.DB_PORT]!) : undefined,
-      database: process.env[ENV_KEYS.DB_NAME],
+      // CRITICAL FIX: Default to 'psypi' database, not undefined/nezha!
+      database: process.env[ENV_KEYS.DB_NAME] || 'psypi',
       user: process.env[ENV_KEYS.DB_USER],
       password: process.env[ENV_KEYS.DB_PASSWORD],
       max: process.env[ENV_KEYS.DB_MAX] ? parseInt(process.env[ENV_KEYS.DB_MAX]!) : undefined,

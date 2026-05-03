@@ -48,8 +48,8 @@ class FileWriter {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    this.logFile = path.join(dir, 'nezha.log');
-    this.errorFile = path.join(dir, 'nezha-error.log');
+    this.logFile = path.join(dir, 'psypi.log');
+    this.errorFile = path.join(dir, 'psypi-error.log');
 
     this.rotateIfNeeded();
   }
@@ -74,7 +74,7 @@ class FileWriter {
       // Close current file and rotate
       if (fs.existsSync(this.logFile)) {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const rotatedFile = path.join(path.dirname(this.logFile), `nezha-${timestamp}.log`);
+        const rotatedFile = path.join(path.dirname(this.logFile), `psypi-${timestamp}.log`);
         fs.renameSync(this.logFile, rotatedFile);
       }
 
@@ -91,7 +91,7 @@ class FileWriter {
       const dir = path.dirname(this.logFile);
       const files = fs
         .readdirSync(dir)
-        .filter(f => f.startsWith('nezha-') && f.endsWith('.log'))
+        .filter(f => f.startsWith('psypi-') && f.endsWith('.log'))
         .sort()
         .reverse();
 

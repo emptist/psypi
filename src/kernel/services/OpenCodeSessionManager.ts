@@ -35,7 +35,7 @@ export class OpenCodeSessionManager {
       useAuth: config.useAuth ?? true,
     };
 
-    const dataDir = path.join(process.cwd(), '.nezha');
+    const dataDir = path.join(process.cwd(), '.psypi');
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
@@ -116,7 +116,7 @@ export class OpenCodeSessionManager {
     try {
       const sessionId = await this.creatingSession;
       this.sessionId = sessionId;
-      this.cacheSession(sessionId, 'nezha-shared-session');
+      this.cacheSession(sessionId, 'psypi-shared-session');
       return sessionId;
     } finally {
       this.creatingSession = null;
@@ -146,7 +146,7 @@ export class OpenCodeSessionManager {
           'Content-Type': 'application/json',
           ...this.getAuthHeader(),
         },
-        body: JSON.stringify({ title: 'nezha-shared-session' }),
+        body: JSON.stringify({ title: 'psypi-shared-session' }),
       });
 
       if (!response.ok) {

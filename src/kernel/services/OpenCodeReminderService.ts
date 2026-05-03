@@ -86,7 +86,7 @@ export class OpenCodeReminderService {
           'Content-Type': 'application/json',
           ...this.getAuthHeader(),
         },
-        body: JSON.stringify({ title: 'nezha-reminder-session' }),
+        body: JSON.stringify({ title: 'psypi-reminder-session' }),
       });
 
       if (!response.ok) {
@@ -254,13 +254,13 @@ export class OpenCodeReminderService {
 
     parts.push('\n🎯 **建议下一步行动**:');
     if (status.pendingTasks > 0) {
-      parts.push('1. 处理待办任务 (使用 `nezha tasks` 查看)');
+      parts.push('1. 处理待办任务 (使用 `psypi tasks` 查看)');
     }
     if (status.failedTasks > 0) {
-      parts.push('2. 分析失败任务 (使用 `nezha failed` 查看)');
+      parts.push('2. 分析失败任务 (使用 `psypi failed` 查看)');
     }
     if (status.openIssues > 0) {
-      parts.push('3. 解决开放问题 (使用 `nezha issues` 查看)');
+      parts.push('3. 解决开放问题 (使用 `psypi issues` 查看)');
     }
     if (status.pendingTasks === 0 && status.failedTasks === 0 && status.openIssues === 0) {
       parts.push('✨ 系统状态良好！可以考虑：');

@@ -43,7 +43,7 @@ export class EmailService {
 
     try {
       await this.transporter.sendMail({
-        from: '"Nezha AI" <nezha@noreply.com>',
+        from: '"PsyPI" <psypi@noreply.com>',
         to: this.toEmail,
         subject: `Nezha 每日报告 - ${report.date}`,
         html,

@@ -41,7 +41,7 @@ export class CheckpointService {
 
   constructor(config?: CheckpointServiceConfig) {
     this.stateFilePath =
-      config?.stateFilePath || path.join(process.cwd(), '.tmp', 'nezha-state.json');
+      config?.stateFilePath || path.join(process.cwd(), '.tmp', 'psypi-state.json');
   }
 
   setSessionId(sessionId: string): void {

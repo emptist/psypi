@@ -83,13 +83,13 @@ export async function resolveId(table: string, shortId: string): Promise<string 
 export async function getNezhaContext(): Promise<string | null> {
   try {
     const { execSync } = await import("child_process");
-    const output = execSync("nezha context --json", {
+    const output = execSync("psypi context --json", {
       encoding: "utf-8",
       timeout: 10000,
     }).trim();
     return output;
   } catch (e) {
-    console.error(`[PsyPI] Failed to get nezha context: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`[PsyPI] Failed to get psypi context: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
 }

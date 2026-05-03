@@ -189,7 +189,7 @@ export async function installSkillFromClawHub(
 
   if (skillId_saved) {
     console.log(`✅ Skill saved to database (ID: ${skillId_saved})`);
-    console.log('   Run: nezha skills approve ' + skillId_saved + '\n');
+    console.log('   Run: psypi skills approve ' + skillId_saved + '\n');
     return true;
   }
 
@@ -202,7 +202,7 @@ export async function listDatabaseSkills(): Promise<void> {
 
   if (skills.length === 0) {
     console.log('\n📦 No skills in database.');
-    console.log('   Use: nezha skills install <skill-name>\n');
+    console.log('   Use: psypi skills install <skill-name>\n');
     return;
   }
 

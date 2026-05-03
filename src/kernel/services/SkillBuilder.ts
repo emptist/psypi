@@ -65,7 +65,7 @@ export class SkillBuilder {
 
       if (this.dbClient) {
         const skillId = await this.saveSkillToDatabase(skill, {
-          builder: 'nezha-ai',
+          builder: 'psypi-ai',
           purpose: input.purpose,
         });
         return {
@@ -105,7 +105,7 @@ export class SkillBuilder {
       version: '1.0.0',
       tags: this.generateTags(input),
       metadata: {
-        builtBy: 'nezha-ai',
+        builtBy: 'psypi-ai',
         builtAt: new Date().toISOString(),
         source: 'internally-built',
         purpose: input.purpose,
@@ -203,7 +203,7 @@ export class SkillBuilder {
   }
 
   private generateTags(input: SkillBuildInput): string[] {
-    const tags: string[] = ['internally-built', 'nezha-native'];
+    const tags: string[] = ['internally-built', 'psypi-native'];
 
     const nameLower = input.name.toLowerCase();
     if (nameLower.includes('git')) tags.push('git', 'version-control');

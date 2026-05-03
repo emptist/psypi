@@ -54,7 +54,7 @@ export async function buildSkillCommand(
 
   if (!options?.autoApprove) {
     console.log('\n⏳ Skill saved to database with status: pending');
-    console.log('   Use: nezha skills approve <id> to approve for use\n');
+    console.log('   Use: psypi skills approve <id> to approve for use\n');
   } else {
     console.log('\n✅ Skill auto-approved for use\n');
   }
@@ -67,7 +67,7 @@ export async function listInternalSkillsCommand(): Promise<void> {
 
   if (skills.length === 0) {
     console.log('   No internally-built skills yet.');
-    console.log('   Use: nezha skills build <name> <purpose>\n');
+    console.log('   Use: psypi skills build <name> <purpose>\n');
     return;
   }
 
@@ -78,7 +78,7 @@ export async function listInternalSkillsCommand(): Promise<void> {
       console.log(
         `     Built: ${(skill.metadata as Record<string, unknown>).builtAt || 'unknown'}`
       );
-      console.log(`     By: ${(skill.metadata as Record<string, unknown>).builtBy || 'nezha-ai'}`);
+      console.log(`     By: ${(skill.metadata as Record<string, unknown>).builtBy || 'psypi-ai'}`);
     }
     console.log();
   }
@@ -169,6 +169,6 @@ export async function suggestSkillsCommand(): Promise<void> {
     console.log(`  📝 ${suggestion.name}`);
     console.log(`     Purpose: ${suggestion.purpose}`);
     console.log(`     Tags: ${suggestion.tags.join(', ')}`);
-    console.log(`     Build: nezha skills build ${suggestion.name} "${suggestion.purpose}"\n`);
+    console.log(`     Build: psypi skills build ${suggestion.name} "${suggestion.purpose}"\n`);
   }
 }
