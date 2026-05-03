@@ -131,6 +131,19 @@ export class InterReviewService extends EventEmitter {
   }
 
   private async callAI(systemPrompt: string, userPrompt: string): Promise<string> {
+    // NOW USING GLEAM! (God in the sky!)
+    const { run_review } = await import('../../common/gleam-bridge.js');
+    
+    // run_review returns PLAIN STRING (not object!)
+    const result = run_review(userPrompt);
+    
+    // result is a string (Gleam returns String -> JS string)
+    if (typeof result === 'string' && result.length > 0) {
+      return result;
+    }
+    
+    // Fallback to old AI if Gleam fails
+    logger.warn('[InterReview] Gleam review failed, falling back to AIProvider');
     const response = await this.aiProvider.complete(userPrompt, systemPrompt);
     return response.content;
   }
