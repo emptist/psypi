@@ -36,15 +36,6 @@ pub type TaskError {
   DecodeError(String)
 }
 
-fn status_to_string(s: TaskStatus) -> String {
-  case s {
-    Pending -> "PENDING"
-    Running -> "RUNNING"
-    Completed -> "COMPLETED"
-    Failed -> "FAILED"
-  }
-}
-
 fn string_to_status(s: String) -> TaskStatus {
   case s {
     "RUNNING" -> Running
@@ -87,13 +78,6 @@ fn task_decoder() -> decode.Decoder(Task) {
 fn id_decoder() -> decode.Decoder(String) {
   use id <- decode.field("id", decode.string)
   decode.success(id)
-}
-
-fn option_to_dynamic(opt: Option(String)) -> dynamic.Dynamic {
-  case opt {
-    Some(s) -> dynamic.string(s)
-    None -> dynamic.nil()
-  }
 }
 
 pub fn add(

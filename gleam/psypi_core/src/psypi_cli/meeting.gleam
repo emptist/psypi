@@ -42,15 +42,6 @@ pub type MeetingError {
   DecodeError(String)
 }
 
-fn status_to_string(s: MeetingStatus) -> String {
-  case s {
-    Pending -> "pending"
-    Active -> "active"
-    Completed -> "completed"
-    Cancelled -> "cancelled"
-  }
-}
-
 fn string_to_status(s: String) -> MeetingStatus {
   case s {
     "active" -> Active

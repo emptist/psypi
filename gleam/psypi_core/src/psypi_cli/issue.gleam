@@ -50,16 +50,6 @@ pub type IssueError {
   DecodeError(String)
 }
 
-fn severity_to_string(s: IssueSeverity) -> String {
-  case s {
-    Critical -> "critical"
-    High -> "high"
-    Medium -> "medium"
-    Low -> "low"
-    Cosmetic -> "cosmetic"
-  }
-}
-
 fn string_to_severity(s: String) -> IssueSeverity {
   case s {
     "critical" -> Critical
@@ -70,32 +60,12 @@ fn string_to_severity(s: String) -> IssueSeverity {
   }
 }
 
-fn status_to_string(s: IssueStatus) -> String {
-  case s {
-    Open -> "open"
-    InProgress -> "in_progress"
-    Resolved -> "resolved"
-    Closed -> "closed"
-  }
-}
-
 fn string_to_status(s: String) -> IssueStatus {
   case s {
     "in_progress" -> InProgress
     "resolved" -> Resolved
     "closed" -> Closed
     _ -> Open
-  }
-}
-
-fn type_to_string(t: IssueType) -> String {
-  case t {
-    Bug -> "bug"
-    Inconsistency -> "inconsistency"
-    Feature -> "feature"
-    Improvement -> "improvement"
-    Question -> "question"
-    Debt -> "debt"
   }
 }
 
