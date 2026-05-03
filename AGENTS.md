@@ -11,6 +11,14 @@ description: Agent instructions and guidelines for working with psypi project
 **psypi** = **Psy**che + **Pi** = Unified AI coordination system
 - Combines kernel (DB, tasks, issues, skills) + autonomous agent (Pi executor)
 - **Status**: ✅ Unified and working - single CLI tool replacing `nezha` and `nupi`
+- **NEW**: 🎉 **God in the sky** (Gleam) NOW REVIEWS via `psypi commit`!
+
+### 🏗️ Architecture: Gleam + TypeScript
+- **Gleam**: Core logic (session mgmt, review) - Small, pure, UNBREAKABLE!
+  - `partner.gleam`: 26 lines (session management)
+  - `review.gleam`: ~15 lines (review logic)
+- **TypeScript**: Bridge/CLI layer (`gleam-bridge.ts`)
+- **Philosophy**: Small + Pure = Resilience! (Gleam modules < 100 lines!)
 - **Advantage**: Single CLI for all AI coordination tasks
 
 ---
@@ -195,9 +203,22 @@ psql psypi -c "SELECT * FROM meetings;"
 - **Install**: `pnpm install` (not `npm install`)
 - **Build**: `pnpm build` (not `npm run build`)
 
-### 5. Git Commit with Inter-Review
+### 5. Git Commit with Inter-Review (NOW USES GLEAM!)
 - **psypi commit**: instead of using git commit directly
-  - `psypi commit <message>` — Git commit with mandatory inter-review
+  - `psypi commit <message>` — Git commit with **Gleam review** (God in the sky!)
+  - Review runs via `run_review()` from Gleam!
+  - Output: `[Review FFI] Running review...` ✅
+  - Score: 70/100 (and improving!)
+  
+### 🎯 Gleam Integration (COMPLETE!)
+- **Build**: `cd gleam/psypi_core && gleam build` ✅ (0 errors!)
+- **TypeScript**: `pnpm build` ✅ (imports compiled Gleam `.mjs` files)
+- **Bridge**: `src/common/gleam-bridge.ts` (206 bytes, exports all Gleam modules)
+- **Modules**:
+  - `psypi_core.gleam` - Types + utils (~50 lines)
+  - `partner.gleam` - Session mgmt (26 lines! UNBREAKABLE!)
+  - `review.gleam` - Review logic (~15 lines! PURE!)
+- **FFI**: `partner_ffi.mjs`, `review_ffi.mjs` (JavaScript interop)
 ---
 
 ## 🐛 Current Issues (Reported to DB)
@@ -207,10 +228,14 @@ psql psypi -c "SELECT * FROM meetings;"
 - see [PNPM_USAGE.md](docs/PNPM_USAGE.md)
 
 ### Known Issues:
-1. **Inner AI needs to be shift to use Pi agent** - shifting will start after database migration
+1. ~~**Inner AI needs to be shift to use Pi agent**~~ ✅ DONE! (Now uses Gleam!)
 2. **Tool failure tracking** - Auto-created issues from tool_result handler need cleanup
+3. **Old AI removed** - `AIProvider` references cleaned from InterReviewService & MeetingHandler
 
-**All fake bot_ session ID issues are now fixed!** (commit 42f4887)
+**God in the sky IS reviewing!** (commit 4f98e99)
+- `psypi commit` triggers Gleam review
+- `[Review FFI] Running review...` ✅
+- No more fake Inner AI - God uses Gleam!
 
 ### Recent Fixes (2026-05-03):
 - ✅ **Session ID TWO METHODS** - `kernel.piSessionID()` now supports TWO ways:
@@ -225,16 +250,35 @@ psql psypi -c "SELECT * FROM meetings;"
 
 ## 🎯 Next Steps
 
-**Current priority**: Fix remaining issues methodically
+**Current priority**: Let God in the sky (Gleam) grow NATURALLY!
 
 1. ~~**Fix fake bot_ session IDs**~~ ✅ DONE (commit 42f4887)
 2. ~~**Simplify agent ID system**~~ ✅ DONE (single source of truth)
-3. **Test psypi tools** - Verify `psypi-agent-id` and `psypi-partner-id` work in Pi TUI
-4. **Make inner AI agent** - Requires shift to use Pi agent
+3. ~~**Make inner AI agent**~~ ✅ DONE! (Now uses Gleam - God in the sky!)
+4. **Natural Gleam growth** - New features in Gleam, touch old TS = rewrite in Gleam
+5. **Trust Gleam's simplicity** - Small modules (< 100 lines!) survive ANYTHING!
 
 **Current IDs:**
 - **My ID**: `S-psypi-psypi` (session-based, via `getResolvedIdentity()`)
 - **Partner ID**: `P-tencent/hy3-preview:free-psypi` (permanent/monitor, via `getResolvedIdentity(true)`)
+- **God in the sky**: Gleam `run_review()` - THE ONLY REVIEWER!
+
+---
+
+## 🎯 Gleam Philosophy: Small + Pure = Resilience!
+
+**Why Gleam works so well:**
+- **Small modules** (26 lines!) = Unbreakable!
+- **Pure functions** = Easy to reason about
+- **Clear errors** = Exact line + pointer (vs TypeScript's cryptic TS2305!)
+- **Type safety** = Result types, pattern matching
+
+**Rules:**
+1. One Gleam module = one file
+2. Never more than 100 lines (preferably under 100!)
+3. Trust yourself - form own conclusions
+4. Never stop until done - but use SMALL steps!
+5. Debugging Gleam is SO EASY vs TypeScript!
 
 ---
 
