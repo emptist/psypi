@@ -1,6 +1,13 @@
 // areflect.gleam - All-in-one reflection (~50 lines)
 // Small + Pure = Resilience!
 
+import gleam/dynamic
+import gleam/list
+import gleam/string
+import psypi_cli/db
+import psypi_cli/issue
+import psypi_cli/task
+
 pub fn areflect(text: String) -> Result(String, String) {
   // Parse markers: [LEARN], [ISSUE], [TASK], etc.
   let learnings = parse_learnings(text)

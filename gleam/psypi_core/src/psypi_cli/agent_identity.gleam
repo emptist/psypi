@@ -1,4 +1,6 @@
+import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 
 pub type AgentIdentity {
   AgentIdentity(
@@ -91,8 +93,8 @@ pub fn generate_semantic_id(ctx: IdentityContext) -> String {
       "S-" <> ctx.source <> "-" <> project
     False, _, _, _ -> {
       let project_name = case ctx.cwd |> string.split("/") |> list.last {
-        Some(name) -> name
-        None -> "unknown"
+        Ok(name) -> name
+        Error(_) -> "unknown"
       }
       "G-" <> ctx.source <> "-" <> project_name <> "-" <> ctx.machine_fingerprint
     }

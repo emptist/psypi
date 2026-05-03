@@ -1,4 +1,9 @@
+import gleam/dynamic
+import gleam/dynamic/decode
+import gleam/javascript/promise
+import gleam/list
 import gleam/option.{type Option, None, Some}
+import psypi_cli/db
 
 pub type TaskStatus {
   Pending
@@ -25,58 +30,14 @@ pub type Task {
 }
 
 pub type TaskError {
-  DatabaseError(String)
+  ConnectionError(String)
+  QueryError(String)
   NotFound(String)
-  InvalidInput(String)
+  DecodeError(String)
 }
 
-@external(javascript, "./task_ffi.mjs", "add_task")
-fn add_task_ffi(
-  title: String,
-  description: String,
-  priority: Int,
-  created_by: String,
-) -> Result(String, String)
-
-@external(javascript, "./task_ffi.mjs", "list_tasks")
-fn list_tasks_ffi(status: Option(String)) -> Result(List(Task), String)
-
-@external(javascript, "./task_ffi.mjs", "complete_task")
-fn complete_task_ffi(task_id: String) -> Result(String, String)
-
-@external(javascript, "./task_ffi.mjs", "get_task")
-fn get_task_ffi(task_id: String) -> Result(Task, String)
-
-pub fn add(title: String, description: String, priority: Int, created_by: String) -> Result(String, TaskError) {
-  case add_task_ffi(title, description, priority, created_by) {
-    Ok(id) -> Ok(id)
-    Error(e) -> Error(DatabaseError(e))
-  }
-}
-
-pub fn list(status: Option(String)) -> Result(List(Task), TaskError) {
-  case list_tasks_ffi(status) {
-    Ok(tasks) -> Ok(tasks)
-    Error(e) -> Error(DatabaseError(e))
-  }
-}
-
-pub fn complete(task_id: String) -> Result(String, TaskError) {
-  case complete_task_ffi(task_id) {
-    Ok(id) -> Ok(id)
-    Error(e) -> Error(DatabaseError(e))
-  }
-}
-
-pub fn get(task_id: String) -> Result(Task, TaskError) {
-  case get_task_ffi(task_id) {
-    Ok(task) -> Ok(task)
-    Error(e) -> Error(DatabaseError(e))
-  }
-}
-
-pub fn status_to_string(status: TaskStatus) -> String {
-  case status {
+fn status_to_string(s: TaskStatus) -> String {
+  case s {
     Pending -> "PENDING"
     Running -> "RUNNING"
     Completed -> "COMPLETED"
@@ -84,11 +45,219 @@ pub fn status_to_string(status: TaskStatus) -> String {
   }
 }
 
-pub fn string_to_status(s: String) -> TaskStatus {
+fn string_to_status(s: String) -> TaskStatus {
   case s {
     "RUNNING" -> Running
     "COMPLETED" -> Completed
     "FAILED" -> Failed
     _ -> Pending
   }
+}
+
+fn task_decoder() -> decode.Decoder(Task) {
+  use id <- decode.field("id", decode.string)
+  use title <- decode.field("title", decode.string)
+  use description <- decode.field("description", decode.optional(decode.string))
+  use status_str <- decode.field("status", decode.string)
+  use priority <- decode.field("priority", decode.int)
+  use result <- decode.field("result", decode.optional(decode.string))
+  use error <- decode.field("error", decode.optional(decode.string))
+  use retry_count <- decode.field("retry_count", decode.int)
+  use created_at <- decode.field("created_at", decode.string)
+  use updated_at <- decode.field("updated_at", decode.string)
+  use completed_at <- decode.field("completed_at", decode.optional(decode.string))
+  use created_by <- decode.field("created_by", decode.string)
+
+  decode.success(Task(
+    id: id,
+    title: title,
+    description: description,
+    status: string_to_status(status_str),
+    priority: priority,
+    result: result,
+    error: error,
+    retry_count: retry_count,
+    created_at: created_at,
+    updated_at: updated_at,
+    completed_at: completed_at,
+    created_by: created_by,
+  ))
+}
+
+fn id_decoder() -> decode.Decoder(String) {
+  use id <- decode.field("id", decode.string)
+  decode.success(id)
+}
+
+fn option_to_dynamic(opt: Option(String)) -> dynamic.Dynamic {
+  case opt {
+    Some(s) -> dynamic.string(s)
+    None -> dynamic.nil()
+  }
+}
+
+pub fn add(
+  title: String,
+  description: String,
+  priority: Int,
+  created_by: String,
+) -> promise.Promise(Result(String, TaskError)) {
+  promise.await(db.connect(), fn(conn_result) {
+    case conn_result {
+      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
+      Ok(conn) -> {
+        let sql = "
+          INSERT INTO tasks (title, description, priority, created_by)
+          VALUES ($1, $2, $3, $4)
+          RETURNING id
+        "
+        let params = [
+          dynamic.string(title),
+          dynamic.string(description),
+          dynamic.int(priority),
+          dynamic.string(created_by),
+        ]
+
+        promise.await(db.query(conn, sql, params), fn(query_result) {
+          let _ = db.disconnect(conn)
+          case query_result {
+            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
+            Ok(result) -> {
+              case result.rows {
+                [row, ..] -> {
+                  case decode.run(row, id_decoder()) {
+                    Ok(id) -> promise.resolve(Ok(id))
+                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode id")))
+                  }
+                }
+                _ -> promise.resolve(Error(NotFound("No id returned")))
+              }
+            }
+          }
+        })
+      }
+    }
+  })
+}
+
+pub fn list(
+  status: Option(String),
+) -> promise.Promise(Result(List(Task), TaskError)) {
+  promise.await(db.connect(), fn(conn_result) {
+    case conn_result {
+      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
+      Ok(conn) -> {
+        let sql = case status {
+          Some(_) -> "
+            SELECT id, title, description, status, priority, result, error, retry_count,
+                   created_at::text, updated_at::text, completed_at::text, created_by
+            FROM tasks
+            WHERE status = $1
+            ORDER BY priority DESC, created_at ASC
+            LIMIT 100
+          "
+          None -> "
+            SELECT id, title, description, status, priority, result, error, retry_count,
+                   created_at::text, updated_at::text, completed_at::text, created_by
+            FROM tasks
+            ORDER BY priority DESC, created_at ASC
+            LIMIT 100
+          "
+        }
+
+        let params = case status {
+          Some(s) -> [dynamic.string(s)]
+          None -> []
+        }
+
+        promise.await(db.query(conn, sql, params), fn(query_result) {
+          let _ = db.disconnect(conn)
+          case query_result {
+            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
+            Ok(result) -> {
+              let tasks = result.rows
+                |> list.map(fn(row) { decode.run(row, task_decoder()) })
+                |> list.filter_map(fn(r) { r })
+
+              promise.resolve(Ok(tasks))
+            }
+          }
+        })
+      }
+    }
+  })
+}
+
+pub fn complete(
+  task_id: String,
+) -> promise.Promise(Result(String, TaskError)) {
+  promise.await(db.connect(), fn(conn_result) {
+    case conn_result {
+      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
+      Ok(conn) -> {
+        let sql = "
+          UPDATE tasks
+          SET status = 'COMPLETED', completed_at = NOW()
+          WHERE id = $1
+          RETURNING id
+        "
+        let params = [dynamic.string(task_id)]
+
+        promise.await(db.query(conn, sql, params), fn(query_result) {
+          let _ = db.disconnect(conn)
+          case query_result {
+            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
+            Ok(result) -> {
+              case result.rows {
+                [row, ..] -> {
+                  case decode.run(row, id_decoder()) {
+                    Ok(id) -> promise.resolve(Ok(id))
+                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode id")))
+                  }
+                }
+                _ -> promise.resolve(Error(NotFound("Task not found")))
+              }
+            }
+          }
+        })
+      }
+    }
+  })
+}
+
+pub fn get(
+  task_id: String,
+) -> promise.Promise(Result(Task, TaskError)) {
+  promise.await(db.connect(), fn(conn_result) {
+    case conn_result {
+      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
+      Ok(conn) -> {
+        let sql = "
+          SELECT id, title, description, status, priority, result, error, retry_count,
+                 created_at::text, updated_at::text, completed_at::text, created_by
+          FROM tasks
+          WHERE id = $1
+        "
+        let params = [dynamic.string(task_id)]
+
+        promise.await(db.query(conn, sql, params), fn(query_result) {
+          let _ = db.disconnect(conn)
+          case query_result {
+            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
+            Ok(result) -> {
+              case result.rows {
+                [row, ..] -> {
+                  case decode.run(row, task_decoder()) {
+                    Ok(task) -> promise.resolve(Ok(task))
+                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode task")))
+                  }
+                }
+                _ -> promise.resolve(Error(NotFound("Task not found")))
+              }
+            }
+          }
+        })
+      }
+    }
+  })
 }
