@@ -7,7 +7,8 @@
     "psypi": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc && node scripts/replace-hash.js",
+    "build:gleam": "cd gleam/psypi_core && gleam build",
+    "build": "pnpm build:gleam && tsc",
     "typecheck": "tsc --noEmit",
     "dev": "tsx src/cli.ts",
     "test": "echo 'Tests coming soon' && exit 0"

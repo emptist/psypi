@@ -77,7 +77,7 @@ export class Kernel {
   async addIssue(title: string, severity: string = 'medium') {
     const agentId = await this.getAgentId();
     const result = await this.query(
-      `INSERT INTO issues (id, title, severity, status, created_by)
+      `INSERT INTO issues (id, title, severity, status, discovered_by)
        VALUES (gen_random_uuid(), $1, $2, 'open', $3)
        RETURNING id`,
       [title, severity, agentId]
@@ -270,7 +270,7 @@ exit 0
     if (text.includes('[ISSUE]')) {
       const title = text.replace('[ISSUE]', '').trim();
       const result = await this.query(
-        `INSERT INTO issues (id, title, status, created_by)
+        `INSERT INTO issues (id, title, status, discovered_by)
          VALUES (gen_random_uuid(), $1, 'open', $2) RETURNING id`,
         [title, agentId]
       );

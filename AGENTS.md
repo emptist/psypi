@@ -106,6 +106,69 @@ const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
 
 ---
 
+## 📖 Additional Guides (Must Read for AIs)
+
+- **[AI_GUIDE-requesting-pi-extensions.md](docs/AI_GUIDE-requesting-pi-extensions.md)** - Learn how to request Pi extensions from Pi (event hooks, automation)
+- **[HOW_TO_JOIN_MEETING_7b3e9f1a.md](docs/HOW_TO_JOIN_MEETING_7b3e9f1a.md)** - Coder AI guide for meeting participation
+- **[GLEAM_INTEGRATION.md](gleam/docs/GLEAM_INTEGRATION.md)** - Gleam + TypeScript integration guide
+
+---
+
+## ⚠️ CRITICAL: Do NOT Use psql Directly When psypi Tools Exist ⚠️
+
+**NEVER bypass psypi code with direct `psql` queries!**
+
+### The Problem
+- Using `psql` directly **bypasses psypi's code** (validation, error handling, logging)
+- You won't find bugs in psypi system
+- You'll get wrong database (e.g., `nezha` instead of `psypi` after migration)
+- Meeting commands won't work properly
+
+### ✅ CORRECT Approach
+
+**When a psypi tool/command exists, USE IT:**
+```bash
+# ✅ CORRECT - Tests psypi code
+psypi meeting list
+psypi meeting show <id>
+psypi meeting opinion <id> "message"
+psypi task-list
+psypi skill-list
+```
+
+**❌ WRONG - Bypasses psypi:**
+```bash
+# ❌ DON'T DO THIS
+psql psypi -c "SELECT * FROM meetings;"
+```
+
+### What to Do When a Tool is Missing
+
+**Instead of using psql directly, ADD THE TOOL:**
+
+1. **Report it**: `psypi issue-add "Missing tool: <tool>" severity:high`
+2. **Or implement it**: Add the tool to psypi's CLI or extension
+3. **Never just use psql** as a workaround!
+
+### Examples
+
+| Situation | ❌ WRONG (psql) | ✅ CORRECT (psypi tool) |
+|-----------|-------------------|---------------------|
+| Check meetings | `psql -c "SELECT * FROM meetings"` | `psypi meeting list` |
+| Add opinion | `psql -c "INSERT INTO meeting_opinions..."` | `psypi meeting opinion <id> "msg"` |
+| Check tasks | `psql -c "SELECT * FROM tasks"` | `psypi tasks` |
+| Get agent ID | `psql -c "SELECT * FROM agent_identities"` | `psypi my-id` |
+
+### Why This Matters
+- **Find bugs**: Using psypi tools tests the actual code
+- **Correct database**: psypi tools use the right database (`psypi` not `nezha`)
+- **Proper logging**: psypi tools log actions for debugging
+- **Validation**: psypi tools validate inputs
+
+**Remember: If psypi has a tool, use it! If not, add it don't bypass!**
+
+---
+
 ## 📚 Key Learnings
 
 ### 1. Report Issues First, Fix Later

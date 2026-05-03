@@ -1168,7 +1168,7 @@ When user asks complex questions or asks about planning/architecture/research:
       const toolName = event.toolName;
       const agentId = (await AgentIdentityService.getResolvedIdentity()).id;
       await execSafe(
-        "INSERT INTO issues (id, title, severity, status, created_by) VALUES (gen_random_uuid(), $1, $2, 'open', $3)",
+        "INSERT INTO issues (id, title, severity, status, discovered_by) VALUES (gen_random_uuid(), $1, $2, 'open', $3)",
         [`[Tool Failed] ${toolName}`, "medium", agentId]
       );
     } else {
