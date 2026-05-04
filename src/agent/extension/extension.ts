@@ -23,43 +23,46 @@ export default function (pi: ExtensionAPI) {
 
   // ===== AUTO-BACKUP HOOK: Save files BEFORE AI edits them =====
   pi.on("tool_call", async (event) => {
-    // Only intercept file modification tools
     if (event.toolName === "edit" || event.toolName === "write") {
-      // Extract file path from parameters (edit has path, write has path)
       const input = event.input as any;
       const filePath = input?.path;
-      
-      if (!filePath) return; // No path found, let it through
+      if (!filePath) return;
       
       try {
-        // Check if file exists (skip for write tool creating new files)
         const fs = await import('fs');
         if (!fs.existsSync(filePath)) return;
         
-        // Read current content
+        const crypto = await import('crypto');
         const content = fs.readFileSync(filePath, 'utf-8');
+        const hash = crypto.createHash('sha256').update(content).digest('hex');
         
-        // Import Gleam function
-        const { save_version } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs");
+        // Import Gleam functions
+        const { save_version, get_versions } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs") as any;
         const identity = await AgentIdentityService.getResolvedIdentity();
         
-        // Save BEFORE edit
-        const result = await save_version(
-          filePath,
-          content,
-          identity.id,
-          '',
-          `auto-backup before ${event.toolName}`
-        );
+        // Check if this version already exists (dedup at JS layer)
+        const versions = await get_versions(filePath, 50);
+        let exists = false;
+        if (versions && versions.Ok) {
+          for (const v of versions.Ok) {
+            if (v.version_hash === hash) {
+              exists = true;
+              break;
+            }
+          }
+        }
         
-        if (VERBOSE) {
-          console.log(`[Auto-Backup] ✅ Saved ${filePath} before ${event.toolName} (version: ${result})`);
+        if (exists) {
+          if (VERBOSE) console.log(`[Auto-Backup] ⏭ Skipped (already saved): ${filePath}`);
+          return; // Already backed up
         }
+        
+        // Save new version
+        const result = await save_version(filePath, content, identity.id, '', `auto-backup before ${event.toolName}`);
+        if (VERBOSE) console.log(`[Auto-Backup] ✅ Saved: ${filePath} (version: ${result})`);
+        
       } catch (err: any) {
-        // Log but don't block the edit
-        if (VERBOSE) {
-          console.log(`[Auto-Backup] ⚠️ Failed to save ${filePath}: ${err.message}`);
-        }
+        if (VERBOSE) console.log(`[Auto-Backup] ⚠️ Failed: ${err.message}`);
       }
     }
   });
@@ -172,8 +175,23 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const result = await kernel.getTasks(params.status);
-        const tasks = result.rows || [];
+        // Now using Gleam task.gleam core!
+        const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs") as any;
+        const { Some, None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
+        
+        // Convert status string to Option type
+        const status = params.status ? new Some(params.status) : new None();
+        
+        const result = await list(status);
+        
+        if (!result || !result.Ok) {
+          return {
+            content: [{ type: "text" as const, text: `Error: Failed to list tasks` }],
+            details: { error: true } as Record<string, unknown>,
+          };
+        }
+        
+        const tasks = result.Ok || [];
         
         if (tasks.length === 0) {
           return {
@@ -183,7 +201,7 @@ export default function (pi: ExtensionAPI) {
         }
 
         const taskList = tasks.slice(0, 10).map((t: any) => 
-          `[${t.id.slice(0,8)}] ${t.title} (${t.status}, priority: ${t.priority})`
+          `[${t.id?.slice(0,8)}] ${t.title} (${t.status}, priority: ${t.priority})`
         ).join("\n");
 
         return {
