@@ -129,15 +129,9 @@ export class InterReviewService extends EventEmitter {
   }
 
   private async callAI(systemPrompt: string, userPrompt: string): Promise<string> {
-    // GOD IN THE SKY REVIEWS! (Gleam)
-    const { run_review } = await import('../../common/gleam-bridge.js');
-    const result = run_review(userPrompt);
-    
-    if (typeof result === 'string' && result.length > 0) {
-      return result;
-    }
-    
-    throw new Error('[InterReview] Gleam review failed! God in the sky rejected the request.');
+    // TODO: Implement real Pi SDK call
+    // For now, return a placeholder response
+    throw new Error('[InterReview] Pi SDK integration not yet implemented. Please implement callAI method.');
   }
 
     async requestReview(request: ReviewRequest, broadcast: boolean = true): Promise<string> {
