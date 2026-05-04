@@ -226,9 +226,14 @@ program
   .description('Build new skill')
   .action(async (name, purpose) => {
     try {
-      const skillId = await kernel.buildSkill(name, purpose);
-      console.log(`✅ Skill built: ${skillId}`);
-      console.log('Note: Skill created with status=pending, safety_score=0');
+      const { create } = await import('../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs');
+      const result = await create(name, purpose, 'cli');
+      if (result.isOk()) {
+        console.log(`✅ Skill built: ${JSON.stringify(result[0])}`);
+        console.log('Note: Skill created with status=pending, safety_score=0');
+      } else {
+        console.error('Error:', JSON.stringify(result[0]));
+      }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     }
