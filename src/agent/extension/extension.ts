@@ -224,7 +224,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // psypi-learn - Save a learning to memory
+  // psypi-learn - Save a learning to memory (calls Gleam)
   pi.registerTool({
     name: "psypi-learn",
     label: "PsyPI Learn",
@@ -236,16 +236,18 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const db = DatabaseClient.getInstance();
-        const tags = params.tags ? params.tags.split(',') : ['learning'];
-        const result = await db.query(
-          `INSERT INTO memory (content, tags, source, importance) VALUES ($1, $2, 'learn', $3) RETURNING id`,
-          [params.content, tags, params.importance || 5]
+        const { save } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/learning.mjs");
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        const tags = params.tags ? params.tags.split(',').map((t: string) => t.trim()) : ['learning'];
+        const result = await save(
+          params.content,
+          tags,
+          params.importance || 5,
+          identity.id
         );
-        const id = result.rows[0]?.id;
         return {
-          content: [{ type: "text" as const, text: `Learning saved: ${id}` }],
-          details: { id } as Record<string, unknown>,
+          content: [{ type: "text" as const, text: `Learning saved: ${formatGleamResult(result)}` }],
+          details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
         return {
