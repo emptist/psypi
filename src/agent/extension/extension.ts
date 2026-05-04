@@ -292,6 +292,57 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // psypi-doc-list - List file versions
+  pi.registerTool({
+    name: "psypi-doc-list",
+    label: "PsyPI Doc List",
+    description: "List saved versions of a file",
+    parameters: Type.Object({
+      file_path: Type.String({ description: "File path to list versions for" }),
+      limit: Type.Optional(Type.Number({ description: "Max number of versions (default: 10)" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { get_versions } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs") as any;
+        const result = await get_versions(params.file_path, params.limit || 10);
+        return {
+          content: [{ type: "text" as const, text: `Versions: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-doc-restore - Restore a file version
+  pi.registerTool({
+    name: "psypi-doc-restore",
+    label: "PsyPI Doc Restore",
+    description: "Restore a specific version of a file",
+    parameters: Type.Object({
+      version_id: Type.String({ description: "Version ID (UUID) to restore" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { restore_version } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs") as any;
+        const result = await restore_version(params.version_id);
+        return {
+          content: [{ type: "text" as const, text: `Restored version: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
   // ===== MEETING TOOLS =====
 
   // psypi-meeting-list - List meetings
