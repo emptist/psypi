@@ -66,15 +66,22 @@ program
   .option('--status <status>', 'Filter by status')
   .action(async (options) => {
     try {
-      const result = await kernel.getTasks(options.status);
-      if (result.rows.length === 0) {
-        console.log('No tasks found.');
-        return;
-      }
-      console.log(`\n📋 Tasks (${result.rows.length}):\n`);
-      for (const task of result.rows) {
-        console.log(`  [${task.id.slice(0, 8)}] ${task.title}`);
-        console.log(`    Status: ${task.status} | Priority: ${task.priority} | Created by: ${task.created_by}`);
+      const { list } = await import('../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs');
+      const status = options.status ? { '0': options.status } : {} as any;
+      const result = await list(status);
+      if (result.isOk()) {
+        const tasks = result[0] || [];
+        if (tasks.length === 0) {
+          console.log('No tasks found.');
+          return;
+        }
+        console.log(`\n📋 Tasks (${tasks.length}):\n`);
+        for (const task of tasks) {
+          console.log(`  [${task.id?.slice(0, 8)}] ${task.title}`);
+          console.log(`    Status: ${task.status} | Priority: ${task.priority} | Created by: ${task.created_by}`);
+        }
+      } else {
+        console.error('Error:', JSON.stringify(result[0]));
       }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
