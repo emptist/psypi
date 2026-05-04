@@ -97,165 +97,148 @@ fn stats_decoder() -> decode.Decoder(#(Int, Int, Int)) {
   decode.success(#(total, sent_count, high_priority_count))
 }
 
+fn db_error_to_broadcast_error(e: db.DbError) -> BroadcastError {
+  case e {
+    db.ConnectionError(msg) -> ConnectionError(msg)
+    db.QueryError(msg) -> QueryError(msg)
+  }
+}
+
 pub fn send(
   agent_id: String,
   message: String,
   priority: BroadcastPriority,
 ) -> promise.Promise(Result(String, BroadcastError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          INSERT INTO broadcasts (agent_id, message, priority, status)
-          VALUES ($1, $2, $3, 'sent')
-          RETURNING id
-        "
-        let params = [
-          dynamic.string(agent_id),
-          dynamic.string(message),
-          dynamic.int(priority_to_int(priority)),
-        ]
+  db.with_connection(fn(conn) {
+    let sql = "
+      INSERT INTO broadcasts (agent_id, message, priority, status)
+      VALUES ($1, $2, $3, 'sent')
+      RETURNING id
+    "
+    let params = [
+      dynamic.string(agent_id),
+      dynamic.string(message),
+      dynamic.int(priority_to_int(priority)),
+    ]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              case result.rows {
-                [row, ..] -> {
-                  case decode.run(row, id_decoder()) {
-                    Ok(id) -> promise.resolve(Ok(id))
-                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode id")))
-                  }
-                }
-                _ -> promise.resolve(Error(NotFound("No id returned")))
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_broadcast_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [row, ..] -> {
+              case decode.run(row, id_decoder()) {
+                Ok(id) -> Ok(id)
+                Error(_) -> Error(DecodeError("Failed to decode id"))
               }
             }
+            _ -> Error(NotFound("No id returned"))
           }
-        })
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_broadcast_error)
 }
 
 pub fn list(
   agent_id: Option(String),
   limit: Int,
 ) -> promise.Promise(Result(List(Broadcast), BroadcastError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = case agent_id {
-          Some(_) -> "
-            SELECT id, agent_id, message, priority, status, created_at::text, sent_at::text
-            FROM broadcasts
-            WHERE agent_id = $1
-            ORDER BY created_at DESC
-            LIMIT $2
-          "
-          None -> "
-            SELECT id, agent_id, message, priority, status, created_at::text, sent_at::text
-            FROM broadcasts
-            ORDER BY created_at DESC
-            LIMIT $1
-          "
-        }
-
-        let params = case agent_id {
-          Some(id) -> [dynamic.string(id), dynamic.int(limit)]
-          None -> [dynamic.int(limit)]
-        }
-
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              let broadcasts = result.rows
-                |> list.map(fn(row) { decode.run(row, broadcast_decoder()) })
-                |> list.filter_map(fn(r) { r })
-
-              promise.resolve(Ok(broadcasts))
-            }
-          }
-        })
-      }
+  db.with_connection(fn(conn) {
+    let sql = case agent_id {
+      Some(_) -> "
+        SELECT id, agent_id, message, priority, status, created_at::text, sent_at::text
+        FROM broadcasts
+        WHERE agent_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+      "
+      None -> "
+        SELECT id, agent_id, message, priority, status, created_at::text, sent_at::text
+        FROM broadcasts
+        ORDER BY created_at DESC
+        LIMIT $1
+      "
     }
-  })
+
+    let params = case agent_id {
+      Some(id) -> [dynamic.string(id), dynamic.int(limit)]
+      None -> [dynamic.int(limit)]
+    }
+
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_broadcast_error(e))
+        Ok(result) -> {
+          let broadcasts = result.rows
+            |> list.map(fn(row) { decode.run(row, broadcast_decoder()) })
+            |> list.filter_map(fn(r) { r })
+
+          Ok(broadcasts)
+        }
+      }
+    })
+  }, db_error_to_broadcast_error)
 }
 
 pub fn get_recent(
   agent_id: String,
   count: Int,
 ) -> promise.Promise(Result(List(Broadcast), BroadcastError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          SELECT id, agent_id, message, priority, status, created_at::text, sent_at::text
-          FROM broadcasts
-          WHERE agent_id = $1
-          ORDER BY created_at DESC
-          LIMIT $2
-        "
-        let params = [dynamic.string(agent_id), dynamic.int(count)]
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT id, agent_id, message, priority, status, created_at::text, sent_at::text
+      FROM broadcasts
+      WHERE agent_id = $1
+      ORDER BY created_at DESC
+      LIMIT $2
+    "
+    let params = [dynamic.string(agent_id), dynamic.int(count)]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              let broadcasts = result.rows
-                |> list.map(fn(row) { decode.run(row, broadcast_decoder()) })
-                |> list.filter_map(fn(r) { r })
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_broadcast_error(e))
+        Ok(result) -> {
+          let broadcasts = result.rows
+            |> list.map(fn(row) { decode.run(row, broadcast_decoder()) })
+            |> list.filter_map(fn(r) { r })
 
-              promise.resolve(Ok(broadcasts))
-            }
-          }
-        })
+          Ok(broadcasts)
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_broadcast_error)
 }
 
 pub fn stats(
   agent_id: String,
 ) -> promise.Promise(Result(#(Int, Int, Int), BroadcastError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          SELECT 
-            COUNT(*) as total,
-            COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
-            COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
-          FROM broadcasts
-          WHERE agent_id = $1
-        "
-        let params = [dynamic.string(agent_id)]
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
+        COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+      FROM broadcasts
+      WHERE agent_id = $1
+    "
+    let params = [dynamic.string(agent_id)]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              case result.rows {
-                [row, ..] -> {
-                  case decode.run(row, stats_decoder()) {
-                    Ok(stats) -> promise.resolve(Ok(stats))
-                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode stats")))
-                  }
-                }
-                _ -> promise.resolve(Error(NotFound("No stats returned")))
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_broadcast_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [row, ..] -> {
+              case decode.run(row, stats_decoder()) {
+                Ok(stats) -> Ok(stats)
+                Error(_) -> Error(DecodeError("Failed to decode stats"))
               }
             }
+            _ -> Error(NotFound("No stats returned"))
           }
-        })
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_broadcast_error)
 }

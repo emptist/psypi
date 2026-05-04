@@ -52,3 +52,20 @@ pub fn query(
     }
   })
 }
+
+pub fn with_connection(
+  callback: fn(Connection) -> promise.Promise(Result(a, e)),
+  error_mapper: fn(DbError) -> e,
+) -> promise.Promise(Result(a, e)) {
+  promise.await(connect(), fn(conn_result) {
+    case conn_result {
+      Error(e) -> promise.resolve(Error(error_mapper(e)))
+      Ok(conn) -> {
+        promise.await(callback(conn), fn(result) {
+          let _ = disconnect(conn)
+          promise.resolve(result)
+        })
+      }
+    }
+  })
+}

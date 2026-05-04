@@ -39,6 +39,13 @@ pub fn parse(
   Ok(#(learnings, issues, tasks))
 }
 
+fn db_error_to_reflection_error(e: db.DbError) -> ReflectionError {
+  case e {
+    db.ConnectionError(msg) -> ConnectionError(msg)
+    db.QueryError(msg) -> QueryError(msg)
+  }
+}
+
 pub fn areflect(
   text: String,
   agent_id: String,
@@ -48,25 +55,19 @@ pub fn areflect(
     Error(_) -> #([], [], [])
   }
 
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        promise.await(save_learnings(conn, learnings, agent_id), fn(_) {
-          promise.await(save_issues(conn, issues, agent_id), fn(_) {
-            promise.await(save_tasks(conn, tasks, agent_id), fn(_) {
-              let _ = db.disconnect(conn)
-              promise.resolve(Ok(ReflectionResult(
-                learnings: list.length(learnings),
-                issues: list.length(issues),
-                tasks: list.length(tasks),
-              )))
-            })
-          })
+  db.with_connection(fn(conn) {
+    promise.await(save_learnings(conn, learnings, agent_id), fn(_) {
+      promise.await(save_issues(conn, issues, agent_id), fn(_) {
+        promise.await(save_tasks(conn, tasks, agent_id), fn(_) {
+          promise.resolve(Ok(ReflectionResult(
+            learnings: list.length(learnings),
+            issues: list.length(issues),
+            tasks: list.length(tasks),
+          )))
         })
-      }
-    }
-  })
+      })
+    })
+  }, db_error_to_reflection_error)
 }
 
 fn save_learnings(
@@ -99,10 +100,10 @@ fn save_learning(
   }
   let params = [dynamic.string(title), dynamic.string(content)]
 
-  promise.await(db.query(conn, sql, params), fn(query_result) {
+  promise.map(db.query(conn, sql, params), fn(query_result) {
     case query_result {
-      Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-      Ok(_) -> promise.resolve(Ok(Nil))
+      Error(e) -> Error(db_error_to_reflection_error(e))
+      Ok(_) -> Ok(Nil)
     }
   })
 }
@@ -137,10 +138,10 @@ fn save_issue(
   }
   let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id)]
 
-  promise.await(db.query(conn, sql, params), fn(query_result) {
+  promise.map(db.query(conn, sql, params), fn(query_result) {
     case query_result {
-      Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-      Ok(_) -> promise.resolve(Ok(Nil))
+      Error(e) -> Error(db_error_to_reflection_error(e))
+      Ok(_) -> Ok(Nil)
     }
   })
 }
@@ -175,10 +176,10 @@ fn save_task(
   }
   let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id)]
 
-  promise.await(db.query(conn, sql, params), fn(query_result) {
+  promise.map(db.query(conn, sql, params), fn(query_result) {
     case query_result {
-      Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-      Ok(_) -> promise.resolve(Ok(Nil))
+      Error(e) -> Error(db_error_to_reflection_error(e))
+      Ok(_) -> Ok(Nil)
     }
   })
 }

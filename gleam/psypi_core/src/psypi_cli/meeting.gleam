@@ -101,123 +101,112 @@ fn option_to_dynamic(opt: Option(String)) -> dynamic.Dynamic {
   }
 }
 
+fn db_error_to_meeting_error(e: db.DbError) -> MeetingError {
+  case e {
+    db.ConnectionError(msg) -> ConnectionError(msg)
+    db.QueryError(msg) -> QueryError(msg)
+  }
+}
+
 pub fn create(
   topic: String,
   created_by: String,
 ) -> promise.Promise(Result(String, MeetingError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          INSERT INTO meetings (topic, created_by)
-          VALUES ($1, $2)
-          RETURNING id
-        "
-        let params = [dynamic.string(topic), dynamic.string(created_by)]
+  db.with_connection(fn(conn) {
+    let sql = "
+      INSERT INTO meetings (topic, created_by)
+      VALUES ($1, $2)
+      RETURNING id
+    "
+    let params = [dynamic.string(topic), dynamic.string(created_by)]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              case result.rows {
-                [row, ..] -> {
-                  case decode.run(row, id_decoder()) {
-                    Ok(id) -> promise.resolve(Ok(id))
-                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode id")))
-                  }
-                }
-                _ -> promise.resolve(Error(NotFound("No id returned")))
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_meeting_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [row, ..] -> {
+              case decode.run(row, id_decoder()) {
+                Ok(id) -> Ok(id)
+                Error(_) -> Error(DecodeError("Failed to decode id"))
               }
             }
+            _ -> Error(NotFound("No id returned"))
           }
-        })
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_meeting_error)
 }
 
 pub fn list(
   status: Option(String),
 ) -> promise.Promise(Result(List(Meeting), MeetingError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = case status {
-          Some(_) -> "
-            SELECT id, topic, created_by, status, created_at::text, completed_at::text, consensus
-            FROM meetings
-            WHERE status = $1
-            ORDER BY created_at DESC
-            LIMIT 100
-          "
-          None -> "
-            SELECT id, topic, created_by, status, created_at::text, completed_at::text, consensus
-            FROM meetings
-            ORDER BY created_at DESC
-            LIMIT 100
-          "
-        }
-
-        let params = case status {
-          Some(s) -> [dynamic.string(s)]
-          None -> []
-        }
-
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              let meetings = result.rows
-                |> list.map(fn(row) { decode.run(row, meeting_decoder()) })
-                |> list.filter_map(fn(r) { r })
-
-              promise.resolve(Ok(meetings))
-            }
-          }
-        })
-      }
+  db.with_connection(fn(conn) {
+    let sql = case status {
+      Some(_) -> "
+        SELECT id, topic, created_by, status, created_at::text, completed_at::text, consensus
+        FROM meetings
+        WHERE status = $1
+        ORDER BY created_at DESC
+        LIMIT 100
+      "
+      None -> "
+        SELECT id, topic, created_by, status, created_at::text, completed_at::text, consensus
+        FROM meetings
+        ORDER BY created_at DESC
+        LIMIT 100
+      "
     }
-  })
+
+    let params = case status {
+      Some(s) -> [dynamic.string(s)]
+      None -> []
+    }
+
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_meeting_error(e))
+        Ok(result) -> {
+          let meetings = result.rows
+            |> list.map(fn(row) { decode.run(row, meeting_decoder()) })
+            |> list.filter_map(fn(r) { r })
+
+          Ok(meetings)
+        }
+      }
+    })
+  }, db_error_to_meeting_error)
 }
 
 pub fn get(
   meeting_id: String,
 ) -> promise.Promise(Result(Meeting, MeetingError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          SELECT id, topic, created_by, status, created_at::text, completed_at::text, consensus
-          FROM meetings
-          WHERE id = $1
-        "
-        let params = [dynamic.string(meeting_id)]
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT id, topic, created_by, status, created_at::text, completed_at::text, consensus
+      FROM meetings
+      WHERE id = $1
+    "
+    let params = [dynamic.string(meeting_id)]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              case result.rows {
-                [row, ..] -> {
-                  case decode.run(row, meeting_decoder()) {
-                    Ok(meeting) -> promise.resolve(Ok(meeting))
-                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode meeting")))
-                  }
-                }
-                _ -> promise.resolve(Error(NotFound("Meeting not found")))
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_meeting_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [row, ..] -> {
+              case decode.run(row, meeting_decoder()) {
+                Ok(meeting) -> Ok(meeting)
+                Error(_) -> Error(DecodeError("Failed to decode meeting"))
               }
             }
+            _ -> Error(NotFound("Meeting not found"))
           }
-        })
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_meeting_error)
 }
 
 pub fn add_opinion(
@@ -227,112 +216,94 @@ pub fn add_opinion(
   reasoning: Option(String),
   vote: Option(String),
 ) -> promise.Promise(Result(String, MeetingError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          INSERT INTO meeting_opinions (meeting_id, author, perspective, reasoning, vote)
-          VALUES ($1, $2, $3, $4, $5)
-          RETURNING id
-        "
-        let params = [
-          dynamic.string(meeting_id),
-          dynamic.string(author),
-          dynamic.string(perspective),
-          option_to_dynamic(reasoning),
-          option_to_dynamic(vote),
-        ]
+  db.with_connection(fn(conn) {
+    let sql = "
+      INSERT INTO meeting_opinions (meeting_id, author, perspective, reasoning, vote)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id
+    "
+    let params = [
+      dynamic.string(meeting_id),
+      dynamic.string(author),
+      dynamic.string(perspective),
+      option_to_dynamic(reasoning),
+      option_to_dynamic(vote),
+    ]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              case result.rows {
-                [row, ..] -> {
-                  case decode.run(row, id_decoder()) {
-                    Ok(id) -> promise.resolve(Ok(id))
-                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode id")))
-                  }
-                }
-                _ -> promise.resolve(Error(NotFound("No id returned")))
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_meeting_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [row, ..] -> {
+              case decode.run(row, id_decoder()) {
+                Ok(id) -> Ok(id)
+                Error(_) -> Error(DecodeError("Failed to decode id"))
               }
             }
+            _ -> Error(NotFound("No id returned"))
           }
-        })
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_meeting_error)
 }
 
 pub fn list_opinions(
   meeting_id: String,
 ) -> promise.Promise(Result(List(Opinion), MeetingError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          SELECT id, meeting_id, author, perspective, reasoning, created_at::text
-          FROM meeting_opinions
-          WHERE meeting_id = $1
-          ORDER BY created_at ASC
-        "
-        let params = [dynamic.string(meeting_id)]
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT id, meeting_id, author, perspective, reasoning, created_at::text
+      FROM meeting_opinions
+      WHERE meeting_id = $1
+      ORDER BY created_at ASC
+    "
+    let params = [dynamic.string(meeting_id)]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              let opinions = result.rows
-                |> list.map(fn(row) { decode.run(row, opinion_decoder()) })
-                |> list.filter_map(fn(r) { r })
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_meeting_error(e))
+        Ok(result) -> {
+          let opinions = result.rows
+            |> list.map(fn(row) { decode.run(row, opinion_decoder()) })
+            |> list.filter_map(fn(r) { r })
 
-              promise.resolve(Ok(opinions))
-            }
-          }
-        })
+          Ok(opinions)
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_meeting_error)
 }
 
 pub fn complete(
   meeting_id: String,
   consensus: String,
 ) -> promise.Promise(Result(String, MeetingError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          UPDATE meetings
-          SET status = 'completed', completed_at = NOW(), consensus = $2
-          WHERE id = $1
-          RETURNING id
-        "
-        let params = [dynamic.string(meeting_id), dynamic.string(consensus)]
+  db.with_connection(fn(conn) {
+    let sql = "
+      UPDATE meetings
+      SET status = 'completed', completed_at = NOW(), consensus = $2
+      WHERE id = $1
+      RETURNING id
+    "
+    let params = [dynamic.string(meeting_id), dynamic.string(consensus)]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              case result.rows {
-                [row, ..] -> {
-                  case decode.run(row, id_decoder()) {
-                    Ok(id) -> promise.resolve(Ok(id))
-                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode id")))
-                  }
-                }
-                _ -> promise.resolve(Error(NotFound("Meeting not found")))
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_meeting_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [row, ..] -> {
+              case decode.run(row, id_decoder()) {
+                Ok(id) -> Ok(id)
+                Error(_) -> Error(DecodeError("Failed to decode id"))
               }
             }
+            _ -> Error(NotFound("Meeting not found"))
           }
-        })
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_meeting_error)
 }

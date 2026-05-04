@@ -91,127 +91,116 @@ fn id_decoder() -> decode.Decoder(String) {
   decode.success(id)
 }
 
+fn db_error_to_skill_error(e: db.DbError) -> SkillError {
+  case e {
+    db.ConnectionError(msg) -> ConnectionError(msg)
+    db.QueryError(msg) -> QueryError(msg)
+  }
+}
+
 pub fn list(
   status: Option(SkillStatus),
 ) -> promise.Promise(Result(List(Skill), SkillError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = case status {
-          Some(_) -> "
-            SELECT id, name, description, source, status, safety_score, version, author, created_at::text
-            FROM skills
-            WHERE status = $1
-            ORDER BY name ASC
-            LIMIT 100
-          "
-          None -> "
-            SELECT id, name, description, source, status, safety_score, version, author, created_at::text
-            FROM skills
-            ORDER BY name ASC
-            LIMIT 100
-          "
-        }
-
-        let params = case status {
-          Some(s) -> [dynamic.string(case s {
-            Pending -> "pending"
-            Approved -> "approved"
-            Rejected -> "rejected"
-            Blocked -> "blocked"
-            Installed -> "installed"
-            Uninstalled -> "uninstalled"
-          })]
-          None -> []
-        }
-
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              let skills = result.rows
-                |> list.map(fn(row) { decode.run(row, skill_decoder()) })
-                |> list.filter_map(fn(r) { r })
-
-              promise.resolve(Ok(skills))
-            }
-          }
-        })
-      }
+  db.with_connection(fn(conn) {
+    let sql = case status {
+      Some(_) -> "
+        SELECT id, name, description, source, status, safety_score, version, author, created_at::text
+        FROM skills
+        WHERE status = $1
+        ORDER BY name ASC
+        LIMIT 100
+      "
+      None -> "
+        SELECT id, name, description, source, status, safety_score, version, author, created_at::text
+        FROM skills
+        ORDER BY name ASC
+        LIMIT 100
+      "
     }
-  })
+
+    let params = case status {
+      Some(s) -> [dynamic.string(case s {
+        Pending -> "pending"
+        Approved -> "approved"
+        Rejected -> "rejected"
+        Blocked -> "blocked"
+        Installed -> "installed"
+        Uninstalled -> "uninstalled"
+      })]
+      None -> []
+    }
+
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_skill_error(e))
+        Ok(result) -> {
+          let skills = result.rows
+            |> list.map(fn(row) { decode.run(row, skill_decoder()) })
+            |> list.filter_map(fn(r) { r })
+
+          Ok(skills)
+        }
+      }
+    })
+  }, db_error_to_skill_error)
 }
 
 pub fn get(
   name: String,
 ) -> promise.Promise(Result(Skill, SkillError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          SELECT id, name, description, source, status, safety_score, version, author, created_at::text
-          FROM skills
-          WHERE name = $1
-        "
-        let params = [dynamic.string(name)]
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT id, name, description, source, status, safety_score, version, author, created_at::text
+      FROM skills
+      WHERE name = $1
+    "
+    let params = [dynamic.string(name)]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              case result.rows {
-                [row, ..] -> {
-                  case decode.run(row, skill_decoder()) {
-                    Ok(skill) -> promise.resolve(Ok(skill))
-                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode skill")))
-                  }
-                }
-                _ -> promise.resolve(Error(NotFound("Skill not found")))
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_skill_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [row, ..] -> {
+              case decode.run(row, skill_decoder()) {
+                Ok(skill) -> Ok(skill)
+                Error(_) -> Error(DecodeError("Failed to decode skill"))
               }
             }
+            _ -> Error(NotFound("Skill not found"))
           }
-        })
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_skill_error)
 }
 
 pub fn search(
   query: String,
 ) -> promise.Promise(Result(List(Skill), SkillError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          SELECT id, name, description, source, status, safety_score, version, author, created_at::text
-          FROM skills
-          WHERE name ILIKE $1 OR description ILIKE $1
-          ORDER BY name ASC
-          LIMIT 50
-        "
-        let params = [dynamic.string("%" <> query <> "%")]
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT id, name, description, source, status, safety_score, version, author, created_at::text
+      FROM skills
+      WHERE name ILIKE $1 OR description ILIKE $1
+      ORDER BY name ASC
+      LIMIT 50
+    "
+    let params = [dynamic.string("%" <> query <> "%")]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              let skills = result.rows
-                |> list.map(fn(row) { decode.run(row, skill_decoder()) })
-                |> list.filter_map(fn(r) { r })
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_skill_error(e))
+        Ok(result) -> {
+          let skills = result.rows
+            |> list.map(fn(row) { decode.run(row, skill_decoder()) })
+            |> list.filter_map(fn(r) { r })
 
-              promise.resolve(Ok(skills))
-            }
-          }
-        })
+          Ok(skills)
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_skill_error)
 }
 
 pub fn create(
@@ -219,77 +208,65 @@ pub fn create(
   description: String,
   created_by: String,
 ) -> promise.Promise(Result(String, SkillError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          INSERT INTO skills (name, description, status, safety_score, created_by)
-          VALUES ($1, $2, 'pending', 0, $3)
-          RETURNING id
-        "
-        let params = [
-          dynamic.string(name),
-          dynamic.string(description),
-          dynamic.string(created_by),
-        ]
+  db.with_connection(fn(conn) {
+    let sql = "
+      INSERT INTO skills (name, description, status, safety_score, created_by)
+      VALUES ($1, $2, 'pending', 0, $3)
+      RETURNING id
+    "
+    let params = [
+      dynamic.string(name),
+      dynamic.string(description),
+      dynamic.string(created_by),
+    ]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              case result.rows {
-                [row, ..] -> {
-                  case decode.run(row, id_decoder()) {
-                    Ok(id) -> promise.resolve(Ok(id))
-                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode id")))
-                  }
-                }
-                _ -> promise.resolve(Error(NotFound("No id returned")))
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_skill_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [row, ..] -> {
+              case decode.run(row, id_decoder()) {
+                Ok(id) -> Ok(id)
+                Error(_) -> Error(DecodeError("Failed to decode id"))
               }
             }
+            _ -> Error(NotFound("No id returned"))
           }
-        })
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_skill_error)
 }
 
 pub fn approve(
   skill_id: String,
   approved_by: String,
 ) -> promise.Promise(Result(String, SkillError)) {
-  promise.await(db.connect(), fn(conn_result) {
-    case conn_result {
-      Error(_) -> promise.resolve(Error(ConnectionError("Failed to connect")))
-      Ok(conn) -> {
-        let sql = "
-          UPDATE skills
-          SET status = 'approved', approved_by = $2, approved_at = NOW()
-          WHERE id = $1
-          RETURNING id
-        "
-        let params = [dynamic.string(skill_id), dynamic.string(approved_by)]
+  db.with_connection(fn(conn) {
+    let sql = "
+      UPDATE skills
+      SET status = 'approved', approved_by = $2, approved_at = NOW()
+      WHERE id = $1
+      RETURNING id
+    "
+    let params = [dynamic.string(skill_id), dynamic.string(approved_by)]
 
-        promise.await(db.query(conn, sql, params), fn(query_result) {
-          let _ = db.disconnect(conn)
-          case query_result {
-            Error(_) -> promise.resolve(Error(QueryError("Query failed")))
-            Ok(result) -> {
-              case result.rows {
-                [row, ..] -> {
-                  case decode.run(row, id_decoder()) {
-                    Ok(id) -> promise.resolve(Ok(id))
-                    Error(_) -> promise.resolve(Error(DecodeError("Failed to decode id")))
-                  }
-                }
-                _ -> promise.resolve(Error(NotFound("Skill not found")))
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_skill_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [row, ..] -> {
+              case decode.run(row, id_decoder()) {
+                Ok(id) -> Ok(id)
+                Error(_) -> Error(DecodeError("Failed to decode id"))
               }
             }
+            _ -> Error(NotFound("Skill not found"))
           }
-        })
+        }
       }
-    }
-  })
+    })
+  }, db_error_to_skill_error)
 }
