@@ -23,53 +23,14 @@ function setSessionId(ctx: any) {
   AgentIdentityService.sessionId = ctx?.sessionManager?.getSessionId();
 }
 
-// Helper functions for Gleam Result type handling
-// Gleam compiles Result to: Ok { '0': value } and Error { '0': detail }
-// NOT { Ok: value } or { Error: detail } as previously assumed
-
-function isGleamOk(result: any): boolean {
-  return result && typeof result.isOk === 'function' && result.isOk();
-}
-
-function isGleamError(result: any): boolean {
-  return result && typeof result.isOk === 'function' && !result.isOk();
-}
-
-function getGleamValue(result: any): any {
-  return result?.[0];
-}
-
-function getGleamError(result: any): any {
-  return result?.[0];
-}
-
-// Convert Gleam List (linked list) to JavaScript array
-// Gleam List: NonEmpty { head, tail } or Empty
-function gleamListToArray(list: any): any[] {
-  if (!list) return [];
-  // If it's already an array, return as-is
-  if (Array.isArray(list)) return list;
-  // If it's a Gleam linked list (has head property)
-  const result: any[] = [];
-  let current = list;
-  while (current && current.head !== undefined) {
-    result.push(current.head);
-    current = current.tail;
+// Convert Gleam Result for display (calls Gleam utils)
+async function formatGleamResult(result: any): Promise<string> {
+  try {
+    const { result_to_string } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/utils.mjs");
+    return result_to_string(result);
+  } catch {
+    return JSON.stringify(result);
   }
-  return result;
-}
-
-// Format Gleam Result for display
-function formatGleamResult(result: any): string {
-  if (isGleamOk(result)) {
-    const value = getGleamValue(result);
-    // Convert Gleam List to array if needed
-    const displayValue = gleamListToArray(value);
-    return JSON.stringify(displayValue);
-  } else if (isGleamError(result)) {
-    return `Error: ${JSON.stringify(getGleamError(result))}`;
-  }
-  return JSON.stringify(result);
 }
 
 // Initialize extension
@@ -108,10 +69,10 @@ export default function (pi: ExtensionAPI) {
         // Check if this version already exists (dedup at JS layer)
         const versions = await get_versions(filePath, 50);
         let exists = false;
-        if (isGleamOk(versions)) {
-          const versionList = getGleamValue(versions);
+        if (versions && typeof versions === 'object') {
+          const versionList = Array.isArray(versions) ? versions : (versions.rows || []);
           for (const v of versionList) {
-            if (v.version_hash === hash) {
+            if (v?.version_hash === hash) {
               exists = true;
               break;
             }
@@ -683,16 +644,18 @@ export default function (pi: ExtensionAPI) {
         const status = params.status ? new Some(params.status) : new None();
         const result = await list(status);
 
-        // Handle Gleam Result type: Ok { '0': value } or Error { '0': detail }
-        if (isGleamError(result)) {
-          const errorMsg = getGleamError(result);
+        // Handle Gleam Result type
+        if (result && typeof result.isOk === 'function' && !result.isOk()) {
+          const errorMsg = result?.[0] || 'Failed to list tasks';
           return {
-            content: [{ type: "text" as const, text: `Error: ${errorMsg || 'Failed to list tasks'}` }],
+            content: [{ type: "text" as const, text: `Error: ${errorMsg}` }],
             details: { error: true } as Record<string, unknown>,
           };
         }
 
-        const tasks = isGleamOk(result) ? gleamListToArray(getGleamValue(result)) : [];
+        const tasks = result && typeof result.isOk === 'function' && result.isOk() 
+          ? (Array.isArray(result?.['0']) ? result?.['0'] : (result?.['0'] ? [result?.['0']] : []))
+          : [];
 
         if (tasks.length === 0) {
           return {
