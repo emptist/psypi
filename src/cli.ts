@@ -175,15 +175,21 @@ program
   .description('List all approved skills')
   .action(async () => {
     try {
-      const result = await kernel.getSkills(true);
-      if (result.rows.length === 0) {
-        console.log('No skills found.');
-        return;
-      }
-      console.log(`\n📦 Skills (${result.rows.length}):\n`);
-      for (const skill of result.rows) {
-        console.log(`  🟢 ${skill.name}`);
-        console.log(`     Status: ${skill.status} | Safety: ${skill.safety_score}`);
+      const { list } = await import('../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs');
+      const result = await list({ '0': 'approved' } as any);
+      if (result.isOk()) {
+        const skills = result[0] || [];
+        if (skills.length === 0) {
+          console.log('No skills found.');
+          return;
+        }
+        console.log(`\n📦 Skills (${skills.length}):\n`);
+        for (const skill of skills) {
+          console.log(`  🟢 ${skill.name || ''}`);
+          console.log(`     Status: ${skill.status || ''} | Safety: ${skill.safety_score || ''}`);
+        }
+      } else {
+        console.error('Error:', JSON.stringify(result[0]));
       }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
