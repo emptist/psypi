@@ -27,6 +27,34 @@ description: Agent instructions and guidelines for working with psypi project
 
 ### 🚨 CRITICAL RULES (Read FIRST to avoid my mistakes!)
 
+#### 0. NEVER DELETE - DEPRECATE ONLY! 🔥
+> "我说过很多遍：不要直接删除东西！"
+
+**Correct Deprecation Process:**
+1. **Move to `deprecated/` folder** - `src/deprecated/` or `gleam/psypi_core/src/deprecated/`
+2. **Rename with `.deprecated` suffix** - `old-file.deprecated.mjs`
+3. **Update imports** - Make sure nothing references the old location
+4. **Document why** - Add comment: `// DEPRECATED: <reason>, use <new-thing> instead`
+
+**Examples:**
+```bash
+# ❌ WRONG - Direct deletion
+rm agent_identity_ffi.mjs
+
+# ✅ CORRECT - Deprecate
+mkdir -p src/deprecated
+mv agent_identity_ffi.mjs src/deprecated/agent_identity_ffi.deprecated.mjs
+# Update any imports or document that it's no longer used
+```
+
+**Why?**
+- Direct deletion breaks git history
+- Need to reference old code for learning
+- Other AIs need to see what NOT to do
+- `deprecated/` folder = museum of mistakes!
+
+---
+
 #### 1. FORCE YOURSELF TO USE `psypi commit` (NOT `git commit`!)
 > "It is SUPER important to force AIs to use psypi commit - you never know what stupid evil things they'd do without rules!"
 
@@ -84,25 +112,31 @@ psypi meeting-say <id> "My opinion: <text>"
 
 ### ✅ CORRECT (Use this EVERY TIME):
 ```typescript
-const sessionID = await kernel.piSessionID(); // This is your session ID
+// ULTIMATE TRUTH: ctx.sessionManager.getSessionId()
+const sessionID = ctx?.sessionManager?.getSessionId();
 ```
 
-### How it works internally (TWO METHODS):
-`kernel.piSessionID()` uses shared utility `getPiSessionID()` from `src/kernel/utils/session.ts`:
-1. **`process.env.AGENT_SESSION_ID`** - Set by Pi TUI when launching extension
-2. **Parse from JSONL file** - Reads most recent `~/.pi/agent/sessions/<project>/<timestamp>_<sessionId>.jsonl`
+### Why this is the ULTIMATE TRUTH:
+1. **`ctx` is passed to every tool's `execute()` function**
+2. **`sessionManager` is the Pi TUI's session manager**
+3. **`getSessionId()` returns the current session ID directly**
+4. No need for `kernel.piSessionID()` middleman!
 
-### ❌ NEVER DO THESE (WRONG):
-- ❌ Direct access: `process.env.AGENT_SESSION_ID` - MUST go through kernel.piSessionID()
-- ❌ `ctx.sessionManager.getSessionId()` - Pi API, but still use kernel.piSessionID()
-- ❌ Caching in variables: `const SESSION_ID = ...` - BROKEN
-- ❌ Reading from files/temp caches - BROKEN (except via kernel.piSessionID())
+### ❌ NEVER DO THESE (WRONG - SECOND-HAND DEALERS):
+- ❌ `kernel.piSessionID()` - SECOND-HAND DEALER! Just wraps getPiSessionID()
+- ❌ `process.env.AGENT_SESSION_ID` - Direct env access, MUST go through ctx!
+- ❌ Caching in variables: `const SESSION_ID = ...` - BROKEN!
+- ❌ Reading from files/temp caches - BROKEN!
 
-### Why?
-- `kernel.piSessionID()` is the ONLY authorized entry point for Session ID
-- It tries TWO methods internally (env var first, JSONL fallback)
-- It throws an error if not set (Pi TUI not running = bug)
-- Calling it multiple times is OK - it's a simple wrapper
+### ✅ Correct tool implementation:
+```typescript
+async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+  // ULTIMATE TRUTH: ctx.sessionManager.getSessionId()
+  const sessionID = ctx?.sessionManager?.getSessionId();
+  if (!sessionID) throw new Error('Session ID not available');
+  return { content: [{ type: "text", text: sessionID }] };
+}
+```
 
 ---
 
@@ -159,15 +193,26 @@ const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
 - `psypi visits` — Show recent visits
 - `psypi stats` — Show ecosystem stats
 
-### In Pi TUI (via psypi extension):
-- `psypi-think` — Delegate complex reasoning
-- `psypi-tasks` — Check pending tasks
-- `psypi-autonomous` — Get work guidance
-- `psypi-piSessionID` — Get Pi session ID (UUID v7)
-- `psypi-agent-id` — Get agent ID (uses ONE SINGLE WAY internally)
-- `psypi-partner-id` — Get partner/monitor ID (permanent God AI)
-- `psypi-meeting-*` — Meeting management
-- `psypi-doc-*` — Document management
+### 🚀 重要：你就在 Pi TUI 中！
+
+**直接告诉你（AI）**：当你看到这段内容时，你**已经**在 Pi TUI 中了！
+
+**为什么？** 因为 `psypi` 命令启动的就是 Pi TUI + psypi 扩展。
+
+**你可以直接使用的工具**（不需要任何设置）：
+- `/psypi-commit <消息>` — **提交代码（必须用它，别用 git commit！）**
+- `/psypi-tasks` — 查看任务
+- `/psypi-meeting-*` — 会议管理
+- `/psypi-autonomous` — 获取工作指导
+- `/psypi-my-id` — 查看自己的 ID
+- `/psypi-partner-id` — 查看 partner ID
+- `/psypi-stats` — 查看统计
+
+**验证方法**：在 Pi TUI 中输入 `/tools` 命令，能看到 `psypi-*` 开头的工具就对了。
+
+**记住**：
+- ✅ 直接用 `/psypi-commit` 提交（会触发 God 审查）
+- ❌ 不要用 `git commit`（会绕过审查）
 
 ---
 

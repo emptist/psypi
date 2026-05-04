@@ -26,11 +26,7 @@ export class Kernel {
     return this.db.query(text, params);
   }
 
-  private async getAgentId(): Promise<string> {
-    const identity = await AgentIdentityService.getResolvedIdentity();
-    return identity.id;
-  }
-
+  // Direct use getResolvedIdentity() - NO middleware!
   async getTasks(status?: string) {
     let query = 'SELECT * FROM tasks';
     const params: any[] = [];
@@ -43,7 +39,8 @@ export class Kernel {
   }
 
   async addTask(title: string, description: string, priority: number = 5) {
-    const agentId = await this.getAgentId();
+    const identity = await AgentIdentityService.getResolvedIdentity();
+    const agentId = identity.id;
     const result = await this.query(
       `INSERT INTO tasks (id, title, description, status, priority, category, created_by)
        VALUES (gen_random_uuid(), $1, $2, 'PENDING', $3, 'general', $4)
@@ -75,9 +72,10 @@ export class Kernel {
   }
 
   async addIssue(title: string, severity: string = 'medium') {
-    const agentId = await this.getAgentId();
+    const identity = await AgentIdentityService.getResolvedIdentity();
+    const agentId = identity.id;
     const result = await this.query(
-      `INSERT INTO issues (id, title, severity, status, discovered_by)
+      `INSERT INTO issues (id, title, severity, status, created_by)
        VALUES (gen_random_uuid(), $1, $2, 'open', $3)
        RETURNING id`,
       [title, severity, agentId]
@@ -253,7 +251,8 @@ exit 0
 
   async areflect(text: string) {
     const results: string[] = [];
-    const agentId = await this.getAgentId();
+    const identity = await AgentIdentityService.getResolvedIdentity();
+    const agentId = identity.id;
 
     // Simple check for [LEARN] marker
     if (text.includes('[LEARN]')) {
@@ -333,7 +332,8 @@ exit 0
   }
 
   async buildSkill(name: string, purpose: string) {
-    const agentId = await this.getAgentId();
+    const identity = await AgentIdentityService.getResolvedIdentity();
+    const agentId = identity.id;
     // Simple skill build - insert into skills table
     const result = await this.query(
       `INSERT INTO skills (id, name, description, status, safety_score, created_by)

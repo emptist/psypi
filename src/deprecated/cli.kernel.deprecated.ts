@@ -1,3 +1,12 @@
+// DEPRECATED: 2026-05-04 - Dead code, never imported
+// All commands have been integrated into src/cli.ts (main psypi binary)
+// Original location: src/kernel/cli/index.ts
+// Replacement: Use src/cli.ts directly
+//
+// This file was a separate CLI entry point that was never used.
+// The main CLI (src/cli.ts) now contains all the commands.
+// See ARCHITECTURE_PLAN.md for the "PsyPI Inside™" unified CLI architecture.
+
 #!/usr/bin/env node
 // Minimal Nezha CLI - Database operations only, no daemon/server
 

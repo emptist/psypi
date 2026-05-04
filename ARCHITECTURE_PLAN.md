@@ -1,5 +1,42 @@
 # Psypi Architecture Strategic Plan
 
+## 🎯 Core Philosophy: Gleam Core + TypeScript Thin Wrapper
+
+> **User's Vision**: "原有的ts代码，如果适合用gleam重写的，就重写，如果不适合gleam重写的，就保留ts，这样大部分的代码可以变成小巧强健的 gleam 模块，而ts最终变成 thin wrapper，极少数不适合用gleam写的除外。"
+
+### The "Bypass Middleware" Principle
+
+**越过冗余的中间拥堵层，直奔唯一真相：**
+
+| 真相          | 来源                                         | ❌ 错误做法                    | ✅ 正确做法   |
+| ------------- | -------------------------------------------- | ----------------------------- | ------------ |
+| Pi Session ID | `ctx.sessionManager.getSessionId()`          | `kernel.piSessionID()` 中间层 | 直接用 `ctx` |
+| Agent ID      | `AgentIdentityService.getResolvedIdentity()` | 缓存、中间方法                | 每次直接调用 |
+
+**Why?** 中间层增加复杂度、隐藏真相、制造混乱。Gleam 重写时要直接连接真相源。
+
+### Gleam vs TypeScript 边界
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Gleam Core (强健)                     │
+│  - 类型安全的业务逻辑                                    │
+│  - 数据库操作 (node_pg)                                  │
+│  - 数据解码/验证                                         │
+│  - 纯函数、无副作用                                      │
+└─────────────────────────────────────────────────────────┘
+                          ▲
+                          │ 直接调用
+                          │
+┌─────────────────────────────────────────────────────────┐
+│                TypeScript Thin Wrapper                   │
+│  - CLI 入口 (commander)                                  │
+│  - Pi Extension 集成                                     │
+│  - 外部库调用 (Pi SDK 等)                                │
+│  - Node.js 特有操作                                      │
+└─────────────────────────────────────────────────────────┘
+```
+
 ## Current State Analysis (BEFORE Changes)
 
 ### TWO Separate CLIs Exist:
@@ -23,7 +60,7 @@ grep -c "case 'meeting'" dist/kernel/cli/index.js  # Returns: 1
 pnpm exec psypi --help | grep meeting  # Returns: NOTHING
 ```
 
-## Target State ("Nezha Inside™" Done Right)
+## Target State ("PsyPI Inside™" Done Right)
 
 ### ONE Unified CLI (`src/cli.ts` → `dist/cli.js`)
 ```

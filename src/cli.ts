@@ -68,7 +68,7 @@ program
       }
       console.log(`\n📋 Tasks (${result.rows.length}):\n`);
       for (const task of result.rows) {
-        console.log(`  [${task.id.slice(0,8)}] ${task.title}`);
+        console.log(`  [${task.id.slice(0, 8)}] ${task.title}`);
         console.log(`    Status: ${task.status} | Priority: ${task.priority} | Created by: ${task.created_by}`);
       }
     } catch (err) {
@@ -83,9 +83,9 @@ program
     try {
       const success = await kernel.completeTask(taskId);
       if (success) {
-        console.log(`✅ Task ${taskId.slice(0,8)} marked COMPLETED`);
+        console.log(`✅ Task ${taskId.slice(0, 8)} marked COMPLETED`);
       } else {
-        console.log(`⚠️  Task ${taskId.slice(0,8)} not found or already completed`);
+        console.log(`⚠️  Task ${taskId.slice(0, 8)} not found or already completed`);
       }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
@@ -119,7 +119,7 @@ program
       }
       console.log(`\n📋 Issues (${result.rows.length}):\n`);
       for (const issue of result.rows) {
-        console.log(`  [${issue.id.slice(0,8)}] ${issue.title}`);
+        console.log(`  [${issue.id.slice(0, 8)}] ${issue.title}`);
         console.log(`    Severity: ${issue.severity} | Status: ${issue.status} | Created by: ${issue.created_by}`);
       }
     } catch (err) {
@@ -136,9 +136,9 @@ program
       const resolvedId = await resolveIssueId(DatabaseClient.getInstance(), issueId);
       const success = await kernel.resolveIssue(resolvedId || issueId, options.notes);
       if (success) {
-        console.log(`✅ Issue ${(resolvedId || issueId).slice(0,8)} marked as RESOLVED`);
+        console.log(`✅ Issue ${(resolvedId || issueId).slice(0, 8)} marked as RESOLVED`);
       } else {
-        console.log(`⚠️  Issue ${(resolvedId || issueId).slice(0,8)} not found or already resolved`);
+        console.log(`⚠️  Issue ${(resolvedId || issueId).slice(0, 8)} not found or already resolved`);
       }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
@@ -213,13 +213,13 @@ program
         console.error('❌ PSYPI_SECRET (or NEZHA_SECRET) not set in environment');
         return;
       }
-      
+
       // Encrypt the API key if provided
       let encryptedKey = '';
       let encryptedIv = '';
       let encryptedTag = '';
       let encryptedSalt = '';
-      
+
       if (options.key) {
         const { EncryptionService } = await import('./kernel/services/EncryptionService.js');
         const encryption = EncryptionService.getInstance();
@@ -232,24 +232,24 @@ program
       } else {
         console.log(`⚠️  No API key provided (OK for local providers like ollama)`);
       }
-      
+
       // Check if provider exists
       const existing = await kernel.query(
         `SELECT id FROM provider_api_keys WHERE provider = $1`,
         [provider]
       );
-      
+
       // If setting to in_use, first reset all others
       if (options.status === 'in_use') {
         await kernel.query(`UPDATE provider_api_keys SET status = 'not_used'`);
       }
-      
+
       if (existing.rows.length > 0) {
         // Update existing
         const updates = [];
         const values: any[] = [];
         let idx = 1;
-        
+
         if (options.key || encryptedKey) {
           updates.push(`encrypted_key = $${idx++}`);
           values.push(encryptedKey);
@@ -260,18 +260,18 @@ program
           updates.push(`encrypted_salt = $${idx++}`);
           values.push(encryptedSalt);
         }
-        
+
         if (options.model) {
           updates.push(`model = $${idx++}`);
           values.push(options.model);
         }
-        
+
         updates.push(`status = $${idx++}`);
         values.push(options.status);
         updates.push(`updated_at = NOW()`);
-        
+
         values.push(provider);
-        
+
         await kernel.query(
           `UPDATE provider_api_keys SET ${updates.join(', ')} WHERE provider = $${idx}`,
           values
@@ -286,7 +286,7 @@ program
         );
         console.log(`✅ Created provider '${provider}'`);
       }
-      
+
       console.log(`Provider: ${provider}`);
       console.log(`Status: ${options.status}`);
       if (options.model) console.log(`Model: ${options.model}`);
@@ -307,7 +307,7 @@ program
       console.error('Error:', err instanceof Error ? err.message : err);
     }
   });
-  
+
 program
   .command('learn <content>')
   .description('Save learning to memory')
@@ -318,7 +318,7 @@ program
       const tags = options.tags ? options.tags.split(',') : ['learning'];
       const id = await kernel.learn(content, parseInt(options.importance), tags);
       if (id) {
-        console.log(`✅ Learning saved: ${content.slice(0,60)}...`);
+        console.log(`✅ Learning saved: ${content.slice(0, 60)}...`);
       } else {
         console.log(`⚠️  Failed to save learning`);
       }
@@ -326,7 +326,7 @@ program
       console.error('Error:', err instanceof Error ? err.message : err);
     }
   });
-  
+
 program
   .command('my-id')
   .description('Print current agent ID (e.g., S-psypi-psypi)')
@@ -390,57 +390,57 @@ program
     try {
       let review: any; // Declare review variable at try block level
       // === INTER-REVIEW (MANDATORY QUALITY GATE) ===
-      
+
       if (!options['no-inter-review']) {
         const interReviewMatch = message.match(/\[inter-review:\s*([a-f0-9-]+)\]/i);
-        
+
         if (interReviewMatch) {
           // [inter-review:ID] found - validate existing review
           const reviewId = interReviewMatch[1];
           review = await kernel.getReview(reviewId);
-          
+
           if (!review) {
             console.error(`\nError: inter-review ${reviewId} not found in database`);
             console.error('Create an inter-review first with: psypi inter-review-request <task-id>');
             process.exit(1);
           }
-          
+
           if (review.status !== 'completed') {
             console.error(`\nError: inter-review ${reviewId} status is '${review.status}', must be 'completed'`);
             console.error('Wait for the inter-review to be completed before committing.');
             process.exit(1);
           }
-          
+
           // Validate ownership - check if current AI performed this review
           const currentIdentity = await AgentIdentityService.getResolvedIdentity();
           const currentAgentId = currentIdentity.id;
-          
+
           // Note: review.reviewerId contains the Inner AI ID who performed the review
           if (review.reviewerId === currentAgentId) {
             console.error(`\nError: You performed this inter-review yourself (reviewerId: ${review.reviewerId})`);
             console.error('You cannot use your own inter-review - ask another AI to review your code first.');
             process.exit(1);
           }
-          
+
           console.log(`✓ Inter-review ${reviewId} validated (status: ${review.status})`);
-          
+
         } else {
           // NO [inter-review:] found - AUTO-RUN inner review (from prepare-commit-msg hook)
           console.log('\n==========================================');
           console.log(' Running Inner AI Code Review...');
           console.log('==========================================\n');
-          
+
           try {
             const db = DatabaseClient.getInstance();
             const reviewService = await InterReviewService.create(db);
             const identity = await AgentIdentityService.getResolvedIdentity();
-            
+
             // Request review
             const { getGitHash, getGitBranch, getLastCommitMessage } = await import('./kernel/utils/git.js');
             const commitHash = await getGitHash() || 'unknown';
             const branch = await getGitBranch() || 'unknown';
             const commitMessage = getLastCommitMessage() || '';
-            
+
             const request = {
               taskId: undefined,
               commitHash,
@@ -450,32 +450,32 @@ program
                 message: commitMessage,
               },
             };
-            
+
             const newReviewId = await reviewService.requestReview(request, false);
             console.log(`Review requested: ${newReviewId}`);
-            
+
             // Perform review
             const prompt = `You are a senior code reviewer with expertise in TypeScript, Node.js, and software best practices. Be constructive and thorough. Focus on: correctness, maintainability, test coverage, and preventing loop script pollution.`;
             const result = await reviewService.performReview(newReviewId, prompt);
             review = result;
-            
+
             console.log(`✅ Review completed (score: ${result.overallScore}/100)`);
-            
+
             // Block commit if critical/high issues found
-            const criticalIssues = result.findings.filter(f => 
+            const criticalIssues = result.findings.filter(f =>
               f.severity === 'critical' || f.severity === 'high'
             );
-            
+
             if (criticalIssues.length > 0) {
               console.log('\n⚠️  WARNING: Critical/high issues found!');
               console.log('   The requester AI should consider adapting the code before committing.');
               console.log('   (Commit proceeds - respect reviewer AI\'s work, trust requester AI to adapt)\n');
             }
-            
+
             // Auto-append [inter-review:ID] to message
             message = `${message} [inter-review:${newReviewId}]`;
             console.log(`\n✅ Review passed! Added [inter-review:${newReviewId}] to commit message`);
-            
+
           } catch (reviewErr) {
             console.error('\n❌ Review failed:', reviewErr instanceof Error ? reviewErr.message : reviewErr);
             console.error('Commit blocked. Please fix issues or use --no-inter-review to skip.');
@@ -483,13 +483,13 @@ program
           }
         }
       }
-      
+
       // === MANDATORY: DISPLAY REVIEW REPORT TO REQUESTER AI ===
       if (review) {
         console.log('\n==========================================');
         console.log(' INTER-REVIEW REPORT (MANDATORY READING)');
         console.log('==========================================\n');
-        
+
         // Display review scores
         const score = review.overallScore || review.overall_score || 'N/A';
         console.log(`📊 SCORES:`);
@@ -497,11 +497,11 @@ program
         console.log(`   Code Quality: ${review.codeQualityScore || review.code_quality_score || 'N/A'}/100`);
         console.log(`   Test Coverage: ${review.testCoverageScore || review.test_coverage_score || 'N/A'}/100`);
         console.log(`   Documentation: ${review.documentationScore || review.documentation_score || 'N/A'}/100`);
-        
+
         if (review.summary) {
           console.log(`\n📝 SUMMARY:\n${review.summary}`);
         }
-        
+
         // Display ALL findings (issues, suggestions, praise)
         const findings = review.findings || review.findings || [];
         if (findings.length > 0) {
@@ -513,7 +513,7 @@ program
             if (f.code) console.log(`     📄 Code:\n${f.code}`);
           });
         }
-        
+
         // Display learnings (if any)
         const learnings = review.learnings || [];
         if (learnings.length > 0) {
@@ -522,21 +522,21 @@ program
             console.log(`  ${idx + 1}. [${l.topic || 'General'}] ${l.reminder}`);
           });
         }
-        
+
         // DISPLAY FULL RAW RESPONSE FOR AI TO LEARN
         const rawResponse = review.rawResponse || review.raw_response || '';
         if (rawResponse) {
           console.log('\n--- Full Review Response (for AI learning) ---');
           console.log(rawResponse.slice(0, 1000) + (rawResponse.length > 1000 ? '\n...(truncated, see DB for full response)' : ''));
         }
-        
+
         console.log('\n==========================================');
         console.log(' ⚠️  REQUESTER AI: Please read and adapt code based on findings above');
         console.log(' ==========================================\n');
       }
-      
+
       // === EXECUTE GIT COMMIT ===
-      
+
       // Add agent ID to message for traceability
       try {
         const identity = await AgentIdentityService.getResolvedIdentity();
@@ -550,7 +550,7 @@ program
       } catch (idErr) {
         console.warn('Warning: Could not get agent identity:', idErr instanceof Error ? idErr.message : idErr);
       }
-      
+
       const { execSync } = await import('child_process');
       const verifyFlag = options['no-inter-review'] ? '--no-verify' : '';
       const result = execSync(`git commit -m "${message}" ${verifyFlag}`, {
@@ -558,12 +558,12 @@ program
         stdio: 'pipe'
       });
       console.log(result);
-      
+
       // === POST-COMMIT TASKS (moved from post-commit hook) ===
-      
+
       // 1. Mark tasks as COMPLETED (if [task:ID] in message)
       const taskIds = [...new Set([...message.matchAll(/\[task:\s*([a-f0-9-]+)\]/gi)].map(m => m[1]))];
-      
+
       for (const taskId of taskIds) {
         try {
           const success = await kernel.completeTask(taskId);
@@ -574,10 +574,10 @@ program
           console.warn(`Warning: Failed to mark task ${taskId} as completed:`, err instanceof Error ? err.message : err);
         }
       }
-      
+
       // 2. Mark issues as RESOLVED (if [issue:ID] in message)
       const issueIds = [...new Set([...message.matchAll(/\[issue:\s*([a-f0-9-]+)\]/gi)].map(m => m[1]))];
-      
+
       for (const issueId of issueIds) {
         try {
           const success = await kernel.resolveIssue(issueId);
@@ -588,7 +588,7 @@ program
           console.warn(`Warning: Failed to mark issue ${issueId} as resolved:`, err instanceof Error ? err.message : err);
         }
       }
-      
+
       // 3. Announce commit
       try {
         const announceMsg = `Git Commit: ${message.slice(0, 60)}${message.length > 60 ? '...' : ''}`;
@@ -597,7 +597,7 @@ program
       } catch (err) {
         console.warn('Warning: Failed to announce commit:', err instanceof Error ? err.message : err);
       }
-      
+
     } catch (err) {
       if (err instanceof Error) {
         // Check if it's a process exit error (from execSync)
@@ -620,7 +620,7 @@ program
     try {
       const success = await kernel.announce(message, options.priority);
       if (success) {
-        console.log(`✅ Announcement sent: ${message.slice(0,60)}...`);
+        console.log(`✅ Announcement sent: ${message.slice(0, 60)}...`);
       } else {
         console.log(`⚠️  Announcement logged (broadcast table may not exist)`);
       }
@@ -638,7 +638,7 @@ program
     try {
       const success = await kernel.announce(message, options.priority);
       if (success) {
-        console.log(`✅ Broadcast sent: ${message.slice(0,60)}...`);
+        console.log(`✅ Broadcast sent: ${message.slice(0, 60)}...`);
       } else {
         console.log(`⚠️  Broadcast logged`);
       }
@@ -712,7 +712,7 @@ program
     const db = DatabaseClient.getInstance();
     const apiKeyService = ApiKeyService.getInstance(db);
     const args = process.argv.slice(4); // Skip: node, script, 'inner', subcommand
-    
+
     if (subcommand === 'set-model') {
       const provider = args[0];
       const model = args[1];
@@ -731,7 +731,7 @@ program
     } else if (subcommand === 'review') {
       const reviewService = await InterReviewService.create(db);
       const currentIdentity = await AgentIdentityService.getResolvedIdentity();
-      
+
       const { getGitHash, getGitBranch, getGitDiff, getLastCommitMessage } = await import('./kernel/utils/git.js');
       const { resolveTaskId, resolveIssueId } = await import('./kernel/utils/resolve-id.js');
       const commitHash = await getGitHash();
@@ -739,24 +739,24 @@ program
       const commitMessage = getLastCommitMessage() || '';
       const diff = getGitDiff();
       const files = diff ? diff.split('\n') : [];
-      
+
       // Extract and resolve task/issue ID from commit message
       const taskMatch = commitMessage.match(/\[task:\s*([a-f0-9-]+)\]/i);
       const issueMatch = commitMessage.match(/\[issue:\s*([a-f0-9-]+)\]/i);
-      
+
       let taskId: string | undefined = undefined;
       if (taskMatch && taskMatch[1]) {
         // Try to resolve short ID to full UUID
         const resolvedTaskId = await resolveTaskId(db, taskMatch[1]);
         taskId = resolvedTaskId || taskMatch[1];
       }
-      
+
       let issueId: string | undefined = undefined;
       if (issueMatch && issueMatch[1]) {
         const resolvedIssueId = await resolveIssueId(db, issueMatch[1]);
         issueId = resolvedIssueId || issueMatch[1];
       }
-      
+
       const request = {
         taskId,
         commitHash: commitHash || undefined,
@@ -769,21 +769,21 @@ program
           issueDescription: issueId ? `Issue: ${issueId}` : undefined,
         },
       };
-      
+
       console.log('\n🔍 Requesting Inner AI review...\n');
       const reviewId = await reviewService.requestReview(request, false);
       console.log(`   Review ID: ${reviewId}`);
-      
+
       console.log('\n⏳ Inner AI is reviewing your code...\n');
       const prompt = `You are a senior code reviewer with expertise in TypeScript, Node.js, and software best practices. Be constructive and thorough. Focus on: correctness, maintainability, test coverage, and preventing loop script pollution.`;
       const result = await reviewService.performReview(reviewId, prompt);
-      
+
       console.log(`\n✅ Review completed (score: ${result.overallScore}/100)\n`);
-      
+
       // Always show full review details
       console.log('📋 Summary:');
       console.log(`   ${result.summary}\n`);
-      
+
       if (result.findings.length > 0) {
         console.log('🔍 Findings:');
         const grouped = result.findings.reduce((acc, f) => {
@@ -791,7 +791,7 @@ program
           acc[f.severity].push(f);
           return acc;
         }, {} as Record<string, typeof result.findings>);
-        
+
         for (const severity of ['critical', 'high', 'medium', 'low', 'info']) {
           if (grouped[severity]) {
             console.log(`\n   [${severity.toUpperCase()}] ${grouped[severity].length} finding(s):`);
@@ -804,7 +804,7 @@ program
         }
         console.log('');
       }
-      
+
       if (result.learnings && result.learnings.length > 0) {
         console.log('📚 Learnings:');
         result.learnings.forEach((learning, i) => {
@@ -812,23 +812,23 @@ program
         });
         console.log('');
       }
-      
+
       console.log('📊 Scores:');
       console.log(`   Overall: ${result.overallScore}/100`);
       if (result.codeQualityScore) console.log(`   Code Quality: ${result.codeQualityScore}/100`);
       if (result.testCoverageScore) console.log(`   Test Coverage: ${result.testCoverageScore}/100`);
       if (result.documentationScore) console.log(`   Documentation: ${result.documentationScore}/100`);
       console.log('');
-      
+
       // Check for critical/high issues
       const criticalIssues = result.findings.filter(f => f.severity === 'critical' || f.severity === 'high');
-      
+
       if (criticalIssues.length > 0) {
         console.log(`\n⚠️  Found ${criticalIssues.length} critical/high severity issue(s)`);
         console.log('❌ Review failed - please fix issues before committing\n');
         process.exit(1);
       }
-      
+
       console.log('✅ Review passed!');
       console.log(`\nYou can now commit with:`);
       const msgForCommit = commitMessage || 'Update';
@@ -852,11 +852,11 @@ program
     try {
       const db = DatabaseClient.getInstance();
       const apiKeyService = ApiKeyService.getInstance(db);
-      
+
       // Project info
       const cwd = process.cwd();
       const projectName = basename(cwd);
-      
+
       // Inner AI status
       let thinkerStatus = '🏠 Working locally (no external thinker)';
       try {
@@ -867,7 +867,7 @@ program
       } catch (err) {
         thinkerStatus = '⚠️  Inner AI config ured but key decryption failed (using fallback)';
       }
-      
+
       // Tools
       const tools = [
         'task-add', 'tasks', 'task-complete',
@@ -881,7 +881,7 @@ program
         'status', 'project', 'visits', 'stats',
         'doc-save', 'doc-list'
       ];
-      
+
       // Hooks (from extension)
       const hooks = [
         'resources_discover',
@@ -891,7 +891,7 @@ program
         'tool_result',
         'tool_call'
       ];
-      
+
       console.log('\n## Psypi Status\n');
       console.log(`**Project:** ${projectName}`);
       console.log(`**Inner AI:** ${thinkerStatus}\n`);
@@ -900,7 +900,7 @@ program
       console.log(`\n**Hooks (${hooks.length}):**`);
       hooks.forEach(h => console.log(`  - ${h}`));
       console.log('');
-      
+
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     } finally {
@@ -917,13 +917,13 @@ program
   .action(async (name, content, options) => {
     try {
       const db = DatabaseClient.getInstance();
-      
+
       const existingResult = await db.query<{ id: string }>(
         "SELECT id FROM project_docs WHERE name = $1 AND status = 'current'",
         [name]
       );
       const existing = existingResult.rows[0];
-      
+
       if (existing) {
         await db.query(
           'UPDATE project_docs SET content = $1, file_path = COALESCE($2, file_path), priority = COALESCE($3, priority), updated_at = NOW() WHERE id = $4',
@@ -937,7 +937,7 @@ program
         );
         console.log(`✅ Document "${name}" saved to database`);
       }
-      
+
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     } finally {
@@ -952,23 +952,23 @@ program
   .action(async () => {
     try {
       const db = DatabaseClient.getInstance();
-      
+
       const docs = await db.query<{ name: string; file_path: string; priority: number; updated_at: string }>(
         "SELECT name, file_path, priority, updated_at FROM project_docs WHERE status = 'current' ORDER BY priority DESC"
       );
-      
+
       if (docs.rows.length === 0) {
         console.log('No project documents found in database');
         return;
       }
-      
+
       console.log('\n📚 Project Documents (from database):\n');
       docs.rows.forEach(doc => {
         const priority = doc.priority ? `[${doc.priority}]` : '';
         console.log(`  ${priority} ${doc.name} → ${doc.file_path || '(no path)'} (updated ${doc.updated_at.slice(0, 19)})`);
       });
       console.log('');
-      
+
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     } finally {
@@ -983,14 +983,14 @@ program
   .action(async (context) => {
     try {
       const db = DatabaseClient.getInstance();
-      
+
       // Get pending tasks
       const tasks = await db.query<{ id: string; title: string; priority: number }>(
         "SELECT id, title, priority FROM tasks WHERE status = 'PENDING' ORDER BY priority DESC LIMIT 5"
       );
-      
+
       console.log('\n🤖 Autonomous Work Guidance:\n');
-      
+
       if (tasks.rows.length === 0) {
         console.log('No pending tasks. System idle.\n');
       } else {
@@ -1000,21 +1000,21 @@ program
         });
         console.log('\nUse: psypi task-complete <id> when done');
       }
-      
+
       // Get critical issues
       const issues = await db.query<{ id: string; title: string; severity: string }>(
         "SELECT id, title, severity FROM issues WHERE status = 'OPEN' AND severity IN ('critical', 'high') ORDER BY severity DESC LIMIT 3"
       );
-      
+
       if (issues.rows.length > 0) {
         console.log('\n**Critical/High Issues:**');
         issues.rows.forEach(i => {
           console.log(`  [${i.severity}] ${i.title} (${i.id.slice(0, 8)})`);
         });
       }
-      
+
       console.log('');
-      
+
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     } finally {
@@ -1031,16 +1031,16 @@ program
       const db = DatabaseClient.getInstance();
       const cwd = process.cwd();
       const projectName = basename(cwd);
-      
+
       console.log(`\n📁 Project: ${projectName}\n`);
-      
+
       // Check if registered
       const projectResult = await db.query<{ id: string; created_at: string }>(
         'SELECT id, created_at FROM projects WHERE name = $1',
         [projectName]
       );
       const project = projectResult.rows[0];
-      
+
       if (project) {
         console.log('Status: ✅ Registered in database');
         const createdAt = new Date(project.created_at).toISOString();
@@ -1048,9 +1048,9 @@ program
       } else {
         console.log('Status: ❌ Not registered in database');
       }
-      
+
       console.log('');
-      
+
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     } finally {
@@ -1065,15 +1065,15 @@ program
   .action(async () => {
     try {
       const db = DatabaseClient.getInstance();
-      
+
       const taskStats = await db.query<{ total: number; pending: number; completed: number }>(
         "SELECT COUNT(*) as total, SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending, SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed FROM tasks"
       );
-      
+
       const issueStats = await db.query<{ total: number; open: number; resolved: number }>(
         "SELECT COUNT(*) as total, SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END) as open, SUM(CASE WHEN status = 'RESOLVED' THEN 1 ELSE 0 END) as resolved FROM issues"
       );
-      
+
       console.log('\n📊 Ecosystem Stats:\n');
       console.log('**Tasks:**');
       console.log(`  Total: ${taskStats.rows[0]?.total || 0}`);
@@ -1084,7 +1084,7 @@ program
       console.log(`  Open: ${issueStats.rows[0]?.open || 0}`);
       console.log(`  Resolved: ${issueStats.rows[0]?.resolved || 0}`);
       console.log('');
-      
+
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     } finally {
@@ -1099,13 +1099,13 @@ program
   .action(async () => {
     try {
       const db = DatabaseClient.getInstance();
-      
+
       const tools = await db.query<{ table_name: string; purpose: string }>(
         'SELECT table_name, purpose FROM table_documentation WHERE ai_can_modify = true ORDER BY table_name'
       );
-      
+
       console.log('\n🔧 Available Tools (from DB):\n');
-      
+
       if (tools.rows.length === 0) {
         console.log('No tools found in database\n');
       } else {
@@ -1114,7 +1114,7 @@ program
         });
         console.log('');
       }
-      
+
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     } finally {
@@ -1129,13 +1129,13 @@ program
   .action(async () => {
     try {
       const db = DatabaseClient.getInstance();
-      
+
       const agents = await db.query<{ id: string; identity_id: string; started_at: string; last_heartbeat_at: string }>(
         "SELECT id, identity_id, started_at, last_heartbeat_at FROM agent_sessions WHERE status = 'alive' ORDER BY started_at DESC"
       );
-      
+
       console.log('\n🤖 Active Agents:\n');
-      
+
       if (agents.rows.length === 0) {
         console.log('No active agents\n');
       } else {
@@ -1146,7 +1146,7 @@ program
         });
         console.log('');
       }
-      
+
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     } finally {
@@ -1163,14 +1163,14 @@ program
     try {
       const db = DatabaseClient.getInstance();
       const limit = options.limit || 20;
-      
+
       const visits = await db.query<{ project_fingerprint: string; visited_at: string }>(
         'SELECT project_fingerprint, visited_at FROM project_visits ORDER BY visited_at DESC LIMIT $1',
         [limit]
       );
-      
+
       console.log(`\n📌 Recent Visits (last ${limit}):\n`);
-      
+
       if (visits.rows.length === 0) {
         console.log('No visits recorded\n');
       } else {
@@ -1181,7 +1181,7 @@ program
         });
         console.log('');
       }
-      
+
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     } finally {
@@ -1198,7 +1198,7 @@ program
       const hasTask = /\[task:\s*[a-f0-9-]+\]/i.test(message);
       const hasIssue = /\[issue:\s*[a-f0-9-]+\]/i.test(message);
       const hasReview = /\[inter-review:\s*[a-f0-9-]+\]/i.test(message);
-      
+
       console.log('\n🔍 Commit Message Validation:\n');
       console.log(`Message: ${message}\n`);
       console.log('**Checks:**');
@@ -1206,11 +1206,11 @@ program
       console.log(`  Issue ID: ${hasIssue ? '✅' : '❌'}`);
       console.log(`  Inter-Review: ${hasReview ? '✅' : '❌'}`);
       console.log('');
-      
+
       if (!hasReview) {
         console.log('⚠️  Warning: No [inter-review:ID] found - review will be auto-run by psypi commit');
       }
-      
+
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     }
@@ -1227,7 +1227,7 @@ program
     const db = DatabaseClient.getInstance();
     const meetingCmd = new MeetingCommands({ db });
     const args = process.argv.slice(4); // Skip: node, script, 'meeting', subcommand
-    
+
     try {
       if (subcommand === 'list') {
         const limit = options.limit || 100;
@@ -1306,10 +1306,10 @@ if (!process.argv.slice(2).length) {
       // Calculate extension path relative to this module
       const extensionUrl = new URL('./agent/extension/extension.js', import.meta.url);
       const extensionPath = extensionUrl.pathname;
-      
-      console.log('[psypi] Launching Pi TUI with Nezha Inside™...');
+
+      console.log('[psypi] Launching Pi TUI with PsyPI Inside™...');
       // Launch Pi with psypi extension (unified mode)
-      execSync(`pi -e "${extensionPath}"`, { 
+      execSync(`pi -e "${extensionPath}"`, {
         stdio: 'inherit',
         env: { ...process.env, PSYPI_EXTENSION: extensionPath }
       });

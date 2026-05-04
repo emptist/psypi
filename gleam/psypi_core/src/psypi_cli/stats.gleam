@@ -1,14 +1,10 @@
-import gleam/javascript/promise
-import psypi_cli/db.{type DbError, type Connection, with_connection}
 import gleam/dynamic/decode
+import gleam/javascript/promise
+import gleam/int
+import psypi_cli/db.{type DbError, type Connection, with_connection}
 
 pub type Stats {
-  Stats(
-    tasks: Int,
-    issues: Int,
-    skills: Int,
-    meetings: Int,
-  )
+  Stats(tasks: Int, issues: Int, skills: Int, meetings: Int)
 }
 
 pub fn stats() -> promise.Promise(Result(Stats, DbError)) {
@@ -21,7 +17,6 @@ pub fn stats() -> promise.Promise(Result(Stats, DbError)) {
           (SELECT COUNT(*) FROM skills) as skills,
           (SELECT COUNT(*) FROM meetings) as meetings
       "
-      
       promise.map(db.query(conn, sql, []), fn(result) {
         case result {
           Ok(query_result) -> {
@@ -39,15 +34,26 @@ pub fn stats() -> promise.Promise(Result(Stats, DbError)) {
         }
       })
     },
-    fn(e: DbError) { e } // 直接返回错误，不是 Error(e)
+    fn(e: DbError) { e }
   )
 }
 
+// Simple decoder - just decode string then parse (like PostgreSQL bigint)
+fn decode_bigint() -> decode.Decoder(Int) {
+  decode.string
+    |> decode.map(fn(s) {
+      case int.parse(s) {
+        Ok(n) -> n
+        Error(_) -> 0
+      }
+    })
+}
+
 fn stats_decoder() -> decode.Decoder(Stats) {
-  use tasks <- decode.field("tasks", decode.int)
-  use issues <- decode.field("issues", decode.int)
-  use skills <- decode.field("skills", decode.int)
-  use meetings <- decode.field("meetings", decode.int)
+  use tasks <- decode.field("tasks", decode_bigint())
+  use issues <- decode.field("issues", decode_bigint())
+  use skills <- decode.field("skills", decode_bigint())
+  use meetings <- decode.field("meetings", decode_bigint())
   
   decode.success(Stats(tasks, issues, skills, meetings))
 }

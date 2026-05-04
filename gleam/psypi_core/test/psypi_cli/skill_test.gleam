@@ -1,5 +1,5 @@
 import gleeunit/should
-import psypi_cli/skill.{type SkillStatus, Pending, Approved, Rejected, Blocked, Installed, Uninstalled}
+import psypi_cli/skill.{Pending, Approved, Rejected, Blocked, Installed, Uninstalled}
 
 pub fn skill_status_equality_test() {
   // Test that SkillStatus constructors work

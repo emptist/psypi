@@ -36,10 +36,10 @@ pub fn is_valid_pi_session(id: SessionID) -> Bool {
   string.length(uuid) >= 32
 }
 
-// Format agent ID for display
+// Format agent ID for display (returns full ID)
 pub fn format_agent_id(agent: AgentID) -> String {
-  let AgentID(value: id, prefix: p) = agent
-  p <> ":" <> id
+  let AgentID(value: id, ..) = agent
+  id
 }
 
 // Utility: join strings with delimiter

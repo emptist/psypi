@@ -19,7 +19,7 @@ pub type Meeting {
     created_by: String,
     status: MeetingStatus,
     created_at: String,
-    completed_at: Option(String),
+    consensus_at: Option(String),
     consensus: Option(String),
   )
 }
@@ -57,7 +57,7 @@ fn meeting_decoder() -> decode.Decoder(Meeting) {
   use created_by <- decode.field("created_by", decode.string)
   use status_str <- decode.field("status", decode.string)
   use created_at <- decode.field("created_at", decode.string)
-  use completed_at <- decode.field("completed_at", decode.optional(decode.string))
+  use consensus_at <- decode.field("consensus_at", decode.optional(decode.string))
   use consensus <- decode.field("consensus", decode.optional(decode.string))
 
   decode.success(Meeting(
@@ -66,7 +66,7 @@ fn meeting_decoder() -> decode.Decoder(Meeting) {
     created_by: created_by,
     status: string_to_status(status_str),
     created_at: created_at,
-    completed_at: completed_at,
+    consensus_at: consensus_at,
     consensus: consensus,
   ))
 }
@@ -145,14 +145,14 @@ pub fn list(
   db.with_connection(fn(conn) {
     let sql = case status {
       Some(_) -> "
-        SELECT id, topic, created_by, status, created_at::text, completed_at::text, consensus
+        SELECT id, topic, created_by, status, created_at::text, consensus_at::text, consensus
         FROM meetings
         WHERE status = $1
         ORDER BY created_at DESC
         LIMIT 100
       "
       None -> "
-        SELECT id, topic, created_by, status, created_at::text, completed_at::text, consensus
+        SELECT id, topic, created_by, status, created_at::text, consensus_at::text, consensus
         FROM meetings
         ORDER BY created_at DESC
         LIMIT 100
@@ -184,7 +184,7 @@ pub fn get(
 ) -> promise.Promise(Result(Meeting, MeetingError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT id, topic, created_by, status, created_at::text, completed_at::text, consensus
+      SELECT id, topic, created_by, status, created_at::text, consensus_at::text, consensus
       FROM meetings
       WHERE id = $1
     "
@@ -283,7 +283,7 @@ pub fn complete(
   db.with_connection(fn(conn) {
     let sql = "
       UPDATE meetings
-      SET status = 'completed', completed_at = NOW(), consensus = $2
+      SET status = 'completed', consensus_at = NOW(), consensus = $2
       WHERE id = $1
       RETURNING id
     "

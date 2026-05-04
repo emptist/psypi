@@ -27,19 +27,19 @@ export default function (pi: ExtensionAPI) {
       const input = event.input as any;
       const filePath = input?.path;
       if (!filePath) return;
-      
+
       try {
         const fs = await import('fs');
         if (!fs.existsSync(filePath)) return;
-        
+
         const crypto = await import('crypto');
         const content = fs.readFileSync(filePath, 'utf-8');
         const hash = crypto.createHash('sha256').update(content).digest('hex');
-        
+
         // Import Gleam functions
         const { save_version, get_versions } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs") as any;
         const identity = await AgentIdentityService.getResolvedIdentity();
-        
+
         // Check if this version already exists (dedup at JS layer)
         const versions = await get_versions(filePath, 50);
         let exists = false;
@@ -51,16 +51,16 @@ export default function (pi: ExtensionAPI) {
             }
           }
         }
-        
+
         if (exists) {
           if (VERBOSE) console.log(`[Auto-Backup] ⏭ Skipped (already saved): ${filePath}`);
           return; // Already backed up
         }
-        
+
         // Save new version
         const result = await save_version(filePath, content, identity.id, '', `auto-backup before ${event.toolName}`);
         if (VERBOSE) console.log(`[Auto-Backup] ✅ Saved: ${filePath} (version: ${result})`);
-        
+
       } catch (err: any) {
         if (VERBOSE) console.log(`[Auto-Backup] ⚠️ Failed: ${err.message}`);
       }
@@ -81,11 +81,11 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
         const verifyFlag = params.noVerify ? "--no-verify" : "";
-        const output = execSync(`psypi commit "${params.message}" ${verifyFlag}`, { 
+        const output = execSync(`psypi commit "${params.message}" ${verifyFlag}`, {
           encoding: "utf-8",
           stdio: "pipe"
         });
-        
+
         return {
           content: [{ type: "text" as const, text: output }],
           details: { success: true } as Record<string, unknown>,
@@ -149,9 +149,13 @@ export default function (pi: ExtensionAPI) {
     label: "PsyPI Session ID",
     description: "Get Pi session ID (UUID v7, single source of truth)",
     parameters: Type.Object({}),
-    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, ctx?: any) {
       try {
-        const sessionID = await kernel.piSessionID();
+        // ULTIMATE TRUTH: ctx.sessionManager.getSessionId()
+        const sessionID = ctx?.sessionManager?.getSessionId();
+        if (!sessionID) {
+          throw new Error('Session ID not available in context');
+        }
         return {
           content: [{ type: "text" as const, text: `Session ID: ${sessionID}` }],
           details: { sessionId: sessionID } as Record<string, unknown>,
@@ -175,18 +179,17 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        // Now using Gleam task.gleam core!
+        // Call Gleam task.list() - returns Result(List(Task), TaskError)
         const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs") as any;
         const { Some, None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
         
-        // Convert status string to Option type
         const status = params.status ? new Some(params.status) : new None();
-        
         const result = await list(status);
         
-        if (!result || !result.Ok) {
+        // Handle Result type: { Ok: [...], Error: ... }
+        if (!result || result.Error) {
           return {
-            content: [{ type: "text" as const, text: `Error: Failed to list tasks` }],
+            content: [{ type: "text" as const, text: `Error: ${result?.Error || 'Failed to list tasks'}` }],
             details: { error: true } as Record<string, unknown>,
           };
         }
@@ -199,14 +202,14 @@ export default function (pi: ExtensionAPI) {
             details: { count: 0 } as Record<string, unknown>,
           };
         }
-
+        
         const taskList = tasks.slice(0, 10).map((t: any) => 
           `[${t.id?.slice(0,8)}] ${t.title} (${t.status}, priority: ${t.priority})`
         ).join("\n");
 
         return {
           content: [{ type: "text" as const, text: `Found ${tasks.length} tasks:\n${taskList}` }],
-          details: { count: tasks.length } as Record<string, unknown>,
+          details: { count: tasks.length, tasks: tasks.slice(0, 10) } as Record<string, unknown>,
         };
       } catch (err: any) {
         return {
@@ -229,7 +232,7 @@ export default function (pi: ExtensionAPI) {
       try {
         const result = await kernel.getTasks('PENDING');
         const tasks = result.rows || [];
-        
+
         if (tasks.length === 0) {
           return {
             content: [{ type: "text" as const, text: "No pending tasks. Consider: reviewing recent changes, improving tests, or documentation." }],
@@ -277,17 +280,17 @@ export default function (pi: ExtensionAPI) {
       try {
         // Import compiled Gleam module
         const { save_version } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs");
-        
+
         // Get file content if not provided
         let content = params.content;
         if (!content) {
           const fs = await import('fs');
           content = fs.readFileSync(params.file_path, 'utf-8');
         }
-        
+
         // Get agent ID
         const identity = await AgentIdentityService.getResolvedIdentity();
-        
+
         // Call Gleam function
         const result = await save_version(
           params.file_path,
@@ -296,7 +299,7 @@ export default function (pi: ExtensionAPI) {
           '', // commit_hash (optional)
           params.reason || 'manual save'
         );
-        
+
         return {
           content: [{ type: "text" as const, text: `Saved version: ${result}` }],
           details: { versionId: result } as Record<string, unknown>,
@@ -665,8 +668,8 @@ export default function (pi: ExtensionAPI) {
         const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs");
         // Import None from gleam/option for no filter
         const { None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
-        const result = await list(params.status ? (() => { 
-          // Construct Some(status) 
+        const result = await list(params.status ? (() => {
+          // Construct Some(status)
           const { Some } = require("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
           return new Some(params.status);
         })() : new None());
@@ -724,13 +727,13 @@ export default function (pi: ExtensionAPI) {
       try {
         const { send } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs");
         const identity = await AgentIdentityService.getResolvedIdentity();
-        
+
         // Import Option types
         const { Some, None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
-        
+
         // Construct priority as Option type
         const priority = params.priority ? new Some(params.priority) : new None();
-        
+
         const result = await send(
           identity.id,
           params.message,
@@ -761,10 +764,10 @@ export default function (pi: ExtensionAPI) {
       try {
         const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs") as any;
         const identity = await AgentIdentityService.getResolvedIdentity();
-        
+
         // Import Option types for agent_id
         const { Some } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
-        
+
         // agent_id is Option<String>, limit is number
         const result = await list(new Some(identity.id), params.limit || 10);
         return {
