@@ -387,7 +387,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // psypi-validate-commit - Validate a commit message
+  // psypi-validate-commit - Validate a commit message (calls Gleam)
   pi.registerTool({
     name: "psypi-validate-commit",
     label: "PsyPI Validate Commit",
@@ -397,10 +397,10 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const kernel = (await import("../../kernel/index.js")).kernel;
-        const result = await kernel.validateCommit(params.message);
+        const { validate } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/validation.mjs");
+        const result = await validate(params.message);
         return {
-          content: [{ type: "text" as const, text: `Validation: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Validation: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
