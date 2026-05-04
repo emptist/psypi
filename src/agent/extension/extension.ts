@@ -200,6 +200,250 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // ===== DOCUMENT TOOLS =====
+
+  // psypi-doc-save - Save a file version to database (auto-backup before AI edits)
+  pi.registerTool({
+    name: "psypi-doc-save",
+    label: "PsyPI Doc Save",
+    description: "Save a file version to code_versions table (auto-backup before AI edits)",
+    parameters: Type.Object({
+      file_path: Type.String({ description: "File path to save" }),
+      content: Type.String({ description: "File content (leave empty to read from disk)" }),
+      reason: Type.Optional(Type.String({ description: "Reason for saving (e.g., 'before AI edit', 'pre-disaster backup')" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        // Import compiled Gleam module
+        const { save_version } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs");
+        
+        // Get file content if not provided
+        let content = params.content;
+        if (!content) {
+          const fs = await import('fs');
+          content = fs.readFileSync(params.file_path, 'utf-8');
+        }
+        
+        // Get agent ID
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        
+        // Call Gleam function
+        const result = await save_version(
+          params.file_path,
+          content,
+          identity.id,
+          '', // commit_hash (optional)
+          params.reason || 'manual save'
+        );
+        
+        return {
+          content: [{ type: "text" as const, text: `Saved version: ${result}` }],
+          details: { versionId: result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // ===== MEETING TOOLS =====
+
+  // psypi-meeting-list - List meetings
+  pi.registerTool({
+    name: "psypi-meeting-list",
+    label: "PsyPI Meeting List",
+    description: "List meetings (optional status filter: pending, active, completed, cancelled)",
+    parameters: Type.Object({
+      status: Type.Optional(Type.String({ description: "Filter by status (pending/active/completed/cancelled)" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/meeting.mjs");
+        const result = await list(params.status || '');
+        return {
+          content: [{ type: "text" as const, text: `Meetings: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-meeting-show - Show a meeting
+  pi.registerTool({
+    name: "psypi-meeting-show",
+    label: "PsyPI Meeting Show",
+    description: "Show details of a specific meeting",
+    parameters: Type.Object({
+      meeting_id: Type.String({ description: "Meeting ID (UUID)" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { get } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/meeting.mjs");
+        const result = await get(params.meeting_id);
+        return {
+          content: [{ type: "text" as const, text: `Meeting: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-meeting-say - Add opinion to meeting
+  pi.registerTool({
+    name: "psypi-meeting-say",
+    label: "PsyPI Meeting Say",
+    description: "Add your opinion to a meeting",
+    parameters: Type.Object({
+      meeting_id: Type.String({ description: "Meeting ID (UUID)" }),
+      perspective: Type.String({ description: "Your perspective/opinion" }),
+      reasoning: Type.Optional(Type.String({ description: "Reasoning behind your opinion" })),
+      vote: Type.Optional(Type.String({ description: "Vote (yes/no/abstain)" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { add_opinion } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/meeting.mjs");
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        const result = await add_opinion(
+          params.meeting_id,
+          identity.id,
+          params.perspective,
+          params.reasoning || '',
+          params.vote || ''
+        );
+        return {
+          content: [{ type: "text" as const, text: `Opinion added: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // ===== SKILL TOOLS =====
+
+  // psypi-skill-list - List skills
+  pi.registerTool({
+    name: "psypi-skill-list",
+    label: "PsyPI Skill List",
+    description: "List all approved skills",
+    parameters: Type.Object({}),
+    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const skill = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs");
+        // Import None class from gleam/option
+        const { None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
+        // List all skills (None = no status filter)
+        const result = await skill.list(new None());
+        return {
+          content: [{ type: "text" as const, text: `Skills: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-skill-show - Show skill details
+  pi.registerTool({
+    name: "psypi-skill-show",
+    label: "PsyPI Skill Show",
+    description: "Show details of a specific skill",
+    parameters: Type.Object({
+      name: Type.String({ description: "Skill name" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { get } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs");
+        const result = await get(params.name);
+        return {
+          content: [{ type: "text" as const, text: `Skill: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-skill-search - Search skills
+  pi.registerTool({
+    name: "psypi-skill-search",
+    label: "PsyPI Skill Search",
+    description: "Search skills by keyword",
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { search } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs");
+        const result = await search(params.query);
+        return {
+          content: [{ type: "text" as const, text: `Search results: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // ===== REFLECTION TOOLS =====
+
+  // psypi-areflect - Reflection with auto-parse
+  pi.registerTool({
+    name: "psypi-areflect",
+    label: "PsyPI Reflect",
+    description: "Reflection with auto-parse: [LEARN] [ISSUE] [TASK] tags",
+    parameters: Type.Object({
+      text: Type.String({ description: "Reflection text with [LEARN] [ISSUE] [TASK] tags" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { areflect } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/areflect.mjs");
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        const result = await areflect(params.text, identity.id);
+        return {
+          content: [{ type: "text" as const, text: `Reflection saved: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // ===== STATUS TOOLS =====
+
   // psypi-status - Show psypi status
   pi.registerTool({
     name: "psypi-status",
