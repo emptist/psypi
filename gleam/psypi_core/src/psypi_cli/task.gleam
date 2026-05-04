@@ -36,7 +36,7 @@ pub type TaskError {
   DecodeError(String)
 }
 
-fn string_to_status(s: String) -> TaskStatus {
+pub fn string_to_status(s: String) -> TaskStatus {
   case s {
     "RUNNING" -> Running
     "COMPLETED" -> Completed
@@ -45,7 +45,7 @@ fn string_to_status(s: String) -> TaskStatus {
   }
 }
 
-fn task_decoder() -> decode.Decoder(Task) {
+pub fn task_decoder() -> decode.Decoder(Task) {
   use id <- decode.field("id", decode.string)
   use title <- decode.field("title", decode.string)
   use description <- decode.field("description", decode.optional(decode.string))
@@ -75,12 +75,12 @@ fn task_decoder() -> decode.Decoder(Task) {
   ))
 }
 
-fn id_decoder() -> decode.Decoder(String) {
+pub fn id_decoder() -> decode.Decoder(String) {
   use id <- decode.field("id", decode.string)
   decode.success(id)
 }
 
-fn db_error_to_task_error(e: db.DbError) -> TaskError {
+pub fn db_error_to_task_error(e: db.DbError) -> TaskError {
   case e {
     db.ConnectionError(msg) -> ConnectionError(msg)
     db.QueryError(msg) -> QueryError(msg)
