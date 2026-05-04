@@ -343,6 +343,103 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // ===== STATS TOOLS =====
+
+  // psypi-stats - Show ecosystem stats
+  pi.registerTool({
+    name: "psypi-stats",
+    label: "PsyPI Stats",
+    description: "Show ecosystem stats (tasks, issues, skills, etc.)",
+    parameters: Type.Object({}),
+    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        // TODO: Migrate to Gleam stats.gleam
+        const { Pool } = await import('pg');
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        const result = await pool.query(`
+          SELECT 
+            (SELECT COUNT(*) FROM tasks) as tasks,
+            (SELECT COUNT(*) FROM issues) as issues,
+            (SELECT COUNT(*) FROM skills) as skills,
+            (SELECT COUNT(*) FROM meetings) as meetings
+        `);
+        await pool.end();
+        return {
+          content: [{ type: "text" as const, text: `Stats: ${JSON.stringify(result.rows[0])}` }],
+          details: { result: result.rows[0] } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-visits - Show recent visits
+  pi.registerTool({
+    name: "psypi-visits",
+    label: "PsyPI Visits",
+    description: "Show recent visits",
+    parameters: Type.Object({
+      limit: Type.Optional(Type.Number({ description: "Max number of visits (default: 10)" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        // TODO: Migrate to Gleam visits.gleam
+        const { Pool } = await import('pg');
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        const result = await pool.query(
+          'SELECT * FROM visits ORDER BY visited_at DESC LIMIT $1',
+          [params.limit || 10]
+        );
+        await pool.end();
+        return {
+          content: [{ type: "text" as const, text: `Visits: ${JSON.stringify(result.rows)}` }],
+          details: { result: result.rows } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-project - Show project info
+  pi.registerTool({
+    name: "psypi-project",
+    label: "PsyPI Project",
+    description: "Show current project info",
+    parameters: Type.Object({}),
+    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        // TODO: Migrate to Gleam project.gleam
+        const fs = await import('fs');
+        const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
+        const gitDir = fs.existsSync('.git');
+        const projectInfo = {
+          name: packageJson.name,
+          version: packageJson.version,
+          description: packageJson.description,
+          git: gitDir ? 'yes' : 'no',
+          // ... add more info
+        };
+        return {
+          content: [{ type: "text" as const, text: `Project: ${JSON.stringify(projectInfo, null, 2)}` }],
+          details: { projectInfo } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
   // ===== MEETING TOOLS =====
 
   // psypi-meeting-list - List meetings
