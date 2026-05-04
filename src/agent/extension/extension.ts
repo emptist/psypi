@@ -353,20 +353,12 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        // TODO: Migrate to Gleam stats.gleam
-        const { Pool } = await import('pg');
-        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-        const result = await pool.query(`
-          SELECT 
-            (SELECT COUNT(*) FROM tasks) as tasks,
-            (SELECT COUNT(*) FROM issues) as issues,
-            (SELECT COUNT(*) FROM skills) as skills,
-            (SELECT COUNT(*) FROM meetings) as meetings
-        `);
-        await pool.end();
+        // Now using Gleam stats.gleam core!
+        const { stats } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/stats.mjs") as any;
+        const result = await stats();
         return {
-          content: [{ type: "text" as const, text: `Stats: ${JSON.stringify(result.rows[0])}` }],
-          details: { result: result.rows[0] } as Record<string, unknown>,
+          content: [{ type: "text" as const, text: `Stats: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
         return {
