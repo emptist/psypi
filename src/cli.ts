@@ -111,8 +111,13 @@ program
   .option('--tag <tags>', 'Comma-separated tags')
   .action(async (title, options) => {
     try {
-      const issueId = await kernel.addIssue(title, options.severity);
-      console.log(`Created issue: ${issueId}`);
+      const { add } = await import('../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs');
+      const result = await add(title, options.description || '', options.severity, 'issue', 'cli');
+      if (result.isOk()) {
+        console.log(`Created issue: ${JSON.stringify(result[0])}`);
+      } else {
+        console.error('Error:', JSON.stringify(result[0]));
+      }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     }
