@@ -530,7 +530,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // psypi-monitor-model - Show Monitor AI model
+  // psypi-monitor-model - Show Monitor AI model (calls Gleam)
   pi.registerTool({
     name: "psypi-monitor-model",
     label: "PsyPI Monitor Model",
@@ -538,18 +538,11 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const db = DatabaseClient.getInstance();
-        const apiKeyService = ApiKeyService.getInstance(db);
-        const current = await apiKeyService.getCurrentInnerModel();
-        if (!current) {
-          return {
-            content: [{ type: "text" as const, text: "No Monitor AI model configured." }],
-            details: { configured: false } as Record<string, unknown>,
-          };
-        }
+        const { get_model } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/monitor.mjs");
+        const result = await get_model();
         return {
-          content: [{ type: "text" as const, text: `Monitor AI Model: ${current.provider}/${current.model}` }],
-          details: { provider: current.provider, model: current.model } as Record<string, unknown>,
+          content: [{ type: "text" as const, text: `Monitor model: ${formatGleamResult(result)}` }],
+          details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
         return {
@@ -560,7 +553,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // psypi-monitor-set-model - Set Monitor AI model only
+  // psypi-monitor-set-model - Set Monitor AI model (calls Gleam)
   pi.registerTool({
     name: "psypi-monitor-set-model",
     label: "PsyPI Monitor Set Model",
@@ -571,27 +564,24 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const db = DatabaseClient.getInstance();
-        const apiKeyService = ApiKeyService.getInstance(db);
-
+        const monitorModule = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/monitor.mjs");
+        
+        // If no provider, show current model
         if (!params.provider) {
-          const current = await apiKeyService.getCurrentInnerModel();
-          if (!current) {
-            return {
-              content: [{ type: "text" as const, text: "No Monitor AI model configured. Set one with provider and model parameters." }],
-              details: { configured: false } as Record<string, unknown>,
-            };
-          }
+          const result = await monitorModule.get_model();
           return {
-            content: [{ type: "text" as const, text: `Monitor AI Model: ${current.provider}/${current.model}` }],
-            details: { provider: current.provider, model: current.model } as Record<string, unknown>,
+            content: [{ type: "text" as const, text: `Monitor model: ${formatGleamResult(result)}` }],
+            details: { result } as Record<string, unknown>,
           };
         }
-
-        await apiKeyService.setCurrentInnerProvider(params.provider, params.model);
+        
+        // Set model
+        const { Some, None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
+        const modelOpt = params.model ? new Some(params.model) : new None();
+        const result = await monitorModule.set_model(params.provider, modelOpt);
         return {
-          content: [{ type: "text" as const, text: `Monitor AI model set to: ${params.provider}${params.model ? `/${params.model}` : ''}` }],
-          details: { provider: params.provider, model: params.model } as Record<string, unknown>,
+          content: [{ type: "text" as const, text: `Monitor model set: ${formatGleamResult(result)}` }],
+          details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
         return {
