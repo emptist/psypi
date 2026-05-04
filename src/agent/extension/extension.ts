@@ -909,21 +909,19 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        // TODO: Migrate to Gleam project.gleam
-        const fs = await import('fs');
-        const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
-        const gitDir = fs.existsSync('.git');
-        const projectInfo = {
-          name: packageJson.name,
-          version: packageJson.version,
-          description: packageJson.description,
-          git: gitDir ? 'yes' : 'no',
-          // ... add more info
-        };
-        return {
-          content: [{ type: "text" as const, text: `Project: ${JSON.stringify(projectInfo, null, 2)}` }],
-          details: { projectInfo } as Record<string, unknown>,
-        };
+        const { read_package_json } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/package_json.mjs");
+        const result = await read_package_json();
+        if (result.isOk()) {
+          return {
+            content: [{ type: "text" as const, text: `Project: ${JSON.stringify(result[0])}` }],
+            details: { result: result[0] } as Record<string, unknown>,
+          };
+        } else {
+          return {
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result[0])}` }],
+            details: { error: true } as Record<string, unknown>,
+          };
+        }
       } catch (err: any) {
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],
