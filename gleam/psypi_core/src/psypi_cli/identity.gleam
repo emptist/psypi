@@ -58,3 +58,33 @@ pub fn get_current(session_id: String) -> promise.Promise(Result(Identity, Ident
     })
   }, db_error_to_identity_error)
 }
+
+/// Get partner identity
+pub fn get_partner() -> promise.Promise(Result(Identity, IdentityError)) {
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT id, agent_type 
+      FROM agent_identities 
+      WHERE agent_type = 'partner' 
+      LIMIT 1
+    "
+    let params: List(dynamic.Dynamic) = []
+
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_identity_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [] -> Error(NotFound("Partner identity not found"))
+            [row, ..] -> {
+              case decode.run(row, identity_decoder()) {
+                Ok(id) -> Ok(id)
+                Error(_) -> Error(QueryError("Failed to decode partner identity"))
+              }
+            }
+          }
+        }
+      }
+    })
+  }, db_error_to_identity_error)
+}

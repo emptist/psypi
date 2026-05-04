@@ -488,11 +488,19 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const identity = await AgentIdentityService.getResolvedIdentity(true);
-        return {
-          content: [{ type: "text" as const, text: `Partner ID: ${identity.id}` }],
-          details: { partnerId: identity.id } as Record<string, unknown>,
-        };
+        const { get_partner } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/identity.mjs");
+        const result = await get_partner();
+        if (result.isOk()) {
+          return {
+            content: [{ type: "text" as const, text: `Partner ID: ${result[0].id}` }],
+            details: { partnerId: result[0].id } as Record<string, unknown>,
+          };
+        } else {
+          return {
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result[0])}` }],
+            details: { error: true } as Record<string, unknown>,
+          };
+        }
       } catch (err: any) {
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],
