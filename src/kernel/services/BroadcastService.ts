@@ -34,8 +34,7 @@ export class BroadcastService {
   }
 
   static async create(db: DatabaseClient): Promise<BroadcastService> {
-    const identityService = new AgentIdentityService(db);
-    const resolved = await identityService.resolve();
+    const resolved = await AgentIdentityService.getResolvedIdentity();
     logger.info(`[BroadcastService] Using resolved agent ID: ${resolved.id}`);
     return new BroadcastService(db, resolved.id, resolved.displayName);
   }

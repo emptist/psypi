@@ -9,11 +9,19 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { kernel } from "../../kernel/index.js";
 import { AgentIdentityService } from "../../kernel/services/AgentIdentityService.js";
+import { ApiKeyService } from "../../kernel/services/ApiKeyService.js";
+import { InterReviewService } from "../../kernel/services/InterReviewService.js";
+import { DatabaseClient } from "../../kernel/db/DatabaseClient.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const VERBOSE = process.env.PSYPI_VERBOSE === 'true' || process.env.NODE_ENV !== 'production';
+
+// Set sessionId from Pi ctx before using AgentIdentityService
+function setSessionId(ctx: any) {
+  AgentIdentityService.sessionId = ctx?.sessionManager?.getSessionId();
+}
 
 // Helper functions for Gleam Result type handling
 // Gleam compiles Result to: Ok { '0': value } and Error { '0': detail }
@@ -70,6 +78,14 @@ export default function (pi: ExtensionAPI) {
     console.log(`[PsyPI] Extension loaded (self-sufficient - no external thinkers!)`);
   }
 
+  // Set sessionId once at session start
+  pi.on("session_start", async (_event, ctx) => {
+    AgentIdentityService.sessionId = ctx?.sessionManager?.getSessionId();
+    if (VERBOSE) {
+      console.log(`[PsyPI] Session ID: ${AgentIdentityService.sessionId}`);
+    }
+  });
+
   // ===== AUTO-BACKUP HOOK: Save files BEFORE AI edits them =====
   pi.on("tool_call", async (event) => {
     if (event.toolName === "edit" || event.toolName === "write") {
@@ -118,6 +134,327 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ===== CORE TOOLS =====
+
+  // psypi-task-add - Add a new task (calls Gleam task.add)
+  pi.registerTool({
+    name: "psypi-task-add",
+    label: "PsyPI Task Add",
+    description: "Add a new task to the database",
+    parameters: Type.Object({
+      title: Type.String({ description: "Task title" }),
+      description: Type.Optional(Type.String({ description: "Task description" })),
+      priority: Type.Optional(Type.Number({ description: "Priority (1-10), default: 5" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { add } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs");
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        const result = await add(
+          params.title,
+          params.description || '',
+          params.priority || 5,
+          identity.id
+        );
+        return {
+          content: [{ type: "text" as const, text: `Task added: ${formatGleamResult(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-task-complete - Complete a task (calls Gleam task.complete)
+  pi.registerTool({
+    name: "psypi-task-complete",
+    label: "PsyPI Task Complete",
+    description: "Mark a task as completed",
+    parameters: Type.Object({
+      taskId: Type.String({ description: "Task ID (UUID)" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { complete } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs");
+        const result = await complete(params.taskId);
+        return {
+          content: [{ type: "text" as const, text: `Task completed: ${formatGleamResult(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-skill-build - Build a new skill (calls Gleam skill.create)
+  pi.registerTool({
+    name: "psypi-skill-build",
+    label: "PsyPI Skill Build",
+    description: "Build a new skill",
+    parameters: Type.Object({
+      name: Type.String({ description: "Skill name" }),
+      purpose: Type.String({ description: "Skill purpose/description" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { create } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs");
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        const result = await create(
+          params.name,
+          params.purpose,
+          identity.id
+        );
+        return {
+          content: [{ type: "text" as const, text: `Skill created: ${formatGleamResult(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-learn - Save a learning to memory
+  pi.registerTool({
+    name: "psypi-learn",
+    label: "PsyPI Learn",
+    description: "Save a learning to memory",
+    parameters: Type.Object({
+      content: Type.String({ description: "Learning content" }),
+      importance: Type.Optional(Type.Number({ description: "Importance (1-10), default: 5" })),
+      tags: Type.Optional(Type.String({ description: "Comma-separated tags" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const db = DatabaseClient.getInstance();
+        const tags = params.tags ? params.tags.split(',') : ['learning'];
+        const result = await db.query(
+          `INSERT INTO memory (content, tags, source, importance) VALUES ($1, $2, 'learn', $3) RETURNING id`,
+          [params.content, tags, params.importance || 5]
+        );
+        const id = result.rows[0]?.id;
+        return {
+          content: [{ type: "text" as const, text: `Learning saved: ${id}` }],
+          details: { id } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-announce - Announce to all AIs
+  pi.registerTool({
+    name: "psypi-announce",
+    label: "PsyPI Announce",
+    description: "Announce a message to all AIs",
+    parameters: Type.Object({
+      message: Type.String({ description: "Announcement message" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { send, BroadcastPriority$High } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs");
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        const result = await send(
+          identity.id,
+          params.message,
+          BroadcastPriority$High()
+        );
+        return {
+          content: [{ type: "text" as const, text: `Announcement sent: ${formatGleamResult(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-inter-review-request - Request an inter-review
+  pi.registerTool({
+    name: "psypi-inter-review-request",
+    label: "PsyPI Inter-Review Request",
+    description: "Request an inter-review for a task",
+    parameters: Type.Object({
+      taskId: Type.String({ description: "Task ID (UUID)" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const db = DatabaseClient.getInstance();
+        const reviewService = await InterReviewService.create(db);
+        const currentIdentity = await AgentIdentityService.getResolvedIdentity();
+        
+        const request = {
+          taskId: params.taskId,
+          reviewerId: currentIdentity.id,
+          context: {},
+        };
+        
+        const reviewId = await reviewService.requestReview(request, false);
+        return {
+          content: [{ type: "text" as const, text: `Inter-review requested: ${reviewId}` }],
+          details: { reviewId } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-inter-reviews - List inter-reviews
+  pi.registerTool({
+    name: "psypi-inter-reviews",
+    label: "PsyPI Inter-Reviews",
+    description: "List inter-reviews (optional status filter)",
+    parameters: Type.Object({
+      status: Type.Optional(Type.String({ description: "Filter by status (pending/completed)" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const db = DatabaseClient.getInstance();
+        let query = 'SELECT * FROM inter_reviews ORDER BY created_at DESC LIMIT 50';
+        let values: any[] = [];
+        if (params.status) {
+          query = 'SELECT * FROM inter_reviews WHERE status = $1 ORDER BY created_at DESC LIMIT 50';
+          values = [params.status];
+        }
+        const result = await db.query(query, values);
+        return {
+          content: [{ type: "text" as const, text: `Inter-reviews: ${JSON.stringify(result.rows)}` }],
+          details: { result: result.rows } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-inter-review-show - Show inter-review details
+  pi.registerTool({
+    name: "psypi-inter-review-show",
+    label: "PsyPI Inter-Review Show",
+    description: "Show details of a specific inter-review",
+    parameters: Type.Object({
+      reviewId: Type.String({ description: "Review ID (UUID)" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const db = DatabaseClient.getInstance();
+        const result = await db.query(
+          'SELECT * FROM inter_reviews WHERE id = $1',
+          [params.reviewId]
+        );
+        if (result.rows.length === 0) {
+          return {
+            content: [{ type: "text" as const, text: `Review not found: ${params.reviewId}` }],
+            details: { error: true } as Record<string, unknown>,
+          };
+        }
+        return {
+          content: [{ type: "text" as const, text: `Inter-review: ${JSON.stringify(result.rows[0])}` }],
+          details: { result: result.rows[0] } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-validate-commit - Validate a commit message
+  pi.registerTool({
+    name: "psypi-validate-commit",
+    label: "PsyPI Validate Commit",
+    description: "Validate a commit message format",
+    parameters: Type.Object({
+      message: Type.String({ description: "Commit message to validate" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const kernel = (await import("../../kernel/index.js")).kernel;
+        const result = await kernel.validateCommit(params.message);
+        return {
+          content: [{ type: "text" as const, text: `Validation: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-tools - List available tools
+  pi.registerTool({
+    name: "psypi-tools",
+    label: "PsyPI Tools",
+    description: "List all available tools",
+    parameters: Type.Object({}),
+    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, ctx?: any) {
+      try {
+        const tools = ctx?.toolManager?.getTools() || [];
+        const toolList = tools.map((t: any) => `- ${t.name}: ${t.description || 'No description'}`).join('\n');
+        return {
+          content: [{ type: "text" as const, text: `Available tools:\n${toolList}` }],
+          details: { count: tools.length } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-agents - List agents from database
+  pi.registerTool({
+    name: "psypi-agents",
+    label: "PsyPI Agents",
+    description: "List all agents from database",
+    parameters: Type.Object({}),
+    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const db = DatabaseClient.getInstance();
+        const result = await db.query('SELECT * FROM agent_identities ORDER BY created_at DESC LIMIT 50');
+        return {
+          content: [{ type: "text" as const, text: `Agents: ${JSON.stringify(result.rows)}` }],
+          details: { result: result.rows } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
 
   // psypi-commit - Git commit with MANDATORY inter-review
   pi.registerTool({
@@ -179,7 +516,7 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const identity = await AgentIdentityService.getResolvedIdentity(true); // true = permanent/partner
+        const identity = await AgentIdentityService.getResolvedIdentity(true);
         return {
           content: [{ type: "text" as const, text: `Partner ID: ${identity.id}` }],
           details: { partnerId: identity.id } as Record<string, unknown>,
@@ -193,22 +530,140 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // psypi-my-session-id - Get Pi session ID
+  // psypi-monitor-model - Show Monitor AI model
   pi.registerTool({
-    name: "psypi-my-session-id",
-    label: "PsyPI Session ID",
-    description: "Get Pi session ID (UUID v7, single source of truth)",
+    name: "psypi-monitor-model",
+    label: "PsyPI Monitor Model",
+    description: "Show the current Monitor AI model (the permanent reviewer AI)",
     parameters: Type.Object({}),
-    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, ctx?: any) {
+    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        // ULTIMATE TRUTH: ctx.sessionManager.getSessionId()
-        const sessionID = ctx?.sessionManager?.getSessionId();
-        if (!sessionID) {
-          throw new Error('Session ID not available in context');
+        const db = DatabaseClient.getInstance();
+        const apiKeyService = ApiKeyService.getInstance(db);
+        const current = await apiKeyService.getCurrentInnerModel();
+        if (!current) {
+          return {
+            content: [{ type: "text" as const, text: "No Monitor AI model configured." }],
+            details: { configured: false } as Record<string, unknown>,
+          };
         }
         return {
-          content: [{ type: "text" as const, text: `Session ID: ${sessionID}` }],
-          details: { sessionId: sessionID } as Record<string, unknown>,
+          content: [{ type: "text" as const, text: `Monitor AI Model: ${current.provider}/${current.model}` }],
+          details: { provider: current.provider, model: current.model } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-monitor-set-model - Set Monitor AI model only
+  pi.registerTool({
+    name: "psypi-monitor-set-model",
+    label: "PsyPI Monitor Set Model",
+    description: "Set the Monitor AI model (the permanent reviewer AI)",
+    parameters: Type.Object({
+      provider: Type.Optional(Type.String({ description: "Provider name (e.g., openrouter, ollama)" })),
+      model: Type.Optional(Type.String({ description: "Model name (e.g., tencent/hy3-preview:free)" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const db = DatabaseClient.getInstance();
+        const apiKeyService = ApiKeyService.getInstance(db);
+
+        if (!params.provider) {
+          const current = await apiKeyService.getCurrentInnerModel();
+          if (!current) {
+            return {
+              content: [{ type: "text" as const, text: "No Monitor AI model configured. Set one with provider and model parameters." }],
+              details: { configured: false } as Record<string, unknown>,
+            };
+          }
+          return {
+            content: [{ type: "text" as const, text: `Monitor AI Model: ${current.provider}/${current.model}` }],
+            details: { provider: current.provider, model: current.model } as Record<string, unknown>,
+          };
+        }
+
+        await apiKeyService.setCurrentInnerProvider(params.provider, params.model);
+        return {
+          content: [{ type: "text" as const, text: `Monitor AI model set to: ${params.provider}${params.model ? `/${params.model}` : ''}` }],
+          details: { provider: params.provider, model: params.model } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-monitor-review - Run Monitor AI review
+  pi.registerTool({
+    name: "psypi-monitor-review",
+    label: "PsyPI Monitor Review",
+    description: "Run a code review by the Monitor AI (permanent reviewer). Reviews the current git commit.",
+    parameters: Type.Object({
+      prompt: Type.Optional(Type.String({ description: "Custom review prompt (optional)" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const db = DatabaseClient.getInstance();
+        const reviewService = await InterReviewService.create(db);
+        const currentIdentity = await AgentIdentityService.getResolvedIdentity();
+
+        const { getGitHash, getGitBranch, getGitDiff, getLastCommitMessage } = await import("../../kernel/utils/git.js");
+        const commitHash = await getGitHash();
+        const branch = await getGitBranch() || 'main';
+        const commitMessage = getLastCommitMessage() || '';
+        const diff = getGitDiff();
+        const files = diff ? diff.split('\n') : [];
+
+        const request = {
+          commitHash: commitHash || undefined,
+          branch,
+          reviewerId: currentIdentity.id,
+          context: {
+            message: commitMessage,
+            files,
+          },
+        };
+
+        const reviewId = await reviewService.requestReview(request, false);
+
+        const prompt = params.prompt || `You are a senior code reviewer with expertise in TypeScript, Node.js, and software best practices. Be constructive and thorough. Focus on: correctness, maintainability, test coverage, and preventing loop script pollution.`;
+        const result = await reviewService.performReview(reviewId, prompt);
+
+        const output = [
+          `## Monitor AI Review Completed`,
+          ``,
+          `**Review ID**: ${reviewId}`,
+          `**Score**: ${result.overallScore}/100`,
+          `**Code Quality**: ${result.codeQualityScore}/100`,
+          `**Test Coverage**: ${result.testCoverageScore}/100`,
+          ``,
+          `### Summary`,
+          result.summary,
+          ``,
+        ];
+
+        if (result.findings.length > 0) {
+          output.push(`### Findings (${result.findings.length})`);
+          for (const finding of result.findings) {
+            output.push(`- [${finding.severity.toUpperCase()}] ${finding.message}`);
+            if (finding.file) {
+              output.push(`  File: ${finding.file}${finding.line ? ':' + finding.line : ''}`);
+            }
+          }
+        }
+
+        return {
+          content: [{ type: "text" as const, text: output.join('\n') }],
+          details: { reviewId, score: result.overallScore, findings: result.findings.length } as Record<string, unknown>,
         };
       } catch (err: any) {
         return {
@@ -232,10 +687,10 @@ export default function (pi: ExtensionAPI) {
         // Call Gleam task.list() - returns Result(List(Task), TaskError)
         const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs") as any;
         const { Some, None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
-        
+
         const status = params.status ? new Some(params.status) : new None();
         const result = await list(status);
-        
+
         // Handle Gleam Result type: Ok { '0': value } or Error { '0': detail }
         if (isGleamError(result)) {
           const errorMsg = getGleamError(result);
@@ -244,18 +699,18 @@ export default function (pi: ExtensionAPI) {
             details: { error: true } as Record<string, unknown>,
           };
         }
-        
+
         const tasks = isGleamOk(result) ? gleamListToArray(getGleamValue(result)) : [];
-        
+
         if (tasks.length === 0) {
           return {
             content: [{ type: "text" as const, text: "No tasks found." }],
             details: { count: 0 } as Record<string, unknown>,
           };
         }
-        
-        const taskList = tasks.slice(0, 10).map((t: any) => 
-          `[${t.id?.slice(0,8)}] ${t.title} (${t.status}, priority: ${t.priority})`
+
+        const taskList = tasks.slice(0, 10).map((t: any) =>
+          `[${t.id?.slice(0, 8)}] ${t.title} (${t.status}, priority: ${t.priority})`
         ).join("\n");
 
         return {
@@ -327,8 +782,10 @@ export default function (pi: ExtensionAPI) {
       content: Type.String({ description: "File content (leave empty to read from disk)" }),
       reason: Type.Optional(Type.String({ description: "Reason for saving (e.g., 'before AI edit', 'pre-disaster backup')" })),
     }),
-    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, ctx?: any) {
       try {
+        setSessionId(ctx);
+
         // Import compiled Gleam module
         const { save_version } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs");
 

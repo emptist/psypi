@@ -9,7 +9,6 @@ import { config } from 'dotenv';
 import { DatabaseClient } from './db/DatabaseClient.js';
 import { Config } from './config/Config.js';
 import { AgentIdentityService } from './services/AgentIdentityService.js';
-import { getPiSessionID } from './utils/session.js';
 
 // Load env
 config();
@@ -342,11 +341,6 @@ exit 0
       [name, purpose, agentId]
     );
     return result.rows[0].id;
-  }
-
-  // === Session ID (Single Source of Truth) ===
-  async piSessionID(): Promise<string> {
-    return getPiSessionID();
   }
 
   // === Inter-Review Methods (from Nezha) ===

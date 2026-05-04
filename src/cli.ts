@@ -352,18 +352,6 @@ program
   });
 
 program
-  .command('my-session-id')
-  .description('Print Pi session ID (UUID v7) - single source of truth')
-  .action(async () => {
-    try {
-      const sessionID = await kernel.piSessionID();
-      console.log(sessionID);
-    } catch (err) {
-      console.error('Error:', err instanceof Error ? err.message : err);
-    }
-  });
-
-program
   .command('commit <message>')
   .description('Git commit with MANDATORY inter-review (respect reviewer AI\'s work)')
   .option('--no-inter-review', 'Skip inter-review (NOT RECOMMENDED)')

@@ -146,8 +146,8 @@ async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
 ```typescript
 const identity = await AgentIdentityService.getResolvedIdentity();
 const agentId = identity.id; // This is your agent ID
-// For partner/permanent ID: getResolvedIdentity(true)
-const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
+// For Monitor (permanent) ID: getResolvedIdentity(true)
+const monitorId = (await AgentIdentityService.getResolvedIdentity(true)).id;
 ```
 
 ### ❌ NEVER DO THESE (WRONG):
@@ -168,9 +168,10 @@ const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
 
 ### Quick Commands:
 - **My ID**: `psypi my-id` (CLI) or `psypi-agent-id` (Pi tool)
-- **Partner ID**: `psypi partner-id` (CLI) or `psypi-partner-id` (Pi tool)
-  - Partner = permanent/monitor/reviewer (God AI)
+- **Monitor ID**: `psypi partner-id` (CLI) or `psypi-partner-id` (Pi tool)
+  - Monitor = permanent/reviewer (God AI)
   - Uses `P-` prefix (e.g., `P-tencent/hy3-preview:free-psypi`)
+  - **Monitor is permanent** - exists as long as psypi is running
 
 ---
 
@@ -205,7 +206,7 @@ const partnerId = (await AgentIdentityService.getResolvedIdentity(true)).id;
 - `/psypi-meeting-*` — 会议管理
 - `/psypi-autonomous` — 获取工作指导
 - `/psypi-my-id` — 查看自己的 ID
-- `/psypi-partner-id` — 查看 partner ID
+- `/psypi-partner-id` — 查看 Monitor ID（永久 AI）
 - `/psypi-stats` — 查看统计
 
 **验证方法**：在 Pi TUI 中输入 `/tools` 命令，能看到 `psypi-*` 开头的工具就对了。
@@ -398,14 +399,14 @@ psypi areflect (capture learning) → Repeat!
 - see [PNPM_USAGE.md](docs/PNPM_USAGE.md)
 
 ### Known Issues:
-1. ~~**Inner AI needs to be shift to use Pi agent**~~ ✅ DONE! (Now uses Gleam!)
+1. ~~**Monitor needs to be shift to use Pi agent**~~ ✅ DONE! (Now uses Gleam!)
 2. **Tool failure tracking** - Auto-created issues from tool_result handler need cleanup
 3. **Old AI removed** - `AIProvider` references cleaned from InterReviewService & MeetingHandler
 
 **God in the sky IS reviewing!** (commit 4f98e99)
 - `psypi commit` triggers Gleam review
 - `[Review FFI] Running review...` ✅
-- No more fake Inner AI - God uses Gleam!
+- No more fake Monitor - God uses Gleam!
 
 ### Recent Fixes (2026-05-03):
 - ✅ **Session ID TWO METHODS** - `kernel.piSessionID()` now supports TWO ways:
@@ -424,14 +425,14 @@ psypi areflect (capture learning) → Repeat!
 
 1. ~~**Fix fake bot_ session IDs**~~ ✅ DONE (commit 42f4887)
 2. ~~**Simplify agent ID system**~~ ✅ DONE (single source of truth)
-3. ~~**Make inner AI agent**~~ ✅ DONE! (Now uses Gleam - God in the sky!)
+3. ~~**Make Monitor agent**~~ ✅ DONE! (Now uses Gleam - God in the sky!)
 4. **Natural Gleam growth** - New features in Gleam, touch old TS = rewrite in Gleam
 5. **Delete TS bloat** - Target: 2,000 lines Gleam, 10,000 lines TS (from 26,493!)
 6. **Trust Gleam's simplicity** - Small modules (< 100 lines!) survive ANYTHING!
 
 **Current IDs:**
 - **My ID**: `S-psypi-psypi` (session-based, via `getResolvedIdentity()`)
-- **Partner ID**: `P-tencent/hy3-preview:free-psypi` (permanent/monitor, via `getResolvedIdentity(true)`)
+- **Monitor ID**: `P-tencent/hy3-preview:free-psypi` (permanent, via `getResolvedIdentity(true)`)
 - **God in the sky**: Gleam `run_review()` - THE ONLY REVIEWER!
 
 ---
@@ -456,7 +457,7 @@ psypi areflect (capture learning) → Repeat!
 **Remember**: 
 - ✅ **ONE SINGLE WAY** for agent ID: `AgentIdentityService.getResolvedIdentity()`
   - `getResolvedIdentity()` = my ID (S- prefix)
-  - `getResolvedIdentity(true)` = partner ID (P- prefix)
+  - `getResolvedIdentity(true)` = Monitor ID (P- prefix, permanent)
 - ✅ **ONE SINGLE WAY** for session ID: `kernel.piSessionID()`
 - ✅ **Database** first
 - ✅ **pnpm** builds faster (10s vs 24s for npm)
