@@ -15,6 +15,55 @@ const __dirname = path.dirname(__filename);
 
 const VERBOSE = process.env.PSYPI_VERBOSE === 'true' || process.env.NODE_ENV !== 'production';
 
+// Helper functions for Gleam Result type handling
+// Gleam compiles Result to: Ok { '0': value } and Error { '0': detail }
+// NOT { Ok: value } or { Error: detail } as previously assumed
+
+function isGleamOk(result: any): boolean {
+  return result && typeof result.isOk === 'function' && result.isOk();
+}
+
+function isGleamError(result: any): boolean {
+  return result && typeof result.isOk === 'function' && !result.isOk();
+}
+
+function getGleamValue(result: any): any {
+  return result?.[0];
+}
+
+function getGleamError(result: any): any {
+  return result?.[0];
+}
+
+// Convert Gleam List (linked list) to JavaScript array
+// Gleam List: NonEmpty { head, tail } or Empty
+function gleamListToArray(list: any): any[] {
+  if (!list) return [];
+  // If it's already an array, return as-is
+  if (Array.isArray(list)) return list;
+  // If it's a Gleam linked list (has head property)
+  const result: any[] = [];
+  let current = list;
+  while (current && current.head !== undefined) {
+    result.push(current.head);
+    current = current.tail;
+  }
+  return result;
+}
+
+// Format Gleam Result for display
+function formatGleamResult(result: any): string {
+  if (isGleamOk(result)) {
+    const value = getGleamValue(result);
+    // Convert Gleam List to array if needed
+    const displayValue = gleamListToArray(value);
+    return JSON.stringify(displayValue);
+  } else if (isGleamError(result)) {
+    return `Error: ${JSON.stringify(getGleamError(result))}`;
+  }
+  return JSON.stringify(result);
+}
+
 // Initialize extension
 export default function (pi: ExtensionAPI) {
   if (VERBOSE) {
@@ -43,8 +92,9 @@ export default function (pi: ExtensionAPI) {
         // Check if this version already exists (dedup at JS layer)
         const versions = await get_versions(filePath, 50);
         let exists = false;
-        if (versions && versions.Ok) {
-          for (const v of versions.Ok) {
+        if (isGleamOk(versions)) {
+          const versionList = getGleamValue(versions);
+          for (const v of versionList) {
             if (v.version_hash === hash) {
               exists = true;
               break;
@@ -186,15 +236,16 @@ export default function (pi: ExtensionAPI) {
         const status = params.status ? new Some(params.status) : new None();
         const result = await list(status);
         
-        // Handle Result type: { Ok: [...], Error: ... }
-        if (!result || result.Error) {
+        // Handle Gleam Result type: Ok { '0': value } or Error { '0': detail }
+        if (isGleamError(result)) {
+          const errorMsg = getGleamError(result);
           return {
-            content: [{ type: "text" as const, text: `Error: ${result?.Error || 'Failed to list tasks'}` }],
+            content: [{ type: "text" as const, text: `Error: ${errorMsg || 'Failed to list tasks'}` }],
             details: { error: true } as Record<string, unknown>,
           };
         }
         
-        const tasks = result.Ok || [];
+        const tasks = isGleamOk(result) ? gleamListToArray(getGleamValue(result)) : [];
         
         if (tasks.length === 0) {
           return {
@@ -327,7 +378,7 @@ export default function (pi: ExtensionAPI) {
         const { get_versions } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs") as any;
         const result = await get_versions(params.file_path, params.limit || 10);
         return {
-          content: [{ type: "text" as const, text: `Versions: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Versions: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -352,7 +403,7 @@ export default function (pi: ExtensionAPI) {
         const { restore_version } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs") as any;
         const result = await restore_version(params.version_id);
         return {
-          content: [{ type: "text" as const, text: `Restored version: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Restored version: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -378,7 +429,7 @@ export default function (pi: ExtensionAPI) {
         const { stats } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/stats.mjs") as any;
         const result = await stats();
         return {
-          content: [{ type: "text" as const, text: `Stats: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Stats: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -468,7 +519,7 @@ export default function (pi: ExtensionAPI) {
         const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/meeting.mjs");
         const result = await list(params.status || '');
         return {
-          content: [{ type: "text" as const, text: `Meetings: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Meetings: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -493,7 +544,7 @@ export default function (pi: ExtensionAPI) {
         const { get } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/meeting.mjs");
         const result = await get(params.meeting_id);
         return {
-          content: [{ type: "text" as const, text: `Meeting: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Meeting: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -528,7 +579,7 @@ export default function (pi: ExtensionAPI) {
           params.vote || ''
         );
         return {
-          content: [{ type: "text" as const, text: `Opinion added: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Opinion added: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -556,7 +607,7 @@ export default function (pi: ExtensionAPI) {
         // List all skills (None = no status filter)
         const result = await skill.list(new None());
         return {
-          content: [{ type: "text" as const, text: `Skills: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Skills: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -581,7 +632,7 @@ export default function (pi: ExtensionAPI) {
         const { get } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs");
         const result = await get(params.name);
         return {
-          content: [{ type: "text" as const, text: `Skill: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Skill: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -606,7 +657,7 @@ export default function (pi: ExtensionAPI) {
         const { search } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs");
         const result = await search(params.query);
         return {
-          content: [{ type: "text" as const, text: `Search results: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Search results: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -643,7 +694,7 @@ export default function (pi: ExtensionAPI) {
           identity.id
         );
         return {
-          content: [{ type: "text" as const, text: `Issue added: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Issue added: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -674,7 +725,7 @@ export default function (pi: ExtensionAPI) {
           return new Some(params.status);
         })() : new None());
         return {
-          content: [{ type: "text" as const, text: `Issues: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Issues: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -700,7 +751,7 @@ export default function (pi: ExtensionAPI) {
         const { resolve } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs");
         const result = await resolve(params.issue_id, params.resolution);
         return {
-          content: [{ type: "text" as const, text: `Issue resolved: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Issue resolved: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -740,7 +791,7 @@ export default function (pi: ExtensionAPI) {
           priority
         );
         return {
-          content: [{ type: "text" as const, text: `Broadcast sent: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Broadcast sent: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -771,7 +822,7 @@ export default function (pi: ExtensionAPI) {
         // agent_id is Option<String>, limit is number
         const result = await list(new Some(identity.id), params.limit || 10);
         return {
-          content: [{ type: "text" as const, text: `Broadcasts: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Broadcasts: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -799,7 +850,7 @@ export default function (pi: ExtensionAPI) {
         const identity = await AgentIdentityService.getResolvedIdentity();
         const result = await areflect(params.text, identity.id);
         return {
-          content: [{ type: "text" as const, text: `Reflection saved: ${JSON.stringify(result)}` }],
+          content: [{ type: "text" as const, text: `Reflection saved: ${formatGleamResult(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
