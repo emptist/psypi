@@ -7,6 +7,7 @@ description: Agent instructions for psypi (READ FIRST!)
 ## 🎯 Project Overview
 
 **psypi** = **Psyche + Pi** = AI coordination system
+- **Technically**: psypi is a **Pi TUI with extensions**! 🎯
 - **Architecture**: Gleam core + TypeScript + Pi runtime
 - **Database**: ONE PostgreSQL per user home (shared across ALL projects)
 - **Status**: ✅ Working - Gleam reviews via `psypi commit`!
