@@ -48,8 +48,13 @@ program
   .option('--priority <n>', 'Priority (1-10)', '5')
   .action(async (title, options) => {
     try {
-      const taskId = await kernel.addTask(title, options.description || '', parseInt(options.priority));
-      console.log(`Created task: ${taskId}`);
+      const { add } = await import('../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs');
+      const result = await add(title, options.description || '', parseInt(options.priority), 'cli');
+      if (result.isOk()) {
+        console.log(`Created task: ${JSON.stringify(result[0])}`);
+      } else {
+        console.error('Error:', JSON.stringify(result[0]));
+      }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
     }
