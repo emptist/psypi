@@ -38,7 +38,7 @@ pub type BroadcastError {
   DecodeError(String)
 }
 
-fn priority_to_int(p: BroadcastPriority) -> Int {
+pub fn priority_to_int(p: BroadcastPriority) -> Int {
   case p {
     Low -> 0
     Normal -> 1
@@ -47,7 +47,7 @@ fn priority_to_int(p: BroadcastPriority) -> Int {
   }
 }
 
-fn int_to_priority(i: Int) -> BroadcastPriority {
+pub fn int_to_priority(i: Int) -> BroadcastPriority {
   case i {
     3 -> Urgent
     2 -> High
