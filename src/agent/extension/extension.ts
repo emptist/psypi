@@ -435,7 +435,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // psypi-agents - List agents from database
+  // psypi-agents - List agents from database (calls Gleam)
   pi.registerTool({
     name: "psypi-agents",
     label: "PsyPI Agents",
@@ -443,11 +443,11 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const db = DatabaseClient.getInstance();
-        const result = await db.query('SELECT * FROM agent_identities ORDER BY created_at DESC LIMIT 50');
+        const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agents.mjs");
+        const result = await list();
         return {
-          content: [{ type: "text" as const, text: `Agents: ${JSON.stringify(result.rows)}` }],
-          details: { result: result.rows } as Record<string, unknown>,
+          content: [{ type: "text" as const, text: `Agents: ${formatGleamResult(result)}` }],
+          details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
         return {
