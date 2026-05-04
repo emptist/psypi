@@ -129,15 +129,22 @@ program
   .option('--status <status>', 'Filter by status')
   .action(async (options) => {
     try {
-      const result = await kernel.getIssues(options.status);
-      if (result.rows.length === 0) {
-        console.log('No issues found.');
-        return;
-      }
-      console.log(`\n📋 Issues (${result.rows.length}):\n`);
-      for (const issue of result.rows) {
-        console.log(`  [${issue.id.slice(0, 8)}] ${issue.title}`);
-        console.log(`    Severity: ${issue.severity} | Status: ${issue.status} | Created by: ${issue.created_by}`);
+      const { list } = await import('../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs');
+      const status = (options.status ? { '0': options.status } : {}) as any;
+      const result = await list(status);
+      if (result.isOk()) {
+        const issues = result[0] || [];
+        if (issues.length === 0) {
+          console.log('No issues found.');
+          return;
+        }
+        console.log(`\n📋 Issues (${issues.length}):\n`);
+        for (const issue of issues) {
+          console.log(`  [${issue.id?.slice(0, 8)}] ${issue.title}`);
+          console.log(`    Severity: ${issue.severity} | Status: ${issue.status} | Created by: ${issue.created_by}`);
+        }
+      } else {
+        console.error('Error:', JSON.stringify(result[0]));
       }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
