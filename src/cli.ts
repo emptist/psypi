@@ -201,17 +201,20 @@ program
   .description('Show skill details')
   .action(async (name) => {
     try {
-      const skill = await kernel.getSkillByName(name);
-      if (!skill) {
-        console.log(`Skill not found: ${name}`);
-        return;
-      }
-      console.log(`\n📦 Skill: ${skill.name}`);
-      console.log('='.repeat(50));
-      console.log(`Description: ${skill.description || 'N/A'}`);
-      console.log(`Status: ${skill.status} | Safety Score: ${skill.safety_score}`);
-      if (skill.instructions) {
-        console.log(`\nInstructions:\n${skill.instructions.substring(0, 200)}...`);
+      const { get } = await import('../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs');
+      const result = await get(name);
+      if (result.isOk()) {
+        const skill = result[0];
+        if (!skill) {
+          console.log(`Skill not found: ${name}`);
+          return;
+        }
+        console.log(`\n📦 Skill: ${skill.name || ''}`);
+        console.log('='.repeat(50));
+        console.log(`Description: ${skill.description || 'N/A'}`);
+        console.log(`Status: ${skill.status || ''} | Safety Score: ${skill.safety_score || 0}`);
+      } else {
+        console.error('Error:', JSON.stringify(result[0]));
       }
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : err);
