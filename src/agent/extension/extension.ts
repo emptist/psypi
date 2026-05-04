@@ -21,6 +21,49 @@ export default function (pi: ExtensionAPI) {
     console.log(`[PsyPI] Extension loaded (self-sufficient - no external thinkers!)`);
   }
 
+  // ===== AUTO-BACKUP HOOK: Save files BEFORE AI edits them =====
+  pi.on("tool_call", async (event) => {
+    // Only intercept file modification tools
+    if (event.toolName === "edit" || event.toolName === "write") {
+      // Extract file path from parameters (edit has path, write has path)
+      const input = event.input as any;
+      const filePath = input?.path;
+      
+      if (!filePath) return; // No path found, let it through
+      
+      try {
+        // Check if file exists (skip for write tool creating new files)
+        const fs = await import('fs');
+        if (!fs.existsSync(filePath)) return;
+        
+        // Read current content
+        const content = fs.readFileSync(filePath, 'utf-8');
+        
+        // Import Gleam function
+        const { save_version } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs");
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        
+        // Save BEFORE edit
+        const result = await save_version(
+          filePath,
+          content,
+          identity.id,
+          '',
+          `auto-backup before ${event.toolName}`
+        );
+        
+        if (VERBOSE) {
+          console.log(`[Auto-Backup] ✅ Saved ${filePath} before ${event.toolName} (version: ${result})`);
+        }
+      } catch (err: any) {
+        // Log but don't block the edit
+        if (VERBOSE) {
+          console.log(`[Auto-Backup] ⚠️ Failed to save ${filePath}: ${err.message}`);
+        }
+      }
+    }
+  });
+
   // ===== CORE TOOLS =====
 
   // psypi-commit - Git commit with MANDATORY inter-review
@@ -403,6 +446,171 @@ export default function (pi: ExtensionAPI) {
         const result = await search(params.query);
         return {
           content: [{ type: "text" as const, text: `Search results: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // ===== ISSUE TOOLS =====
+
+  // psypi-issue-add - Add a new issue
+  pi.registerTool({
+    name: "psypi-issue-add",
+    label: "PsyPI Issue Add",
+    description: "Add a new issue to the database",
+    parameters: Type.Object({
+      title: Type.String({ description: "Issue title" }),
+      description: Type.Optional(Type.String({ description: "Issue description" })),
+      severity: Type.Optional(Type.String({ description: "Severity: low, medium, high, critical" })),
+      issue_type: Type.Optional(Type.String({ description: "Type: bug, feature, task, etc." })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { add } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs");
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        const result = await add(
+          params.title,
+          params.description || '',
+          params.severity || 'medium',
+          params.issue_type || 'bug',
+          identity.id
+        );
+        return {
+          content: [{ type: "text" as const, text: `Issue added: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-issue-list - List issues
+  pi.registerTool({
+    name: "psypi-issue-list",
+    label: "PsyPI Issue List",
+    description: "List issues (optional status filter: PENDING, RESOLVED, CLOSED)",
+    parameters: Type.Object({
+      status: Type.Optional(Type.String({ description: "Filter by status (PENDING/RESOLVED/CLOSED)" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs");
+        // Import None from gleam/option for no filter
+        const { None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
+        const result = await list(params.status ? (() => { 
+          // Construct Some(status) 
+          const { Some } = require("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
+          return new Some(params.status);
+        })() : new None());
+        return {
+          content: [{ type: "text" as const, text: `Issues: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-issue-resolve - Resolve an issue
+  pi.registerTool({
+    name: "psypi-issue-resolve",
+    label: "PsyPI Issue Resolve",
+    description: "Resolve an issue with a resolution note",
+    parameters: Type.Object({
+      issue_id: Type.String({ description: "Issue ID (UUID)" }),
+      resolution: Type.String({ description: "Resolution description" }),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { resolve } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs");
+        const result = await resolve(params.issue_id, params.resolution);
+        return {
+          content: [{ type: "text" as const, text: `Issue resolved: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // ===== BROADCAST TOOLS =====
+
+  // psypi-broadcast-send - Send a broadcast message
+  pi.registerTool({
+    name: "psypi-broadcast-send",
+    label: "PsyPI Broadcast Send",
+    description: "Send a broadcast message to other agents",
+    parameters: Type.Object({
+      message: Type.String({ description: "Message to broadcast" }),
+      priority: Type.Optional(Type.String({ description: "Priority: low, normal, high" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { send } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs");
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        
+        // Import Option types
+        const { Some, None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
+        
+        // Construct priority as Option type
+        const priority = params.priority ? new Some(params.priority) : new None();
+        
+        const result = await send(
+          identity.id,
+          params.message,
+          priority
+        );
+        return {
+          content: [{ type: "text" as const, text: `Broadcast sent: ${JSON.stringify(result)}` }],
+          details: { result } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-broadcast-list - List broadcasts for current agent
+  pi.registerTool({
+    name: "psypi-broadcast-list",
+    label: "PsyPI Broadcast List",
+    description: "List broadcast messages for current agent",
+    parameters: Type.Object({
+      limit: Type.Optional(Type.Number({ description: "Max number of messages (default: 10)" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs") as any;
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        
+        // Import Option types for agent_id
+        const { Some } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
+        
+        // agent_id is Option<String>, limit is number
+        const result = await list(new Some(identity.id), params.limit || 10);
+        return {
+          content: [{ type: "text" as const, text: `Broadcasts: ${JSON.stringify(result)}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
