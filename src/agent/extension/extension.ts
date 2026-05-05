@@ -249,7 +249,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // psypi-inter-review-request - Request an inter-review
+  // psypi-inter-review-request - Request an inter-review (Using Gleam!)
   pi.registerTool({
     name: "psypi-inter-review-request",
     label: "PsyPI Inter-Review Request",
@@ -259,21 +259,37 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const db = DatabaseClient.getInstance();
-        const reviewService = await InterReviewService.create(db);
+        // Import Gleam modules dynamically
+        const { Some, None } = await import("/Users/jk/gits/hub/tools_ai/psypi/gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
+        const { request_review } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/inter_review.mjs");
         const currentIdentity = await AgentIdentityService.getResolvedIdentity();
         
-        const request = {
-          taskId: params.taskId,
-          reviewerId: currentIdentity.id,
-          context: {},
-        };
+        // Create Gleam Option values using the class constructors
+        const taskIdOption = params.taskId ? new Some(params.taskId) : new None();
+        const commitHashOption = new None(); // No commit hash for now
         
-        const reviewId = await reviewService.requestReview(request, false);
-        return {
-          content: [{ type: "text" as const, text: `Inter-review requested: ${reviewId}` }],
-          details: { reviewId } as Record<string, unknown>,
-        };
+        // Call Gleam function
+        const result = await request_review(
+          taskIdOption,
+          commitHashOption,
+          currentIdentity.id,
+          "Requested via psypi-inter-review-request"
+        );
+        
+        // Handle Gleam Result type: { Ok: value } or { Error: error }
+        if (result.Ok !== undefined) {
+          const reviewId = result.Ok;
+          return {
+            content: [{ type: "text" as const, text: `Inter-review requested: ${reviewId}` }],
+            details: { reviewId } as Record<string, unknown>,
+          };
+        } else {
+          const error = result.Error;
+          return {
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(error)}` }],
+            details: { error: true, details: error } as Record<string, unknown>,
+          };
+        }
       } catch (err: any) {
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],

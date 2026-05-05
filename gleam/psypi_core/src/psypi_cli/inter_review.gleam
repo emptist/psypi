@@ -19,6 +19,7 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/option.{type Option, Some, None}
 import gleam/list
+import gleam/json
 import psypi_cli/db
 
 pub type ReviewResult {
@@ -146,11 +147,22 @@ pub fn request_review(
       None -> ""
     }
 
+    // p_branch - get from git or use empty string
+    let branch = "main" // TODO: get from git
+
+    // context needs to be valid JSON for jsonb parameter
+    // Use gleam_json (pure Gleam!) to encode properly
+    let context_json = json.to_string(json.object([
+      #("text", json.string(context)),
+      #("source", json.string("psypi-inter-review-request")),
+    ]))
+    
     let params = [
       dynamic.string(task_id_str),
       dynamic.string(commit_hash_str),
+      dynamic.string(branch),
       dynamic.string(reviewer_id),
-      dynamic.string(context),
+      dynamic.string(context_json),
     ]
 
     promise.map(db.query(conn, sql, params), fn(query_result) {
