@@ -111,14 +111,18 @@ pub fn send(
 ) -> promise.Promise(Result(String, BroadcastError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      INSERT INTO broadcasts (agent_id, message, priority, status)
-      VALUES ($1, $2, $3, 'sent')
+      INSERT INTO project_communications 
+      (project_id, from_ai, message_type, content, priority, metadata)
+      VALUES ($1, $2, 'broadcast', $3, $4, $5)
       RETURNING id
     "
+    let default_project_id = "00000000-0000-0000-0000-000000000001"
     let params = [
+      dynamic.string(default_project_id),
       dynamic.string(agent_id),
       dynamic.string(message),
       dynamic.int(priority_to_int(priority)),
+      dynamic.string("{\"sent_at\": \"now\"}"),
     ]
 
     promise.map(db.query(conn, sql, params), fn(query_result) {
@@ -147,15 +151,18 @@ pub fn list(
   db.with_connection(fn(conn) {
     let sql = case agent_id {
       Some(_) -> "
-        SELECT id, agent_id, message, priority, status, created_at::text, sent_at::text
-        FROM broadcasts
-        WHERE agent_id = $1
+        SELECT id, from_ai as agent_id, content as message, priority, 
+               'sent' as status, created_at::text, read_at::text as sent_at
+        FROM project_communications
+        WHERE from_ai = $1 AND message_type = 'broadcast'
         ORDER BY created_at DESC
         LIMIT $2
       "
       None -> "
-        SELECT id, agent_id, message, priority, status, created_at::text, sent_at::text
-        FROM broadcasts
+        SELECT id, from_ai as agent_id, content as message, priority,
+               'sent' as status, created_at::text, read_at::text as sent_at
+        FROM project_communications
+        WHERE message_type = 'broadcast'
         ORDER BY created_at DESC
         LIMIT $1
       "
@@ -187,9 +194,10 @@ pub fn get_recent(
 ) -> promise.Promise(Result(List(Broadcast), BroadcastError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT id, agent_id, message, priority, status, created_at::text, sent_at::text
-      FROM broadcasts
-      WHERE agent_id = $1
+      SELECT id, from_ai as agent_id, content as message, priority,
+             'sent' as status, created_at::text, read_at::text as sent_at
+      FROM project_communications
+      WHERE from_ai = $1 AND message_type = 'broadcast'
       ORDER BY created_at DESC
       LIMIT $2
     "
@@ -219,8 +227,8 @@ pub fn stats(
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
         COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
-      FROM broadcasts
-      WHERE agent_id = $1
+      FROM project_communications
+      WHERE from_ai = $1 AND message_type = 'broadcast'
     "
     let params = [dynamic.string(agent_id)]
 
