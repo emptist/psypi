@@ -1,4 +1,6 @@
-import gleam/string
+// error_utils.gleam - Error handling utilities
+// Learned: gleam/string not needed if not used
+// Gleam will warn about unused imports
 
 pub type AppError {
   DatabaseError(String)
