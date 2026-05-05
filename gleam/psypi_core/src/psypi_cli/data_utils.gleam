@@ -1,7 +1,5 @@
 import gleam/list
-import gleam/string
 import gleam/int
-import gleam/result
 
 pub fn filter_map(
   items: List(a),

@@ -1,6 +1,4 @@
-import gleam/float
 import gleam/int
-import gleam/result
 
 pub fn safe_divide(a: Float, b: Float) -> Result(Float, String) {
   case b == 0.0 {

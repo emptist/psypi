@@ -15,6 +15,7 @@
 // - Use Result type for error handling
 
 import gleam/dynamic
+import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/option.{type Option, Some, None}
 import gleam/list
@@ -45,11 +46,23 @@ pub type Learning {
   )
 }
 
+pub type Review {
+  Review(
+    id: String,
+    task_id: Option(String),
+    status: String,
+    summary: Option(String),
+    overall_score: Option(Int),
+    requested_at: String,
+  )
+}
+
 pub type InterReviewError {
   ConnectionError(String)
   QueryError(String)
   ReviewFailed(String)
   NotFound(String)
+  DecodeError(String)
 }
 
 // Error mapper for db.with_connection
@@ -82,12 +95,42 @@ pub fn filter_findings_by_type(
   })
 }
 
+/// Decoder for Review type
+fn review_decoder() -> decode.Decoder(Review) {
+  use id <- decode.field("id", decode.string)
+  use task_id <- decode.field("task_id", decode.optional(decode.string))
+  use status <- decode.field("status", decode.string)
+  use summary <- decode.field("summary", decode.optional(decode.string))
+  use overall_score <- decode.field("overall_score", decode.optional(decode.int))
+  use requested_at <- decode.field("requested_at", decode.string)
+  decode.success(Review(id:, task_id:, status:, summary:, overall_score:, requested_at:))
+}
+
+/// Decoder for review_id (returned by request_inter_review SQL function)
+fn review_id_decoder() -> decode.Decoder(String) {
+  use id <- decode.field("review_id", decode.string)
+  decode.success(id)
+}
+
+/// Decoder for review status
+fn status_decoder() -> decode.Decoder(String) {
+  use status <- decode.field("status", decode.string)
+  decode.success(status)
+}
+
+/// Decoder for review id from list
+fn id_decoder() -> decode.Decoder(String) {
+  use id <- decode.field("id", decode.string)
+  decode.success(id)
+}
+
 /// Request an inter-review (your code reviewed by Monitor AI)
 /// Returns: Review ID string on success
 pub fn request_review(
   task_id: Option(String),
   commit_hash: Option(String),
   reviewer_id: String,
+  context: String,
 ) -> promise.Promise(Result(String, InterReviewError)) {
   db.with_connection(fn(conn) {
     let sql = "
@@ -107,7 +150,7 @@ pub fn request_review(
       dynamic.string(task_id_str),
       dynamic.string(commit_hash_str),
       dynamic.string(reviewer_id),
-      dynamic.string(""), // context as JSON
+      dynamic.string(context),
     ]
 
     promise.map(db.query(conn, sql, params), fn(query_result) {
@@ -117,9 +160,10 @@ pub fn request_review(
           case result.rows {
             [] -> Error(QueryError("No review ID returned"))
             [row, ..] -> {
-              // TODO: Extract review_id from row properly using dynamic.decode
-              // For now, return placeholder
-              Ok("review-id-placeholder")
+              case decode.run(row, review_id_decoder()) {
+                Ok(review_id) -> Ok(review_id)
+                Error(_) -> Error(DecodeError("Failed to decode review_id"))
+              }
             }
           }
         }
@@ -144,9 +188,10 @@ pub fn get_review(
           case result.rows {
             [] -> Error(NotFound("Review not found: " <> review_id))
             [row, ..] -> {
-              // TODO: Extract status from row properly
-              // For now, return placeholder
-              Ok("completed")
+              case decode.run(row, status_decoder()) {
+                Ok(status) -> Ok(status)
+                Error(_) -> Error(DecodeError("Failed to decode status"))
+              }
             }
           }
         }
@@ -156,14 +201,14 @@ pub fn get_review(
 }
 
 /// List reviews by status
-/// Returns: List of review IDs
+/// Returns: List of Review with details
 pub fn list_reviews(
   status: Option(String),
-) -> promise.Promise(Result(List(String), InterReviewError)) {
+) -> promise.Promise(Result(List(Review), InterReviewError)) {
   db.with_connection(fn(conn) {
     let sql = case status {
-      Some(_) -> "SELECT id FROM inter_reviews WHERE status = $1 ORDER BY requested_at DESC LIMIT 100"
-      None -> "SELECT id FROM inter_reviews ORDER BY requested_at DESC LIMIT 100"
+      Some(_) -> "SELECT id, task_id, status, summary, overall_score, requested_at FROM inter_reviews WHERE status = $1 ORDER BY requested_at DESC LIMIT 100"
+      None -> "SELECT id, task_id, status, summary, overall_score, requested_at FROM inter_reviews ORDER BY requested_at DESC LIMIT 100"
     }
 
     let params = case status {
@@ -175,9 +220,15 @@ pub fn list_reviews(
       case query_result {
         Error(e) -> Error(db_error_to_inter_review_error(e))
         Ok(result) -> {
-          // TODO: Extract IDs from rows using list.map
-          // For now, return empty list
-          Ok([])
+          let reviews = result.rows
+            |> list.map(fn(row) {
+              case decode.run(row, review_decoder()) {
+                Ok(review) -> [review]
+                Error(_) -> []
+              }
+            })
+            |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
+          Ok(reviews)
         }
       }
     })

@@ -1,4 +1,3 @@
-import gleam/result
 import gleam/list
 
 pub fn map_ok(

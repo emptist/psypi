@@ -1,5 +1,4 @@
 import gleam/list
-import gleam/result
 /// Chunk a list into groups of n
 pub fn chunk(list: List(a), n: Int) -> List(List(a)) {
   chunk_helper(list, n, [])

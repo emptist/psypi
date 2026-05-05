@@ -1,6 +1,4 @@
 import gleam/int
-import gleam/float
-import gleam/result
 import gleam/list
 
 /// Calculate average of list of ints

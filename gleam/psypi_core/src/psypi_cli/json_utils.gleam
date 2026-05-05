@@ -10,7 +10,9 @@ pub fn list_to_json(
   items: List(String),
   formatter: fn(String) -> String,
 ) -> String {
-  let formatted = items |> list.map(formatter) |> string.join(", ")
+  let formatted = items
+    |> list.map(formatter)
+    |> string.join(", ")
   "[" <> formatted <> "]"
 }
 

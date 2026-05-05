@@ -1,5 +1,4 @@
 import gleam/string
-import gleam/result
 
 pub type Encoding {
   Utf8

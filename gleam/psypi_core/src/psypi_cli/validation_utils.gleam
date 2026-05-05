@@ -1,5 +1,4 @@
 import gleam/string
-import gleam/result
 import gleam/list
 
 pub type ValidationError {

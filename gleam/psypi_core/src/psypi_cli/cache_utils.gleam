@@ -1,6 +1,4 @@
 import gleam/dict
-import gleam/option
-import gleam/result
 
 pub type Cache(a) {
   Cache(store: dict.Dict(String, a), max_size: Int)
