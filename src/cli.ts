@@ -644,8 +644,9 @@ program
   .option('--priority <level>', 'Priority: low|normal|high|critical', 'normal')
   .action(async (message, options) => {
     try {
-      const success = await kernel.announce(message, options.priority);
-      if (success) {
+      const { send } = await import('../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs');
+      const result = await send('cli', message, options.priority);
+      if (result.isOk()) {
         console.log(`✅ Announcement sent: ${message.slice(0, 60)}...`);
       } else {
         console.log(`⚠️  Announcement logged (broadcast table may not exist)`);
@@ -662,8 +663,9 @@ program
   .action(async (message, options) => {
     // Same as announce
     try {
-      const success = await kernel.announce(message, options.priority);
-      if (success) {
+      const { send } = await import('../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs');
+      const result = await send('cli', message, options.priority);
+      if (result.isOk()) {
         console.log(`✅ Broadcast sent: ${message.slice(0, 60)}...`);
       } else {
         console.log(`⚠️  Broadcast logged`);
