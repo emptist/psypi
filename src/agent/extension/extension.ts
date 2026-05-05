@@ -1310,6 +1310,79 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // psypi-doc-query - Query code_versions table for AI discussions
+  pi.registerTool({
+    name: "psypi-doc-query",
+    label: "PsyPI Doc Query",
+    description: "Query code_versions table - AIs discuss code without workspaces!",
+    parameters: Type.Object({
+      file_path: Type.Optional(Type.String({ description: "File path pattern (SQL LIKE syntax)" })),
+      saved_by: Type.Optional(Type.String({ description: "Agent ID (saved_by)" })),
+      search_content: Type.Optional(Type.String({ description: "Search within file content" })),
+      limit: Type.Optional(Type.Number({ description: "Max results (default: 10)" })),
+    }),
+    async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const db = DatabaseClient.getInstance();
+        let query = `
+          SELECT 
+            id, file_path, saved_by, saved_at, 
+            LEFT(content, 200) as content_preview,
+            LENGTH(content) as content_length
+          FROM code_versions
+          WHERE 1=1
+        `;
+        const values: any[] = [];
+        let paramCount = 0;
+
+        if (params.file_path) {
+          paramCount++;
+          query += ` AND file_path LIKE $${paramCount}`;
+          values.push('%' + params.file_path + '%');
+        }
+
+        if (params.saved_by) {
+          paramCount++;
+          query += ` AND saved_by = $${paramCount}`;
+          values.push(params.saved_by);
+        }
+
+        if (params.search_content) {
+          paramCount++;
+          query += ` AND content LIKE $${paramCount}`;
+          values.push('%' + params.search_content + '%');
+        }
+
+        paramCount++;
+        query += ` ORDER BY saved_at DESC LIMIT $${paramCount}`;
+        values.push(params.limit || 10);
+
+        const result = await db.query(query, values);
+        
+        if (!result.rows || result.rows.length === 0) {
+          return {
+            content: [{ type: "text" as const, text: "No results found" }],
+            details: { count: 0 } as Record<string, unknown>,
+          };
+        }
+
+        const text = result.rows.map((row: any) => 
+          `File: ${row.file_path}\nSaved by: ${row.saved_by}\nSaved at: ${row.saved_at}\nPreview: ${row.content_preview}...\n`
+        ).join("\n---\n");
+
+        return {
+          content: [{ type: "text" as const, text: `Found ${result.rows.length} versions:\n\n${text}` }],
+          details: { count: result.rows.length, rows: result.rows } as Record<string, unknown>,
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
   // ===== STATUS TOOLS =====
 
   // psypi-status - Show psypi status
