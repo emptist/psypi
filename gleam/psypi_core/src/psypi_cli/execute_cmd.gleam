@@ -14,34 +14,6 @@ pub type CmdError {
   TimeoutError
 }
 
-/// Execute shell command (FFI)
-pub fn execute(
-  cmd: String,
-  timeout: Int,
-) -> promise.Promise(Result(CmdResult, CmdError)) {
-  let js_exec = "
-    const { execSync } = require('child_process');
-    try {
-      const output = execSync('" <> cmd <> "', { 
-        encoding: 'utf-8', 
-        timeout: " <> int.to_string(timeout) <> ",
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-      return { 
-        ok: true, 
-        value: { 
-          stdout: output || '', 
-          stderr: '', 
-          status: 0 
-        } 
-      };
-    } catch(e) {
-      return { 
-        ok: false, 
-        value: e.message || 'Command failed' 
-      };
-    }
-  "
-  // Simplified - returns placeholder
-  promise.resolve(Error(ExecutionError("FFI not fully implemented")))
-}
+@external(javascript, "./execute_cmd_ffi.mjs", "execute")
+pub fn execute(cmd: String, timeout: Int) -> promise.Promise(Result(CmdResult, CmdError))
+
