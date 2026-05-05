@@ -131,3 +131,56 @@ fn content_decoder() -> decode.Decoder(String) {
   use content <- decode.field("content", decode.string)
   decode.success(content)
 }
+
+// Query code_versions table with optional filters
+// Returns: Ok(list of version rows) or Error(DbError)
+pub fn query_versions(
+  file_path_pattern: String,
+  saved_by_filter: String,
+  search_content: String,
+  limit: Int,
+) -> promise.Promise(Result(List(dynamic.Dynamic), DbError)) {
+  with_connection(
+    fn(conn: Connection) {
+      let sql = "
+        SELECT 
+          id, file_path, saved_by, saved_at,
+          LEFT(content, 200) as content_preview,
+          LENGTH(content) as content_length
+        FROM code_versions
+        WHERE 1=1
+        AND ($1::TEXT = '' OR file_path LIKE $1)
+        AND ($2::VARCHAR = '' OR saved_by = $2)
+        AND ($3::TEXT = '' OR content LIKE $3)
+        ORDER BY saved_at DESC
+        LIMIT $4
+      "
+      
+      // Add % wildcards for LIKE patterns
+      let file_pattern = case file_path_pattern {
+        "" -> ""
+        path -> "%" <> path <> "%"
+      }
+      
+      let content_pattern = case search_content {
+        "" -> ""
+        content -> "%" <> content <> "%"
+      }
+      
+      let params = [
+        dynamic.string(file_pattern),
+        dynamic.string(saved_by_filter),
+        dynamic.string(content_pattern),
+        dynamic.int(limit),
+      ]
+
+      promise.map(db.query(conn, sql, params), fn(result) {
+        case result {
+          Ok(query_result) -> Ok(query_result.rows)
+          Error(e) -> Error(e)
+        }
+      })
+    },
+    fn(e: DbError) { e }
+  )
+}

@@ -125,6 +125,34 @@ fn id_decoder() -> decode.Decoder(String) {
   decode.success(id)
 }
 
+/// Get full review details by ID
+/// Returns: Review record with all fields
+pub fn get_review_details(
+  review_id: String,
+) -> promise.Promise(Result(Review, InterReviewError)) {
+  db.with_connection(fn(conn) {
+    let sql = "SELECT id, task_id, status, summary, overall_score, requested_at FROM inter_reviews WHERE id = $1"
+    let params = [dynamic.string(review_id)]
+
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_inter_review_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [] -> Error(NotFound("Review not found: " <> review_id))
+            [row, ..] -> {
+              case decode.run(row, review_decoder()) {
+                Ok(review) -> Ok(review)
+                Error(_) -> Error(DecodeError("Failed to decode review"))
+              }
+            }
+          }
+        }
+      }
+    })
+  }, db_error_to_inter_review_error)
+}
+
 /// Request an inter-review (your code reviewed by Monitor AI)
 /// Returns: Review ID string on success
 pub fn request_review(

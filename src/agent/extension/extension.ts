@@ -309,17 +309,36 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const db = DatabaseClient.getInstance();
-        let query = 'SELECT * FROM inter_reviews ORDER BY created_at DESC LIMIT 50';
-        let values: any[] = [];
-        if (params.status) {
-          query = 'SELECT * FROM inter_reviews WHERE status = $1 ORDER BY created_at DESC LIMIT 50';
-          values = [params.status];
+        const { list_reviews } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/inter_review.mjs");
+        const { Some, None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
+        
+        const status = params.status ? new Some(params.status) : new None();
+        const result = await list_reviews(status);
+        
+        // Handle Gleam Result type
+        if (result && result.Error !== undefined) {
+          return {
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result.Error)}` }],
+            details: { error: true } as Record<string, unknown>,
+          };
         }
-        const result = await db.query(query, values);
+        
+        const reviews = (result && result.Ok) || [];
+        
+        if (reviews.length === 0) {
+          return {
+            content: [{ type: "text" as const, text: "No inter-reviews found." }],
+            details: { count: 0 } as Record<string, unknown>,
+          };
+        }
+        
+        const text = reviews.slice(0, 10).map((r: any) => 
+          `[${r.id?.slice(0, 8)}] Status: ${r.status}, Score: ${r.overall_score || 'N/A'}`
+        ).join("\n");
+        
         return {
-          content: [{ type: "text" as const, text: `Inter-reviews: ${JSON.stringify(result.rows)}` }],
-          details: { result: result.rows } as Record<string, unknown>,
+          content: [{ type: "text" as const, text: `Found ${reviews.length} inter-reviews:\n${text}` }],
+          details: { count: reviews.length, reviews: reviews.slice(0, 10) } as Record<string, unknown>,
         };
       } catch (err: any) {
         return {
@@ -340,20 +359,29 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const db = DatabaseClient.getInstance();
-        const result = await db.query(
-          'SELECT * FROM inter_reviews WHERE id = $1',
-          [params.reviewId]
-        );
-        if (result.rows.length === 0) {
+        const { get_review_details } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/inter_review.mjs");
+        
+        const result = await get_review_details(params.reviewId);
+        
+        // Handle Gleam Result type
+        if (result && result.Error !== undefined) {
+          return {
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result.Error)}` }],
+            details: { error: true } as Record<string, unknown>,
+          };
+        }
+        
+        const review = result?.Ok;
+        if (!review) {
           return {
             content: [{ type: "text" as const, text: `Review not found: ${params.reviewId}` }],
             details: { error: true } as Record<string, unknown>,
           };
         }
+        
         return {
-          content: [{ type: "text" as const, text: `Inter-review: ${JSON.stringify(result.rows[0])}` }],
-          details: { result: result.rows[0] } as Record<string, unknown>,
+          content: [{ type: "text" as const, text: `Inter-review: ${JSON.stringify(review)}` }],
+          details: { review } as Record<string, unknown>,
         };
       } catch (err: any) {
         return {
@@ -729,9 +757,22 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const result = await kernel.getTasks('PENDING');
-        const tasks = result.rows || [];
-
+        // Use Gleam task.list() instead of kernel.getTasks()
+        const { list } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs") as any;
+        const { Some, None } = await import("../../../gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
+        
+        const result = await list(new Some('PENDING'));
+        
+        // Handle Gleam Result type
+        if (result && result.Error !== undefined) {
+          return {
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result.Error)}` }],
+            details: { error: true } as Record<string, unknown>,
+          };
+        }
+        
+        const tasks = (result && result.Ok) || [];
+        
         if (tasks.length === 0) {
           return {
             content: [{ type: "text" as const, text: "No pending tasks. Consider: reviewing recent changes, improving tests, or documentation." }],
@@ -1297,8 +1338,9 @@ export default function (pi: ExtensionAPI) {
         const { areflect } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/areflect.mjs");
         const identity = await AgentIdentityService.getResolvedIdentity();
         const result = await areflect(params.text, identity.id);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Reflection saved: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Reflection saved: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1323,57 +1365,53 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const db = DatabaseClient.getInstance();
-        let query = `
-          SELECT 
-            id, file_path, saved_by, saved_at, 
-            LEFT(content, 200) as content_preview,
-            LENGTH(content) as content_length
-          FROM code_versions
-          WHERE 1=1
-        `;
-        const values: any[] = [];
-        let paramCount = 0;
-
-        if (params.file_path) {
-          paramCount++;
-          query += ` AND file_path LIKE $${paramCount}`;
-          values.push('%' + params.file_path + '%');
-        }
-
-        if (params.saved_by) {
-          paramCount++;
-          query += ` AND saved_by = $${paramCount}`;
-          values.push(params.saved_by);
-        }
-
-        if (params.search_content) {
-          paramCount++;
-          query += ` AND content LIKE $${paramCount}`;
-          values.push('%' + params.search_content + '%');
-        }
-
-        paramCount++;
-        query += ` ORDER BY saved_at DESC LIMIT $${paramCount}`;
-        values.push(params.limit || 10);
-
-        const result = await db.query(query, values);
+        const { query_versions } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs");
         
-        if (!result.rows || result.rows.length === 0) {
+        const file_path_pattern = params.file_path || '';
+        const saved_by_filter = params.saved_by || '';
+        const search_content = params.search_content || '';
+        const limit = params.limit || 10;
+        
+        const result = await query_versions(file_path_pattern, saved_by_filter, search_content, limit);
+        
+        // Handle Gleam Result type (Ok/Error wrapper)
+        if (result && result.Ok !== undefined) {
+          const rows = result.Ok || [];
+          if (rows.length === 0) {
+            return {
+              content: [{ type: "text" as const, text: "No results found" }],
+              details: { count: 0 } as Record<string, unknown>,
+            };
+          }
+          const text = rows.map((row: any) => 
+            `File: ${row.file_path}\nSaved by: ${row.saved_by}\nSaved at: ${row.saved_at}\nPreview: ${row.content_preview}...\n`
+          ).join("\n---\n");
           return {
-            content: [{ type: "text" as const, text: "No results found" }],
-            details: { count: 0 } as Record<string, unknown>,
+            content: [{ type: "text" as const, text: `Found ${rows.length} versions:\n\n${text}` }],
+            details: { count: rows.length, rows } as Record<string, unknown>,
+          };
+        } else if (result && result.Error !== undefined) {
+          return {
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result.Error)}` }],
+            details: { error: true } as Record<string, unknown>,
+          };
+        } else {
+          // Assume direct result
+          const rows = Array.isArray(result) ? result : [];
+          if (rows.length === 0) {
+            return {
+              content: [{ type: "text" as const, text: "No results found" }],
+              details: { count: 0 } as Record<string, unknown>,
+            };
+          }
+          const text = rows.map((row: any) => 
+            `File: ${row.file_path}\nSaved by: ${row.saved_by}\nSaved at: ${row.saved_at}\nPreview: ${row.content_preview}...\n`
+          ).join("\n---\n");
+          return {
+            content: [{ type: "text" as const, text: `Found ${rows.length} versions:\n\n${text}` }],
+            details: { count: rows.length, rows } as Record<string, unknown>,
           };
         }
-
-        const text = result.rows.map((row: any) => 
-          `File: ${row.file_path}\nSaved by: ${row.saved_by}\nSaved at: ${row.saved_at}\nPreview: ${row.content_preview}...\n`
-        ).join("\n---\n");
-
-        return {
-          content: [{ type: "text" as const, text: `Found ${result.rows.length} versions:\n\n${text}` }],
-          details: { count: result.rows.length, rows: result.rows } as Record<string, unknown>,
-        };
       } catch (err: any) {
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],

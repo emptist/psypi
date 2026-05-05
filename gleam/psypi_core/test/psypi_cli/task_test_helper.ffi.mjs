@@ -15,6 +15,7 @@ export function makeTaskRow1() {
     updated_at: "2026-05-04T00:00:00Z",
     completed_at: null,
     created_by: "S-psypi-psypi",
+    source: "test-source",
   };
 }
 
@@ -32,6 +33,7 @@ export function makeTaskRow2() {
     updated_at: "2026-05-04T01:00:00Z",
     completed_at: "2026-05-04T01:00:00Z",
     created_by: "S-psypi-psypi",
+    source: null,
   };
 }
 

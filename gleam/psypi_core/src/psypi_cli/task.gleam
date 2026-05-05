@@ -26,6 +26,7 @@ pub type Task {
     updated_at: String,
     completed_at: Option(String),
     created_by: String,
+    source: Option(String),
   )
 }
 
@@ -58,6 +59,7 @@ pub fn task_decoder() -> decode.Decoder(Task) {
   use updated_at <- decode.field("updated_at", decode.string)
   use completed_at <- decode.field("completed_at", decode.optional(decode.string))
   use created_by <- decode.field("created_by", decode.string)
+  use source <- decode.field("source", decode.optional(decode.string))
 
   decode.success(Task(
     id: id,
@@ -72,6 +74,7 @@ pub fn task_decoder() -> decode.Decoder(Task) {
     updated_at: updated_at,
     completed_at: completed_at,
     created_by: created_by,
+    source: source,
   ))
 }
 
@@ -132,7 +135,7 @@ pub fn list(
     let sql = case status {
       Some(_) -> "
         SELECT id, title, description, status, priority, result, error, retry_count,
-               created_at::text, updated_at::text, completed_at::text, created_by
+               created_at::text, updated_at::text, completed_at::text, created_by, source
         FROM tasks
         WHERE status = $1
         ORDER BY priority DESC, created_at ASC
@@ -140,7 +143,7 @@ pub fn list(
       "
       None -> "
         SELECT id, title, description, status, priority, result, error, retry_count,
-               created_at::text, updated_at::text, completed_at::text, created_by
+               created_at::text, updated_at::text, completed_at::text, created_by, source
         FROM tasks
         ORDER BY priority DESC, created_at ASC
         LIMIT 100
@@ -204,7 +207,7 @@ pub fn get(
   db.with_connection(fn(conn) {
     let sql = "
       SELECT id, title, description, status, priority, result, error, retry_count,
-             created_at::text, updated_at::text, completed_at::text, created_by
+             created_at::text, updated_at::text, completed_at::text, created_by, source
       FROM tasks
       WHERE id = $1
     "

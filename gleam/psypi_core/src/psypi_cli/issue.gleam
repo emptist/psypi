@@ -40,6 +40,12 @@ pub type Issue {
     created_at: String,
     resolved_at: Option(String),
     created_by: String,
+    discovered_by: Option(String),
+    environment: Option(String),
+    git_branch: Option(String),
+    git_hash: Option(String),
+    reported_by: Option(String),
+    source: Option(String),
   )
 }
 
@@ -50,7 +56,7 @@ pub type IssueError {
   DecodeError(String)
 }
 
-fn string_to_severity(s: String) -> IssueSeverity {
+pub fn string_to_severity(s: String) -> IssueSeverity {
   case s {
     "critical" -> Critical
     "high" -> High
@@ -60,7 +66,7 @@ fn string_to_severity(s: String) -> IssueSeverity {
   }
 }
 
-fn string_to_status(s: String) -> IssueStatus {
+pub fn string_to_status(s: String) -> IssueStatus {
   case s {
     "in_progress" -> InProgress
     "resolved" -> Resolved
@@ -69,7 +75,7 @@ fn string_to_status(s: String) -> IssueStatus {
   }
 }
 
-fn string_to_type(t: String) -> IssueType {
+pub fn string_to_type(t: String) -> IssueType {
   case t {
     "inconsistency" -> Inconsistency
     "feature" -> Feature
@@ -80,7 +86,7 @@ fn string_to_type(t: String) -> IssueType {
   }
 }
 
-fn issue_decoder() -> decode.Decoder(Issue) {
+pub fn issue_decoder() -> decode.Decoder(Issue) {
   use id <- decode.field("id", decode.string)
   use title <- decode.field("title", decode.string)
   use description <- decode.field("description", decode.optional(decode.string))
@@ -90,6 +96,12 @@ fn issue_decoder() -> decode.Decoder(Issue) {
   use created_at <- decode.field("created_at", decode.string)
   use resolved_at <- decode.field("resolved_at", decode.optional(decode.string))
   use created_by <- decode.field("created_by", decode.string)
+  use discovered_by <- decode.field("discovered_by", decode.optional(decode.string))
+  use environment <- decode.field("environment", decode.optional(decode.string))
+  use git_branch <- decode.field("git_branch", decode.optional(decode.string))
+  use git_hash <- decode.field("git_hash", decode.optional(decode.string))
+  use reported_by <- decode.field("reported_by", decode.optional(decode.string))
+  use source <- decode.field("source", decode.optional(decode.string))
 
   decode.success(Issue(
     id: id,
@@ -101,10 +113,16 @@ fn issue_decoder() -> decode.Decoder(Issue) {
     created_at: created_at,
     resolved_at: resolved_at,
     created_by: created_by,
+    discovered_by: discovered_by,
+    environment: environment,
+    git_branch: git_branch,
+    git_hash: git_hash,
+    reported_by: reported_by,
+    source: source,
   ))
 }
 
-fn id_decoder() -> decode.Decoder(String) {
+pub fn id_decoder() -> decode.Decoder(String) {
   use id <- decode.field("id", decode.string)
   decode.success(id)
 }
@@ -163,7 +181,8 @@ pub fn list(
     let sql = case status {
       Some(_) -> "
         SELECT id, title, description, severity, status, issue_type,
-               created_at::text, resolved_at::text, created_by
+               created_at::text, resolved_at::text, created_by,
+               discovered_by, environment, git_branch, git_hash, reported_by, source
         FROM issues
         WHERE status = $1
         ORDER BY 
@@ -179,7 +198,8 @@ pub fn list(
       "
       None -> "
         SELECT id, title, description, severity, status, issue_type,
-               created_at::text, resolved_at::text, created_by
+               created_at::text, resolved_at::text, created_by,
+               discovered_by, environment, git_branch, git_hash, reported_by, source
         FROM issues
         ORDER BY 
           CASE severity 
@@ -252,7 +272,8 @@ pub fn get(
   db.with_connection(fn(conn) {
     let sql = "
       SELECT id, title, description, severity, status, issue_type,
-             created_at::text, resolved_at::text, created_by
+             created_at::text, resolved_at::text, created_by,
+             discovered_by, environment, git_branch, git_hash, reported_by, source
       FROM issues
       WHERE id = $1
     "

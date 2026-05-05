@@ -86,3 +86,17 @@ pub fn db_error_to_task_error_test() {
   query_err
   |> should.equal(QueryError("Query failed"))
 }
+
+pub fn task_decoder_source_test() {
+  let row = task_test_helper.make_task_row_1()
+  let assert Ok(decoded) = decode.run(row, task_decoder())
+  decoded.source
+  |> should.equal(Some("test-source"))
+}
+
+pub fn task_decoder_source_null_test() {
+  let row = task_test_helper.make_task_row_2()
+  let assert Ok(decoded) = decode.run(row, task_decoder())
+  decoded.source
+  |> should.equal(option.None)
+}
