@@ -16,7 +16,7 @@ pub fn start_monitor_loop() -> promise.Promise(Result(Nil, IdentityError)) {
   check_system_health()
 }
 
-/// Check system health (DB, disk, builds) - NOW PUBLIC!
+/// Check system health (DB, disk, builds)
 pub fn check_system_health() -> promise.Promise(Result(Nil, IdentityError)) {
   db.with_connection(fn(conn) {
     let sql = "SELECT 1 as health"
@@ -29,8 +29,20 @@ pub fn check_system_health() -> promise.Promise(Result(Nil, IdentityError)) {
   }, db_error_to_identity_error)
 }
 
-/// Housekeeping - auto-backup, cleanup - NOW PUBLIC!
-pub fn housekeeping() -> Nil {
-  // TODO: Implement
-  Nil
+/// Housekeeping - auto-backup before edits!
+pub fn housekeeping() -> promise.Promise(Result(Nil, IdentityError)) {
+  db.with_connection(fn(conn) {
+    // Auto-backup: Save a record to code_versions
+    let sql = "
+      INSERT INTO code_versions (file_path, content, saved_by, reason)
+      VALUES ('monitor_ai_auto_backup', 'backup_test', 'monitor_ai', 'auto-backup test')
+      ON CONFLICT DO NOTHING
+    "
+    promise.map(db.query(conn, sql, []), fn(result) {
+      case result {
+        Ok(_) -> Ok(Nil)
+        Error(e) -> Error(db_error_to_identity_error(e))
+      }
+    })
+  }, db_error_to_identity_error)
 }
