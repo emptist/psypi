@@ -3,6 +3,21 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+// Get the directory of this module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Resolve Gleam build path relative to project root
+const gleamBuildPath = resolve(__dirname, '../../gleam/psypi_core/build/dev/javascript');
+
+// Dynamic import helper that works with both ts and js
+async function importGleam(modulePath: string) {
+  const fullPath = resolve(gleamBuildPath, 'psypi_core/psypi_cli', modulePath);
+  return await import(fullPath);
+}
 
 export default function (pi: ExtensionAPI) {
   console.log("[Monitor AI] Starting background support... 🤖");
@@ -11,7 +26,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, _ctx) => {
     try {
       // @ts-ignore: Gleam .mjs has no type declarations
-      const { start_monitor_loop } = await import("#gleam-build/psypi_core/psypi_cli/monitor_ai.mjs");
+      const { start_monitor_loop } = await importGleam("monitor_ai.mjs");
       start_monitor_loop();
       console.log("[Monitor AI] Started! 🤖");
     } catch (err: any) {
@@ -28,7 +43,7 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId: string, _params: any) {
       try {
         // @ts-ignore: Gleam .mjs has no type declarations
-        const { housekeeping } = await import("#gleam-build/psypi_core/psypi_cli/monitor_ai.mjs");
+        const { housekeeping } = await importGleam("monitor_ai.mjs");
         housekeeping();
         return {
           content: [{ type: "text" as const, text: "Housekeeping triggered! 🧹" }],
@@ -52,7 +67,7 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId: string, _params: any) {
       try {
         // @ts-ignore: Gleam .mjs has no type declarations
-        const { check_system_health } = await import("#gleam-build/psypi_core/psypi_cli/monitor_ai.mjs");
+        const { check_system_health } = await importGleam("monitor_ai.mjs");
         const result = await check_system_health();
         return {
           content: [{ type: "text" as const, text: `Health check: ${JSON.stringify(result)}` }],
