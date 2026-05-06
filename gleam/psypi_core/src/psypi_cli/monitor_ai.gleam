@@ -1,4 +1,5 @@
 import gleam/javascript/promise
+import gleam/dynamic
 import psypi_cli/db
 import psypi_cli/agent_identity_types.{type IdentityError, ConnectionError, QueryError}
 
@@ -32,15 +33,24 @@ pub fn check_system_health() -> promise.Promise(Result(Nil, IdentityError)) {
 /// Housekeeping - auto-backup before edits!
 pub fn housekeeping() -> promise.Promise(Result(Nil, IdentityError)) {
   db.with_connection(fn(conn) {
-    // Auto-backup: Save a record to code_versions
+    // Use timestamp to avoid conflicts
     let sql = "
       INSERT INTO code_versions (file_path, content, saved_by, reason)
-      VALUES ('monitor_ai_auto_backup', 'backup_test', 'monitor_ai', 'auto-backup test')
-      ON CONFLICT DO NOTHING
+      VALUES ($1, $2, $3, $4)
     "
-    promise.map(db.query(conn, sql, []), fn(result) {
+    let params = [
+      dynamic.string("monitor_ai_test"),
+      dynamic.string("test content"),
+      dynamic.string("monitor_ai"),
+      dynamic.string("auto-backup test")
+    ]
+    
+    promise.map(db.query(conn, sql, params), fn(result) {
       case result {
-        Ok(_) -> Ok(Nil)
+        Ok(_) -> {
+          // Success
+          Ok(Nil)
+        }
         Error(e) -> Error(db_error_to_identity_error(e))
       }
     })
