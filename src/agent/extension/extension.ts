@@ -16,13 +16,6 @@ import { DatabaseClient } from "../../kernel/db/DatabaseClient.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Helper to resolve Gleam build path correctly (works from both src/ and dist/)
-function gleamPath(...parts: string[]): string {
-  const projectRoot = __dirname.includes('/dist/')
-    ? path.resolve(__dirname, '../../../..')
-    : path.resolve(__dirname, '../../..');
-  return path.join(projectRoot, 'gleam/psypi_core/build/dev/javascript', ...parts);
-}
 
 const VERBOSE = process.env.PSYPI_VERBOSE === 'true' || process.env.NODE_ENV !== 'production';
 
@@ -34,7 +27,7 @@ function setSessionId(ctx: any) {
 // Convert Gleam Result for display (calls Gleam utils)
 async function formatGleamResult(result: any): Promise<string> {
   try {
-    const { result_to_string } = await import(gleamPath('psypi_core/psypi_cli/utils.mjs'));
+    const { result_to_string } = await import("#gleam-build/psypi_core/psypi_cli/utils.mjs");
     return result_to_string(result);
   } catch {
     return JSON.stringify(result);
@@ -71,7 +64,7 @@ export default function (pi: ExtensionAPI) {
         const hash = crypto.createHash('sha256').update(content).digest('hex');
 
         // Import Gleam functions
-        const { save_version, get_versions } = await import(gleamPath('psypi_core/psypi_cli/code_version.mjs')) as any;
+        const { save_version, get_versions } = await import("#gleam-build/psypi_core/psypi_cli/code_version.mjs") as any;
         const identity = await AgentIdentityService.getResolvedIdentity();
 
         // Check if this version already exists (dedup at JS layer)
@@ -161,7 +154,7 @@ export default function (pi: ExtensionAPI) {
       const content = fs.readFileSync(filePath, 'utf-8');
       const hash = crypto.createHash('sha256').update(content).digest('hex');
 
-      const { save_version, get_versions } = await import(gleamPath('psypi_core/psypi_cli/code_version.mjs')) as any;
+      const { save_version, get_versions } = await import("#gleam-build/psypi_core/psypi_cli/code_version.mjs") as any;
       const identity = await AgentIdentityService.getResolvedIdentity();
 
       // Check if this version already exists (dedup)
@@ -203,7 +196,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { add } = await import(gleamPath('psypi_core/psypi_cli/task.mjs'));
+        const { add } = await import("#gleam-build/psypi_core/psypi_cli/task.mjs");
         const identity = await AgentIdentityService.getResolvedIdentity();
         const result = await add(
           params.title,
@@ -211,8 +204,9 @@ export default function (pi: ExtensionAPI) {
           params.priority || 5,
           identity.id
         );
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Task added: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Task added: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -234,10 +228,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { complete } = await import(gleamPath('psypi_core/psypi_cli/task.mjs'));
+        const { complete } = await import("#gleam-build/psypi_core/psypi_cli/task.mjs");
         const result = await complete(params.taskId);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Task completed: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Task completed: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -260,15 +255,16 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { create } = await import(gleamPath('psypi_core/psypi_cli/skill.mjs'));
+        const { create } = await import("#gleam-build/psypi_core/psypi_cli/skill.mjs");
         const identity = await AgentIdentityService.getResolvedIdentity();
         const result = await create(
           params.name,
           params.purpose,
           identity.id
         );
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Skill created: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Skill created: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -292,7 +288,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { save } = await import(gleamPath('psypi_core/psypi_cli/learning.mjs'));
+        const { save } = await import("#gleam-build/psypi_core/psypi_cli/learning.mjs");
         const identity = await AgentIdentityService.getResolvedIdentity();
         const tags = params.tags ? params.tags.split(',').map((t: string) => t.trim()) : ['learning'];
         const result = await save(
@@ -301,8 +297,9 @@ export default function (pi: ExtensionAPI) {
           params.importance || 5,
           identity.id
         );
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Learning saved: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Learning saved: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -324,15 +321,16 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { send, BroadcastPriority$High } = await import(gleamPath('psypi_core/psypi_cli/broadcast.mjs'));
+        const { send, BroadcastPriority$High } = await import("#gleam-build/psypi_core/psypi_cli/broadcast.mjs");
         const identity = await AgentIdentityService.getResolvedIdentity();
         const result = await send(
           identity.id,
           params.message,
           BroadcastPriority$High()
         );
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Announcement sent: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Announcement sent: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -356,7 +354,7 @@ export default function (pi: ExtensionAPI) {
       try {
         // Import Gleam modules dynamically
         const { Some, None } = await import("/Users/jk/gits/hub/tools_ai/psypi/gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs");
-        const { request_review } = await import(gleamPath('psypi_core/psypi_cli/inter_review.mjs'));
+        const { request_review } = await import("#gleam-build/psypi_core/psypi_cli/inter_review.mjs");
         const currentIdentity = await AgentIdentityService.getResolvedIdentity();
         
         // Create Gleam Option values using the class constructors
@@ -404,8 +402,8 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { list_reviews } = await import(gleamPath('psypi_core/psypi_cli/inter_review.mjs'));
-        const { Some, None } = await import(gleamPath('gleam_stdlib/gleam/option.mjs'));
+        const { list_reviews } = await import("#gleam-build/psypi_core/psypi_cli/inter_review.mjs");
+        const { Some, None } = await import("#gleam-build/gleam_stdlib/gleam/option.mjs");
         
         const status = params.status ? new Some(params.status) : new None();
         const result = await list_reviews(status);
@@ -454,7 +452,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { get_review_details } = await import(gleamPath('psypi_core/psypi_cli/inter_review.mjs'));
+        const { get_review_details } = await import("#gleam-build/psypi_core/psypi_cli/inter_review.mjs");
         
         const result = await get_review_details(params.reviewId);
         
@@ -497,10 +495,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { validate } = await import(gleamPath('psypi_core/psypi_cli/validation.mjs'));
+        const { validate } = await import("#gleam-build/psypi_core/psypi_cli/validation.mjs");
         const result = await validate(params.message);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Validation: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Validation: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -543,10 +542,11 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { list } = await import(gleamPath('psypi_core/psypi_cli/agents.mjs'));
+        const { list } = await import("#gleam-build/psypi_core/psypi_cli/agents.mjs");
         const result = await list();
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Agents: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Agents: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -644,10 +644,11 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { get_model } = await import(gleamPath('psypi_core/psypi_cli/monitor.mjs'));
+        const { get_model } = await import("#gleam-build/psypi_core/psypi_cli/monitor.mjs");
         const result = await get_model();
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Monitor model: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Monitor model: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -670,23 +671,25 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const monitorModule = await import(gleamPath('psypi_core/psypi_cli/monitor.mjs'));
+        const monitorModule = await import("#gleam-build/psypi_core/psypi_cli/monitor.mjs");
         
         // If no provider, show current model
         if (!params.provider) {
           const result = await monitorModule.get_model();
+          const formattedResult = await formatGleamResult(result);
           return {
-            content: [{ type: "text" as const, text: `Monitor model: ${formatGleamResult(result)}` }],
+            content: [{ type: "text" as const, text: `Monitor model: ${formattedResult}` }],
             details: { result } as Record<string, unknown>,
           };
         }
         
         // Set model
-        const { Some, None } = await import(gleamPath('gleam_stdlib/gleam/option.mjs'));
+        const { Some, None } = await import("#gleam-build/gleam_stdlib/gleam/option.mjs");
         const modelOpt = params.model ? new Some(params.model) : new None();
         const result = await monitorModule.set_model(params.provider, modelOpt);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Monitor model set: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Monitor model set: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -781,24 +784,22 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
         // Call Gleam task.list() - returns Result(List(Task), TaskError)
-        const { list } = await import(gleamPath('psypi_core/psypi_cli/task.mjs')) as any;
-        const { Some, None } = await import(gleamPath('gleam_stdlib/gleam/option.mjs'));
+        const { list } = await import("#gleam-build/psypi_core/psypi_cli/task.mjs") as any;
+        const { Some, None } = await import("#gleam-build/gleam_stdlib/gleam/option.mjs");
 
         const status = params.status ? new Some(params.status) : new None();
         const result = await list(status);
 
-        // Handle Gleam Result type
-        if (result && typeof result.isOk === 'function' && !result.isOk()) {
-          const errorMsg = result?.[0] || 'Failed to list tasks';
+        // Handle Gleam Result type: { Ok: value } or { Error: error }
+        if (result && result.Error !== undefined) {
+          const errorMsg = result.Error || 'Failed to list tasks';
           return {
-            content: [{ type: "text" as const, text: `Error: ${errorMsg}` }],
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(errorMsg)}` }],
             details: { error: true } as Record<string, unknown>,
           };
         }
 
-        const tasks = result && typeof result.isOk === 'function' && result.isOk() 
-          ? (Array.isArray(result?.['0']) ? result?.['0'] : (result?.['0'] ? [result?.['0']] : []))
-          : [];
+        const tasks = (result && result.Ok) || [];
 
         if (tasks.length === 0) {
           return {
@@ -835,8 +836,8 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
         // Use Gleam task.list() instead of kernel.getTasks()
-        const { list } = await import(gleamPath('psypi_core/psypi_cli/task.mjs')) as any;
-        const { Some, None } = await import(gleamPath('gleam_stdlib/gleam/option.mjs'));
+        const { list } = await import("#gleam-build/psypi_core/psypi_cli/task.mjs") as any;
+        const { Some, None } = await import("#gleam-build/gleam_stdlib/gleam/option.mjs");
         
         const result = await list(new Some('PENDING'));
         
@@ -898,7 +899,7 @@ export default function (pi: ExtensionAPI) {
         setSessionId(ctx);
 
         // Import compiled Gleam module
-        const { save_version } = await import(gleamPath('psypi_core/psypi_cli/code_version.mjs'));
+        const { save_version } = await import("#gleam-build/psypi_core/psypi_cli/code_version.mjs");
 
         // Get file content if not provided
         let content = params.content;
@@ -943,10 +944,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { get_versions } = await import(gleamPath('psypi_core/psypi_cli/code_version.mjs')) as any;
+        const { get_versions } = await import("#gleam-build/psypi_core/psypi_cli/code_version.mjs") as any;
         const result = await get_versions(params.file_path, params.limit || 10);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Versions: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Versions: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -968,10 +970,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { restore_version } = await import(gleamPath('psypi_core/psypi_cli/code_version.mjs')) as any;
+        const { restore_version } = await import("#gleam-build/psypi_core/psypi_cli/code_version.mjs") as any;
         const result = await restore_version(params.version_id);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Restored version: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Restored version: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -994,10 +997,11 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
         // Now using Gleam stats.gleam core!
-        const { stats } = await import(gleamPath('psypi_core/psypi_cli/stats.mjs')) as any;
+        const { stats } = await import("#gleam-build/psypi_core/psypi_cli/stats.mjs") as any;
         const result = await stats();
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Stats: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Stats: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1048,7 +1052,7 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { read_package_json } = await import(gleamPath('psypi_core/psypi_cli/package_json.mjs'));
+        const { read_package_json } = await import("#gleam-build/psypi_core/psypi_cli/package_json.mjs");
         const result = await read_package_json();
         if (result.isOk()) {
           return {
@@ -1082,10 +1086,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { list } = await import(gleamPath('psypi_core/psypi_cli/meeting.mjs'));
+        const { list } = await import("#gleam-build/psypi_core/psypi_cli/meeting.mjs");
         const result = await list(params.status || '');
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Meetings: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Meetings: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1107,10 +1112,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { get } = await import(gleamPath('psypi_core/psypi_cli/meeting.mjs'));
+        const { get } = await import("#gleam-build/psypi_core/psypi_cli/meeting.mjs");
         const result = await get(params.meeting_id);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Meeting: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Meeting: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1135,7 +1141,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { add_opinion } = await import(gleamPath('psypi_core/psypi_cli/meeting.mjs'));
+        const { add_opinion } = await import("#gleam-build/psypi_core/psypi_cli/meeting.mjs");
         const identity = await AgentIdentityService.getResolvedIdentity();
         const result = await add_opinion(
           params.meeting_id,
@@ -1144,8 +1150,9 @@ export default function (pi: ExtensionAPI) {
           params.reasoning || '',
           params.vote || ''
         );
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Opinion added: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Opinion added: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1167,13 +1174,14 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const skill = await import(gleamPath('psypi_core/psypi_cli/skill.mjs'));
+        const skill = await import("#gleam-build/psypi_core/psypi_cli/skill.mjs");
         // Import None class from gleam/option
-        const { None } = await import(gleamPath('gleam_stdlib/gleam/option.mjs'));
+        const { None } = await import("#gleam-build/gleam_stdlib/gleam/option.mjs");
         // List all skills (None = no status filter)
         const result = await skill.list(new None());
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Skills: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Skills: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1195,10 +1203,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { get } = await import(gleamPath('psypi_core/psypi_cli/skill.mjs'));
+        const { get } = await import("#gleam-build/psypi_core/psypi_cli/skill.mjs");
         const result = await get(params.name);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Skill: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Skill: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1220,10 +1229,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { search } = await import(gleamPath('psypi_core/psypi_cli/skill.mjs'));
+        const { search } = await import("#gleam-build/psypi_core/psypi_cli/skill.mjs");
         const result = await search(params.query);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Search results: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Search results: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1250,7 +1260,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { add } = await import(gleamPath('psypi_core/psypi_cli/issue.mjs'));
+        const { add } = await import("#gleam-build/psypi_core/psypi_cli/issue.mjs");
         const identity = await AgentIdentityService.getResolvedIdentity();
         const result = await add(
           params.title,
@@ -1259,8 +1269,9 @@ export default function (pi: ExtensionAPI) {
           params.issue_type || 'bug',
           identity.id
         );
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Issue added: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Issue added: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1282,16 +1293,17 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { list } = await import(gleamPath('psypi_core/psypi_cli/issue.mjs'));
+        const { list } = await import("#gleam-build/psypi_core/psypi_cli/issue.mjs");
         // Import None from gleam/option for no filter
-        const { None } = await import(gleamPath('gleam_stdlib/gleam/option.mjs'));
+        const { None } = await import("#gleam-build/gleam_stdlib/gleam/option.mjs");
         const result = await list(params.status ? (() => {
           // Construct Some(status)
-          const { Some } = require(gleamPath('gleam_stdlib/gleam/option.mjs'));
+          const { Some } = require("#gleam-build/gleam_stdlib/gleam/option.mjs");
           return new Some(params.status);
         })() : new None());
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Issues: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Issues: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1314,10 +1326,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { resolve } = await import(gleamPath('psypi_core/psypi_cli/issue.mjs'));
+        const { resolve } = await import("#gleam-build/psypi_core/psypi_cli/issue.mjs");
         const result = await resolve(params.issue_id, params.resolution);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Issue resolved: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Issue resolved: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1342,11 +1355,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { send } = await import(gleamPath('psypi_core/psypi_cli/broadcast.mjs'));
+        const { send } = await import("#gleam-build/psypi_core/psypi_cli/broadcast.mjs");
         const identity = await AgentIdentityService.getResolvedIdentity();
 
         // Import Option types
-        const { Some, None } = await import(gleamPath('gleam_stdlib/gleam/option.mjs'));
+        const { Some, None } = await import("#gleam-build/gleam_stdlib/gleam/option.mjs");
 
         // Construct priority as Option type
         const priority = params.priority ? new Some(params.priority) : new None();
@@ -1356,8 +1369,9 @@ export default function (pi: ExtensionAPI) {
           params.message,
           priority
         );
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Broadcast sent: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Broadcast sent: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1379,16 +1393,17 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { list } = await import(gleamPath('psypi_core/psypi_cli/broadcast.mjs')) as any;
+        const { list } = await import("#gleam-build/psypi_core/psypi_cli/broadcast.mjs") as any;
         const identity = await AgentIdentityService.getResolvedIdentity();
 
         // Import Option types for agent_id
-        const { Some } = await import(gleamPath('gleam_stdlib/gleam/option.mjs'));
+        const { Some } = await import("#gleam-build/gleam_stdlib/gleam/option.mjs");
 
         // agent_id is Option<String>, limit is number
         const result = await list(new Some(identity.id), params.limit || 10);
+        const formattedResult = await formatGleamResult(result);
         return {
-          content: [{ type: "text" as const, text: `Broadcasts: ${formatGleamResult(result)}` }],
+          content: [{ type: "text" as const, text: `Broadcasts: ${formattedResult}` }],
           details: { result } as Record<string, unknown>,
         };
       } catch (err: any) {
@@ -1412,7 +1427,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { areflect } = await import(gleamPath('psypi_core/psypi_cli/areflect.mjs'));
+        const { areflect } = await import("#gleam-build/psypi_core/psypi_cli/areflect.mjs");
         const identity = await AgentIdentityService.getResolvedIdentity();
         const result = await areflect(params.text, identity.id);
         const formattedResult = await formatGleamResult(result);
@@ -1442,7 +1457,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { query_versions } = await import(gleamPath('psypi_core/psypi_cli/code_version.mjs'));
+        const { query_versions } = await import("#gleam-build/psypi_core/psypi_cli/code_version.mjs");
         
         const file_path_pattern = params.file_path || '';
         const saved_by_filter = params.saved_by || '';
