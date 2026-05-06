@@ -1,0 +1,129 @@
+# Workflow: Create Pi Tool
+
+<required_reading>
+**Read these reference files NOW before creating tool:**
+1. references/tool-pattern.md
+2. references/ctx-object.md
+3. references/ctx-ui-notify.md
+</required_reading>
+
+<process>
+## Step1: Identify Tool Purpose
+
+What will this tool do? Example tools in psypi:
+- `psypi-task-add` - Add a task to database
+- `psypi-tasks` - List all tasks
+- `psypi-commit` - Commit with Gleam review
+
+**Tool naming:** `psypi-{name}` (all lowercase, hyphenated)
+
+## Step2: Choose Implementation Location
+
+**Option A: In Gleam** (Recommended for psypi!)
+- Location: `gleam/psypi_core/src/psypi_cli/{module}.gleam`
+- Compile: `cd gleam/psypi_core && gleam build`
+- Import in extension: `import("...build/dev/javascript/.../module.mjs")`
+
+**Option B: In TypeScript**
+- Location: `src/agent/extension/extension.ts` (add to tools array)
+- Direct function definition
+
+**For psypi, prefer Gleam** (natural Gleam growth strategy!)
+
+## Step3: Implement in Gleam (Option A)
+
+**Gleam module** (`gleam/psypi_core/src/psypi_cli/tool_name.gleam`):
+
+```gleam
+import gleam/javascript/promise
+import gleam/result
+import psypi_cli/db  // If using database
+
+pub fn execute(param: String) -> promise.Promise(Result(String, Error)) {
+  // Implementation here
+  // Return Promise(Result) for async operations
+}
+```
+
+**Compile:**
+```bash
+cd /Users/jk/gits/hub/tools_ai/psypi/gleam/psypi_core
+gleam build
+```
+
+## Step4: Add Tool to Extension (TypeScript)
+
+**In** `src/agent/extension/extension.ts`:
+
+```typescript
+{
+  name: "psypi-tool-name",
+  description: "What this tool does. Use when...",
+  parameters: {
+    param: { type: "string", description: "Parameter description" }
+  },
+  execute: async (args, ctx) => {
+    const { execute } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/tool_name.mjs");
+    
+    try {
+      const result = await execute(args.param);
+      // Handle result
+      ctx.ui.notify("Success: " + result);
+      return "Tool completed successfully";
+    } catch (error) {
+      ctx.ui.notify("Error: " + error.message);
+      return "Tool failed";
+    }
+  }
+}
+```
+
+## Step5: Use ctx.ui.notify() Pattern
+
+**Always use ctx.ui.notify() for output:**
+
+```typescript
+execute: async (args, ctx) => {
+  // Do work...
+  const result = "Task completed";
+  
+  // Notify user (per Pi docs)
+  ctx.ui.notify(result);
+  
+  return result;  // Also return (shown in Pi output)
+}
+```
+
+## Step6: Test the Tool
+
+```bash
+# Build project
+cd /Users/jk/gits/hub/tools_ai/psypi
+pnpm build
+
+# Run psypi (which spawns Pi with extension)
+psypi
+
+# In Pi, tool should be available:
+# > use psypi-tool-name
+```
+</process>
+
+<anti_patterns>
+Avoid:
+- Using console.log (use ctx.ui.notify())
+- Not handling errors (always wrap in try/catch)
+- Forgetting to compile Gleam before testing
+- Not returning a string from execute()
+- Missing tool description (Pi needs it to know when to use tool)
+</anti_patterns>
+
+<success_criteria>
+Pi tool is complete when:
+- [ ] Tool registered in extension.ts with name, description, parameters
+- [ ] Gleam module compiles without errors (if using Gleam)
+- [ ] Tool uses ctx.ui.notify() for output
+- [ ] Error handling present (try/catch)
+- [ ] `pnpm build` succeeds
+- [ ] Tool appears in Pi and executes successfully
+</success_criteria>

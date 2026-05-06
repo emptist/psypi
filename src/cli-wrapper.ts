@@ -1,47 +1,34 @@
-// cli-wrapper.ts - Thin wrapper to run Gleam CLI
-// This replaces the old cli.ts (1358 lines → 20 lines!)
+#!/usr/bin/env node
+// cli-wrapper.ts - Launch Pi TUI with psypi extension
+// psypi = Pi TUI + psypi extension (not a standalone CLI!)
 // Small + Pure = Resilience!
 
-import { createRequire } from 'module';
-import { resolve } from 'path';
+import { spawn } from 'child_process';
+import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const require = createRequire(import.meta.url);
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-// Import and run the Gleam CLI
-const gleamCliPath = resolve(
-  __dirname,
-  '../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/main.mjs'
-);
+// Path to the compiled psypi extension
+const extensionPath = resolve(__dirname, 'agent/extension/extension.js');
 
-try {
-  // The Gleam CLI exports a main function
-  const { main } = await import(gleamCliPath);
-  
-  // Get command line args (skip node and script path)
-  const args = process.argv.slice(2);
-  
-  // Convert args to Gleam List
-  const gleamArgs = Array.isArray(args) ? args : [];
-  
-  // Run the Gleam CLI
-  const result = main(gleamArgs);
-  
-  // Handle promise result
-  if (result && typeof result.then === 'function') {
-    result.then((output: string) => {
-      if (output) console.log(output);
-      process.exit(0);
-    }).catch((err: Error) => {
-      console.error('Gleam CLI error:', err.message);
-      process.exit(1);
-    });
-  } else {
-    if (result) console.log(result);
-    process.exit(0);
-  }
-} catch (err) {
-  console.error('Failed to load Gleam CLI:', err);
-  process.exit(1);
-}
+// Launch Pi with the psypi extension
+// When no args: launches Pi TUI with extension loaded
+// When args provided: passes them to Pi (e.g., for Pi's CLI mode)
+const piArgs = ['-e', extensionPath, ...process.argv.slice(2)];
+
+const pi = spawn('pi', piArgs, {
+    stdio: 'inherit', // Pi takes over the terminal
+    shell: false
+});
+
+pi.on('close', (code) => {
+    process.exit(code || 0);
+});
+
+pi.on('error', (err) => {
+    console.error('Failed to launch Pi:', err.message);
+    console.error('Make sure pi is installed: npm install -g @mariozechner/pi-coding-agent');
+    process.exit(1);
+});
