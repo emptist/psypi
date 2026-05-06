@@ -4,6 +4,7 @@
   "description": "Unified AI coordination system - merging Nezha kernel + NuPI agent",
   "type": "module",
   "imports": {
+    "#gleam-build/*": "./gleam/psypi_core/build/dev/javascript/*",
     "#gleam/prelude": "./gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam.mjs",
     "#gleam/option": "./gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/option.mjs",
     "#gleam/result": "./gleam/psypi_core/build/dev/javascript/gleam_stdlib/gleam/result.mjs",
@@ -15,7 +16,7 @@
   },
   "scripts": {
     "build:gleam": "cd gleam/psypi_core && gleam build",
-    "build": "pnpm build:gleam && tsc && node scripts/fix-shebang.cjs",
+    "build": "pnpm build:gleam && node scripts/fix-imports.mjs && tsc && node scripts/fix-shebang.cjs",
     "typecheck": "tsc --noEmit",
     "dev": "tsx src/cli.ts",
     "test": "echo 'Tests coming soon' && exit 0"
