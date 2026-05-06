@@ -65,18 +65,34 @@ Plans:
 Plans:
 - [ ] 06-01: Deprecate nezha/nupi (rename to .deprecated), archive repos
 
-#### Phase 7: Natural Gleam Growth
+#### Phase 7: Natural Gleam Growth (Brilliant Strategy!)
 **Goal**: Grow Gleam core from 380 → 2000+ lines following "touch TS = rewrite in Gleam" rule
+**Strategy (2026-05-06 Breakthrough!):**
+1. ✅ **TS code in PostgreSQL** (266+ versions in `code_versions` table)
+2. **JS = thin wrapper** (same class/function names!)
+3. **Query TS from DB** → Write Gleam equivalents
+4. **Drop-in replacement** (same interface!)
+5. **NO MORE pnpm build!** Only `gleam build`! 🚀
+
 **Depends on**: Phase 4 (ongoing in parallel with Phase 5-6)
-**Plans**: TBD (split into atomic 2-3 task plans as TS modules are touched)
+**Plans**: Reorganized by priority (services first!)
 
 Plans:
-- [ ] 07-01: Migrate CLI routing from TypeScript to Gleam (cli.ts → Gleam main)
-- [ ] 07-02: Migrate TaskService from TypeScript to Gleam
-- [ ] 07-03: Migrate IssueService from TypeScript to Gleam
-- [ ] 07-04: Migrate SkillService from TypeScript to Gleam
-- [ ] 07-05: Migrate MeetingService from TypeScript to Gleam
-- [ ] (Additional plans added as needed during natural growth)
+- [ ] 07-01: Migrate AgentIdentityService (STARTED! agent_identity.gleam exists)
+- [ ] 07-02: Migrate DatabaseClient to Gleam
+- [ ] 07-03: Migrate ApiKeyService to Gleam  
+- [ ] 07-04: Migrate TaskService to Gleam
+- [ ] 07-05: Migrate IssueService to Gleam
+- [ ] 07-06: Migrate other services (SkillService, MeetingService, etc.)
+- [ ] 07-07: Migrate CLI routing (cli.ts → Gleam main)
+- [ ] (Additional plans as TS modules are touched)
+
+**Key Insights (2026-05-06):**
+- "Save to file FIRST - never forget!" 💾
+- "Remove all middle shits and you get the truth"
+- Same class/function names = drop-in replacement!
+- PostgreSQL backs up TS code + auto-backup before edits!
+- Multiple backup strategies: psypi-areflect + gh issues + files
 
 ### 📋 v2.0 Production Ready (Planned)
 
