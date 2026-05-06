@@ -23,7 +23,7 @@ fn save_learning(
   agent_id: String,
 ) -> promise.Promise(Result(Nil, LearningError)) {
   let sql = "
-    INSERT INTO memory (content, tags, source, importance, created_by)
+    INSERT INTO memory (content, tags, source, importance, agent_id)
     VALUES ($1, $2, 'learn', $3, $4)
   "
   let params = [
