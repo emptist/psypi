@@ -474,49 +474,21 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        // Remove middle shits - use Node.js exec directly!
-        const { exec } = await import('child_process');
+        const { execute } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/execute_cmd.mjs");
         const verifyFlag = params.noVerify ? "--no-verify" : "";
         const cmd = `psypi commit "${params.message}" ${verifyFlag}`;
-        
-        const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          exec(cmd, { timeout: 60000 }, (error, stdout, stderr) => {
-            if (error) {
-              reject(error);
-            } else {
-              resolve({ stdout, stderr });
-            }
-          });
-        });
-        
-        return {
-          content: [{ type: "text" as const, text: result.stdout || result.stderr || 'Commit completed' }],
-          details: { success: true } as Record<string, unknown>,
-        };
-      } catch (err: any) {
-        return {
-          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
-          details: { error: true, stderr: err.stderr } as Record<string, unknown>,
-        };
-      }
-    },
-  });
-
-  // psypi-my-id - Get current agent ID (SINGLE SOURCE OF TRUTH)
-  pi.registerTool({
-    name: "psypi-my-id",
-    label: "PsyPI My ID",
-    description: "Get current agent ID (e.g., S-psypi-psypi)",
-    parameters: Type.Object({}),
-    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
-      try {
-        // SINGLE SOURCE OF TRUTH: AgentIdentityService.getResolvedIdentity()
-        setSessionId(_ctx);
-        const identity = await AgentIdentityService.getResolvedIdentity();
-        return {
-          content: [{ type: "text" as const, text: `Agent ID: ${identity.id}` }],
-          details: { agentId: identity.id, source: identity.source, project: identity.project } as Record<string, unknown>,
-        };
+        const result = await execute(cmd, 30000);
+        if (result.isOk()) {
+          return {
+            content: [{ type: "text" as const, text: result[0].stdout || '' }],
+            details: { success: true } as Record<string, unknown>,
+          };
+        } else {
+          return {
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result[0])}` }],
+            details: { error: true } as Record<string, unknown>,
+          };
+        }
       } catch (err: any) {
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],
@@ -526,7 +498,38 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // psypi-partner-id - Get partner/monitor ID (SINGLE SOURCE OF TRUTH)
+  // psypi-my-id - Get current agent ID
+  pi.registerTool({
+    name: "psypi-my-id",
+    label: "PsyPI My ID",
+    description: "Get current agent ID (e.g., S-psypi-psypi)",
+    parameters: Type.Object({}),
+    async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
+      try {
+        const { get_current } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/identity.mjs");
+        const sessionId = _ctx?.sessionManager?.getSessionId() || process.env.AGENT_SESSION_ID || '';
+        const result = await get_current(sessionId);
+        if (result.isOk()) {
+          return {
+            content: [{ type: "text" as const, text: `Agent ID: ${result[0].id}` }],
+            details: { agentId: result[0].id } as Record<string, unknown>,
+          };
+        } else {
+          return {
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result[0])}` }],
+            details: { error: true } as Record<string, unknown>,
+          };
+        }
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${err.message}` }],
+          details: { error: true } as Record<string, unknown>,
+        };
+      }
+    },
+  });
+
+  // psypi-partner-id - Get partner/monitor ID
   pi.registerTool({
     name: "psypi-partner-id",
     label: "PsyPI Partner ID",
@@ -534,12 +537,19 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        // SINGLE SOURCE OF TRUTH: AgentIdentityService.getResolvedIdentity(true)
-        const identity = await AgentIdentityService.getResolvedIdentity(true); // permanent = true
-        return {
-          content: [{ type: "text" as const, text: `Partner ID: ${identity.id}` }],
-          details: { partnerId: identity.id, source: identity.source } as Record<string, unknown>,
-        };
+        const { get_partner } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/identity.mjs");
+        const result = await get_partner();
+        if (result.isOk()) {
+          return {
+            content: [{ type: "text" as const, text: `Partner ID: ${result[0].id}` }],
+            details: { partnerId: result[0].id } as Record<string, unknown>,
+          };
+        } else {
+          return {
+            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result[0])}` }],
+            details: { error: true } as Record<string, unknown>,
+          };
+        }
       } catch (err: any) {
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],
