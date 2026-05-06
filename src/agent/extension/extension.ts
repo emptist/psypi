@@ -94,6 +94,93 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
+  // ===== BASH PROTECTION: Backup before destructive commands =====
+  pi.on("tool_call", async (event) => {
+    if (event.toolName === "bash") {
+      const input = event.input as any;
+      const command = input?.command || '';
+      
+      // Check for dangerous commands
+      if (isDestructiveCommand(command)) {
+        if (VERBOSE) console.log(`[Auto-Backup] 🛡️ Destructive command detected: ${command.substring(0, 60)}...`);
+        await backupFilesFromCommand(command);
+      }
+    }
+  });
+
+  // Check if bash command is destructive
+  function isDestructiveCommand(cmd: string): boolean {
+    const destructivePatterns = [
+      /rm\s/,                    // rm command
+      /git\s+rm/,                // git rm
+      /git\s+checkout/,          // git checkout (can overwrite)
+      /git\s+reset/,             // git reset (can lose changes)
+      /git\s+clean/,             // git clean (removes untracked)
+      /find\s+.*-delete/,        // find -delete
+      /unlink\s/,                // unlink
+      /truncate\s/,              // truncate
+      /rmdir\s/,                 // rmdir
+    ];
+    return destructivePatterns.some(pattern => pattern.test(cmd));
+  }
+
+  // Backup files mentioned in a command
+  async function backupFilesFromCommand(command: string): Promise<void> {
+    try {
+      // Extract file paths from command
+      const filePathRegex = /[\/\w\.-]+(?:\.ts|\.js|\.mjs|\.cjs|\.json|\.md|\.gleam|\.sql|\.yml|\.yaml)?/g;
+      const matches = command.match(filePathRegex);
+      
+      if (matches) {
+        for (const filePath of matches) {
+          await backupSingleFile(filePath, `auto-backup before destructive: ${command.substring(0, 50)}`);
+        }
+      }
+      
+      if (VERBOSE) console.log(`[Auto-Backup] 🛡️ Protected against: ${command.substring(0, 50)}...`);
+    } catch (err: any) {
+      if (VERBOSE) console.log(`[Auto-Backup] ⚠️ Failed to backup for destructive command: ${err.message}`);
+    }
+  }
+
+  // Backup a single file (used by both edit and bash protection)
+  async function backupSingleFile(filePath: string, reason: string): Promise<void> {
+    try {
+      const fs = await import('fs');
+      if (!fs.existsSync(filePath)) return;
+
+      const crypto = await import('crypto');
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const hash = crypto.createHash('sha256').update(content).digest('hex');
+
+      const { save_version, get_versions } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs") as any;
+      const identity = await AgentIdentityService.getResolvedIdentity();
+
+      // Check if this version already exists (dedup)
+      const versions = await get_versions(filePath, 50);
+      let exists = false;
+      if (versions && typeof versions === 'object') {
+        const versionList = Array.isArray(versions) ? versions : (versions.rows || []);
+        for (const v of versionList) {
+          if (v?.version_hash === hash) {
+            exists = true;
+            break;
+          }
+        }
+      }
+
+      if (exists) {
+        if (VERBOSE) console.log(`[Auto-Backup] ⏭️ Skipped (already saved): ${filePath}`);
+        return;
+      }
+
+      const result = await save_version(filePath, content, identity.id, '', reason);
+      if (VERBOSE) console.log(`[Auto-Backup] ✅ Saved: ${filePath} (version: ${result})`);
+    } catch (err: any) {
+      if (VERBOSE) console.log(`[Auto-Backup] ⚠️ Failed: ${err.message}`);
+    }
+  }
+
   // ===== CORE TOOLS =====
 
   // psypi-task-add - Add a new task (calls Gleam task.add)
