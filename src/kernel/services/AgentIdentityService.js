@@ -2,7 +2,7 @@
 // STRATEGY: Same class/function names = drop-in replacement!
 // NO logic here - just calls Gleam!
 
-import { get_resolved_identity, list_identities } from '../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs';
+import { get_resolved_identity, list_identities } from '../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs';
 
 export class AgentIdentityService {
   static sessionId = undefined;
