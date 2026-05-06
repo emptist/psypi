@@ -1,5 +1,3 @@
-import gleam/string
-
 pub fn generate_semantic_id(
   permanent: Bool,
   source: String,

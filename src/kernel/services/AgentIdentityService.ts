@@ -50,7 +50,65 @@ export class AgentIdentityService {
 
   private async resolve(permanent?: boolean): Promise<AgentIdentity> {
     const context = await this.detectContext(permanent);
+    
+    // For permanent identities, try to find existing one first
+    if (permanent) {
+      const existing = await this.findExistingPartner(context);
+      if (existing) {
+        // Track session for existing identity
+        if (context.sessionId) {
+          await this.trackSession(existing.id, context.sessionId, context.source);
+        }
+        await this.trackActivity(existing.id, 'get_partner_id', context);
+        return existing;
+      }
+    }
+    
     return this.createIdentity(context);
+  }
+
+  private async findExistingPartner(context: any): Promise<AgentIdentity | null> {
+    const source = context.source || 'psypi';
+    const model = context.model;
+    
+    try {
+      let baseId: string;
+      
+      if (model && context.project) {
+        baseId = `P-${model}-${context.project}`;
+      } else if (model) {
+        baseId = `P-${model}`;
+      } else {
+        return null;
+      }
+      
+      // Look for exact base ID (without session suffix)
+      const result = await this.db.query(
+        `SELECT id, project, git_hash, machine_fingerprint, created_at, display_name, description, source 
+         FROM agent_identities 
+         WHERE id = $1 
+         LIMIT 1`,
+        [baseId]
+      );
+      
+      if (result.rows.length > 0) {
+        const row = result.rows[0];
+        return {
+          id: row.id,
+          project: row.project,
+          gitHash: row.git_hash,
+          machineFingerprint: row.machine_fingerprint,
+          createdAt: row.created_at,
+          displayName: row.display_name ?? undefined,
+          description: row.description ?? undefined,
+          source: row.source ?? source,
+        };
+      }
+    } catch (err: any) {
+      logger.warn(`[AgentIdentity] Failed to find existing partner: ${err.message}`);
+    }
+    
+    return null;
   }
 
   private async detectContext(permanent?: boolean) {

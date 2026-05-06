@@ -1,7 +1,7 @@
 import gleam/javascript/promise
 import psypi_cli/db
-import psypi_cli/agent_identity_types.{AgentIdentity, type AgentIdentity, type IdentityError, ConnectionError, QueryError}
-import psypi_cli/agent_identity_db.{insert_identity, fetch_identity_by_id, list_identities}
+import psypi_cli/agent_identity_types.{type AgentIdentity, type IdentityError, ConnectionError, QueryError}
+import psypi_cli/agent_identity_db.{insert_identity, fetch_identity_by_id}
 import psypi_cli/agent_identity_logic.{generate_semantic_id}
 
 fn db_error_to_identity_error(e: db.DbError) -> IdentityError {

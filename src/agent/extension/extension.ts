@@ -586,20 +586,17 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { get_current } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/identity.mjs");
-        const sessionId = _ctx?.sessionManager?.getSessionId() || process.env.AGENT_SESSION_ID || '';
-        const result = await get_current(sessionId);
-        if (result.isOk()) {
-          return {
-            content: [{ type: "text" as const, text: `Agent ID: ${result[0].id}` }],
-            details: { agentId: result[0].id } as Record<string, unknown>,
-          };
-        } else {
-          return {
-            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result[0])}` }],
-            details: { error: true } as Record<string, unknown>,
-          };
+        // Set sessionId from Pi context before resolving identity
+        if (_ctx?.sessionManager?.getSessionId()) {
+          AgentIdentityService.sessionId = _ctx.sessionManager.getSessionId();
         }
+        
+        // Use AgentIdentityService which creates identity if needed
+        const identity = await AgentIdentityService.getResolvedIdentity();
+        return {
+          content: [{ type: "text" as const, text: `Agent ID: ${identity.id}` }],
+          details: { agentId: identity.id } as Record<string, unknown>,
+        };
       } catch (err: any) {
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],
@@ -617,19 +614,11 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute(_toolCallId: string, _params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { get_partner } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/identity.mjs");
-        const result = await get_partner();
-        if (result.isOk()) {
-          return {
-            content: [{ type: "text" as const, text: `Partner ID: ${result[0].id}` }],
-            details: { partnerId: result[0].id } as Record<string, unknown>,
-          };
-        } else {
-          return {
-            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result[0])}` }],
-            details: { error: true } as Record<string, unknown>,
-          };
-        }
+        const identity = await AgentIdentityService.getResolvedIdentity(true);
+        return {
+          content: [{ type: "text" as const, text: `Partner ID: ${identity.id}` }],
+          details: { partnerId: identity.id } as Record<string, unknown>,
+        };
       } catch (err: any) {
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],

@@ -65,7 +65,8 @@ pub fn get_partner() -> promise.Promise(Result(Identity, IdentityError)) {
     let sql = "
       SELECT id, agent_type 
       FROM agent_identities 
-      WHERE agent_type = 'partner' 
+      WHERE id LIKE 'P-%' 
+      ORDER BY created_at DESC
       LIMIT 1
     "
     let params: List(dynamic.Dynamic) = []
