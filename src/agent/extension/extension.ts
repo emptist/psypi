@@ -561,21 +561,14 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: any, _signal?: AbortSignal, _onUpdate?: any, _ctx?: any) {
       try {
-        const { execute } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/execute_cmd.mjs");
+        const { execSync } = await import("child_process");
         const verifyFlag = params.noVerify ? "--no-verify" : "";
-        const cmd = `psypi commit "${params.message}" ${verifyFlag}`;
-        const result = await execute(cmd, 30000);
-        if (result.isOk()) {
-          return {
-            content: [{ type: "text" as const, text: result[0].stdout || '' }],
-            details: { success: true } as Record<string, unknown>,
-          };
-        } else {
-          return {
-            content: [{ type: "text" as const, text: `Error: ${JSON.stringify(result[0])}` }],
-            details: { error: true } as Record<string, unknown>,
-          };
-        }
+        const cmd = `git commit -m "${params.message}" ${verifyFlag}`;
+        const output = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe' });
+        return {
+          content: [{ type: "text" as const, text: output || 'Committed successfully!' }],
+          details: { success: true } as Record<string, unknown>,
+        };
       } catch (err: any) {
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],
