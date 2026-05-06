@@ -16,8 +16,8 @@ pub fn start_monitor_loop() -> promise.Promise(Result(Nil, IdentityError)) {
   check_system_health()
 }
 
-/// Check system health (DB, disk, builds)
-fn check_system_health() -> promise.Promise(Result(Nil, IdentityError)) {
+/// Check system health (DB, disk, builds) - NOW PUBLIC!
+pub fn check_system_health() -> promise.Promise(Result(Nil, IdentityError)) {
   db.with_connection(fn(conn) {
     let sql = "SELECT 1 as health"
     promise.map(db.query(conn, sql, []), fn(result) {
@@ -27,4 +27,10 @@ fn check_system_health() -> promise.Promise(Result(Nil, IdentityError)) {
       }
     })
   }, db_error_to_identity_error)
+}
+
+/// Housekeeping - auto-backup, cleanup - NOW PUBLIC!
+pub fn housekeeping() -> Nil {
+  // TODO: Implement
+  Nil
 }
