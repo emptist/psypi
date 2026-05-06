@@ -1,28 +1,46 @@
-# Phase 7 Plan 01: Establish Gleam Architecture Summary
+# Phase 7 Plan 01: Migrate AgentIdentityService
 
-**[Created extension.js thin wrapper importing Gleam modules]**
+**AgentIdentityService migrated: TS → Gleam + thin wrapper!** 🚀
 
 ## Accomplishments
-- Created `extension.js` (11 lines) with Pi-required `export default function(pi)`
-- Created Gleam `extension_tools.gleam` module (compiles successfully)
-- Proved architecture: JS wrapper → Gleam logic
-- No more pnpm build needed for extension code (only `gleam build` ~0.04s)
-- Verified import path: `src/agent/extension.js` → `../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/extension_tools.mjs`
+- ✅ Modularized `agent_identity.gleam` into 4 focused modules:
+  - `agent_identity_types.gleam` - Type definitions
+  - `agent_identity_db.gleam` - Database operations (real implementation!)
+  - `agent_identity_logic.gleam` - Semantic ID generation
+  - `agent_identity.gleam` - Main entry point
+- ✅ Created `src/kernel/services/AgentIdentityService.js` (thin wrapper)
+- ✅ Updated `extension.ts` to use Gleam via wrapper
+- ✅ Verified: `psypi-my-id` creates identities via Gleam!
+- ✅ `gleam build` works (with minimal warnings)
 
 ## Files Created/Modified
-- `src/agent/extension/extension.js` - New thin wrapper (Pi interface, 11 lines)
-- `gleam/psypi_core/src/psypi_cli/extension_tools.gleam` - New Gleam module (compiles to .mjs)
+- `gleam/psypi_core/src/psypi_cli/agent_identity_types.gleam` - NEW (types)
+- `gleam/psypi_core/src/psypi_cli/agent_identity_db.gleam` - NEW (DB ops)
+- `gleam/psypi_core/src/psypi_cli/agent_identity_logic.gleam` - NEW (logic)
+- `gleam/psypi_core/src/psypi_cli/agent_identity.gleam` - NEW (main)
+- `src/kernel/services/AgentIdentityService.js` - NEW (thin wrapper)
+- `src/agent/extension/extension.ts` - MODIFIED (uses wrapper)
 
-## Decisions Made
-- extension.js is mandatory (Pi requirement: needs `export default function(pi)`)
-- Gleam can't replace extension.js (Gleam uses named exports, not default)
-- All logic goes to Gleam, extension.js stays under 50 lines (currently 11)
-- Path relative to extension.js location: `../../../gleam/psypi_core/build/...`
+## Key Decisions
+- **Same function names** = drop-in replacement (brilliant strategy!)
+- **JS wrapper contains NO logic** - just calls Gleam
+- **Modular design** - Each Gleam module has single responsibility
+- **NO MORE `pnpm build` for this module** - only `gleam build`! 🚀
 
-## Issues Encountered
-- Gleam type error: Used `Dynamic` which wasn't imported → Fixed by using `Nil` type
-- Unused import warning: Removed `gleam/javascript/promise` (not needed yet)
-- Unused parameter warning: Added underscore `_pi` to indicate intentionally unused
+## Issues Encountered & Fixed
+1. **弯引号 issue** - Gleam requires straight quotes ONLY (`"` not `"` or `"`)
+2. **Import syntax** - Fixed `import gleam/dynamic` (not `import gleam/dynamic"`)
+3. **Decode imports** - Use `gleam/dynamic/decode` not `gleam/decode`
+4. **Type mismatches** - Fixed `promise.await` usage for chaining
+5. **Stubbed functions first** - Then implemented real logic after compilation succeeded
 
 ## Next Step
-Ready for **07-02-PLAN.md** (Migrate core tools to Gleam: task, issue, skill tools)
+Ready for **07-02-PLAN.md** (Migrate ApiKeyService to Gleam)
+
+## Verification Results
+- ✅ `gleam build` passes (no errors in our modules)
+- ✅ `psypi-my-id` returns ID in format `S-psypi-xxx`
+- ✅ Database shows identities created via Gleam
+- ✅ All code committed to git
+
+**The "brilliant strategy" works!** 💡
