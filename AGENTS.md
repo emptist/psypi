@@ -91,7 +91,7 @@ npm install    # ❌ Wrong
 
 ---
 
-## 📊 Current Status (2026-05-06)
+## 📊 Current Status (2026-05-07)
 
 ### 🎯 Architecture Evolution (BIG CHANGE!)
 **OLD**: CLI commands → TypeScript → Database
@@ -106,6 +106,12 @@ npm install    # ❌ Wrong
 - ✅ `gleam build` works (Gleam core growing!)
 - ❌ `pnpm build` DISABLED! (use `gleam build` ONLY!)
 - ✅ Gleam review via `psypi commit`
+
+### 🚨 CRITICAL Architecture Rule:
+**ONLY EXCEPTION**: Pi extension MUST be `.ts` or `.js` (NOT `.gleam` directly!)
+- `bin/psypi.mjs` → imports `main.mjs` (Gleam-compiled) ✅
+- `pi -e extension.js` → MUST be `.js` (manual creation!) ❌
+- We will CREATE `extension.js` manually (imports Gleam .mjs modules & registers Pi tools!)
 
 **🚨 CRITICAL WARNING: NEVER run `pnpm build` again!**
 - It DESTROYS Gleam wrappers (covers them with OLD TypeScript!)
