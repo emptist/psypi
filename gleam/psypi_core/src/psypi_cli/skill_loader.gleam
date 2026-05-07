@@ -16,11 +16,11 @@
 // - Use recursive functions for list processing
 
 import gleam/dynamic.{type Dynamic}
-import gleam/dynamic/decode.{type Decoder}
+import gleam/dynamic/decode
 import gleam/string
 import gleam/list
 import gleam/option.{type Option, Some, None}
-import gleam/order.{type Order, Gt, Lt, Eq}
+import gleam/order.{Gt, Lt}
 
 /// Skill source - CORRECTS TS string type
 /// TS uses: source: 'clawhub' | 'local' | 'generated' | 'imported' | 'ai-built'

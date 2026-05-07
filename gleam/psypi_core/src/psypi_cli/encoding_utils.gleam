@@ -7,7 +7,7 @@ pub type Encoding {
 }
 
 /// Simple string encoding check
-pub fn is_utf8_compatible(input: String) -> Bool {
+pub fn is_utf8_compatible(_input: String) -> Bool {
   // Gleam strings are UTF-8 by default
   True
 }

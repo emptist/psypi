@@ -1,4 +1,3 @@
-import gleam/string
 import gleam/int
 
 pub fn format_date(year: Int, month: Int, day: Int) -> String {

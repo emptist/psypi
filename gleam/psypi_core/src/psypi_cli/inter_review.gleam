@@ -119,12 +119,6 @@ fn status_decoder() -> decode.Decoder(String) {
   decode.success(status)
 }
 
-/// Decoder for review id from list
-fn id_decoder() -> decode.Decoder(String) {
-  use id <- decode.field("id", decode.string)
-  decode.success(id)
-}
-
 /// Get full review details by ID
 /// Returns: Review record with all fields
 pub fn get_review_details(

@@ -1,5 +1,4 @@
 import gleam/dynamic
-import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import psypi_cli/db

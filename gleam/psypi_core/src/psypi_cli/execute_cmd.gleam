@@ -1,5 +1,4 @@
 import gleam/javascript/promise
-import gleam/int
 
 pub type CmdResult {
   CmdResult(

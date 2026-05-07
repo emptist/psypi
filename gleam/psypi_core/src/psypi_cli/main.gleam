@@ -1,6 +1,4 @@
 import gleam/javascript/promise
-import gleam/list
-import gleam/string
 
 // External function to spawn Pi via Node.js FFI
 @external(javascript, "./main_ffi.mjs", "spawn_pi")

@@ -1,5 +1,4 @@
 import gleam/javascript/promise
-import gleam/result
 
 pub type Config {
   Config(
@@ -32,11 +31,8 @@ pub fn get_config() -> promise.Promise(Result(Config, ConfigError)) {
   })
 }
 
-fn get_env(key: String) -> String {
-  // Use JavaScript FFI to read environment variable
-  let js_get = "
-    process.env['" <> key <> "'] || ''
-  "
+fn get_env(_key: String) -> String {
+  // TODO: Implement proper FFI for env vars
   // Simplified - returns empty string if not found
   ""
 }

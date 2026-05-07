@@ -1,5 +1,4 @@
 import simplifile
-import gleam/result
 
 pub type FileError {
   NotFound(String)

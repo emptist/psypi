@@ -1,7 +1,6 @@
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
-import gleam/option.{type Option}
 import gleam/list
 import gleam/string
 import psypi_cli/db

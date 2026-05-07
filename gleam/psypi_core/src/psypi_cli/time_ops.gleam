@@ -1,5 +1,4 @@
 import gleam/int
-import gleam/string
 
 /// Format seconds as MM:SS
 pub fn format_seconds(total_seconds: Int) -> String {
