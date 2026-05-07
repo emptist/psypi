@@ -33,8 +33,9 @@ export default function(pi) {
     description: "Get current agent ID",
     parameters: {},
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam agent_identity.get_resolved_identity
-      return { content: [{ type: "text", text: "psypi-my-id - not yet connected to Gleam" }] };
+      try { const result = await get_resolved_identity(false);
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: r.value[0].id }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -44,8 +45,9 @@ export default function(pi) {
     description: "Get partner/monitor ID",
     parameters: {},
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam agent_identity.get_resolved_identity
-      return { content: [{ type: "text", text: "psypi-partner-id - not yet connected to Gleam" }] };
+      try { const result = await get_resolved_identity(true);
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: r.value[0].id }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -55,8 +57,9 @@ export default function(pi) {
     description: "List all agents",
     parameters: {},
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam agents.list
-      return { content: [{ type: "text", text: "psypi-agents - not yet connected to Gleam" }] };
+      try { const result = await agents_list();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -66,8 +69,9 @@ export default function(pi) {
     description: "Add a new task",
     parameters: { "title": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam task.add
-      return { content: [{ type: "text", text: "psypi-task-add - not yet connected to Gleam" }] };
+      try { const result = await task_add(params.title, params.description || "", params.priority || 5, "cli");
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: `Task: ${r.value}` }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -77,8 +81,9 @@ export default function(pi) {
     description: "Complete a task",
     parameters: { "taskId": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam task.complete
-      return { content: [{ type: "text", text: "psypi-task-complete - not yet connected to Gleam" }] };
+      try { const result = await task_complete(params.taskId);
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: `Completed!` }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -88,8 +93,9 @@ export default function(pi) {
     description: "List tasks",
     parameters: { "status": { type: "string", optional: true } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam task.list
-      return { content: [{ type: "text", text: "psypi-tasks - not yet connected to Gleam" }] };
+      try { const result = await task_list(params?.status || null);
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -99,8 +105,9 @@ export default function(pi) {
     description: "Build a skill",
     parameters: { "name": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam skill.build
-      return { content: [{ type: "text", text: "psypi-skill-build - not yet connected to Gleam" }] };
+      try { const result = await build();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -110,8 +117,9 @@ export default function(pi) {
     description: "List skills",
     parameters: {},
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam skill.list
-      return { content: [{ type: "text", text: "psypi-skill-list - not yet connected to Gleam" }] };
+      try { const result = await list();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -121,8 +129,9 @@ export default function(pi) {
     description: "Show skill",
     parameters: { "name": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam skill.get
-      return { content: [{ type: "text", text: "psypi-skill-show - not yet connected to Gleam" }] };
+      try { const result = await get();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -132,8 +141,9 @@ export default function(pi) {
     description: "Search skills",
     parameters: { "query": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam skill.search
-      return { content: [{ type: "text", text: "psypi-skill-search - not yet connected to Gleam" }] };
+      try { const result = await search();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -143,8 +153,9 @@ export default function(pi) {
     description: "Add an issue",
     parameters: { "title": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam issue.add
-      return { content: [{ type: "text", text: "psypi-issue-add - not yet connected to Gleam" }] };
+      try { const result = await add();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -154,8 +165,9 @@ export default function(pi) {
     description: "List issues",
     parameters: { "status": { type: "string", optional: true } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam issue.list
-      return { content: [{ type: "text", text: "psypi-issue-list - not yet connected to Gleam" }] };
+      try { const result = await list();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -165,8 +177,9 @@ export default function(pi) {
     description: "Resolve issue",
     parameters: { "issueId": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam issue.resolve
-      return { content: [{ type: "text", text: "psypi-issue-resolve - not yet connected to Gleam" }] };
+      try { const result = await resolve();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -176,8 +189,9 @@ export default function(pi) {
     description: "Save learning",
     parameters: { "content": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam learning.save
-      return { content: [{ type: "text", text: "psypi-learn - not yet connected to Gleam" }] };
+      try { const result = await save();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -187,8 +201,9 @@ export default function(pi) {
     description: "AI reflect",
     parameters: { "content": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam learning.save
-      return { content: [{ type: "text", text: "psypi-areflect - not yet connected to Gleam" }] };
+      try { const result = await save();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -198,8 +213,9 @@ export default function(pi) {
     description: "Send broadcast",
     parameters: { "message": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam broadcast.send
-      return { content: [{ type: "text", text: "psypi-broadcast-send - not yet connected to Gleam" }] };
+      try { const result = await send();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -209,8 +225,9 @@ export default function(pi) {
     description: "List broadcasts",
     parameters: {},
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam broadcast.list
-      return { content: [{ type: "text", text: "psypi-broadcast-list - not yet connected to Gleam" }] };
+      try { const result = await list();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -220,8 +237,9 @@ export default function(pi) {
     description: "Create meeting",
     parameters: { "title": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam meeting.create
-      return { content: [{ type: "text", text: "psypi-meeting-create - not yet connected to Gleam" }] };
+      try { const result = await create();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -231,8 +249,9 @@ export default function(pi) {
     description: "List meetings",
     parameters: { "status": { type: "string", optional: true } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam meeting.list
-      return { content: [{ type: "text", text: "psypi-meeting-list - not yet connected to Gleam" }] };
+      try { const result = await list();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -242,8 +261,9 @@ export default function(pi) {
     description: "Get meeting",
     parameters: { "meetingId": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam meeting.get
-      return { content: [{ type: "text", text: "psypi-meeting-get - not yet connected to Gleam" }] };
+      try { const result = await get();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -253,8 +273,9 @@ export default function(pi) {
     description: "Add opinion",
     parameters: { "meetingId": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam meeting.add_opinion
-      return { content: [{ type: "text", text: "psypi-meeting-add-opinion - not yet connected to Gleam" }] };
+      try { const result = await add_opinion();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -264,8 +285,9 @@ export default function(pi) {
     description: "List opinions",
     parameters: { "meetingId": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam meeting.list_opinions
-      return { content: [{ type: "text", text: "psypi-meeting-list-opinions - not yet connected to Gleam" }] };
+      try { const result = await list_opinions();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -275,8 +297,9 @@ export default function(pi) {
     description: "Complete meeting",
     parameters: { "meetingId": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam meeting.complete
-      return { content: [{ type: "text", text: "psypi-meeting-complete - not yet connected to Gleam" }] };
+      try { const result = await complete();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -286,8 +309,10 @@ export default function(pi) {
     description: "Get statistics",
     parameters: {},
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam stats.stats
-      return { content: [{ type: "text", text: "psypi-stats - not yet connected to Gleam" }] };
+      try { const result = await stats();
+      const r = unwrapGleamResult(result);
+      const s = r.value;
+      return r.ok ? { content: [{ type: "text", text: `Tasks:${s.tasks} Issues:${s.issues} Skills:${s.skills} Meetings:${s.meetings}` }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -297,8 +322,9 @@ export default function(pi) {
     description: "Validate commit",
     parameters: { "message": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam validation.validate
-      return { content: [{ type: "text", text: "psypi-validate-commit - not yet connected to Gleam" }] };
+      try { const result = await validate();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -308,8 +334,9 @@ export default function(pi) {
     description: "Commit with review",
     parameters: { "message": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam inter_review.request
-      return { content: [{ type: "text", text: "psypi-commit - not yet connected to Gleam" }] };
+      try { const result = await request();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -319,8 +346,9 @@ export default function(pi) {
     description: "Request review",
     parameters: { "taskId": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam inter_review.request
-      return { content: [{ type: "text", text: "psypi-inter-review-request - not yet connected to Gleam" }] };
+      try { const result = await request();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -330,8 +358,9 @@ export default function(pi) {
     description: "List reviews",
     parameters: { "status": { type: "string", optional: true } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam inter_review.list_reviews
-      return { content: [{ type: "text", text: "psypi-inter-reviews - not yet connected to Gleam" }] };
+      try { const result = await list_reviews();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -341,8 +370,9 @@ export default function(pi) {
     description: "Show review",
     parameters: { "reviewId": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // TODO: Connect to Gleam inter_review.show
-      return { content: [{ type: "text", text: "psypi-inter-review-show - not yet connected to Gleam" }] };
+      try { const result = await show();
+      const r = unwrapGleamResult(result);
+      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
