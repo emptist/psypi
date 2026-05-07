@@ -156,4 +156,38 @@ npm install    # ❌ Wrong
 - ✅ Deprecate: `file.ts` → `file.ts.deprecated`
 - ✅ Short + Simple = Better!
 
+---
+
+## 🚨 CRITICAL: `package.json` is NOT Required!
+
+**Proof (Tested 2026-05-07):**
+```bash
+mv package.json package.json.temp  # REMOVED!
+./bin/psypi.mjs --help           # ✅ STILL WORKS!
+cd gleam/psypi_core && gleam build  # ✅ WORKS!
+```
+
+**What's Required (Must-Have!):**
+1. ✅ `gleam.toml` - Gleam project config!
+2. ✅ `manifest.toml` - Gleam dependency locks!
+3. ✅ `bin/psypi.mjs` - Thin wrapper (with shebang!)
+4. ✅ `gleam/.../build/` - Compiled Gleam `.mjs` files!
+5. ✅ `node_modules/` - Runtime deps (`pg`, `@sinclair/typebox`!)
+
+**What's NOT Required:**
+- ❌ Root `package.json` - NOT needed for Gleam or Node.js runtime!
+- ❌ `imports` field - NOT used! (extension.js uses relative paths!)
+- ❌ `pnpm install` - ONLY if you delete `node_modules/` and need to restore it!
+
+**Keep `package.json` for Convenience:**
+- ✅ `pnpm install` to restore `node_modules/` if deleted
+- ✅ `pnpm link -g` for `psypi` command (easier than manual symlink!)
+- ✅ Documents project metadata (name, version, description!)
+
+**Gleam has OWN package management:**
+- `gleam.toml` (NOT `package.json`!) handles Gleam deps!
+- Stored in `gleam/` directory (NOT `node_modules/`!)
+
+---
+
 **Happy coding with psypi!** 🚀
