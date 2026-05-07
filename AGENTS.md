@@ -108,10 +108,19 @@ npm install    # ❌ Wrong
 - ✅ Gleam review via `psypi commit`
 
 ### 🚨 CRITICAL Architecture Rule:
-**ONLY EXCEPTION**: Pi extension MUST be `.ts` or `.js` (NOT `.gleam` directly!)
-- `bin/psypi.mjs` → imports `main.mjs` (Gleam-compiled) ✅
-- `pi -e extension.js` → MUST be `.js` (manual creation!) ❌
-- We will CREATE `extension.js` manually (imports Gleam .mjs modules & registers Pi tools!)
+**Pi Extension Exception (ONLY EXCEPTION!):**
+- Pi extension MUST be `.ts` or `.js` **MANUALLY created**!
+- Pi has STRICT requirements on file name & content (NOT free to change!)
+- CANNOT compile from `extension.gleam` - Pi won't accept it!
+- **Structure REQUIRED:** `export default function (pi: ExtensionAPI) { ... }`
+- **MUST use:** `pi.registerTool()` for tools, `pi.on()` for hooks!
+
+**Correct Pattern:**
+- `bin/psypi.mjs` → imports `main.mjs` (Gleam-compiled directly!) ✅
+- `pi -e extension.js` → MANUAL .js with Pi structure (imports Gleam .mjs!) ✅
+- `extension.gleam` → ❌ NEVER! Pi can't load Gleam directly!
+
+**Example:** See `/Users/jk/Library/pnpm/global/5/.pnpm/@mariozechner+pi-coding-agent@0.73.0_ws@8.20.0_zod@4.4.2/node_modules/@mariozechner/pi-coding-agent/examples/extensions/todo.ts`!
 
 **🚨 CRITICAL WARNING: NEVER run `pnpm build` again!**
 - It DESTROYS Gleam wrappers (covers them with OLD TypeScript!)
