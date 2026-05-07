@@ -41,14 +41,15 @@ pub fn housekeeping(agent_id: String) -> promise.Promise(Result(Nil, MonitorErro
   db.with_connection(fn(conn) {
     // CORRECT: Use saved_at (not created_at!)
     let sql = "
-      INSERT INTO code_versions (file_path, content, saved_by, reason)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO code_versions (file_path, content, saved_by, reason, version_hash)
+      VALUES ($1, $2, $3, $4, $5)
     "
     let params = [
       dynamic.string("monitor_ai_auto_backup"),
       dynamic.string("test content"),
       dynamic.string(agent_id),
       dynamic.string("auto-backup"),
+      dynamic.string("dummy_hash"),
     ]
     
     promise.map(db.query(conn, sql, params), fn(result) {

@@ -16,7 +16,7 @@ import { build as skill_build, list as skill_list, show as skill_show, search as
 import { check_system_health, housekeeping, prepare_context } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/monitor_ai.mjs";
 import { learn, areflect } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/learning.mjs";
 import { send as broadcast_send, list as broadcast_list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs";
-import { request as inter_review_request, list as inter_reviews, show as inter_review_show } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/inter_review.mjs";
+import { request as inter_review_request, list_reviews as inter_reviews, show as inter_review_show } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/inter_review.mjs";
 import { create as meeting_create, list as meeting_list, get as meeting_get, add_opinion as meeting_add_opinion, list_opinions as meeting_list_opinions, complete as meeting_complete } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/meeting.mjs";
 
 // Import thin JS wrappers (for services that still need TS layer)
@@ -229,7 +229,11 @@ export default function (pi) {
       severity: { type: "string", optional: true },
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const result = await issue_add(params.title, params.description || "", params.issue_type || "bug", params.severity || "medium");
+      const identityResult = await getIdentity(false, _ctx);
+      if (!identityResult.ok) {
+        return { content: [{ type: "text", text: `Error: Could not get identity: ${identityResult.error}` }] };
+      }
+      const result = await issue_add(params.title, params.description || "", params.severity || "medium", params.issue_type || "bug", identityResult.value.id);
       const issueResult = unwrapGleamResult(result);
       if (!issueResult.ok) {
         return { content: [{ type: "text", text: `Error adding issue: ${issueResult.error}` }] };
@@ -271,9 +275,9 @@ export default function (pi) {
     }
   });
 
-  // Monitor AI tools
+  // System tools (renamed from monitor- to system-)
   pi.registerTool({
-    name: "psypi-monitor-health",
+    name: "psypi-system-health",
     description: "Check system health",
     parameters: {},
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
@@ -287,7 +291,7 @@ export default function (pi) {
   });
 
   pi.registerTool({
-    name: "psypi-monitor-housekeeping",
+    name: "psypi-system-housekeeping",
     description: "Run housekeeping tasks",
     parameters: {},
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {

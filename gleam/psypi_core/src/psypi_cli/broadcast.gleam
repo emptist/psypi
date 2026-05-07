@@ -9,7 +9,7 @@ pub type BroadcastPriority {
   Low
   Normal
   High
-  Urgent
+  Critical
 }
 
 pub type BroadcastStatus {
@@ -38,20 +38,20 @@ pub type BroadcastError {
   DecodeError(String)
 }
 
-pub fn priority_to_int(p: BroadcastPriority) -> Int {
+pub fn priority_to_string(p: BroadcastPriority) -> String {
   case p {
-    Low -> 0
-    Normal -> 1
-    High -> 2
-    Urgent -> 3
+    Low -> "low"
+    Normal -> "normal"
+    High -> "high"
+    Critical -> "critical"
   }
 }
 
-pub fn int_to_priority(i: Int) -> BroadcastPriority {
-  case i {
-    3 -> Urgent
-    2 -> High
-    1 -> Normal
+pub fn string_to_priority(s: String) -> BroadcastPriority {
+  case s {
+    "critical" -> Critical
+    "high" -> High
+    "normal" -> Normal
     _ -> Low
   }
 }
@@ -69,7 +69,7 @@ fn broadcast_decoder() -> decode.Decoder(Broadcast) {
   use id <- decode.field("id", decode.string)
   use agent_id <- decode.field("agent_id", decode.string)
   use message <- decode.field("message", decode.string)
-  use priority_int <- decode.field("priority", decode.int)
+  use priority_str <- decode.field("priority", decode.string)
   use status_str <- decode.field("status", decode.string)
   use created_at <- decode.field("created_at", decode.string)
   use sent_at <- decode.field("sent_at", decode.optional(decode.string))
@@ -78,7 +78,7 @@ fn broadcast_decoder() -> decode.Decoder(Broadcast) {
     id: id,
     agent_id: agent_id,
     message: message,
-    priority: int_to_priority(priority_int),
+    priority: string_to_priority(priority_str),
     status: string_to_status(status_str),
     created_at: created_at,
     sent_at: sent_at,
@@ -121,7 +121,7 @@ pub fn send(
       dynamic.string(default_project_id),
       dynamic.string(agent_id),
       dynamic.string(message),
-      dynamic.int(priority_to_int(priority)),
+      dynamic.string(priority_to_string(priority)),
       dynamic.string("{\"sent_at\": \"now\"}"),
     ]
 

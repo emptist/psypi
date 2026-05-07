@@ -1,48 +1,48 @@
 import gleeunit/should
-import psypi_cli/broadcast.{priority_to_int, int_to_priority, Low, Normal, High, Urgent}
+import psypi_cli/broadcast.{priority_to_string, string_to_priority, Low, Normal, High, Critical}
 
-pub fn priority_to_int_low_test() {
-  priority_to_int(Low)
-  |> should.equal(0)
+pub fn priority_to_string_low_test() {
+  priority_to_string(Low)
+  |> should.equal("low")
 }
 
-pub fn priority_to_int_normal_test() {
-  priority_to_int(Normal)
-  |> should.equal(1)
+pub fn priority_to_string_normal_test() {
+  priority_to_string(Normal)
+  |> should.equal("normal")
 }
 
-pub fn priority_to_int_high_test() {
-  priority_to_int(High)
-  |> should.equal(2)
+pub fn priority_to_string_high_test() {
+  priority_to_string(High)
+  |> should.equal("high")
 }
 
-pub fn priority_to_int_urgent_test() {
-  priority_to_int(Urgent)
-  |> should.equal(3)
+pub fn priority_to_string_critical_test() {
+  priority_to_string(Critical)
+  |> should.equal("critical")
 }
 
-pub fn int_to_priority_0_test() {
-  int_to_priority(0)
+pub fn string_to_priority_low_test() {
+  string_to_priority("low")
   |> should.equal(Low)
 }
 
-pub fn int_to_priority_1_test() {
-  int_to_priority(1)
+pub fn string_to_priority_normal_test() {
+  string_to_priority("normal")
   |> should.equal(Normal)
 }
 
-pub fn int_to_priority_2_test() {
-  int_to_priority(2)
+pub fn string_to_priority_high_test() {
+  string_to_priority("high")
   |> should.equal(High)
 }
 
-pub fn int_to_priority_3_test() {
-  int_to_priority(3)
-  |> should.equal(Urgent)
+pub fn string_to_priority_critical_test() {
+  string_to_priority("critical")
+  |> should.equal(Critical)
 }
 
-pub fn int_to_priority_default_test() {
-  // Test default case (not 0,1,2,3)
-  int_to_priority(99)
+pub fn string_to_priority_default_test() {
+  // Test default case
+  string_to_priority("unknown")
   |> should.equal(Low) // Based on implementation: _ -> Low
 }
