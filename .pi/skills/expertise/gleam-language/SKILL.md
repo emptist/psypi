@@ -56,6 +56,8 @@ What would you like to do with Gleam?
 All in `references/`:
 
 **Syntax:** syntax-basics.md, pattern-matching.md, custom-types.md
+**Pattern Matching:** pattern-matching.md (NEW)
+**Custom Types:** custom-types.md
 **Interop:** js-interop.md, erlang-interop.md, gleam-packages.md
 **Patterns:** functional-patterns.md, error-handling.md, async-patterns.md
 **Database:** postgresql-interop.md (psypi uses node_pg)
@@ -71,7 +73,7 @@ All in `workflows/`:
 
 | File | Purpose |
 |------|---------|
-| build-new-module.md | Create new Gleam module from scratch |
+| build-new-module.md | Create new Gleam module from scratch (NEW) |
 | migrate-ts-to-gleam.md | Convert TypeScript module to Gleam |
 | debug-gleam.md | Find and fix Gleam compilation/runtime errors |
 | gleam-js-interop.md | Call JavaScript from Gleam |
