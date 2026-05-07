@@ -2,7 +2,8 @@
 // STRATEGY: Same class/function names = drop-in replacement!
 // NO logic here - just calls Gleam!
 
-import { get_resolved_identity, list_identities } from '../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs';
+import { get_resolved_identity } from '../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs';
+import { Ok as OkConstructor } from '../../../gleam/psypi_core/build/dev/javascript/psypi_core/gleam.mjs';
 
 export class AgentIdentityService {
   static sessionId = undefined;
@@ -27,7 +28,7 @@ export class AgentIdentityService {
     const machineFingerprint = '';
     const model = '';
 
-    // Call Gleam function (SAME param names as TS!)
+    // Call Gleam function
     const result = await get_resolved_identity(
       permanent,
       sessionId,
@@ -39,31 +40,10 @@ export class AgentIdentityService {
     );
 
     // Convert Gleam Result to JS object
-    if (result.Ok) {
+    // Gleam Ok(value) is represented as instance of OkConstructor with value at [0]
+    if (result instanceof OkConstructor) {
+      const id = result[0];
       return {
-        id: result.Ok.id,
-        project: result.Ok.project || null,
-        gitHash: result.Ok.git_hash || null,
-        machineFingerprint: result.Ok.machine_fingerprint,
-        createdAt: new Date(result.Ok.created_at),
-        displayName: result.Ok.display_name || undefined,
-        description: result.Ok.description || undefined,
-        source: result.Ok.source || undefined,
-      };
-    } else {
-      throw new Error(`Failed to get identity: ${JSON.stringify(result.Error)}`);
-    }
-  }
-
-  /**
-   * List agent identities
-   * SAME function name as TS version!
-   */
-  async list(limit = 20) {
-    const result = await list_identities(limit);
-
-    if (result.Ok) {
-      return result.Ok.map(id => ({
         id: id.id,
         project: id.project || null,
         gitHash: id.git_hash || null,
@@ -72,10 +52,18 @@ export class AgentIdentityService {
         displayName: id.display_name || undefined,
         description: id.description || undefined,
         source: id.source || undefined,
-      }));
+      };
     } else {
-      return [];
+      throw new Error(`Failed to get identity: ${JSON.stringify(result)}`);
     }
   }
+
+  /**
+   * List agent identities
+   * SAME function name as TS version!
+   */
+  async list(limit = 20) {
+    // TODO: Implement list_identities in Gleam
+    return [];
+  }
 }
-// Test backup system - Thu  7 May 2026 10:20:37 CST

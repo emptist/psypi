@@ -17,6 +17,7 @@ import { check_system_health, housekeeping, prepare_context } from "../../../gle
 import { learn, areflect } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/learning.mjs";
 import { send as broadcast_send, list as broadcast_list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs";
 import { request as inter_review_request, list as inter_reviews, show as inter_review_show } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/inter_review.mjs";
+import { create as meeting_create, list as meeting_list, get as meeting_get, add_opinion as meeting_add_opinion, list_opinions as meeting_list_opinions, complete as meeting_complete } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/meeting.mjs";
 
 // Import thin JS wrappers (for services that still need TS layer)
 import { AgentIdentityService } from "../../../src/kernel/services/AgentIdentityService.js";
@@ -25,6 +26,40 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const VERBOSE = process.env.PSYPI_VERBOSE === 'true' || process.env.NODE_ENV !== 'production';
+
+// Helper to extract Gleam Result values
+function unwrapGleamResult(result) {
+  if (!result) return { ok: false, error: 'null result' };
+  const typeName = result.constructor?.name || '';
+  if (typeName === 'Ok') {
+    return { ok: true, value: result['0'] };
+  }
+  if (typeName === 'Error') {
+    const err = result['0'];
+    return { ok: false, error: err?.['0'] || err?.toString() || 'Unknown error' };
+  }
+  return { ok: true, value: result };
+}
+
+// Helper to get identity with proper parameters
+async function getIdentity(permanent = false, ctx) {
+  const sessionId = (ctx?.sessionManager?.getSessionId()) || AgentIdentityService.sessionId || '';
+  const source = process.env.PSYPI_AGENT_SOURCE || 'psypi';
+  const project = 'psypi';
+  
+  // Get git hash
+  let gitHash = '';
+  try {
+    const { execSync } = await import('child_process');
+    gitHash = execSync('git rev-parse HEAD', { cwd: __dirname + '/../../..' }).toString().trim();
+  } catch {}
+  
+  const machineFingerprint = process.env.HOSTNAME || process.env.COMPUTERNAME || 'unknown';
+  const model = ctx?.model?.id || process.env.PSYPI_MODEL || '';
+  
+  const result = await get_resolved_identity(permanent, sessionId, project, gitHash, machineFingerprint, source, model);
+  return unwrapGleamResult(result);
+}
 
 // Initialize extension - Pi REQUIRES this structure!
 export default function (pi) {
@@ -77,9 +112,12 @@ export default function (pi) {
     name: "psypi-my-id",
     description: "Get current agent ID (e.g., S-psypi-psypi)",
     parameters: {},
-    handler: async () => {
-      const identity = await get_resolved_identity();
-      return { content: [{ type: "text", text: `My ID: ${identity.id}` }] };
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const result = await getIdentity(false, ctx);
+      if (!result.ok) {
+        return { content: [{ type: "text", text: `Error: ${result.error}` }] };
+      }
+      return { content: [{ type: "text", text: `My ID: ${result.value.id}` }] };
     }
   });
 
@@ -87,8 +125,8 @@ export default function (pi) {
     name: "psypi-partner-id",
     description: "Get partner/monitor ID (permanent God AI, e.g., P-tencent/hy3-preview:free-psypi)",
     parameters: {},
-    handler: async () => {
-      const identity = await get_resolved_identity(true);
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      const identity = await AgentIdentityService.getResolvedIdentity(true);
       return { content: [{ type: "text", text: `Partner ID: ${identity.id}` }] };
     }
   });
@@ -102,8 +140,8 @@ export default function (pi) {
       description: { type: "string", optional: true },
       priority: { type: "number", optional: true },
     },
-    handler: async (args) => {
-      const result = await task_add(args.title, args.description || "", args.priority || 5);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await task_add(params.title, params.description || "", params.priority || 5);
       return { content: [{ type: "text", text: `Task added! ID: ${result}` }] };
     }
   });
@@ -116,8 +154,8 @@ export default function (pi) {
       name: { type: "string" },
       purpose: { type: "string" },
     },
-    handler: async (args) => {
-      const result = await skill_build(args.name, args.purpose);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await skill_build(params.name, params.purpose);
       return { content: [{ type: "text", text: `Skill created: ${result}` }] };
     }
   });
@@ -126,7 +164,7 @@ export default function (pi) {
     name: "psypi-skill-list",
     description: "List all approved skills",
     parameters: {},
-    handler: async () => {
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
       const result = await skill_list();
       return { content: [{ type: "text", text: `Skills: ${JSON.stringify(result)}` }] };
     }
@@ -138,8 +176,8 @@ export default function (pi) {
     parameters: {
       name: { type: "string" },
     },
-    handler: async (args) => {
-      const result = await skill_show(args.name);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await skill_show(params.name);
       return { content: [{ type: "text", text: `Skill: ${JSON.stringify(result)}` }] };
     }
   });
@@ -150,8 +188,8 @@ export default function (pi) {
     parameters: {
       query: { type: "string" },
     },
-    handler: async (args) => {
-      const result = await skill_search(args.query);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await skill_search(params.query);
       return { content: [{ type: "text", text: `Results: ${JSON.stringify(result)}` }] };
     }
   });
@@ -166,8 +204,8 @@ export default function (pi) {
       issue_type: { type: "string", optional: true },
       severity: { type: "string", optional: true },
     },
-    handler: async (args) => {
-      const result = await issue_add(args.title, args.description || "", args.issue_type || "bug", args.severity || "medium");
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await issue_add(params.title, params.description || "", params.issue_type || "bug", params.severity || "medium");
       return { content: [{ type: "text", text: `Issue added! ID: ${result}` }] };
     }
   });
@@ -178,8 +216,8 @@ export default function (pi) {
     parameters: {
       status: { type: "string", optional: true },
     },
-    handler: async (args) => {
-      const result = await issue_list(args.status || null);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await issue_list(params.status || null);
       return { content: [{ type: "text", text: `Issues: ${JSON.stringify(result)}` }] };
     }
   });
@@ -191,8 +229,8 @@ export default function (pi) {
       issue_id: { type: "string" },
       resolution: { type: "string" },
     },
-    handler: async (args) => {
-      const result = await issue_resolve(args.issue_id, args.resolution);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await issue_resolve(params.issue_id, params.resolution);
       return { content: [{ type: "text", text: `Issue resolved! ${result}` }] };
     }
   });
@@ -202,7 +240,7 @@ export default function (pi) {
     name: "psypi-monitor-health",
     description: "Check system health",
     parameters: {},
-    handler: async () => {
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
       const result = await check_system_health();
       return { content: [{ type: "text", text: `Health: ${JSON.stringify(result)}` }] };
     }
@@ -212,7 +250,7 @@ export default function (pi) {
     name: "psypi-monitor-housekeeping",
     description: "Run housekeeping tasks",
     parameters: {},
-    handler: async () => {
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
       const result = await housekeeping();
       return { content: [{ type: "text", text: `Housekeeping done! ${result}` }] };
     }
@@ -227,8 +265,8 @@ export default function (pi) {
       importance: { type: "number", optional: true },
       tags: { type: "string", optional: true },
     },
-    handler: async (args) => {
-      const result = await learn(args.content, args.importance || 5, args.tags || "");
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await learn(params.content, params.importance || 5, params.tags || "");
       return { content: [{ type: "text", text: `Learning saved! ${result}` }] };
     }
   });
@@ -239,8 +277,8 @@ export default function (pi) {
     parameters: {
       text: { type: "string" },
     },
-    handler: async (args) => {
-      const result = await areflect(args.text);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await areflect(params.text);
       return { content: [{ type: "text", text: `Reflection saved! ${result}` }] };
     }
   });
@@ -253,8 +291,8 @@ export default function (pi) {
       message: { type: "string" },
       priority: { type: "string", optional: true },
     },
-    handler: async (args) => {
-      const result = await broadcast_send(args.message, args.priority || "normal");
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await broadcast_send(params.message, params.priority || "normal");
       return { content: [{ type: "text", text: `Broadcast sent! ${result}` }] };
     }
   });
@@ -265,21 +303,122 @@ export default function (pi) {
     parameters: {
       limit: { type: "number", optional: true },
     },
-    handler: async (args) => {
-      const result = await broadcast_list(args.limit || 10);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await broadcast_list(params.limit || 10);
       return { content: [{ type: "text", text: `Messages: ${JSON.stringify(result)}` }] };
     }
   });
 
   // Inter-review tools
   pi.registerTool({
+    name: "psypi-meeting-create",
+    description: "Create a new meeting",
+    parameters: {
+      topic: { type: "string" },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const identityResult = await getIdentity(false, _ctx);
+      if (!identityResult.ok) {
+        return { content: [{ type: "text", text: `Error: Could not get identity: ${identityResult.error}` }] };
+      }
+      const result = await meeting_create(params.topic, identityResult.value.id);
+      const meetingResult = unwrapGleamResult(result);
+      if (!meetingResult.ok) {
+        return { content: [{ type: "text", text: `Error creating meeting: ${meetingResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Meeting created! ID: ${meetingResult.value}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-meeting-list",
+    description: "List meetings (optional status filter: pending, active, completed, cancelled)",
+    parameters: {
+      status: { type: "string", optional: true },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await meeting_list(params.status || null);
+      return { content: [{ type: "text", text: `Meetings: ${JSON.stringify(result)}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-meeting-get",
+    description: "Get details of a specific meeting",
+    parameters: {
+      meeting_id: { type: "string" },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await meeting_get(params.meeting_id);
+      const meetingResult = unwrapGleamResult(result);
+      if (!meetingResult.ok) {
+        return { content: [{ type: "text", text: `Error: ${meetingResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Meeting: ${JSON.stringify(meetingResult.value)}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-meeting-add-opinion",
+    description: "Add opinion to a meeting",
+    parameters: {
+      meeting_id: { type: "string" },
+      perspective: { type: "string" },
+      reasoning: { type: "string", optional: true },
+      vote: { type: "string", optional: true },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const identity = await get_resolved_identity();
+      const identityResult = unwrapGleamResult(identity);
+      if (!identityResult.ok) {
+        return { content: [{ type: "text", text: `Error: Could not get identity: ${identityResult.error}` }] };
+      }
+      const result = await meeting_add_opinion(params.meeting_id, identityResult.value.id, params.perspective, params.reasoning || null, params.vote || null);
+      const opinionResult = unwrapGleamResult(result);
+      if (!opinionResult.ok) {
+        return { content: [{ type: "text", text: `Error adding opinion: ${opinionResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Opinion added! ID: ${opinionResult.value}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-meeting-list-opinions",
+    description: "List opinions for a meeting",
+    parameters: {
+      meeting_id: { type: "string" },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await meeting_list_opinions(params.meeting_id);
+      return { content: [{ type: "text", text: `Opinions: ${JSON.stringify(result)}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-meeting-complete",
+    description: "Complete a meeting with consensus",
+    parameters: {
+      meeting_id: { type: "string" },
+      consensus: { type: "string" },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await meeting_complete(params.meeting_id, params.consensus);
+      const completeResult = unwrapGleamResult(result);
+      if (!completeResult.ok) {
+        return { content: [{ type: "text", text: `Error completing meeting: ${completeResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Meeting completed! ID: ${completeResult.value}` }] };
+    }
+  });
+
+  pi.registerTool({
     name: "psypi-inter-review-request",
     description: "Request an inter-review for a task",
     parameters: {
       taskId: { type: "string" },
     },
-    handler: async (args) => {
-      const result = await inter_review_request(args.taskId);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await inter_review_request(params.taskId);
       return { content: [{ type: "text", text: `Review requested! ${result}` }] };
     }
   });
@@ -290,8 +429,8 @@ export default function (pi) {
     parameters: {
       status: { type: "string", optional: true },
     },
-    handler: async (args) => {
-      const result = await inter_reviews(args.status || null);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await inter_reviews(params.status || null);
       return { content: [{ type: "text", text: `Reviews: ${JSON.stringify(result)}` }] };
     }
   });
@@ -302,8 +441,8 @@ export default function (pi) {
     parameters: {
       reviewId: { type: "string" },
     },
-    handler: async (args) => {
-      const result = await inter_review_show(args.reviewId);
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await inter_review_show(params.reviewId);
       return { content: [{ type: "text", text: `Review: ${JSON.stringify(result)}` }] };
     }
   });

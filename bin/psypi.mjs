@@ -1,21 +1,36 @@
 #!/usr/bin/env node
-// Wrapper to run Gleam-compiled executable
-import { main } from '../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/main.mjs';
+// Wrapper to run Gleam-compiled executable WITH Pi extension!
 
+// FIX: Load psypi extension automatically so Pi tools work anywhere!
+
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Path to extension.js
+const extensionPath = join(__dirname, '../src/agent/extension/extension.js');
+
+// Path to pi binary
+const piBin = 'pi';
+
+// Build arguments: load extension + pass through user args
 const args = process.argv.slice(2);
+const piArgs = ['-e', extensionPath, ...args];
 
-// main returns Promise<Int>
-const result = main(args);
+// Spawn Pi with extension loaded
+const child = spawn(piBin, piArgs, {
+  stdio: 'inherit',
+  shell: false
+});
 
-if (result && typeof result.then === 'function') {
-  result.then((code) => {
-    process.exit(code || 0);
-  }).catch((err) => {
-    console.error('Error:', err.message);
-    process.exit(1);
-  });
-} else {
-  // Should not happen
-  console.log(result);
-  process.exit(0);
-}
+child.on('close', (code) => {
+  process.exit(code || 0);
+});
+
+child.on('error', (err) => {
+  console.error('Failed to start Pi:', err.message);
+  process.exit(1);
+});
