@@ -14,7 +14,7 @@ import { list as task_list, complete as task_complete } from "../../../gleam/psy
 import { add as issue_add, list as issue_list, resolve as issue_resolve } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs";
 import { build as skill_build, list as skill_list, show as skill_show, search as skill_search } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs";
 import { check_system_health, housekeeping, prepare_context } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/monitor_ai.mjs";
-import { learn, areflect } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/learning.mjs";
+import { save as learn } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/learning.mjs";
 import { send as broadcast_send, list as broadcast_list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs";
 import { request as inter_review_request, list_reviews as inter_reviews, show as inter_review_show } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/inter_review.mjs";
 import { create as meeting_create, list as meeting_list, get as meeting_get, add_opinion as meeting_add_opinion, list_opinions as meeting_list_opinions, complete as meeting_complete } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/meeting.mjs";
@@ -313,8 +313,16 @@ export default function (pi) {
       importance: { type: "number", optional: true },
       tags: { type: "string", optional: true },
     },
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const result = await learn(params.content, params.importance || 5, params.tags || "");
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // Get agent_id using same pattern as psypi-my-id
+      const identityResult = await getIdentity(false, ctx);
+      if (!identityResult.ok) {
+        return { content: [{ type: "text", text: `Error getting identity: ${identityResult.error}` }] };
+      }
+      const agentId = identityResult.value.id;
+      
+      // Call save(content, tags, importance, agent_id) - correct parameter order!
+      const result = await learn(params.content, params.tags || "", params.importance || 5, agentId);
       const learnResult = unwrapGleamResult(result);
       if (!learnResult.ok) {
         return { content: [{ type: "text", text: `Error saving learning: ${learnResult.error}` }] };

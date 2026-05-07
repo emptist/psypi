@@ -206,18 +206,18 @@ pub fn search(
 pub fn create(
   name: String,
   description: String,
-  created_by: String,
+  author: String,
 ) -> promise.Promise(Result(String, SkillError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      INSERT INTO skills (name, description, status, safety_score, created_by)
+      INSERT INTO skills (name, description, status, safety_score, author)
       VALUES ($1, $2, 'pending', 0, $3)
       RETURNING id
     "
     let params = [
       dynamic.string(name),
       dynamic.string(description),
-      dynamic.string(created_by),
+      dynamic.string(author),
     ]
 
     promise.map(db.query(conn, sql, params), fn(query_result) {
