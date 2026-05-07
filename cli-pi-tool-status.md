@@ -5,7 +5,7 @@ This table lists which CLI commands have been promoted to Pi tools, based on cod
 | CLI Command                     | Promoted to Pi Tool? | Pi Tool Name                  | Status (Code Check)                          |
 | ------------------------------- | -------------------- | ----------------------------- | -------------------------------------------- |
 | `task-add <title>`              | ✅ Yes               | `psypi-task-add`              | Found in extension.js                        |
-| `tasks`                         | ❌ No                | `psypi-tasks` (documented)    | Not found in code                             |
+| `tasks`                         | ✅ Yes              | `psypi-tasks`                  | Found in extension.js + **TESTED!**         |
 | `task-complete <taskId>`        | ✅ Yes               | `psypi-task-complete`         | Found in extension.js                        |
 | `issue-add <title>`             | ✅ Yes               | `psypi-issue-add`             | Found in extension.js                        |
 | `issue-list`                    | ✅ Yes               | `psypi-issue-list`            | Found in extension.js                        |
@@ -41,12 +41,12 @@ This table lists which CLI commands have been promoted to Pi tools, based on cod
 | `help [command]`                | ❌ No                | `psypi-help` (documented)     | Not found in code                             |
 
 ## Summary
-- **Promoted to Pi Tools (found in code):** 29 tools (was 28!)
-- **Documented but not found in code:** 13 tools
+- **Promoted to Pi Tools (found in code):** 30 tools (was 29!)
+- **Documented but not found in code:** 12 tools
 - **No Pi tool planned:** 1 tool (`provider-set-key`)
 
 ## Notes
-- The main extension file `src/agent/extension/extension.js` contains 29 registered Pi tools.
+- The main extension file `src/agent/extension/extension.js` contains 30 registered Pi tools.
 - Many tools documented as "Done" in `docs/cli-vs-pi-tools.md` are not present in the code.
 - Missing tools may be in other extension files, deprecated, or not yet implemented.
-- Verified tools in extension.js: psypi-my-id, psypi-partner-id, psypi-agents, psypi-task-add, psypi-task-complete, psypi-skill-build, psypi-skill-list, psypi-skill-show, psypi-skill-search, psypi-issue-add, psypi-issue-list, psypi-issue-resolve, psypi-system-health, psypi-system-housekeeping, psypi-learn, psypi-areflect, psypi-broadcast-send, psypi-broadcast-list, psypi-meeting-*, psypi-inter-review-*, psypi-stats (**NEW! TESTED!**).
+- Verified tools in extension.js: psypi-my-id, psypi-partner-id, psypi-agents, psypi-task-add, psypi-task-complete, **psypi-tasks (NEW!)**, psypi-skill-build, psypi-skill-list, psypi-skill-show, psypi-skill-search, psypi-issue-add, psypi-issue-list, psypi-issue-resolve, psypi-system-health, psypi-system-housekeeping, psypi-learn, psypi-areflect, psypi-broadcast-send, psypi-broadcast-list, psypi-meeting-*, psypi-inter-review-*, psypi-stats.

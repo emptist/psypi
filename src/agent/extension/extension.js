@@ -10,7 +10,7 @@ import { fileURLToPath } from "url";
 // Import Gleam-compiled modules (relative paths from this file)
 import { get_resolved_identity } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs";
 import { add as task_add } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
-import { list as task_list, complete as task_complete } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
+import { list as task_list, complete as task_complete, get as task_get } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
 import { list as agents_list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agents.mjs";
 import { add as issue_add, list as issue_list, resolve as issue_resolve } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs";
 import { build as skill_build, list as skill_list, get as skill_show, search as skill_search } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs";
@@ -186,6 +186,23 @@ export default function (pi) {
         return { content: [{ type: "text", text: `Error completing task: ${taskResult.error}` }] };
       }
       return { content: [{ type: "text", text: `Task completed! ${taskResult.value}` }] };
+    }
+  });
+
+  // Task list tool
+  pi.registerTool({
+    name: "psypi-tasks",
+    description: "List all tasks (optional status filter)",
+    parameters: {
+      status: { type: "string", optional: true },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await task_list(params.status || null);
+      const taskResult = unwrapGleamResult(result);
+      if (!taskResult.ok) {
+        return { content: [{ type: "text", text: `Error listing tasks: ${taskResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Tasks: ${JSON.stringify(taskResult.value)}` }] };
     }
   });
 
