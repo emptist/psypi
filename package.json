@@ -12,7 +12,7 @@
     "#psypi/issue": "./gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs"
   },
   "bin": {
-    "psypi": "./dist/cli-wrapper.js"
+    "psypi": "./bin/psypi.mjs"
   },
   "scripts": {
     "build:gleam": "cd gleam/psypi_core && gleam build",

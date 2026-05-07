@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // Wrapper to run Gleam-compiled executable
 import { main } from '../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/main.mjs';
 
