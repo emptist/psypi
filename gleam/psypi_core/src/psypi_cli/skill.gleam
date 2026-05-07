@@ -110,14 +110,14 @@ pub fn list(
   db.with_connection(fn(conn) {
     let sql = case status {
       Some(_) -> "
-        SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content, reference_list
+        SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content::text, reference_list::text
         FROM skills
         WHERE status = $1
         ORDER BY name ASC
         LIMIT 100
       "
       None -> "
-        SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content, reference_list
+        SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content::text, reference_list::text
         FROM skills
         ORDER BY name ASC
         LIMIT 100
