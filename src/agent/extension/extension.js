@@ -108,7 +108,205 @@ export default function (pi) {
     }
   });
 
-  // ... (more tools can be added following this pattern)
+  // Skill tools
+  pi.registerTool({
+    name: "psypi-skill-build",
+    description: "Build a new skill",
+    parameters: {
+      name: { type: "string" },
+      purpose: { type: "string" },
+    },
+    handler: async (args) => {
+      const result = await skill_build(args.name, args.purpose);
+      return { content: [{ type: "text", text: `Skill created: ${result}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-skill-list",
+    description: "List all approved skills",
+    parameters: {},
+    handler: async () => {
+      const result = await skill_list();
+      return { content: [{ type: "text", text: `Skills: ${JSON.stringify(result)}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-skill-show",
+    description: "Show details of a specific skill",
+    parameters: {
+      name: { type: "string" },
+    },
+    handler: async (args) => {
+      const result = await skill_show(args.name);
+      return { content: [{ type: "text", text: `Skill: ${JSON.stringify(result)}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-skill-search",
+    description: "Search skills by keyword",
+    parameters: {
+      query: { type: "string" },
+    },
+    handler: async (args) => {
+      const result = await skill_search(args.query);
+      return { content: [{ type: "text", text: `Results: ${JSON.stringify(result)}` }] };
+    }
+  });
+
+  // Issue tools
+  pi.registerTool({
+    name: "psypi-issue-add",
+    description: "Add a new issue to the database",
+    parameters: {
+      title: { type: "string" },
+      description: { type: "string", optional: true },
+      issue_type: { type: "string", optional: true },
+      severity: { type: "string", optional: true },
+    },
+    handler: async (args) => {
+      const result = await issue_add(args.title, args.description || "", args.issue_type || "bug", args.severity || "medium");
+      return { content: [{ type: "text", text: `Issue added! ID: ${result}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-issue-list",
+    description: "List issues (optional status filter)",
+    parameters: {
+      status: { type: "string", optional: true },
+    },
+    handler: async (args) => {
+      const result = await issue_list(args.status || null);
+      return { content: [{ type: "text", text: `Issues: ${JSON.stringify(result)}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-issue-resolve",
+    description: "Resolve an issue with a resolution note",
+    parameters: {
+      issue_id: { type: "string" },
+      resolution: { type: "string" },
+    },
+    handler: async (args) => {
+      const result = await issue_resolve(args.issue_id, args.resolution);
+      return { content: [{ type: "text", text: `Issue resolved! ${result}` }] };
+    }
+  });
+
+  // Monitor AI tools
+  pi.registerTool({
+    name: "psypi-monitor-health",
+    description: "Check system health",
+    parameters: {},
+    handler: async () => {
+      const result = await check_system_health();
+      return { content: [{ type: "text", text: `Health: ${JSON.stringify(result)}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-monitor-housekeeping",
+    description: "Run housekeeping tasks",
+    parameters: {},
+    handler: async () => {
+      const result = await housekeeping();
+      return { content: [{ type: "text", text: `Housekeeping done! ${result}` }] };
+    }
+  });
+
+  // Learning tools
+  pi.registerTool({
+    name: "psypi-learn",
+    description: "Save a learning to memory",
+    parameters: {
+      content: { type: "string" },
+      importance: { type: "number", optional: true },
+      tags: { type: "string", optional: true },
+    },
+    handler: async (args) => {
+      const result = await learn(args.content, args.importance || 5, args.tags || "");
+      return { content: [{ type: "text", text: `Learning saved! ${result}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-areflect",
+    description: "Reflection with auto-parse: [LEARN] [ISSUE] [TASK] tags",
+    parameters: {
+      text: { type: "string" },
+    },
+    handler: async (args) => {
+      const result = await areflect(args.text);
+      return { content: [{ type: "text", text: `Reflection saved! ${result}` }] };
+    }
+  });
+
+  // Broadcast tools
+  pi.registerTool({
+    name: "psypi-broadcast-send",
+    description: "Send a broadcast message to other agents",
+    parameters: {
+      message: { type: "string" },
+      priority: { type: "string", optional: true },
+    },
+    handler: async (args) => {
+      const result = await broadcast_send(args.message, args.priority || "normal");
+      return { content: [{ type: "text", text: `Broadcast sent! ${result}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-broadcast-list",
+    description: "List broadcast messages for current agent",
+    parameters: {
+      limit: { type: "number", optional: true },
+    },
+    handler: async (args) => {
+      const result = await broadcast_list(args.limit || 10);
+      return { content: [{ type: "text", text: `Messages: ${JSON.stringify(result)}` }] };
+    }
+  });
+
+  // Inter-review tools
+  pi.registerTool({
+    name: "psypi-inter-review-request",
+    description: "Request an inter-review for a task",
+    parameters: {
+      taskId: { type: "string" },
+    },
+    handler: async (args) => {
+      const result = await inter_review_request(args.taskId);
+      return { content: [{ type: "text", text: `Review requested! ${result}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-inter-reviews",
+    description: "List inter-reviews (optional status filter)",
+    parameters: {
+      status: { type: "string", optional: true },
+    },
+    handler: async (args) => {
+      const result = await inter_reviews(args.status || null);
+      return { content: [{ type: "text", text: `Reviews: ${JSON.stringify(result)}` }] };
+    }
+  });
+
+  pi.registerTool({
+    name: "psypi-inter-review-show",
+    description: "Show details of a specific inter-review",
+    parameters: {
+      reviewId: { type: "string" },
+    },
+    handler: async (args) => {
+      const result = await inter_review_show(args.reviewId);
+      return { content: [{ type: "text", text: `Review: ${JSON.stringify(result)}` }] };
+    }
+  });
 
   if (VERBOSE) {
     console.log(`[PsyPI] All tools registered!`);
