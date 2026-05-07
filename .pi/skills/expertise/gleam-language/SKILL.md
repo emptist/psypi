@@ -55,14 +55,15 @@ What would you like to do with Gleam?
 
 All in `references/`:
 
-**Syntax:** syntax-basics.md, pattern-matching.md, custom-types.md
-**Pattern Matching:** pattern-matching.md (NEW)
-**Custom Types:** custom-types.md
+**Syntax:** syntax-basics.md (NEW), pattern-matching.md, custom-types.md (NEW)
+**Pattern Matching:** pattern-matching.md
+**Custom Types:** custom-types.md (NEW)
+**Interop:** js-interop.md (NEW), erlang-interop.md, gleam-packages.md
 **Interop:** js-interop.md, erlang-interop.md, gleam-packages.md
 **Patterns:** functional-patterns.md, error-handling.md, async-patterns.md
 **Database:** postgresql-interop.md (psypi uses node_pg)
 **Build:** build-compile.md, project-structure.md
-**Testing:** testing-gleeunit.md, test-patterns.md
+**Testing:** testing-gleeunit.md (NEW), test-patterns.md
 **Anti-patterns:** what-not-to-do.md
 </reference_index>
 
