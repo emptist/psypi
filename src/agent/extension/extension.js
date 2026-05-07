@@ -13,7 +13,7 @@ import { add as task_add } from "../../../gleam/psypi_core/build/dev/javascript/
 import { list as task_list, complete as task_complete, get as task_get } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
 import { list as agents_list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agents.mjs";
 import { add as issue_add, list as issue_list, resolve as issue_resolve } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs";
-import { build as skill_build, list as skill_list, get as skill_show, search as skill_search } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs";
+import { build as skill_build, list as skill_list, get as skill_get, get as skill_show, search as skill_search } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs";
 console.log('Imported skill_show:', typeof skill_show);
 import { check_system_health, housekeeping, prepare_context } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/monitor_ai.mjs";
 import { save as learn } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/learning.mjs";
@@ -311,18 +311,41 @@ export default function (pi) {
     }
   });
 
-  /* TEMPORARILY DISABLED - psypi-skill-load
+  // psypi-skill-load tool (Database-First Skill System - Step 3)
   pi.registerTool({
     name: "psypi-skill-load",
-    description: "Cache a skill locally from database to .pi/skills/ directory",
+    description: "Load skill content from database and save to .pi/skills/ directory",
     parameters: {
       name: { type: "string" },
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      // ... implementation ...
+      try {
+        const result = await skill_get(params.name);
+        const skillResult = unwrapGleamResult(result);
+        if (!skillResult.ok) {
+          return { content: [{ type: "text", text: `Error: ${skillResult.error}` }] };
+        }
+        
+        const skill = skillResult.value;
+        const fs = await import('fs');
+        const path = await import('path');
+        
+        // Create directory: .pi/skills/<name>/
+        const skillDir = path.join(process.cwd(), '.pi', 'skills', params.name);
+        fs.mkdirSync(skillDir, { recursive: true });
+        
+        // Write SKILL.md from database content
+        if (skill.content) {
+          fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skill.content);
+          return { content: [{ type: "text", text: `Skill loaded! Saved to ${skillDir}/SKILL.md` }] };
+        } else {
+          return { content: [{ type: "text", text: `Skill '${params.name}' has no content in database` }] };
+        }
+      } catch (err) {
+        return { content: [{ type: "text", text: `Error loading skill: ${err.message}` }] };
+      }
     }
   });
-  */
 
   // Issue tools
   pi.registerTool({
