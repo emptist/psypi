@@ -1,4 +1,21 @@
+// DEPRECATED - This file is kept for reference only!
+// Use 'psypi' command instead (spawns Pi with all tools)
+//
+// ⚠️ DO NOT RUN THIS FILE DIRECTLY!
+// Run 'psypi' from command line instead.
+//
+// This file was the old CLI implementation before Pi tool migration.
+// All commands are now available as Pi tools in extension.js.
+// If you run this directly, you won't have access to:
+// - Session management
+// - Agent context
+// - Pi TUI features
+
 #!/usr/bin/env node
+// DEPRECATED - See note above!
+
+
+
 // Psypi CLI - Unified AI coordination system (Nezha kernel + PsyPI agent)
 
 import { Command } from 'commander';
