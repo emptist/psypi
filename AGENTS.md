@@ -34,28 +34,36 @@ description: Agent instructions for psypi (READ FIRST!)
 
 ## 🚨 CRITICAL WARNING: NEVER SPAWN PI FROM PI TOOLS!
 
-**INFINITE LOOP DANGER!**
+**INFINITE LOOP DANGER! SYSTEM CRASH IN MINUTES!**
 
 If a Pi tool tries to spawn another Pi process:
 ```
 Pi Tool → spawn('pi') → New Pi → Pi Tool → spawn('pi') → New Pi → ...
 ```
-**Result: System crash in minutes!**
+**Result: System resources exhausted in minutes, crash guaranteed!**
+
+**Why this is fatal:**
+- Each Pi spawns another Pi → exponential growth
+- CPU, memory, disk handles run out
+- System becomes unresponsive
+- Only hard reboot recovers (Ctrl+C doesn't work!)
 
 **Dangerous patterns (NEVER use in Pi tools or extension.js):**
 ```javascript
 // ❌ NEVER DO THIS IN PI TOOLS!
 import { spawn } from 'child_process';
 spawn('pi', ['-e', 'extension.js']);  // INFINITE LOOP!
+
+// ❌ ALSO NEVER!
+spawn('psypi', ['autonomous']);  // Same infinite loop!
+
+// ❌ NOT EVEN THIS!
+exec('pi -e extension.js');  // Still spawns Pi!
 ```
 
-**Safe spawn points (entry points ONLY):**
+**Safe spawn points (entry points ONLY - NEVER in Pi tools):**
 - ✅ `bin/psypi.mjs` - Entry point, spawns Pi with extension
 - ✅ `gleam/.../main_ffi.mjs` - Entry point from `main.gleam`
-
-**DANGEROUS file found:**
-- ⚠️ `gleam/psypi_core/src/psypi_cli/spawn_ffi.mjs` - spawns Pi!
-- Check if any Pi tool imports this!
 
 **Rule: Pi tools should call Gleam functions directly, NOT spawn Pi!**
 
