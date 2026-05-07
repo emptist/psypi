@@ -33,8 +33,10 @@ async function getIdentity(permanent = false, ctx) {
   let gitHash = '';
   try { const { execSync } = await import('child_process');
     gitHash = execSync('git rev-parse HEAD', { cwd: process.cwd() }).toString().trim(); } catch {}
+  const machineFingerprint = process.env.HOSTNAME || process.env.COMPUTERNAME || 'unknown';
   const model = ctx?.model?.id || process.env.PSYPI_MODEL || '';
-  const result = await get_resolved_identity(permanent, sessionId, project, gitHash, 'unknown', source, model);
+  // Call Gleam with all 7 args!
+  const result = await get_resolved_identity(permanent, sessionId, project, gitHash, machineFingerprint, source, model);
   return unwrapGleamResult(result);
 }
 
