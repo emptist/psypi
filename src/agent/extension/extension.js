@@ -26,6 +26,18 @@ function unwrapGleamResult(result) {
   return { ok: true, value: result };
 }
 
+async function getIdentity(permanent = false, ctx) {
+  const sessionId = ctx?.sessionManager?.getSessionId() || '';
+  const source = process.env.PSYPI_AGENT_SOURCE || 'psypi';
+  const project = 'psypi';
+  let gitHash = '';
+  try { const { execSync } = await import('child_process');
+    gitHash = execSync('git rev-parse HEAD', { cwd: process.cwd() }).toString().trim(); } catch {}
+  const model = ctx?.model?.id || process.env.PSYPI_MODEL || '';
+  const result = await get_resolved_identity(permanent, sessionId, project, gitHash, 'unknown', source, model);
+  return unwrapGleamResult(result);
+}
+
 export default function(pi) {
   // Get current agent ID
   pi.registerTool({
@@ -33,9 +45,8 @@ export default function(pi) {
     description: "Get current agent ID",
     parameters: {},
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      try { const result = await get_resolved_identity(false);
-      const r = unwrapGleamResult(result);
-      return r.ok ? { content: [{ type: "text", text: r.value[0].id }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
+      try { const result = await getIdentity(false, _ctx);
+      return result.ok ? { content: [{ type: "text", text: result.value.id }] } : { content: [{ type: "text", text: `Error: ${result.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
@@ -45,9 +56,8 @@ export default function(pi) {
     description: "Get partner/monitor ID",
     parameters: {},
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      try { const result = await get_resolved_identity(true);
-      const r = unwrapGleamResult(result);
-      return r.ok ? { content: [{ type: "text", text: r.value[0].id }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
+      try { const result = await getIdentity(true, _ctx);
+      return result.ok ? { content: [{ type: "text", text: result.value.id }] } : { content: [{ type: "text", text: `Error: ${result.error}` }] }; } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
 
