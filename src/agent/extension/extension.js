@@ -19,6 +19,7 @@ import { check_system_health, housekeeping, prepare_context } from "../../../gle
 import { save as learn } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/learning.mjs";
 import { send as broadcast_send, list as broadcast_list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs";
 import { request as inter_review_request, list_reviews as inter_reviews, show as inter_review_show } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/inter_review.mjs";
+import { validate as commit_validate } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/validation.mjs";
 import { create as meeting_create, list as meeting_list, get as meeting_get, add_opinion as meeting_add_opinion, list_opinions as meeting_list_opinions, complete as meeting_complete } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/meeting.mjs";
 import { stats } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/stats.mjs";
 
@@ -632,6 +633,75 @@ export default function (pi) {
       }
       const s = statsResult.value;
       return { content: [{ type: "text", text: `📊 Stats:\nTasks: ${s.tasks}\nIssues: ${s.issues}\nSkills: ${s.skills}\nMeetings: ${s.meetings}` }] };
+    }
+  });
+
+  // Validate commit message tool
+  pi.registerTool({
+    name: "psypi-validate-commit",
+    description: "Validate a commit message format",
+    parameters: {
+      message: { type: "string" },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      try {
+        const result = await commit_validate(params.message);
+        const validationResult = unwrapGleamResult(result);
+        if (!validationResult.ok) {
+          return { content: [{ type: "text", text: `Validation error: ${validationResult.error}` }] ];
+        }
+        const v = validationResult.value;
+        return { content: [{ type: "text", text: `✅ Valid!\n- Length: ${v.length}/${v.max_length}\n- Safe content: ${v.is_safe}\n- Has type: ${v.has_type}` }] };
+      } catch (err) {
+        return { content: [{ type: "text", text: `Error: ${err.message}` }] };
+      }
+    }
+  });
+
+  // Commit tool (calls inter-review then git commit)
+  pi.registerTool({
+    name: "psypi-commit",
+    description: "Git commit with Gleam review (calls inter-review first)",
+    parameters: {
+      message: { type: "string" },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      try {
+        // First, validate the message
+        const validateResult = await commit_validate(params.message);
+        const vResult = unwrapGleamResult(validateResult);
+        if (!vResult.ok) {
+          return { content: [{ type: "text", text: `❌ Invalid commit message: ${vResult.error}` }] };
+        }
+        
+        // Get current agent identity
+        const { get_resolved_identity } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs");
+        const identity = await get_resolved_identity(false);
+        const agentId = identity.ok ? identity[0].id : 'unknown';
+        
+        // Request inter-review
+        const reviewResult = await inter_review_request(undefined, undefined, agentId, { message: params.message });
+        const reviewUnwrapped = unwrapGleamResult(reviewResult);
+        
+        if (!reviewUnwrapped.ok) {
+          return { content: [{ type: "text", text: `⚠️ Review request failed: ${reviewUnwrapped.error}, proceeding with commit...` }] };
+        }
+        
+        const reviewId = reviewUnwrapped.value;
+        
+        // Run git commit
+        const { execSync } = await import('child_process');
+        const fullMessage = `${params.message} [inter-review:${reviewId}]`;
+        
+        try {
+          execSync(`git commit -m "${fullMessage}"`, { encoding: 'utf-8', stdio: 'pipe' });
+          return { content: [{ type: "text", text: `✅ Committed with review ID: ${reviewId}\nMessage: ${params.message}` }] };
+        } catch (gitErr) {
+          return { content: [{ type: "text", text: `⚠️ Git commit failed: ${gitErr.message}\nBut review was requested: ${reviewId}` }] };
+        }
+      } catch (err) {
+        return { content: [{ type: "text", text: `Error: ${err.message}` }] };
+      }
     }
   });
 
