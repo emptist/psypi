@@ -10,7 +10,7 @@ description: Agent instructions for psypi (READ FIRST!)
 - **Technically**: psypi is a **Pi TUI with extensions**! 🎯
 - **Architecture**: Gleam core + TypeScript + Pi runtime
 - **Database**: ONE PostgreSQL per user home (shared across ALL projects)
-- **Status**: ✅ Working - Gleam reviews via `psypi commit`!
+- **Status**: ✅ Working - Gleam reviews via `psypi-commit` Pi tool (inside Pi TUI)!
 
 ## 🚨 CRITICAL RULES (Read FIRST!)
 
@@ -82,11 +82,18 @@ mv file.ts file.ts.deprecated
 
 ---
 
-### 1. FORCE YOURSELF: Use `psypi commit` (NOT `git commit`!)
-```bash
-psypi commit "feat: My change"  # ✅ GOOD - triggers Gleam review!
-git commit -m "My change"       # ❌ BAD - bypasses review!
+### 1. FORCE YOURSELF: Use `psypi-commit` Pi tool (NOT `git commit`!)
+Inside Pi TUI, run:
 ```
+psypi-commit "feat: My change"
+```
+This uses Gleam review (Monitor AI).
+
+Outside Pi, use:
+```
+git commit -m "feat: My change"
+```
+(But bypasses review - only for when Pi tool unavailable!)
 
 ---
 

@@ -1,5 +1,5 @@
 # CLI to Pi Tool Migration Plan
-**Date**: 2026-05-04  
+**Date**: 2026-05-04 (OUTDATED - See docs/REPAIR-PLAN.md for current state)
 **Goal**: Make psypi a **pure agent** - all functionality via Pi tools, deprecate CLI commands
 
 ## Architecture Principle
@@ -11,10 +11,10 @@
 
 ## Current State
 
-### ✅ Pi Tools Completed (7)
+### ✅ Pi Tools Completed (7) - BUT psypi-commit IS MISSING! (needs to be added)
 | Pi Tool | Gleam Module | CLI Equivalent | Status |
 |----------|---------------|----------------|--------|
-| `psypi-commit` | `review.gleam` | `psypi commit` | ✅ Done |
+| `psypi-commit` | `review.gleam` | `psypi commit` | ⚠️ NOT IMPLEMENTED |
 | `psypi-my-id` | `agent_identity.gleam` | `psypi my-id` | ✅ Done |
 | `psypi-partner-id` | `agent_identity.gleam` | `psypi partner-id` | ✅ Done |
 | `psypi-my-session-id` | `session.gleam` | `psypi my-session-id` | ✅ Done |
