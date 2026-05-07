@@ -14,6 +14,22 @@ description: Agent instructions for psypi (READ FIRST!)
 
 ## 🚨 CRITICAL RULES (Read FIRST!)
 
+### 0. THE BIG PICTURE: CLI Commands → Pi Tools!
+**psypi is evolving:**
+- **OLD way**: `psypi my-id` (CLI command → TypeScript → DB)
+- **NEW way**: `psypi` (launches Pi TUI) → `psypi-my-id` (Pi tool → Gleam → DB)
+
+**Strategy:**
+1. **Pi tools FIRST** - All functionality via Pi tools (psypi-my-id, psypi-tasks, etc.)
+2. **Deprecate CLI commands** - Once Pi tool works, deprecate the CLI command
+3. **psypi = Pi TUI entry point** - Eventually, `psypi` just launches Pi with extensions!
+4. **NO MORE CLI commands** - `psypi autonomous` launching Pi TUI is DANGEROUS (infinite loops!)
+
+**Current Status:**
+- ✅ 33+ Pi tools working
+- ✅ Most CLI commands deprecated (files moved to .ts.deprecated)
+- 🚧 `psypi` still launches Pi TUI (but shouldn't run CLI commands that launch Pi!)
+
 ### 0. NEVER DELETE - DEPRECATE ONLY!
 **Correct deprecation (file.ts.deprecated, NOT file.deprecated.ts!):**
 ```bash
@@ -75,16 +91,28 @@ npm install    # ❌ Wrong
 
 ---
 
-## 📊 Current Status (2026-05-04)
+## 📊 Current Status (2026-05-06)
+
+### 🎯 Architecture Evolution (BIG CHANGE!)
+**OLD**: CLI commands → TypeScript → Database
+**NEW**: Pi TUI → Pi tools → Gleam → Database
 
 ### Pi Tools Status:
-- **33 CLI commands** have Pi tools ✅
-- **2 CLI commands** without Pi tools: `provider-set-key`, `help`
-- **3 Pi tools** without CLI: `psypi-doc-restore`, `psypi-skill-search`, `psypi-broadcast-list`
+- **33+ Pi tools** working ✅ (psypi-my-id, psypi-tasks, etc.)
+- **CLI commands** being deprecated as Pi tools take over!
+- **psypi** = just a Pi TUI entry point (with maybe `-c` option)
 
 ### Build:
-- ✅ `pnpm build` works (Gleam + TypeScript)
-- ✅ Gleam review via `psypi commit` (score: 70/100)
+- ✅ `gleam build` works (Gleam core growing!)
+- ✅ `pnpm build` works (for extension.ts only)
+- ✅ Gleam review via `psypi commit`
+
+### ⚠️ CRITICAL WARNING:
+**NEVER run `psypi autonomous` from CLI!**
+- It launches Pi TUI interactively
+- If Pi runs `psypi autonomous` tool, it calls ANOTHER Pi → INFINITE LOOP!
+- This eats all system resources in minutes!
+- **FIXED**: `psypi-autonomous` is now a Pi-only tool (not a CLI command)
 
 ---
 

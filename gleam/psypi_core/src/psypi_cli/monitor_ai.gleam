@@ -68,7 +68,8 @@ fn context_row_decoder() -> decode.Decoder(String) {
 /// Prepare context for worker AI - HELPS ME WORK FASTER! 💡
 pub fn prepare_context(agent_id: String) -> promise.Promise(Result(String, MonitorError)) {
   db.with_connection(fn(conn) {
-    let sql = "
+    // Get recent learnings and backups for context
+    let sql = """
       SELECT 'learning' as type_, content, created_at::text 
       FROM memory 
       WHERE agent_id = $1 AND source = 'learn'
@@ -76,16 +77,21 @@ pub fn prepare_context(agent_id: String) -> promise.Promise(Result(String, Monit
       SELECT 'backup' as type_, file_path as content, created_at::text
       FROM code_versions
       WHERE saved_by = $1
+      UNION ALL
+      SELECT 'task' as type_, title as content, created_at::text
+      FROM tasks
+      WHERE agent_id = $1
       ORDER BY created_at DESC
-      LIMIT 10
-    "
+      LIMIT 20
+    """
     let params = [dynamic.string(agent_id)]
     
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
         Error(e) -> Error(db_error_to_monitor_error(e))
         Ok(result) -> {
-          let context = "Recent activity for " <> agent_id <> ":\n"
+          let context = "=== Context for " <> agent_id <> " ===\n\n"
+          
           let rows = result.rows
             |> list.map(fn(row) {
               case decode.run(row, context_row_decoder()) {
@@ -94,7 +100,11 @@ pub fn prepare_context(agent_id: String) -> promise.Promise(Result(String, Monit
               }
             })
             |> string.join("")
-          Ok(context <> rows)
+            
+          case string.is_empty(rows) {
+            True -> Ok(context <> "No recent activity found.\n")
+            False -> Ok(context <> rows)
+          }
         }
       }
     })
