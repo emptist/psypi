@@ -13,7 +13,8 @@ import { add as task_add } from "../../../gleam/psypi_core/build/dev/javascript/
 import { list as task_list, complete as task_complete } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
 import { list as agents_list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agents.mjs";
 import { add as issue_add, list as issue_list, resolve as issue_resolve } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs";
-import { build as skill_build, list as skill_list, show as skill_show, search as skill_search } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs";
+import { build as skill_build, list as skill_list, get as skill_show, search as skill_search } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs";
+console.log('Imported skill_show:', typeof skill_show);
 import { check_system_health, housekeeping, prepare_context } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/monitor_ai.mjs";
 import { save as learn } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/learning.mjs";
 import { send as broadcast_send, list as broadcast_list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs";
@@ -221,17 +222,24 @@ export default function (pi) {
 
   pi.registerTool({
     name: "psypi-skill-show",
-    description: "Show details of a specific skill",
+    description: "Show details of a specific skill (includes full content if available)",
     parameters: {
       name: { type: "string" },
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const result = await skill_show(params.name);
-      const skillResult = unwrapGleamResult(result);
-      if (!skillResult.ok) {
-        return { content: [{ type: "text", text: `Error showing skill: ${skillResult.error}` }] };
+      try {
+        console.log('Calling skill_show with:', params.name);
+        const result = await skill_show(params.name);
+        console.log('Result:', result);
+        const skillResult = unwrapGleamResult(result);
+        if (!skillResult.ok) {
+          return { content: [{ type: "text", text: `Error showing skill: ${skillResult.error}` }] };
+        }
+        return { content: [{ type: "text", text: `Skill: ${JSON.stringify(skillResult.value)}` }] };
+      } catch (err) {
+        console.error('Error in psypi-skill-show:', err);
+        return { content: [{ type: "text", text: `Error: ${err.message}` }] };
       }
-      return { content: [{ type: "text", text: `Skill: ${JSON.stringify(skillResult.value)}` }] };
     }
   });
 
@@ -250,6 +258,19 @@ export default function (pi) {
       return { content: [{ type: "text", text: `Results: ${JSON.stringify(skillResult.value)}` }] };
     }
   });
+
+  /* TEMPORARILY DISABLED - psypi-skill-load
+  pi.registerTool({
+    name: "psypi-skill-load",
+    description: "Cache a skill locally from database to .pi/skills/ directory",
+    parameters: {
+      name: { type: "string" },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      // ... implementation ...
+    }
+  });
+  */
 
   // Issue tools
   pi.registerTool({

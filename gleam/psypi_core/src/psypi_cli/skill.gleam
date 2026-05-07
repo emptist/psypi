@@ -32,6 +32,8 @@ pub type Skill {
     version: String,
     author: Option(String),
     created_at: String,
+    content: Option(String),
+    reference_list: Option(String),
   )
 }
 
@@ -72,6 +74,8 @@ fn skill_decoder() -> decode.Decoder(Skill) {
   use version <- decode.field("version", decode.string)
   use author <- decode.field("author", decode.optional(decode.string))
   use created_at <- decode.field("created_at", decode.string)
+  use content <- decode.field("content", decode.optional(decode.string))
+  use reference_list <- decode.field("reference_list", decode.optional(decode.string))
 
   decode.success(Skill(
     id: id,
@@ -83,6 +87,8 @@ fn skill_decoder() -> decode.Decoder(Skill) {
     version: version,
     author: author,
     created_at: created_at,
+    content: content,
+    reference_list: reference_list,
   ))
 }
 
@@ -104,14 +110,14 @@ pub fn list(
   db.with_connection(fn(conn) {
     let sql = case status {
       Some(_) -> "
-        SELECT id, name, description, source, status, safety_score, version, author, created_at::text
+        SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content, reference_list
         FROM skills
         WHERE status = $1
         ORDER BY name ASC
         LIMIT 100
       "
       None -> "
-        SELECT id, name, description, source, status, safety_score, version, author, created_at::text
+        SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content, reference_list
         FROM skills
         ORDER BY name ASC
         LIMIT 100
@@ -150,7 +156,7 @@ pub fn get(
 ) -> promise.Promise(Result(Skill, SkillError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT id, name, description, source, status, safety_score, version, author, created_at::text
+      SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content, reference_list
       FROM skills
       WHERE name = $1
     "
@@ -180,7 +186,7 @@ pub fn search(
 ) -> promise.Promise(Result(List(Skill), SkillError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT id, name, description, source, status, safety_score, version, author, created_at::text
+      SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content, reference_list
       FROM skills
       WHERE name ILIKE $1 OR description ILIKE $1
       ORDER BY name ASC
