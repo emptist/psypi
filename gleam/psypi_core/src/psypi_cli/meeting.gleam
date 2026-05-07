@@ -214,11 +214,11 @@ pub fn add_opinion(
   author: String,
   perspective: String,
   reasoning: Option(String),
-  vote: Option(String),
+  position: Option(String),
 ) -> promise.Promise(Result(String, MeetingError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      INSERT INTO meeting_opinions (meeting_id, author, perspective, reasoning, vote)
+      INSERT INTO meeting_opinions (meeting_id, author, perspective, reasoning, position)
       VALUES ($1, $2, $3, $4, $5)
       RETURNING id
     "
@@ -227,7 +227,7 @@ pub fn add_opinion(
       dynamic.string(author),
       dynamic.string(perspective),
       option_to_dynamic(reasoning),
-      option_to_dynamic(vote),
+      option_to_dynamic(position),
     ]
 
     promise.map(db.query(conn, sql, params), fn(query_result) {

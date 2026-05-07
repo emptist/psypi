@@ -93,10 +93,14 @@ export default function (pi) {
 
         // Import Gleam backup functions
         const { save_version } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs");
-        const identity = await get_resolved_identity();
+        const identityResult = await getIdentity(false);
+        if (!identityResult.ok) {
+          if (VERBOSE) console.log(`[Auto-Backup] ⚠️ Failed to get identity: ${identityResult.error}`);
+          return;
+        }
 
         // Save new version
-        await save_version(filePath, content, identity.id, '', `auto-backup before ${event.toolName}`);
+        await save_version(filePath, content, identityResult.value.id, '', `auto-backup before ${event.toolName}`);
         if (VERBOSE) console.log(`[Auto-Backup] ✅ Saved: ${filePath}`);
 
       } catch (err) {
@@ -142,7 +146,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await task_add(params.title, params.description || "", params.priority || 5);
-      return { content: [{ type: "text", text: `Task added! ID: ${result}` }] };
+      const taskResult = unwrapGleamResult(result);
+      if (!taskResult.ok) {
+        return { content: [{ type: "text", text: `Error adding task: ${taskResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Task added! ID: ${taskResult.value}` }] };
     }
   });
 
@@ -156,7 +164,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await skill_build(params.name, params.purpose);
-      return { content: [{ type: "text", text: `Skill created: ${result}` }] };
+      const skillResult = unwrapGleamResult(result);
+      if (!skillResult.ok) {
+        return { content: [{ type: "text", text: `Error creating skill: ${skillResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Skill created: ${skillResult.value}` }] };
     }
   });
 
@@ -166,7 +178,11 @@ export default function (pi) {
     parameters: {},
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
       const result = await skill_list();
-      return { content: [{ type: "text", text: `Skills: ${JSON.stringify(result)}` }] };
+      const skillResult = unwrapGleamResult(result);
+      if (!skillResult.ok) {
+        return { content: [{ type: "text", text: `Error listing skills: ${skillResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Skills: ${JSON.stringify(skillResult.value)}` }] };
     }
   });
 
@@ -178,7 +194,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await skill_show(params.name);
-      return { content: [{ type: "text", text: `Skill: ${JSON.stringify(result)}` }] };
+      const skillResult = unwrapGleamResult(result);
+      if (!skillResult.ok) {
+        return { content: [{ type: "text", text: `Error showing skill: ${skillResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Skill: ${JSON.stringify(skillResult.value)}` }] };
     }
   });
 
@@ -190,7 +210,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await skill_search(params.query);
-      return { content: [{ type: "text", text: `Results: ${JSON.stringify(result)}` }] };
+      const skillResult = unwrapGleamResult(result);
+      if (!skillResult.ok) {
+        return { content: [{ type: "text", text: `Error searching skills: ${skillResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Results: ${JSON.stringify(skillResult.value)}` }] };
     }
   });
 
@@ -206,7 +230,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await issue_add(params.title, params.description || "", params.issue_type || "bug", params.severity || "medium");
-      return { content: [{ type: "text", text: `Issue added! ID: ${result}` }] };
+      const issueResult = unwrapGleamResult(result);
+      if (!issueResult.ok) {
+        return { content: [{ type: "text", text: `Error adding issue: ${issueResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Issue added! ID: ${issueResult.value}` }] };
     }
   });
 
@@ -218,7 +246,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await issue_list(params.status || null);
-      return { content: [{ type: "text", text: `Issues: ${JSON.stringify(result)}` }] };
+      const issueResult = unwrapGleamResult(result);
+      if (!issueResult.ok) {
+        return { content: [{ type: "text", text: `Error listing issues: ${issueResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Issues: ${JSON.stringify(issueResult.value)}` }] };
     }
   });
 
@@ -231,7 +263,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await issue_resolve(params.issue_id, params.resolution);
-      return { content: [{ type: "text", text: `Issue resolved! ${result}` }] };
+      const issueResult = unwrapGleamResult(result);
+      if (!issueResult.ok) {
+        return { content: [{ type: "text", text: `Error resolving issue: ${issueResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Issue resolved! ${issueResult.value}` }] };
     }
   });
 
@@ -242,7 +278,11 @@ export default function (pi) {
     parameters: {},
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
       const result = await check_system_health();
-      return { content: [{ type: "text", text: `Health: ${JSON.stringify(result)}` }] };
+      const healthResult = unwrapGleamResult(result);
+      if (!healthResult.ok) {
+        return { content: [{ type: "text", text: `Error checking health: ${healthResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Health: ${JSON.stringify(healthResult.value)}` }] };
     }
   });
 
@@ -252,7 +292,11 @@ export default function (pi) {
     parameters: {},
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
       const result = await housekeeping();
-      return { content: [{ type: "text", text: `Housekeeping done! ${result}` }] };
+      const houseResult = unwrapGleamResult(result);
+      if (!houseResult.ok) {
+        return { content: [{ type: "text", text: `Error in housekeeping: ${houseResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Housekeeping done! ${houseResult.value}` }] };
     }
   });
 
@@ -267,7 +311,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await learn(params.content, params.importance || 5, params.tags || "");
-      return { content: [{ type: "text", text: `Learning saved! ${result}` }] };
+      const learnResult = unwrapGleamResult(result);
+      if (!learnResult.ok) {
+        return { content: [{ type: "text", text: `Error saving learning: ${learnResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Learning saved! ${learnResult.value}` }] };
     }
   });
 
@@ -279,7 +327,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await areflect(params.text);
-      return { content: [{ type: "text", text: `Reflection saved! ${result}` }] };
+      const reflectResult = unwrapGleamResult(result);
+      if (!reflectResult.ok) {
+        return { content: [{ type: "text", text: `Error in reflection: ${reflectResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Reflection saved! ${reflectResult.value}` }] };
     }
   });
 
@@ -293,7 +345,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await broadcast_send(params.message, params.priority || "normal");
-      return { content: [{ type: "text", text: `Broadcast sent! ${result}` }] };
+      const broadcastResult = unwrapGleamResult(result);
+      if (!broadcastResult.ok) {
+        return { content: [{ type: "text", text: `Error sending broadcast: ${broadcastResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Broadcast sent! ${broadcastResult.value}` }] };
     }
   });
 
@@ -305,7 +361,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await broadcast_list(params.limit || 10);
-      return { content: [{ type: "text", text: `Messages: ${JSON.stringify(result)}` }] };
+      const broadcastResult = unwrapGleamResult(result);
+      if (!broadcastResult.ok) {
+        return { content: [{ type: "text", text: `Error listing broadcasts: ${broadcastResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Messages: ${JSON.stringify(broadcastResult.value)}` }] };
     }
   });
 
@@ -338,7 +398,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await meeting_list(params.status || null);
-      return { content: [{ type: "text", text: `Meetings: ${JSON.stringify(result)}` }] };
+      const meetingResult = unwrapGleamResult(result);
+      if (!meetingResult.ok) {
+        return { content: [{ type: "text", text: `Error listing meetings: ${meetingResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Meetings: ${JSON.stringify(meetingResult.value)}` }] };
     }
   });
 
@@ -365,15 +429,14 @@ export default function (pi) {
       meeting_id: { type: "string" },
       perspective: { type: "string" },
       reasoning: { type: "string", optional: true },
-      vote: { type: "string", optional: true },
+      position: { type: "string", optional: true },
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const identity = await get_resolved_identity();
-      const identityResult = unwrapGleamResult(identity);
+      const identityResult = await getIdentity(false, _ctx);
       if (!identityResult.ok) {
         return { content: [{ type: "text", text: `Error: Could not get identity: ${identityResult.error}` }] };
       }
-      const result = await meeting_add_opinion(params.meeting_id, identityResult.value.id, params.perspective, params.reasoning || null, params.vote || null);
+      const result = await meeting_add_opinion(params.meeting_id, identityResult.value.id, params.perspective, params.reasoning || null, params.position || null);
       const opinionResult = unwrapGleamResult(result);
       if (!opinionResult.ok) {
         return { content: [{ type: "text", text: `Error adding opinion: ${opinionResult.error}` }] };
@@ -390,7 +453,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await meeting_list_opinions(params.meeting_id);
-      return { content: [{ type: "text", text: `Opinions: ${JSON.stringify(result)}` }] };
+      const opinionResult = unwrapGleamResult(result);
+      if (!opinionResult.ok) {
+        return { content: [{ type: "text", text: `Error listing opinions: ${opinionResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Opinions: ${JSON.stringify(opinionResult.value)}` }] };
     }
   });
 
@@ -419,7 +486,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await inter_review_request(params.taskId);
-      return { content: [{ type: "text", text: `Review requested! ${result}` }] };
+      const reviewResult = unwrapGleamResult(result);
+      if (!reviewResult.ok) {
+        return { content: [{ type: "text", text: `Error requesting review: ${reviewResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Review requested! ${reviewResult.value}` }] };
     }
   });
 
@@ -431,7 +502,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await inter_reviews(params.status || null);
-      return { content: [{ type: "text", text: `Reviews: ${JSON.stringify(result)}` }] };
+      const reviewResult = unwrapGleamResult(result);
+      if (!reviewResult.ok) {
+        return { content: [{ type: "text", text: `Error listing reviews: ${reviewResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Reviews: ${JSON.stringify(reviewResult.value)}` }] };
     }
   });
 
@@ -443,7 +518,11 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await inter_review_show(params.reviewId);
-      return { content: [{ type: "text", text: `Review: ${JSON.stringify(result)}` }] };
+      const reviewResult = unwrapGleamResult(result);
+      if (!reviewResult.ok) {
+        return { content: [{ type: "text", text: `Error showing review: ${reviewResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Review: ${JSON.stringify(reviewResult.value)}` }] };
     }
   });
 
