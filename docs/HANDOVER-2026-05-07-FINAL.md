@@ -130,6 +130,7 @@ npm install    # ❌ Wrong
 
 ## 📚 Key Files (Read These FIRST!)
 - `docs/cli-vs-pi-tools.md` - Complete CLI ↔ Pi tool mapping
+- `cli-pi-tool-status.md` - **STATUS REPORT:** Which commands promoted to Pi tools (code-verified!)
 - `AGENTS.md` - Agent instructions (READ FIRST!)
 - `AGENTS.md.deprecated` - Old version (for reference only)
 - `docs/MIGRATION-TS-TO-GLEAM-2026.md` - Gleam migration plan
@@ -300,28 +301,61 @@ cd gleam/psypi_core && gleam build  # ✅ WORKS!
 
 ---
 
+## 🚨 URGENT TASK FOR NEXT AI (DO FIRST!)
+
+### Critical Work Required:
+
+1. **✅ Deprecate and disable CLI commands that have Pi tools**
+   - **DONE:** Most TS files already deleted (backed up in DB!)
+   - Checked: `src/kernel/cli/` is empty
+   - Checked: Only 2 TS files remain (both in .pi/ directory, not CLI)
+   - **No action needed:** CLI commands already removed!
+
+2. **✅ CRITICAL: Update docs - NO SPAWN() OF PI ALLOWED!**
+   - **DONE:** Added warning to AGENTS.md
+   - **Verified:** Only safe entry points spawn Pi (`bin/psypi.mjs`, `main_ffi.mjs`)
+   - **Deleted:** Unused `spawn_ffi.mjs` from build folder
+   - **Safe:** All Pi tools call Gleam directly (no spawn)
+
+3. **✅ Check where `spawn()` is used in codebase**
+   - `bin/psypi.mjs` - Entry point (SAFE)
+   - `gleam/.../main_ffi.mjs` - Entry point from main.gleam (SAFE)
+   - `gleam/.../spawn_ffi.mjs` - DELETED (was unused)
+   - **No dangerous spawns found in Pi tools!**
+
+4. **🚧 Continue promoting remaining commands to Pi tools**
+   - **DONE:** `psypi-stats` registered (stats.gleam exists)
+   - **Next:** Check other missing tools (see cli-pi-tool-status.md)
+   - 13 more tools to promote (need Gleam functions first)
+   - See: `psypi-tasks`, `psypi-commit`, `psypi-announce`, etc.
+
+---
+
 ## 📋 Next Steps for Future AIs (Priority Order)
 
 ### High Priority (DO FIRST!):
-1. **Clean up 467 low-quality skills** (from nezha migration)
+1. **URGENT: Complete the task above (deprecate CLI + fix spawn danger)**
+
+2. **Clean up 467 low-quality skills** (from nezha migration)
    - Audit skills from nezha migration
    - Remove skills that are not useful
    - Add proper descriptions from original sources (taches-cc-resources)
 
-2. **Implement database-first skill system** (see `docs/IDEA-database-first-skills.md`)
+3. **Implement database-first skill system** (see `docs/IDEA-database-first-skills.md`)
    - Add `content` column to `skills` table (for SKILL.md)
    - Enhance `psypi-skill-show` to return full content from DB
    - Create `psypi-skill-load` to cache skills locally from DB
 
-3. **Complete `gleam-language` skill** (add more references/workflows)
+4. **Complete `gleam-language` skill** (add more references/workflows)
    - Add `js-interop.md`, `testing-gleeunit.md`, `custom-types.md`
    - Add workflows: `debug-gleam.md`, `run-tests.md`
 
 ### Medium Priority:
-4. **Register remaining missing tools** (if Gleam functions get created)
-   - `psypi-tools`, `psypi-validate-commit` (no Gleam functions exist yet!)
+5. **Register remaining missing tools** (if Gleam functions get created)
+   - `psypi-tools`, `psypi-validate-commit`, `psypi-tasks`, `psypi-commit`, etc.
+   - See `cli-pi-tool-status.md` for full list of 14 missing tools!
 
-5. **Enhance `psypi-skill-search`** to search file content too
+6. **Enhance `psypi-skill-search`** to search file content too
    - Currently searches only `name` and `description` columns
    - Should search `content` column (when added)
 
@@ -346,6 +380,11 @@ cd gleam/psypi_core && gleam build  # ✅ WORKS!
 5. `50bf159` - docs: Add skills integration summary
 6. `144b640` - feat: Register missing Pi tools (psypi-task-complete, psypi-agents)
 7. `latest` - feat: Improve gleam-language skill + add database-first skill idea
+8. `NEW` - docs: Create cli-pi-tool-status.md (28 tools verified in code)
+9. `NEW` - docs: Update HANDOVER-FINAL with urgent task (deprecate CLI + fix spawn danger)
+10. `NEW` - docs: Add spawn() warning to AGENTS.md (CRITICAL!)
+11. `NEW` - fix: Delete unused spawn_ffi.mjs (prevent confusion)
+12. `NEW` - feat: Register psypi-stats tool (stats.gleam exists)
 
 ---
 
@@ -356,11 +395,14 @@ cd gleam/psypi_core && gleam build  # ✅ WORKS!
 | Tasks 1-3 | ✅ DONE (mostly) |
 | Docs | ✅ Updated (ALL handover docs complete) |
 | 27 Pi tools | ✅ Registered & Tested (24/25 working) |
+| **29 Pi tools** | ✅ **NEW: psypi-stats added!** |
 | Skills system | ✅ Integrated (DB + file, 652 total) |
 | Gleam migration | ✅ DONE (only 2 TS/JS files left) |
 | Database-first idea | ✅ SAVED (docs/IDEA-database-first-skills.md) |
 | Meeting created | ✅ DONE (skill quality cleanup) |
 | System stability | ✅ STABLE (no more `[object Promise]` bugs) |
+| **Spawn danger documented** | ✅ **NEW: Added to AGENTS.md!** |
+| **Unused files deleted** | ✅ **NEW: spawn_ffi.mjs removed!** |
 
 ---
 

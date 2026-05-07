@@ -30,6 +30,35 @@ description: Agent instructions for psypi (READ FIRST!)
 - ✅ Most CLI commands deprecated (files moved to .ts.deprecated)
 - 🚧 `psypi` still launches Pi TUI (but shouldn't run CLI commands that launch Pi!)
 
+---
+
+## 🚨 CRITICAL WARNING: NEVER SPAWN PI FROM PI TOOLS!
+
+**INFINITE LOOP DANGER!**
+
+If a Pi tool tries to spawn another Pi process:
+```
+Pi Tool → spawn('pi') → New Pi → Pi Tool → spawn('pi') → New Pi → ...
+```
+**Result: System crash in minutes!**
+
+**Dangerous patterns (NEVER use in Pi tools or extension.js):**
+```javascript
+// ❌ NEVER DO THIS IN PI TOOLS!
+import { spawn } from 'child_process';
+spawn('pi', ['-e', 'extension.js']);  // INFINITE LOOP!
+```
+
+**Safe spawn points (entry points ONLY):**
+- ✅ `bin/psypi.mjs` - Entry point, spawns Pi with extension
+- ✅ `gleam/.../main_ffi.mjs` - Entry point from `main.gleam`
+
+**DANGEROUS file found:**
+- ⚠️ `gleam/psypi_core/src/psypi_cli/spawn_ffi.mjs` - spawns Pi!
+- Check if any Pi tool imports this!
+
+**Rule: Pi tools should call Gleam functions directly, NOT spawn Pi!**
+
 ### 0. DELETE (don't deprecate!) - TS files are backed up in code_versions database!
 **CORRECT approach (file is already saved in DB!):**
 ```bash

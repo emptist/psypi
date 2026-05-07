@@ -20,6 +20,7 @@ import { save as learn } from "../../../gleam/psypi_core/build/dev/javascript/ps
 import { send as broadcast_send, list as broadcast_list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/broadcast.mjs";
 import { request as inter_review_request, list_reviews as inter_reviews, show as inter_review_show } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/inter_review.mjs";
 import { create as meeting_create, list as meeting_list, get as meeting_get, add_opinion as meeting_add_opinion, list_opinions as meeting_list_opinions, complete as meeting_complete } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/meeting.mjs";
+import { stats } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/stats.mjs";
 
 // Import thin JS wrappers (for services that still need TS layer)
 import { AgentIdentityService } from "../../../src/kernel/services/AgentIdentityService.js";
@@ -228,16 +229,50 @@ export default function (pi) {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       try {
-        console.log('Calling skill_show with:', params.name);
         const result = await skill_show(params.name);
-        console.log('Result:', result);
         const skillResult = unwrapGleamResult(result);
         if (!skillResult.ok) {
-          return { content: [{ type: "text", text: `Error showing skill: ${skillResult.error}` }] };
+          return { content: [{ type: "text", text: `Error: ${skillResult.error}` }] };
         }
-        return { content: [{ type: "text", text: `Skill: ${JSON.stringify(skillResult.value)}` }] };
+        
+        const skill = skillResult.value;
+        let output = `📚 Skill: ${skill.name}\n`;
+        output += `${'='.repeat(50)}\n`;
+        output += `ID: ${skill.id}\n`;
+        output += `Description: ${skill.description || 'N/A'}\n`;
+        output += `Status: ${skill.status}\n`;
+        output += `Version: ${skill.version}\n`;
+        output += `Author: ${skill.author || 'N/A'}\n`;
+        output += `Safety Score: ${skill.safety_score}\n`;
+        output += `Source: ${skill.source}\n`;
+        output += `Created: ${skill.created_at}\n`;
+        
+        if (skill.reference_list) {
+          output += `\n📖 Reference List:\n`;
+          output += `${skill.reference_list}\n`;
+        }
+        
+        if (skill.content) {
+          output += `\n📄 Content (from DB):\n`;
+          output += `${'-'.repeat(50)}\n`;
+          output += skill.content + '\n';
+        } else {
+          output += `\n⚠️  No content in DB. Reading from file...\n`;
+          // Try to read from disk
+          const fs = await import('fs');
+          const path = await import('path');
+          const skillPath = path.join(process.cwd(), '.pi', 'skills', skill.name, 'SKILL.md');
+          try {
+            const fileContent = fs.readFileSync(skillPath, 'utf-8');
+            output += `${'-'.repeat(50)}\n`;
+            output += fileContent + '\n';
+          } catch (e) {
+            output += `Could not read from ${skillPath}\n`;
+          }
+        }
+        
+        return { content: [{ type: "text", text: output }] };
       } catch (err) {
-        console.error('Error in psypi-skill-show:', err);
         return { content: [{ type: "text", text: `Error: ${err.message}` }] };
       }
     }
@@ -541,6 +576,22 @@ export default function (pi) {
         return { content: [{ type: "text", text: `Error completing meeting: ${completeResult.error}` }] };
       }
       return { content: [{ type: "text", text: `Meeting completed! ID: ${completeResult.value}` }] };
+    }
+  });
+
+  // Stats tool
+  pi.registerTool({
+    name: "psypi-stats",
+    description: "Get system statistics (tasks, issues, skills, meetings)",
+    parameters: {},
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      const result = await stats();
+      const statsResult = unwrapGleamResult(result);
+      if (!statsResult.ok) {
+        return { content: [{ type: "text", text: `Error getting stats: ${statsResult.error}` }] };
+      }
+      const s = statsResult.value;
+      return { content: [{ type: "text", text: `📊 Stats:\nTasks: ${s.tasks}\nIssues: ${s.issues}\nSkills: ${s.skills}\nMeetings: ${s.meetings}` }] };
     }
   });
 
