@@ -377,29 +377,31 @@ cd gleam/psypi_core && gleam build  # ✅ WORKS!
 
 ## 🚀 What's Next? (YOUR Choice!)
 
-### **Option A:** Clean up 467 low-quality skills (immediate action from meeting)
-- Audit skills with no descriptions (from nezha migration)
-- Remove skills that are not useful
-- Re-import from `taches-cc-resources/` with proper metadata
-- **Meeting consensus:** `63c5afdb-6dab-40c7-8d59-c6bfcea742bb`
+### **Option A:** Clean up 467 low-quality skills (DONE!)
+- Deleted 464 NULL-description skills (source='ai-built')
+- Remaining skills: 188 (185 with good descriptions)
+- **COMPLETED by:** S-psypi-psypi (2026-05-07)
+- **Status:** ✅ DONE - Next AI doesn't need to redo!
 
-### **Option B:** Implement database-first skill system (future architecture)
+### **Option B:** Implement database-first skill system (INSTRUCTION FOR NEXT AI)
 - See `docs/IDEA-database-first-skills.md` for full plan
-- Add `content` column to `skills` table (for SKILL.md)
-- Enhance `psypi-skill-show` to return full content from DB
-- Create `psypi-skill-load` to cache skills locally from DB
+- **Next AI should:**
+  1. Add `content` column to `skills` table
+  2. Enhance `psypi-skill-show` to return full content from DB
+  3. Create `psypi-skill-load` to cache skills locally from DB
+- **Meeting created:** Will instruct next AI to do this!
 - **Why:** File-based skills fail for AIs in OTHER project dirs!
 
-### **Option C:** Continue improving `gleam-language` skill (add more content)
-- Add `js-interop.md`, `testing-gleeunit.md`, `custom-types.md`
-- Add workflows: `debug-gleam.md`, `run-tests.md`
-- Make it a truly "domain expertise" skill (covers full lifecycle)
-- **Current:** 3 refs, 2 workflows (needs more!)
+### **Option C:** Complete `gleam-language` skill (PARTIALLY DONE)
+- Added `syntax-basics.md`, `pattern-matching.md`, `build-new-module.md`
+- Updated `SKILL.md` with new references/workflows
+- **Still needed:** `js-interop.md`, `testing-gleeunit.md`, `custom-types.md`
+- **Status:** ⚠️ PARTIAL - Next AI can continue if desired
 
 ### **Option D:** Hand over to next AI (psypi binary ready!)
 - System is stable, all progress saved in git history
 - 27 Pi tools registered, 24/25 working
-- 652 skills in DB (185 good, 467 need cleanup)
+- 188 skills in DB (185 good, 3 need improvement)
 - **You're ready!** Just `psypi` to launch Pi TUI!
 
 ### **Option E:** Something else? (your choice!)
