@@ -648,7 +648,7 @@ export default function (pi) {
         const result = await commit_validate(params.message);
         const validationResult = unwrapGleamResult(result);
         if (!validationResult.ok) {
-          return { content: [{ type: "text", text: `Validation error: ${validationResult.error}` }] ];
+          return { content: [{ type: "text", text: `Validation error: ${validationResult.error}` }] };
         }
         const v = validationResult.value;
         return { content: [{ type: "text", text: `✅ Valid!\n- Length: ${v.length}/${v.max_length}\n- Safe content: ${v.is_safe}\n- Has type: ${v.has_type}` }] };
