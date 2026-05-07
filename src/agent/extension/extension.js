@@ -11,6 +11,7 @@ import { fileURLToPath } from "url";
 import { get_resolved_identity } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs";
 import { add as task_add } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
 import { list as task_list, complete as task_complete } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
+import { list as agents_list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agents.mjs";
 import { add as issue_add, list as issue_list, resolve as issue_resolve } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/issue.mjs";
 import { build as skill_build, list as skill_list, show as skill_show, search as skill_search } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/skill.mjs";
 import { check_system_health, housekeeping, prepare_context } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/monitor_ai.mjs";
@@ -135,6 +136,21 @@ export default function (pi) {
     }
   });
 
+  // Agents tool
+  pi.registerTool({
+    name: "psypi-agents",
+    description: "List all agents in the system",
+    parameters: {},
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      const result = await agents_list();
+      const agentsResult = unwrapGleamResult(result);
+      if (!agentsResult.ok) {
+        return { content: [{ type: "text", text: `Error listing agents: ${agentsResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Agents: ${JSON.stringify(agentsResult.value)}` }] };
+    }
+  });
+
   // Task tools
   pi.registerTool({
     name: "psypi-task-add",
@@ -151,6 +167,23 @@ export default function (pi) {
         return { content: [{ type: "text", text: `Error adding task: ${taskResult.error}` }] };
       }
       return { content: [{ type: "text", text: `Task added! ID: ${taskResult.value}` }] };
+    }
+  });
+
+  // Task complete tool
+  pi.registerTool({
+    name: "psypi-task-complete",
+    description: "Complete a task by ID",
+    parameters: {
+      taskId: { type: "string" },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const result = await task_complete(params.taskId);
+      const taskResult = unwrapGleamResult(result);
+      if (!taskResult.ok) {
+        return { content: [{ type: "text", text: `Error completing task: ${taskResult.error}` }] };
+      }
+      return { content: [{ type: "text", text: `Task completed! ${taskResult.value}` }] };
     }
   });
 
