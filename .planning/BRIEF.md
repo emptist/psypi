@@ -29,9 +29,10 @@ JavaScript talks to PostgreSQL
 ```
 
 ### Code Stats
-- **Gleam**: 380 lines (1.4%) - Core logic (review, session, CLI)
-- **TypeScript**: 26,493 lines (98.6%) - Being migrated to Gleam
-- **Ratio**: 1:70 (Gleam:TS) - Target: 1:5 by end of 2026
+- **Gleam**: ~500+ lines (from 380 - after Phase 7 progress!)
+- **TypeScript**: ~22,000- lines (from 26,493 - deleted 39 files!)
+- **Ratio**: ~1:44 (Gleam:TS) - IMPROVED from 1:70!
+- **Gleam modules**: 12+ files (all <100 lines each, except meeting.gleam ~300 lines)
 
 ## Goal: Natural Gleam Migration
 
@@ -51,8 +52,9 @@ JavaScript talks to PostgreSQL
 5. **MeetingCommands** (619 lines → simpler state management)
 
 ## Success Criteria
-- [ ] Gleam: 2,000+ lines (from current 380)
-- [ ] TypeScript: 10,000- lines (from current 26,493)
+- [ ] Gleam: 2,000+ lines **across many small modules** (from current ~500+)
+- [ ] Each Gleam module < 100 lines (except special cases like meeting.gleam)
+- [ ] TypeScript: 10,000- lines (from current ~22,000 - deleted 39 files!)
 - [ ] Ratio: 1:5 (Gleam:TS)
 - [ ] All core commands in Gleam
 - [ ] Real Pi agent (replace fake inner AI)
@@ -60,7 +62,7 @@ JavaScript talks to PostgreSQL
 ## Constraints
 - **ONE database** per user home (shared across ALL projects)
 - **Pi TUI integration** - psypi is a Pi extension, not standalone CLI
-- **Never delete - deprecate** (use `.ts.deprecated` extension)
+- **DELETE** (not deprecate!) - TS files are backed up in code_versions database!
 - **Use `psypi commit`** (mandatory Gleam review!)
 
 ## Next Steps

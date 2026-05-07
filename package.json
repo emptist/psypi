@@ -16,7 +16,7 @@
   },
   "scripts": {
     "build:gleam": "cd gleam/psypi_core && gleam build",
-    "build": "pnpm build:gleam && node scripts/fix-imports.mjs && tsc && node scripts/fix-shebang.cjs",
+    "build": "echo 'pnpm build DISABLED! Use: gleam build' && exit 1",
     "typecheck": "tsc --noEmit",
     "dev": "tsx src/cli.ts",
     "test": "echo 'Tests coming soon' && exit 0"

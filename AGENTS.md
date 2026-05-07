@@ -30,18 +30,18 @@ description: Agent instructions for psypi (READ FIRST!)
 - ✅ Most CLI commands deprecated (files moved to .ts.deprecated)
 - 🚧 `psypi` still launches Pi TUI (but shouldn't run CLI commands that launch Pi!)
 
-### 0. NEVER DELETE - DEPRECATE ONLY!
-**Correct deprecation (file.ts.deprecated, NOT file.deprecated.ts!):**
+### 0. DELETE (don't deprecate!) - TS files are backed up in code_versions database!
+**CORRECT approach (file is already saved in DB!):**
 ```bash
-# ✅ CORRECT - Prevents compilation
-mv file.ts file.ts.deprecated
-mv file.mjs file.mjs.deprecated
+# ✅ CORRECT - File is backed up in code_versions database!
+rm file.ts
+rm file.mjs
 
-# ❌ WRONG - Still gets compiled!
-mv file.ts file.deprecated.ts
+# ❌ WRONG - Creates confusion, tsc might process it!
+mv file.ts file.ts.deprecated
 ```
 
-**Why?** `.ts.deprecated` extension prevents TypeScript/Gleam from compiling it!
+**Why?** The user's original instruction was to REMOVE (not deprecate!) because all TS files are already saved in the database!
 
 ---
 
@@ -104,8 +104,13 @@ npm install    # ❌ Wrong
 
 ### Build:
 - ✅ `gleam build` works (Gleam core growing!)
-- ✅ `pnpm build` works (for extension.ts only)
+- ❌ `pnpm build` DISABLED! (use `gleam build` ONLY!)
 - ✅ Gleam review via `psypi commit`
+
+**🚨 CRITICAL WARNING: NEVER run `pnpm build` again!**
+- It DESTROYS Gleam wrappers (covers them with OLD TypeScript!)
+- ONLY use `gleam build` for Gleam changes (0.04s vs 10s+!)
+- If you see `pnpm build` in any instructions, IGNORE IT!
 
 ### ⚠️ CRITICAL WARNING:
 **NEVER run `psypi autonomous` from CLI!**
@@ -132,6 +137,7 @@ npm install    # ❌ Wrong
 
 **Remember**: 
 - ✅ Use `psypi commit` (mandatory review!)
+- ❌ NEVER run `pnpm build` - ONLY `gleam build`!
 - ✅ Deprecate: `file.ts` → `file.ts.deprecated`
 - ✅ Short + Simple = Better!
 
