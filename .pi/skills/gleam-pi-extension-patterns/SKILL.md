@@ -1,3 +1,8 @@
+---
+name: gleam-pi-extension-patterns
+description: CRITICAL patterns for Gleam migration with Pi ExtensionAPI. Covers the #1 mistake: Pi extension MUST be manual .js/.ts (NOT compiled from .gleam!). Includes correct architecture, ExtensionAPI structure, and common pitfalls.
+---
+
 # Gleam Pi Extension Patterns
 
 **CRITICAL patterns for Gleam migration with Pi ExtensionAPI.**
