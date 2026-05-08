@@ -1,172 +1,109 @@
-# Psypi - Unified AI Coordination System
+# Psypi — 100% Gleam AI Coordination System
 
-> **Psy**che + **Pi** = The unified AI coordination system  
-> Replaces both `nezha` and `nupi` as the single CLI tool.
+> **Psy**che + **Pi** = AI coordination system, built entirely in Gleam
 
-## Vision
+## What Is Psypi?
 
-- **Unified** codebase (no more maintaining two projects)
-- **Simple** integration (no server, no strange things)
-- **Kernel + Agent** in one package
-- **Complete replacement** for `nezha` and `nupi` (now unified into psypi)
+Psypi is a Pi TUI extension written in **pure Gleam**. It provides Pi tools for:
+- Agent identity management
+- Task management
+- Project statistics
+- And more...
 
-## 🎯 Architecture
+The entire tool logic is Gleam code. The only non-Gleam piece is a 20-line `bin/psypi.mjs` entry point.
+
+## Architecture
 
 ```
 psypi/
-├── src/
-│   ├── cli.ts          # Unified CLI (commander)
-│   ├── kernel/         # Kernel core (DB, tasks, memory, skills)
-│   ├── agent/          # Psypi core (Pi extension, autonomous work)
-│   └── shared/         # Shared types/interfaces
-├── dist/              # Compiled output
-└── package.json        # pnpm-managed
+├── bin/psypi.mjs              # Entry point (20 lines, imports Gleam generator)
+├── gleam/psypi_core/
+│   ├── src/psypi_cli/
+│   │   ├── pi_tool_call.gleam       # PiToolCall type (tool metadata)
+│   │   ├── extension_generator.gleam # Text composer (the cook)
+│   │   ├── agent_identity.gleam     # Identity tools
+│   │   ├── task.gleam               # Task tools
+│   │   ├── stats.gleam              # Stats tools
+│   │   └── ... (other modules)
+│   └── build/dev/javascript/        # Compiled .mjs output
+├── .pi/skills/                      # Pi skills
+└── docs/                            # Documentation
 ```
 
-## 📦 Installation (Global CLI)
+## How It Works
 
-### pnpm (Official & Recommended)
+1. **Define tools in Gleam** — each module exports `PiToolCall` values
+2. **`gleam build`** — compiles Gleam to `.mjs` (validates all types)
+3. **`psypi`** — imports the compiled generator, generates `extension.js`, spawns Pi
 
 ```bash
-# Navigate to psypi directory
-cd ~/gits/hub/tools_ai/psypi
+# After changing Gleam source:
+cd gleam/psypi_core && rm -rf build/ && gleam build
 
-# Build the project (required before global install)
-pnpm build
-
-# Install globally using official pnpm method
-pnpm add -g .
-
-# Test
-psypi --version
-psypi --help
+# Run psypi (auto-generates extension.js and starts Pi):
+psypi
 ```
 
-**Note**: Uses official `pnpm add -g .` command. No custom flags needed.
+## Pi Tools
 
-**Build time**: pnpm ~10s vs npm ~24s 🚀
+| Tool | Description |
+|------|-------------|
+| `psypi-my-id` | Get current agent ID |
+| `psypi-partner-id` | Get partner/monitor ID |
+| `psypi-task-add` | Add a new task |
+| `psypi-tasks` | List tasks |
+| `psypi-stats-show` | Show project statistics |
 
-## Commands (30+ Available, All Working ✅)
+## Adding a New Tool
 
-### ✅ Core Commands
-- ✅ `psypi task-add <title>` — Add a task
-- ✅ `psypi tasks [--status <status>]` — List tasks
-- ✅ `psypi task-complete <taskId>` — Mark task completed
-- ✅ `psypi issue-add <title> [--severity <level>]` — Add an issue
-- ✅ `psypi issue-list [--status <status>]` — List issues
-- ✅ `psypi issue-resolve <issueId>` — Mark issue resolved
-- ✅ `psypi skill-list` — List all approved skills (624+)
-- ✅ `psypi skill-show <name>` — Show skill details
-- ✅ `psypi skill-build <name> <purpose>` — Build new skill
-- ✅ `psypi areflect <text>` — Magic: [LEARN] [ISSUE] [TASK] parsing
-- ✅ `psypi my-id` — Print agent identity ID (S-psypi-psypi)
-- ✅ `psypi partner-id` — Print permanent partner ID (P-tencent/hy3-preview:free-psypi)
-- ✅ `psypi my-session-id` — Print Pi session ID (UUID v7, single source of truth)
+1. Define a `PiToolCall` value in a Gleam module:
 
-### ✅ Identity & Session Commands
-⚠️ **Mandatory Session ID Rule:**
-1. **Single entry point**: `kernel.piSessionID()` is the ONLY way to get session ID
-2. **No direct access**: Never use `process.env.AGENT_SESSION_ID` directly
-3. **Single tool**: `psypi-piSessionID` is the only Pi tool for session ID
+```gleam
+// In my_module.gleam
+import psypi_cli/pi_tool_call.{PiToolCall, raw_json, lit}
 
-⚠️ **Mandatory Agent ID Rule:**
-1. **Single source of truth**: `AgentIdentityService.getResolvedIdentity()` is the ONLY way to get agent ID
-2. **No caching ever**: Call `getResolvedIdentity()` every time (never cache in variables)
-3. **Correct prefixes**: `S-` (session), `P-` (permanent/partner), `G-` (global)
-4. **No helper functions**: Deleted `src/kernel/utils/agent.ts` - call `getResolvedIdentity()` directly
-5. **Session vs Agent**: Session ID ≠ Agent ID! Different purposes!
+pub fn my_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-my-tool",
+    description: "What this tool does",
+    params: [],
+    module: "my_module",
+    fn_name: "my_function",
+    args: [],
+    result_format: raw_json(),
+  )
+}
+```
 
-### ✅ Pi Extension Tools (via psypi extension)
-- ✅ `psypi-think` — Delegate to external thinker
-- ✅ `psypi-tasks` — Check pending tasks
-- ✅ `psypi-autonomous` — Get autonomous work guidance
-- ✅ `psypi-piSessionID` — Get Pi session ID (UUID v7)
-- ✅ `psypi-agent-id` — Get agent ID (uses ONE SINGLE WAY internally)
-- ✅ `psypi-partner-id` — Get partner/monitor ID (permanent God AI)
-- ✅ `psypi-meeting-*` — Meeting management
-- ✅ `psypi-doc-*` — Document management
+2. Import it in `extension_generator.gleam`
+3. Add to `all_tools()` list
+4. Build: `cd gleam/psypi_core && rm -rf build/ && gleam build`
+5. Run: `psypi`
 
-### ✅ Other Commands
-- ✅ `psypi agents` — List active agents
-- ✅ `psypi announce <message>` — Send announcement to all AIs
-- ✅ `psypi broadcast <message>` — Alias for announce
-- ✅ `psypi meeting list/show/opinion` — Meeting management
-- ✅ `psypi autonomous [context]` — Get autonomous work guidance
-- ✅ `psypi think <question>` — Delegate to external thinker
-- ✅ `psypi status` — Show psypi status
-- ✅ `psypi project` — Show project info
-- ✅ `psypi visits` — Show recent visits
-- ✅ `psypi stats` — Show ecosystem stats
-- ✅ `psypi doc-save` — Save project document
-- ✅ `psypi doc-list` — List project documents
-- ✅ `psypi learn <content>` — Save learning to memory
-- ✅ `psypi tools` — List available tools from DB
-- ✅ `psypi validate-commit <message>` — Validate commit format
-- ✅ `psypi setup-hooks` — Install git hooks
-- ✅ `psypi task-complete-by-commit <message>` — Complete tasks by commit
-- ✅ `psypi inter-review-request <taskId>` — Request inter-review
-- ✅ `psypi inter-review-show <reviewId>` — Show inter-review
-- ✅ `psypi inter-reviews [status]` — List inter-reviews
+See the [gleam-pi-tool-generator skill](.pi/skills/gleam-pi-tool-generator/SKILL.md) for full documentation.
 
-## 🛠 Current Status
+## Key Design Principles
 
-### ✅ What Works Now (All Complete!):
-- **Build**: ✅ Working (`pnpm build` - no errors! Hash: 0739c61)
-- **All 30+ Commands**: ✅ Working and tested
-- **Pi Extension**: ✅ Updated with `ctx.ui.notify()` for all 17 tools
-- **Inner AI**: ⚠️ Working but fake (stateless API - to be replaced with real Pi agent)
-- **Meeting System**: ✅ Complete (list, show, opinion, complete)
-- **Autonomous Mode**: ✅ Working (`psypi autonomous`)
-- **Think Delegation**: ✅ Working (`psypi-think`)
-- **Inter-Review**: ✅ Working (currently scores 70/100 - will improve with real Pi agent)
-- **Documentation**: ✅ Updated (README, AGENTS.md, session summaries)
-- **Cleanup**: ✅ Removed all nezha/nupi pollution from `~/.pi/agent/extensions/`
-
-### 🚀 Next Major Step:
-- **Replace fake inner AI** with real Pi agent via `createAgentSession()` (Pi SDK)
-  - Will dramatically improve inter-review quality
-  - Simplifies codebase (remove AIProviderFactory, fake HTTP calls)
-  - Creates ever-lasting "God-like" permanent AI partner
+- **100% Gleam** — all tool logic is Gleam code
+- **Type-safe** — Gleam compiler validates everything before JS generation
+- **No hand-editing** — `extension.js` is auto-generated at every `psypi` start
+- **No stale extensions** — fresh `extension.js` every time
+- **AI can't bypass** — adding a tool requires Gleam types, not JS editing
 
 ## Development
 
 ```bash
-# Install dependencies (pnpm is faster!)
-pnpm install
+# Build Gleam
+cd gleam/psypi_core
+rm -rf build/ && gleam build
 
-# Build (WORKING! ✅)
-pnpm build
-
-# Type check
-pnpm typecheck
-
-# Development mode
-pnpm dev
+# Run psypi
+cd /Users/jk/gits/hub/tools_ai/psypi
+psypi
 ```
 
-## Recent Work (2026-05-02)
-- ✅ Updated all 17 Pi extension tools to use `ctx.ui.notify()` per Pi docs
-- ✅ Cleaned `~/.pi/agent/extensions/` (removed ALL nezha/nupi .md files)
-- ✅ Added 3 CLI commands: `my-id`, `partner-id`, `my-session-id`
-- ✅ Fixed build errors (AgentIdentityService crypto import)
-- ✅ Created vision: Ever-Lasting Permanent AI Partner
-- ✅ Inter-review system operational (score: 70/100 - will improve with real Pi agent)
-- ✅ **Activity Tracking** - Auto-tracking of all tool calls (2026-05-08)
+## Documentation
 
-## Developer Guides
-
-- [Activity Tracking](docs/DEVELOPER_GUIDE_ACTIVITY_TRACKING.md) - How activity logging works
-- [Agent Identity Design](docs/AGENT_IDENTITY_TRACKING_DESIGN.md) - Design documentation
-
-## Migration Path
-
-1. ✅ **Phase 1**: Scaffolding (done)
-2. ✅ **Phase 2**: Integrate kernel (done)
-3. ✅ **Phase 3**: Integrate agent (done - all commands working)
-4. ✅ **Phase 4**: Replace nezha/nupi globally (done!)
-5. 🚀 **Phase 5**: Replace fake inner AI with real Pi agent (createAgentSession)
-6. 🎯 **Phase 6**: Delete nezha/nupi (once psypi is mature)
-
----
-
-**Note**: `nezha` and `nupi` will be deleted once psypi is mature. Psypi is the complete, unified system with proper Pi TUI integration (`ctx.ui.notify()` pattern). The fake inner AI will be replaced with a real Pi agent for dramatically better code reviews!
+- [gleam-pi-tool-generator skill](.pi/skills/gleam-pi-tool-generator/) — how to add/modify tools
+- [Architecture](.pi/skills/gleam-pi-tool-generator/references/architecture.md) — generator architecture
+- [Handover](docs/HANDOVER-2026-05-09.md) — session summary
