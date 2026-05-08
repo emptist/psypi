@@ -185,6 +185,9 @@ pub fn to_js_text(tool: PiToolCall) -> String {
 }
 
 /// Generate the import statement for this tool's Gleam module
+/// The import path is relative to extension.js location.
+/// extension.js lives at src/agent/extension/, so we go up to project root
+/// then into the Gleam build output.
 pub fn to_import_line(tool: PiToolCall) -> String {
   let base = "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli"
   "import { " <> tool.fn_name <> " } from \"" <> base <> "/" <> tool.module <> ".mjs\";"

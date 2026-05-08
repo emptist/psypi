@@ -56,6 +56,7 @@ pub fn fetch_identity_by_id(
            COALESCE(project, '') as project, 
            COALESCE(git_hash, '') as git_hash, 
            machine_fingerprint, 
+           session_id, 
            created_at::text as created_at, 
            COALESCE(display_name, '') as display_name, 
            COALESCE(description, '') as description, 
@@ -90,16 +91,18 @@ fn identity_decoder() -> decode.Decoder(AgentIdentity) {
   use project <- decode.field("project", decode.string)
   use git_hash <- decode.field("git_hash", decode.string)
   use machine_fingerprint <- decode.field("machine_fingerprint", decode.string)
+  use session_id <- decode.field("session_id", decode.string)
   use created_at <- decode.field("created_at", decode.string)
   use display_name <- decode.field("display_name", decode.string)
   use description <- decode.field("description", decode.string)
   use source <- decode.field("source", decode.string)
-  
+
   decode.success(AgentIdentity(
     id:,
     project: string_to_option(project),
     git_hash: string_to_option(git_hash),
     machine_fingerprint:,
+    session_id:,
     created_at:,
     display_name: string_to_option(display_name),
     description: string_to_option(description),
@@ -123,6 +126,7 @@ pub fn list_identities(
              COALESCE(project, '') as project, 
              COALESCE(git_hash, '') as git_hash, 
              machine_fingerprint, 
+             session_id, 
              created_at::text as created_at, 
              COALESCE(display_name, '') as display_name, 
              COALESCE(description, '') as description, 

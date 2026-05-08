@@ -6,22 +6,21 @@ import { add } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/p
 import { list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
 
 
-function unwrapGleamResult(result) {
-  if (!result) return { ok: false, error: 'null result' };
-  const typeName = result.constructor?.name || '';
-  if (typeName === 'Ok') return { ok: true, value: result['0'] };
-  if (typeName === 'Error') return { ok: false, error: result['0']?.['0'] || result['0']?.toString() || 'Unknown' };
-  return { ok: true, value: result };
-}
-
-// Session ID — obtained once at session start, never exposed again
-let _sessionId = null;
-pi.on('session_start', async (_event, ctx) => {
-  _sessionId = ctx.sessionManager.getSessionId() || '';
-});
-
-
 export default function(pi) {
+  function unwrapGleamResult(result) {
+    if (!result) return { ok: false, error: 'null result' };
+    const typeName = result.constructor?.name || '';
+    if (typeName === 'Ok') return { ok: true, value: result['0'] };
+    if (typeName === 'Error') return { ok: false, error: result['0']?.['0'] || result['0']?.toString() || 'Unknown' };
+    return { ok: true, value: result };
+  }
+
+  // Session ID — obtained once at session start, never exposed again
+  let _sessionId = null;
+  pi.on('session_start', async (_event, ctx) => {
+    _sessionId = ctx.sessionManager.getSessionId() || '';
+  });
+
   // Get current agent ID
   pi.registerTool({
     name: "psypi-my-id",

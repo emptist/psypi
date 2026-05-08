@@ -1,3 +1,14 @@
+# Agent Identity — Single Source of Truth
+
+## 核心原则
+
+1. **`AgentIdentity` 类型是唯一因** — 所有关于"我是谁"的信息都在这个类型里
+2. **数据库是存放结果的地方，不是查询的来源** — Gleam 不查 DB 来获取身份，而是把计算好的结果存进去
+3. **session_id 是 `AgentIdentity` 的内在属性** — agent_id 的最后一部分就是 session_id，不需要单独传递
+4. **任何需要身份的地方，都必须通过 `get_resolved_identity` 获取** — 不直接读 DB，不硬编码
+
+---
+
 # Agent Identity Tracking Design
 
 ## Implemented Features
@@ -29,15 +40,33 @@
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ID Trigger                   Event Trigger                 │
-│  get_resolved_identity()     Pi Tool / Event (future)      │
+│  get_resolved_identity()     Pi Tool (via extension.js)    │
 │         │                            │                      │
 │         └────────────┬───────────────┘                      │
 │                      ↓                                      │
-│            emit_activity()                                  │
-│                      ↓                                      │
-│            activity_log table                              │
+│              activity_log table                             │
+│         (agent_id, activity, context)                       │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
+```
+
+### 数据流
+
+```
+Pi ctx.sessionManager.getSessionId()
+        │
+        ▼ (一次性传入)
+get_resolved_identity(permanent, session_id, project, ...)
+        │
+        ▼ (封装进类型)
+AgentIdentity { id, session_id, project, source, ... }
+        │
+        ├──► activity_log (ID Trigger: "get_resolved_identity")
+        │
+        └──► 返回给 JS，后续所有操作从 identity 中取 id
+            │
+            ├──► activity_log (Event Trigger: "tool_call")
+            └──► 其他需要 agent_id 的地方
 ```
 
 ## Implementation Details
@@ -102,22 +131,50 @@ This follows Functional Programming principles:
 
 ## Two Trigger Points
 
-| Trigger Point | When | Parameters Available |
-|--------------|------|---------------------|
-| **ID Trigger** | `get_resolved_identity()` called | actor (always), action="get_id", target=None, context={...} |
-| **Event Trigger** | Via Pi Tool / Event | actor (always), action, target, context (full) |
+| Trigger Point | When | Session_ID Source |
+|--------------|------|-------------------|
+| **ID Trigger** | `get_resolved_identity()` called | JS 从 ctx 获取，传一次给 Gleam |
+| **Event Trigger** | Pi tool `execute` 时 | 从 `AgentIdentity` 对象中取（不碰 ctx） |
 
-Both trigger points feed into the same `emit_activity` function - they don't conflict.
+ID Trigger 记录 "获取了身份"，Event Trigger 记录 "执行了什么工具操作"。
 
-### ID Trigger (Current Implementation)
-- Every call to `get_resolved_identity` triggers activity logging
-- Records: "someone got their identity"
-- Missing: detailed event parameters (that's fine - foundation only)
+### ID Trigger
+- JS 从 Pi 的 `ctx.sessionManager.getSessionId()` 获取 session_id
+- 调用 `get_resolved_identity(permanent, session_id, ...)`
+- Gleam 把 session_id 封装进 `AgentIdentity`，同时写入 activity_log
+- 从此时起，session_id 就在 `AgentIdentity` 里，不再单独传递
 
-### Event Trigger (Future Extension)
-- Via Pi Tool: `psypi-log-activity(action, target, context)`
-- Via Event: Emit events when AI performs actions
-- Records: full details of what AI is doing
+### Event Trigger
+- JS 从缓存的 `AgentIdentity` 对象中取 `identity.id`
+- 调用 `log_activity(identity.id, "tool_call", context)`
+- **不再碰 ctx**，不需要 `trackActivity` 函数
+
+## PiToolSpec — Gleam 端的 Tool 定义
+
+每个 Pi tool 在 Gleam 里用一个 `PiToolSpec` 描述：
+
+```gleam
+pub type PiToolSpec {
+  PiToolSpec(
+    name: String,           // "psypi-my-id"
+    description: String,    // "Get current agent ID"
+    parameters: String,     // TypeBox schema 的 JS 字符串
+    import: String,         // Gleam 模块导入路径
+    function: String,       // Gleam 函数名
+    args: List(PiCallArg),  // 参数列表
+  )
+}
+```
+
+`extension_generator.gleam` 读取 `List(PiToolSpec)`，生成符合 Pi API 要求的 `extension.js`。
+
+生成的 `extension.js` 结构固定：
+1. import Gleam 编译出的 `.mjs` 模块
+2. `unwrapGleamResult` helper（处理 Gleam 的 Ok/Error）
+3. 每个 tool 调用 `pi.registerTool({ name, description, parameters, execute })`
+4. `execute` 内部 await Gleam 函数，unwrap 结果，返回 `{ content: [...] }`
+
+**关键点：** `_ctx` 只在需要 session_id 的工具里使用（`psypi=my-id`, `psypi-partner-id`），其他工具不需要碰 `_ctx`。
 
 ## Implementation Status
 
