@@ -107,8 +107,9 @@ fn db_error_to_broadcast_error(e: db.DbError) -> BroadcastError {
 pub fn send(
   agent_id: String,
   message: String,
-  priority: BroadcastPriority,
+  priority_str: String,
 ) -> promise.Promise(Result(String, BroadcastError)) {
+  let priority = string_to_priority(priority_str)
   db.with_connection(fn(conn) {
     let sql = "
       INSERT INTO project_communications 
