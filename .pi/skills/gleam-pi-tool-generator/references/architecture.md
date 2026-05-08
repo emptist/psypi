@@ -60,16 +60,44 @@ extension_generator.gleam →     extension_generator.mjs
    │   └─ → "import { get_resolved_identity } from "...agent_identity.mjs";\n..."
    │
    ├─ helpers_text()
-   │   └─ → "function unwrapGleamResult() {...}\npi.on('session_start', ...) {...}\n"
+   │   └─ → "  function unwrapGleamResult() {...}\n  pi.on('session_start', ...) {...}\n"
    │
    ├─ tools_text(tools)
    │   ├─ to_js_text(tool) for each tool
    │   └─ → "  pi.registerTool({ name: ..., ... });\n\n  ..."
    │
    └─ Concatenate all text:
-       header + imports + helpers + "export default function(pi) {" + tools + "}"
-       → Write to extension.js
+       imports + "export default function(pi) {\n" + helpers + tools + "}"
+       → Write to extension.js via simplifile.write
 ```
+
+## Critical: All pi.* Calls Must Be Inside the Factory
+
+**Bug discovered 2026-05-08**: If `pi.on()` or `pi.registerTool()` is emitted outside `export default function(pi)`, Pi crashes with "pi is not defined".
+
+The correct structure:
+```javascript
+export default function(pi) {
+  function unwrapGleamResult(result) { ... }
+  let _sessionId = null;
+  pi.on('session_start', async (_event, ctx) => { ... });
+  pi.registerTool({ ... });
+}
+```
+
+Both `generate()` and `write_extension()` must use the **same** composition order.
+
+## Path Handling
+
+The generator writes `extension.js` using a **relative path** from `gleam/psypi_core/` (where `gleam run` executes):
+
+```gleam
+let extension_path = "../../src/agent/extension/extension.js"
+```
+
+This works because `simplifile.write` resolves relative to `process.cwd()`.
+
+**Do NOT** use `path.join(PSYPI_ROOT, relativePath)` — this causes path doubling when the relative path contains `..` segments.
 
 ## Why This Design Is Safe
 
@@ -87,6 +115,7 @@ extension_generator.gleam →     extension_generator.mjs
 | `gleam/psypi_core/src/psypi_cli/agent_identity.gleam` | Exports `my_id_tool()`, `partner_id_tool()` |
 | `gleam/psypi_core/src/psypi_cli/task.gleam` | Exports `task_add_tool()`, `task_list_tool()` |
 | `gleam/psypi_core/src/psypi_cli/extension_generator.gleam` | Generator: collects tools, composes text, writes file |
+| `gleam/psypi_core/src/psypi_cli/extension_generator_ffi.mjs` | FFI helpers (path resolution) |
 | `src/agent/extension/extension.js` | **Generated output** — do not edit by hand |
 
 ## Adding a New Tool (Summary)
@@ -94,5 +123,5 @@ extension_generator.gleam →     extension_generator.mjs
 1. Add `PiToolCall` value in the relevant Gleam module
 2. Import it in `extension_generator.gleam`
 3. Add to `all_tools()` list
-4. Run `gleam build && gleam run -m psypi_cli/extension_generator`
+4. Run `rm -rf build/ && gleam build && gleam run -m psypi_cli/extension_generator`
 5. `extension.js` is regenerated automatically
