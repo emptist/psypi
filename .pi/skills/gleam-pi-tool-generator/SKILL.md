@@ -27,6 +27,10 @@ The generator writes JavaScript source code as strings. Never constructs JS obje
 `extension.js` is a build artifact — generated, never hand-edited.
 If an AI edits `extension.js` manually, the Gleam compiler won't catch it.
 That's why nothing should bypass the generator.
+
+### Single Source of Truth
+`write_extension()` calls `generate()` — it never composes text itself.
+This prevents the bug where stdout shows correct output but file has wrong output.
 </essential_principles>
 
 <quick_start>
@@ -35,9 +39,28 @@ That's why nothing should bypass the generator.
 1. **Define the Gleam function** (e.g., in `my_module.gleam`)
 2. **Create a `PiToolCall` value** in that module (e.g., `my_tool()`)
 3. **Import it in the generator** (`extension_generator.gleam`)
-4. **Add it to `all_tools()` list**
-5. **Run `gleam build && gleam run -m psypi_cli/extension_generator`**
-6. **`extension.js` is auto-generated**
+4. **Add it to `all_tools()` list`
+5. **Build and generate** (see workflow below)
+6. **Verify** `extension.js` has the new tool
+
+### Build and Generate (ALWAYS do both steps)
+
+**Option A: Use the build script** (recommended):
+```bash
+cd gleam/psypi_core
+./build.sh
+```
+
+**Option B: Manual steps**:
+```bash
+cd gleam/psypi_core
+rm -rf build/ && gleam build
+gleam run -m psypi_cli/extension_generator
+```
+
+**IMPORTANT**: Always run `rm -rf build/` before `gleam build` after source changes.
+Gleam caches compiled output in `build/` — stale cache causes old code to run.
+The build script does this automatically.
 </quick_start>
 
 <intake>
@@ -85,13 +108,14 @@ All in `workflows/`:
 |------|---------|
 | add-new-tool.md | Step-by-step: add a new Pi tool |
 | modify-tool.md | Step-by-step: change an existing tool |
-| debug_generation.md | Debug generator or build failures |
+| debug-generation.md | Debug generator or build failures |
 </workflows_index>
 
 <success_criteria>
 - New tool defined as `PiToolCall` value in its Gleam module
 - Tool imported in `extension_generator.gleam` and added to `all_tools()`
-- `gleam build` succeeds (validates all types)
+- `rm -rf build/ && gleam build` succeeds (validates all types)
 - `gleam run -m psypi_cli/extension_generator` produces valid `extension.js`
+- `extension.js` has all `pi.*` calls inside `export default function(pi)`
 - All tools use Gleam types, never hand-edited JS
 </success_criteria>
