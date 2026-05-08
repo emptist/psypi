@@ -15,7 +15,7 @@
 import gleam/io
 import gleam/list
 import gleam/string
-import psypi_cli/pi_tool_call.{type PiToolCall, to_js_text, to_import_line}
+import psypi_cli/pi_tool_call.{type PiToolCall, type PiEventHook, to_js_text, to_import_line, event_hook_to_js, event_hook}
 import psypi_cli/agent_identity.{my_id_tool, partner_id_tool}
 import psypi_cli/task.{task_add_tool, task_list_tool}
 import psypi_cli/stats.{stats_show_tool}
@@ -51,6 +51,41 @@ pub fn all_tools() -> List(PiToolCall) {
     stats_show_tool(),
     doc_save_tool(),
   ]
+}
+
+pub fn all_event_hooks() -> List(PiEventHook) {
+  [
+    auto_backup_hook(),
+  ]
+}
+
+fn auto_backup_hook() -> PiEventHook {
+  event_hook("tool_call", auto_backup_handler_body())
+}
+
+/// Generates the auto-backup handler body as JS text.
+/// This is a Gleam function — not hand-written JS. AIs can't mess it up.
+fn auto_backup_handler_body() -> String {
+  [
+    "    if (event.toolName === 'edit' || event.toolName === 'write') {",
+    "      const filePath = event.input?.path || event.input?.filePath;",
+    "      if (!filePath) return;",
+    "      try {",
+    "        const fs = await import('fs');",
+    "        const content = fs.readFileSync(filePath, 'utf-8');",
+    "        const { save_version } = await import('../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs');",
+    "        const identity = await get_resolved_identity(false, _sessionId, 'psypi', '', '', 'psypi', '');",
+    "        const r = unwrapGleamResult(identity);",
+    "        if (r.ok) {",
+    "          await save_version(filePath, content, r.value.id, '', 'auto-backup before ' + event.toolName);",
+    "        }",
+    "      } catch (err) {",
+    "        // Silently fail — don't block the tool call",
+    "      }",
+    "    }",
+  ]
+  |> list.map(fn(s) { s <> "\n" })
+  |> string.concat
 }
 
 // -------------------------------------------------------------------
