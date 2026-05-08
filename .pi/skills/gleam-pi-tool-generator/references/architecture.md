@@ -68,6 +68,10 @@ generate()
   │   ├─ task_add_tool()      → PiToolCall value
   │   ├─ task_list_tool()     → PiToolCall value
   │   └─ stats_show_tool()    → PiToolCall value
+  │   └─ doc_save_tool()      → PiToolCall value
+  │
+  ├─ all_event_hooks()
+  │   └─ auto_backup_hook()   → PiEventHook value
   │
   ├─ imports_text(tools)
   │   ├─ to_import_line(tool) for each tool
@@ -77,12 +81,16 @@ generate()
   ├─ helpers_text()
   │   └─ → "  function unwrapGleamResult() {...}\n  pi.on('session_start', ...) {...}\n"
   │
+  ├─ event_hooks_text(hooks)
+  │   ├─ event_hook_to_js(hook) for each hook
+  │   └─ → "  pi.on('tool_call', async (event, ctx) => {...});\n"
+  │
   ├─ tools_text(tools)
   │   ├─ to_js_text(tool) for each tool
   │   └─ → "  pi.registerTool({ name: ..., ... });\n\n  ..."
   │
   └─ Concatenate:
-      imports + "\nexport default function(pi) {\n" + helpers + tools + "}\n"
+      imports + "\nexport default function(pi) {\n" + helpers + event_hooks + tools + "}\n"
 ```
 
 ## Critical Rules
@@ -111,6 +119,7 @@ Gleam caches compiled output — stale cache causes old code to run.
 | `gleam/psypi_core/src/psypi_cli/agent_identity.gleam` | Exports `my_id_tool()`, `partner_id_tool()` |
 | `gleam/psypi_core/src/psypi_cli/task.gleam` | Exports `task_add_tool()`, `task_list_tool()` |
 | `gleam/psypi_core/src/psypi_cli/stats.gleam` | Exports `stats_show_tool()` |
+| `gleam/psypi_core/src/psypi_cli/code_version.gleam` | Exports `doc_save_tool()` |
 | `src/agent/extension/extension.js` | **Generated at psypi startup** — do not hand-edit |
 
 ## How psypi Starts
