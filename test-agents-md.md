@@ -1,1 +1,0 @@
-# Test AGENTS.md inclusion
