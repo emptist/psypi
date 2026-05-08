@@ -45,13 +45,6 @@ This prevents the bug where stdout shows correct output but file has wrong outpu
 
 ### Build and Generate (ALWAYS do both steps)
 
-**Option A: Use the build script** (recommended):
-```bash
-cd gleam/psypi_core
-./build.sh
-```
-
-**Option B: Manual steps**:
 ```bash
 cd gleam/psypi_core
 rm -rf build/ && gleam build
@@ -60,7 +53,6 @@ gleam run -m psypi_cli/extension_generator
 
 **IMPORTANT**: Always run `rm -rf build/` before `gleam build` after source changes.
 Gleam caches compiled output in `build/` — stale cache causes old code to run.
-The build script does this automatically.
 </quick_start>
 
 <intake>
