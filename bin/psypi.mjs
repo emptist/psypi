@@ -1,26 +1,31 @@
 #!/usr/bin/env node
-// Wrapper to run Gleam-compiled executable WITH Pi extension!
-
-// FIX: Load psypi extension automatically so Pi tools work anywhere!
+// psypi entry point: generate extension.js from Gleam, then spawn Pi
 
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { writeFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Import the compiled Gleam generator
+const { generate } = await import(
+  join(__dirname, '../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/extension_generator.mjs')
+);
+
 // Path to extension.js
 const extensionPath = join(__dirname, '../src/agent/extension/extension.js');
 
-// Path to pi binary
-const piBin = 'pi';
+// Step 1: Generate extension.js from Gleam PiToolCall values
+const content = generate();
+writeFileSync(extensionPath, content, 'utf8');
 
-// Build arguments: load extension + pass through user args
+// Step 2: Spawn Pi with the generated extension
+const piBin = 'pi';
 const args = process.argv.slice(2);
 const piArgs = ['-e', extensionPath, ...args];
 
-// Spawn Pi with extension loaded
 const child = spawn(piBin, piArgs, {
   stdio: 'inherit',
   shell: false
