@@ -160,17 +160,20 @@ pub fn request_review(
       SELECT request_inter_review($1, $2, $3, $4, $5) as review_id
     "
 
-    let task_id_str = case task_id {
-      Some(id) -> id
-      None -> ""
+    let task_id_param = case task_id {
+      Some(id) -> dynamic.string(id)
+      None -> dynamic.string("")
     }
-    let commit_hash_str = case commit_hash {
-      Some(h) -> h
-      None -> ""
+    let commit_hash_param = case commit_hash {
+      Some(h) -> dynamic.string(h)
+      None -> dynamic.string("")
     }
+    // reviewer_id: 永远是 String！来自 get_resolved_identity(permanent=true)
+    let reviewer_id_param = dynamic.string(reviewer_id)
 
     // p_branch - get from git or use empty string
     let branch = "main" // TODO: get from git
+    let branch_str = dynamic.string(branch)
 
     // context needs to be valid JSON for jsonb parameter
     // Use gleam_json (pure Gleam!) to encode properly
@@ -178,13 +181,14 @@ pub fn request_review(
       #("text", json.string(context)),
       #("source", json.string("psypi-inter-review-request")),
     ]))
-    
+    let context_json_str = dynamic.string(context_json)
+
     let params = [
-      dynamic.string(task_id_str),
-      dynamic.string(commit_hash_str),
-      dynamic.string(branch),
-      dynamic.string(reviewer_id),
-      dynamic.string(context_json),
+      task_id_param,
+      commit_hash_param,
+      branch_str,
+      reviewer_id_param,
+      context_json_str,
     ]
 
     promise.map(db.query(conn, sql, params), fn(query_result) {
