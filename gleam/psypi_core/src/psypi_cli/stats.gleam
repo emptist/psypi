@@ -2,6 +2,7 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/int
 import psypi_cli/db.{type DbError, type Connection, with_connection}
+import psypi_cli/pi_tool_call.{type PiToolCall, PiToolCall, custom_js, lit}
 
 pub type Stats {
   Stats(tasks: Int, issues: Int, skills: Int, meetings: Int)
@@ -54,6 +55,23 @@ fn stats_decoder() -> decode.Decoder(Stats) {
   use issues <- decode.field("issues", decode_bigint())
   use skills <- decode.field("skills", decode_bigint())
   use meetings <- decode.field("meetings", decode_bigint())
-  
+
   decode.success(Stats(tasks, issues, skills, meetings))
+}
+
+// -------------------------------------------------------------------
+// Pi Tool Call definition
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-stats — show project statistics
+pub fn stats_show_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-stats-show",
+    description: "Show project statistics (tasks, issues, skills, meetings)",
+    params: [],
+    module: "stats",
+    fn_name: "stats",
+    args: [],
+    result_format: custom_js("`Tasks:${r.value.tasks} Issues:${r.value.issues} Skills:${r.value.skills} Meetings:${r.value.meetings}`"),
+  )
 }

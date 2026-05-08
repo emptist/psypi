@@ -18,6 +18,7 @@ import gleam/string
 import psypi_cli/pi_tool_call.{type PiToolCall, to_js_text, to_import_line}
 import psypi_cli/agent_identity.{my_id_tool, partner_id_tool}
 import psypi_cli/task.{task_add_tool, task_list_tool}
+import psypi_cli/stats.{stats_show_tool}
 import psypi_cli/file_utils.{write_file}
 
 
@@ -46,6 +47,7 @@ pub fn all_tools() -> List(PiToolCall) {
     partner_id_tool(),
     task_add_tool(),
     task_list_tool(),
+    stats_show_tool(),
   ]
 }
 

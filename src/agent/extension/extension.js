@@ -4,6 +4,7 @@
 import { get_resolved_identity } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs";
 import { add } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
 import { list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
+import { stats } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/stats.mjs";
 
 
 export default function(pi) {
@@ -73,6 +74,20 @@ export default function(pi) {
         const result = await list(params?.status || null);
         const r = unwrapGleamResult(result);
         return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] };
+      } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
+    }
+  });
+
+  // Show project statistics (tasks, issues, skills, meetings)
+  pi.registerTool({
+    name: "psypi-stats-show",
+    description: "Show project statistics (tasks, issues, skills, meetings)",
+    parameters: {},
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      try {
+        const result = await stats();
+        const r = unwrapGleamResult(result);
+        return r.ok ? { content: [{ type: "text", text: `Tasks:${r.value.tasks} Issues:${r.value.issues} Skills:${r.value.skills} Meetings:${r.value.meetings}` }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] };
       } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });
