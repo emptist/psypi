@@ -1,116 +1,280 @@
-// extension_generator.gleam - Metaprogramming: Gleam generates extension.js!
-// This is the Lisp way - programs that write programs!
+// extension_generator.gleam - Clean Pi Tool Generator
+//
+// Design (per discussion notes):
+//   - Session ID is internal only, never exposed
+//   - get_resolved_identity() is SYNCHRONOUS, no await needed
+//   - Every call triggers tracking (both pi tools and internal)
+//   - No caching - always call the function
+//   - Generator is simple: just generate JS call code
+//   - Tracking logic lives in Gleam functions, not in JS
 
 import gleam/io
-import gleam/string
 import gleam/list
+import gleam/string
 
-pub type ToolDef {
-  ToolDef(
+// -------------------------------------------------------------------
+// Types
+// -------------------------------------------------------------------
+
+pub type PiResultKind {
+  PiRawJson
+  PiSimpleText(String)
+  PiStats
+}
+
+pub type PiCallArg {
+  PiCallArg(name: String, expr: String)
+}
+
+pub type PiToolSpec {
+  PiToolSpec(
     name: String,
-    module: String,
-    function: String,
     description: String,
-    params: String,
+    params_schema: String,
+    module: String,
+    import_alias: String,
+    gleam_fn: String,
+    args: List(PiCallArg),
+    result_kind: PiResultKind,
   )
 }
 
-fn no_params() -> String { "{}" }
-fn p_string(name: String) -> String { "{ \"" <> name <> "\": { type: \"string\" } }" }
-fn p_opt_string(name: String) -> String { "{ \"" <> name <> "\": { type: \"string\", optional: true } }" }
+// -------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------
 
-pub fn all_tools() -> List(ToolDef) {
-  [
-    ToolDef("psypi-my-id", "agent_identity", "get_resolved_identity", "Get current agent ID", no_params()),
-    ToolDef("psypi-partner-id", "agent_identity", "get_resolved_identity", "Get partner/monitor ID", no_params()),
-    ToolDef("psypi-agents", "agents", "list", "List all agents", no_params()),
-    ToolDef("psypi-task-add", "task", "add", "Add a new task", p_string("title")),
-    ToolDef("psypi-task-complete", "task", "complete", "Complete a task", p_string("taskId")),
-    ToolDef("psypi-tasks", "task", "list", "List tasks", p_opt_string("status")),
-    ToolDef("psypi-skill-build", "skill", "build", "Build a skill", p_string("name")),
-    ToolDef("psypi-skill-list", "skill", "list", "List skills", no_params()),
-    ToolDef("psypi-skill-show", "skill", "get", "Show skill", p_string("name")),
-    ToolDef("psypi-skill-search", "skill", "search", "Search skills", p_string("query")),
-    ToolDef("psypi-issue-add", "issue", "add", "Add an issue", p_string("title")),
-    ToolDef("psypi-issue-list", "issue", "list", "List issues", p_opt_string("status")),
-    ToolDef("psypi-issue-resolve", "issue", "resolve", "Resolve issue", p_string("issueId")),
-    ToolDef("psypi-learn", "learning", "save", "Save learning", p_string("content")),
-    ToolDef("psypi-areflect", "learning", "save", "AI reflect", p_string("content")),
-    ToolDef("psypi-broadcast-send", "broadcast", "send", "Send broadcast", p_string("message")),
-    ToolDef("psypi-broadcast-list", "broadcast", "list", "List broadcasts", no_params()),
-    ToolDef("psypi-meeting-create", "meeting", "create", "Create meeting", p_string("title")),
-    ToolDef("psypi-meeting-list", "meeting", "list", "List meetings", p_opt_string("status")),
-    ToolDef("psypi-meeting-get", "meeting", "get", "Get meeting", p_string("meetingId")),
-    ToolDef("psypi-meeting-add-opinion", "meeting", "add_opinion", "Add opinion", p_string("meetingId")),
-    ToolDef("psypi-meeting-list-opinions", "meeting", "list_opinions", "List opinions", p_string("meetingId")),
-    ToolDef("psypi-meeting-complete", "meeting", "complete", "Complete meeting", p_string("meetingId")),
-    ToolDef("psypi-stats", "stats", "stats", "Get statistics", no_params()),
-    ToolDef("psypi-validate-commit", "validation", "validate", "Validate commit", p_string("message")),
-    ToolDef("psypi-commit", "inter_review", "request", "Commit with review", p_string("message")),
-    ToolDef("psypi-inter-review-request", "inter_review", "request", "Request review", p_string("taskId")),
-    ToolDef("psypi-inter-reviews", "inter_review", "list_reviews", "List reviews", p_opt_string("status")),
-    ToolDef("psypi-inter-review-show", "inter_review", "show", "Show review", p_string("reviewId")),
-  ]
+fn p_string(name: String) -> String {
+  "{ \"" <> name <> "\": { type: \"string\" } }"
+}
+
+fn p_opt_string(name: String) -> String {
+  "{ \"" <> name <> "\": { type: \"string\", optional: true } }"
+}
+
+fn no_params() -> String {
+  "{}"
+}
+
+fn gleam_base_path() -> String {
+  "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli"
 }
 
 fn import_line(module: String, aliases: String) -> String {
-  "import { " <> aliases <> " } from \"../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/" <> module <> ".mjs\";"
+  "import { "
+  <> aliases
+  <> " } from \""
+  <> gleam_base_path()
+  <> "/"
+  <> module
+  <> ".mjs\";"
 }
 
-pub fn generate_imports() -> String {
-  "// Auto-generated by Gleam - DO NOT EDIT\n"
-  <> "import { Type } from \"@sinclair/typebox\";\n"
-  <> "import { execSync } from \"child_process\";\n"
-  <> "import path from \"path\";\n"
-  <> "import { fileURLToPath } from \"url\";\n\n"
-  <> import_line("agent_identity", "get_resolved_identity") <> "\n"
-  <> import_line("task", "add as task_add, complete as task_complete, list as task_list, get as task_get") <> "\n"
-  <> import_line("agents", "list as agents_list") <> "\n"
-  <> import_line("issue", "add as issue_add, list as issue_list, resolve as issue_resolve") <> "\n"
-  <> import_line("skill", "build as skill_build, list as skill_list, get as skill_get, search as skill_search") <> "\n"
-  <> import_line("learning", "save as learn") <> "\n"
-  <> import_line("broadcast", "send as broadcast_send, list as broadcast_list") <> "\n"
-  <> import_line("meeting", "create as meeting_create, list as meeting_list, get as meeting_get, add_opinion as meeting_add_opinion, list_opinions as meeting_list_opinions, complete as meeting_complete") <> "\n"
-  <> import_line("stats", "stats") <> "\n"
-  <> import_line("validation", "validate as commit_validate") <> "\n"
-  <> import_line("inter_review", "request as inter_review_request, list_reviews as inter_reviews, show as inter_review_show") <> "\n"
+// -------------------------------------------------------------------
+// Tool specs - 3 pilot tools
+// -------------------------------------------------------------------
+
+pub fn pilot_tool_specs() -> List(PiToolSpec) {
+  [
+    // Tool 1: psypi-my-id — get current agent ID (permanent=false)
+    PiToolSpec(
+      name: "psypi-my-id",
+      description: "Get current agent ID",
+      params_schema: no_params(),
+      module: "agent_identity",
+      import_alias: "get_resolved_identity",
+      gleam_fn: "get_resolved_identity",
+      args: [
+        PiCallArg("permanent", "false"),
+        PiCallArg("session_id", "\"\""),
+        PiCallArg("project", "\"psypi\""),
+        PiCallArg("git_hash", "\"\""),
+        PiCallArg("machine_fingerprint", "\"\""),
+        PiCallArg("source", "\"psypi\""),
+        PiCallArg("model", "\"\""),
+      ],
+      result_kind: PiRawJson,
+    ),
+    // Tool 2: psypi-partner-id — get partner/monitor ID (permanent=true)
+    PiToolSpec(
+      name: "psypi-partner-id",
+      description: "Get partner/monitor ID (permanent identity)",
+      params_schema: no_params(),
+      module: "agent_identity",
+      import_alias: "get_resolved_identity",
+      gleam_fn: "get_resolved_identity",
+      args: [
+        PiCallArg("permanent", "true"),
+        PiCallArg("session_id", "\"\""),
+        PiCallArg("project", "\"psypi\""),
+        PiCallArg("git_hash", "\"\""),
+        PiCallArg("machine_fingerprint", "\"\""),
+        PiCallArg("source", "\"psypi\""),
+        PiCallArg("model", "\"\""),
+      ],
+      result_kind: PiRawJson,
+    ),
+    // Tool 3: psypi-task-add — add a task
+    PiToolSpec(
+      name: "psypi-task-add",
+      description: "Add a new task",
+      params_schema: p_string("title"),
+      module: "task",
+      import_alias: "task_add",
+      gleam_fn: "add",
+      args: [
+        PiCallArg("title", "params.title || \"\""),
+        PiCallArg("description", "\"\""),
+        PiCallArg("priority", "5"),
+        PiCallArg("created_by", "\"cli\""),
+      ],
+      result_kind: PiSimpleText("Task: ${r.value}"),
+    ),
+    // Tool 4: psypi-tasks — list tasks
+    PiToolSpec(
+      name: "psypi-tasks",
+      description: "List tasks, optionally filtered by status",
+      params_schema: p_opt_string("status"),
+      module: "task",
+      import_alias: "task_list",
+      gleam_fn: "list",
+      args: [PiCallArg("status", "params?.status || null")],
+      result_kind: PiRawJson,
+    ),
+  ]
+}
+
+// -------------------------------------------------------------------
+// Code generation
+// -------------------------------------------------------------------
+
+pub fn generate_imports(tools: List(PiToolSpec)) -> String {
+  let header =
+    [
+      "// extension.js - Generated by Gleam extension_generator",
+      "// DO NOT EDIT - Regenerate with: gleam run -m psypi_cli/extension_generator",
+      "",
+      "import { get_resolved_identity } from \"../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs\";",
+      "import { log_activity } from \"../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/activity_log.mjs\";",
+      "",
+    ]
+    |> list.map(fn(s) { s <> "\n" })
+    |> string.concat
+
+  let modules =
+    tools
+    |> list.filter(fn(t) {
+      t.module != "agent_identity" && t.module != "activity_log"
+    })
+    |> list.fold([], fn(acc, t) {
+      let m = t.module
+      let a = t.import_alias
+      case list.any(acc, fn(e: #(String, String)) { e.0 == m }) {
+        True -> acc
+        False -> [#(m, a), ..acc]
+      }
+    })
+    |> list.reverse
+    |> list.map(fn(m) { import_line(m.0, m.1) <> "\n" })
+    |> string.concat
+
+  header <> modules
 }
 
 pub fn generate_helpers() -> String {
-  "function unwrapGleamResult(result) {\n"
-  <> "  if (!result) return { ok: false, error: 'null result' };\n"
-  <> "  const typeName = result.constructor?.name || '';\n"
-  <> "  if (typeName === 'Ok') return { ok: true, value: result['0'] };\n"
-  <> "  if (typeName === 'Error') return { ok: false, error: result['0']?.['0'] || result['0']?.toString() || 'Unknown' };\n"
-  <> "  return { ok: true, value: result };\n"
-  <> "}\n\n"
+  [
+    "function unwrapGleamResult(result) {",
+    "  if (!result) return { ok: false, error: 'null result' };",
+    "  const typeName = result.constructor?.name || '';",
+    "  if (typeName === 'Ok') return { ok: true, value: result['0'] };",
+    "  if (typeName === 'Error') return { ok: false, error: result['0']?.['0'] || result['0']?.toString() || 'Unknown' };",
+    "  return { ok: true, value: result };",
+    "}",
+    "",
+    "// Auto-tracking: Log activity after each tool call",
+    "let _currentAgentId = null;",
+    "async function trackActivity(toolName, params, result) {",
+    "  if (!_currentAgentId) {",
+    "    try { const idResult = await get_resolved_identity(false, '', 'psypi', '', '', 'psypi', '');",
+    "    const unwrapped = unwrapGleamResult(idResult);",
+    "    _currentAgentId = unwrapped.ok ? unwrapped.value.id : 'unknown';",
+    "    } catch(e) { _currentAgentId = 'unknown'; }",
+    "  }",
+    "  if (_currentAgentId !== 'unknown') {",
+    "    const context = JSON.stringify({ tool: toolName, params: params, success: result?.ok });",
+    "    log_activity(_currentAgentId, 'tool_call', context).catch(() => {});",
+    "  }",
+    "}",
+    "",
+  ]
+  |> list.map(fn(s) { s <> "\n" })
+  |> string.concat
 }
 
-pub fn generate_tool_call(tool: ToolDef) -> String {
-  "  // " <> tool.description <> "\n"
-  <> "  pi.registerTool({\n"
-  <> "    name: \"" <> tool.name <> "\",\n"
-  <> "    description: \"" <> tool.description <> "\",\n"
-  <> "    parameters: " <> tool.params <> ",\n"
-  <> "    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {\n"
-  <> "      // TODO: Connect to Gleam " <> tool.module <> "." <> tool.function <> "\n"
-  <> "      return { content: [{ type: \"text\", text: \"" <> tool.name <> " - not yet connected to Gleam\" }] };\n"
-  <> "    }\n"
-  <> "  });\n\n"
+fn format_result_text(kind: PiResultKind) -> String {
+  case kind {
+    PiRawJson -> "JSON.stringify(r.value)"
+    PiSimpleText(tpl) -> "`" <> tpl <> "`"
+    PiStats ->
+      "`Tasks:${s.tasks} Issues:${s.issues} Skills:${s.skills} Meetings:${s.meetings}`"
+  }
 }
 
-pub fn generate_tools_section() -> String {
-  all_tools() |> list.map(generate_tool_call) |> string.concat
+pub fn generate_tool_registration(tool: PiToolSpec) -> String {
+  let args_str =
+    tool.args
+    |> list.map(fn(a) { a.expr })
+    |> string.join(", ")
+
+  let call_expr = tool.import_alias <> "(" <> args_str <> ")"
+  let result_text = format_result_text(tool.result_kind)
+
+  let formatter_block = case tool.result_kind {
+    PiStats -> {
+      "const s = r.value;\n        return r.ok ? { content: [{ type: \"text\", text: "
+      <> result_text
+      <> " }] } : "
+    }
+    _ ->
+      "return r.ok ? { content: [{ type: \"text\", text: "
+      <> result_text
+      <> " }] } : "
+  }
+
+  [
+    "  // " <> tool.description,
+    "  pi.registerTool({",
+    "    name: \"" <> tool.name <> "\",",
+    "    description: \"" <> tool.description <> "\",",
+    "    parameters: " <> tool.params_schema <> ",",
+    "    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {",
+    "      try {",
+    "        const result = await " <> call_expr <> ";",
+    "        const r = unwrapGleamResult(result);",
+    "        trackActivity(\"" <> tool.name <> "\", params, r);",
+    "        "
+      <> formatter_block
+      <> "{ content: [{ type: \"text\", text: `Error: ${r.error}` }] };",
+    "      } catch(e) { return { content: [{ type: \"text\", text: `Error: ${e.message}` }] }; }",
+    "    }",
+    "  });",
+    "",
+  ]
+  |> list.map(fn(s) { s <> "\n" })
+  |> string.concat
+}
+
+pub fn generate_glue(tools: List(PiToolSpec)) -> String {
+  let header = "export default function(pi) {\n"
+  let registrations =
+    tools
+    |> list.map(generate_tool_registration)
+    |> string.concat
+  header <> registrations <> "}\n"
 }
 
 pub fn generate() -> String {
-  "// extension.js - AUTO-GENERATED by Gleam extension_generator!\n"
-  <> "// Generated: 2026-05-08 - DO NOT EDIT THIS FILE!\n\n"
-  <> generate_imports()
-  <> generate_helpers()
-  <> "export default function(pi) {\n"
-  <> generate_tools_section()
-  <> "}\n"
+  let tools = pilot_tool_specs()
+  generate_imports(tools) <> "\n" <> generate_helpers() <> generate_glue(tools)
 }
 
 pub fn main() {
