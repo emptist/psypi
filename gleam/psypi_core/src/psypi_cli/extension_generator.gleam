@@ -23,13 +23,9 @@ import psypi_cli/file_utils.{write_file}
 
 pub fn write_extension() -> Nil {
   let extension_path = "../../src/agent/extension/extension.js"
-  let tools = all_tools()
-  let content =
-    imports_text(tools)
-    <> "\nexport default function(pi) {\n"
-    <> helpers_text()
-    <> tools_text(tools)
-    <> "}\n"
+  // IMPORTANT: Always call generate() — never compose text here.
+  // Having two composition paths caused the "pi is not defined" bug.
+  let content = generate()
   case write_file(extension_path, content) {
     Ok(_) -> Nil
     Error(e) -> io.println("Error writing extension.js: " <> string.inspect(e))
