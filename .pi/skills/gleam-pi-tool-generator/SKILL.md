@@ -31,28 +31,41 @@ That's why nothing should bypass the generator.
 ### Single Source of Truth
 `write_extension()` calls `generate()` — it never composes text itself.
 This prevents the bug where stdout shows correct output but file has wrong output.
+
+### psypi Generates at Startup
+`bin/psypi.mjs` imports the compiled generator `.mjs` directly — no `gleam run` needed at runtime.
+The flow: `psypi` → import generator → `generate()` → write `extension.js` → spawn `pi -e extension.js`.
+Every `psypi` start produces a fresh `extension.js` from the latest compiled Gleam code.
 </essential_principles>
 
 <quick_start>
 ## Quick Start: Add a New Pi Tool
 
 1. **Define the Gleam function** (e.g., in `my_module.gleam`)
-2. **Create a `PiToolCall` value** in that module (e.g., `my_tool()`)
+2. **Create a `PiToolCall` value** in that module (e.g., `my_module_tool()`)
 3. **Import it in the generator** (`extension_generator.gleam`)
 4. **Add it to `all_tools()` list`
-5. **Build and generate** (see workflow below)
-6. **Verify** `extension.js` has the new tool
+5. **Build** (compile Gleam to JS)
+6. **Run psypi** (auto-generates extension.js and starts Pi)
 
-### Build and Generate (ALWAYS do both steps)
+### Build (after changing Gleam source)
 
 ```bash
 cd gleam/psypi_core
 rm -rf build/ && gleam build
-gleam run -m psypi_cli/extension_generator
 ```
 
 **IMPORTANT**: Always run `rm -rf build/` before `gleam build` after source changes.
 Gleam caches compiled output in `build/` — stale cache causes old code to run.
+
+### Run psypi
+
+```bash
+cd /Users/jk/gits/hub/tools_ai/psypi
+psypi
+```
+
+`psypi` auto-generates `extension.js` at startup and spawns Pi with the fresh extension.
 </quick_start>
 
 <intake>
@@ -107,7 +120,7 @@ All in `workflows/`:
 - New tool defined as `PiToolCall` value in its Gleam module
 - Tool imported in `extension_generator.gleam` and added to `all_tools()`
 - `rm -rf build/ && gleam build` succeeds (validates all types)
-- `gleam run -m psypi_cli/extension_generator` produces valid `extension.js`
-- `extension.js` has all `pi.*` calls inside `export default function(pi)`
+- `psypi` starts without error
+- Tool is available in Pi (test by asking Pi to use it)
 - All tools use Gleam types, never hand-edited JS
 </success_criteria>

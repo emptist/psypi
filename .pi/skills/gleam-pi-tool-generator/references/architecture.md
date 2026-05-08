@@ -12,9 +12,11 @@ export default function(pi) {
 Gleam **cannot** compile directly to this. Pi won't load `.gleam` or `.mjs` as an extension.
 A manual `extension.js` bridge is required.
 
-## The Solution: Text Composition
+## The Solution: Text Composition + Self-Generating Entry Point
 
-The generator is a **text composer** (a cook), not a code generator:
+The architecture has two parts:
+
+### 1. Gleam Generator (compile-time)
 
 ```
 Gleam Source                    Compiled JS (by gleam build)
@@ -32,96 +34,96 @@ task.gleam              →       task.mjs
   task_add_tool()                 task_add_tool() → PiToolCall instance
   add()                           add() → Promise
 
+stats.gleam             →       stats.mjs
+  stats_show_tool()               stats_show_tool() → PiToolCall instance
+  stats()                         stats() → Promise
+
 extension_generator.gleam →     extension_generator.mjs
   all_tools()                     all_tools() → List of PiToolCall
-  imports_text()                  imports_text() → JS import statements as string
-  helpers_text()                  helpers_text() → JS helper code as string
-  tools_text()                    tools_text() → JS registerTool blocks as string
+  generate()                      generate() → JS source text string
 ```
 
-## Composition Flow
+### 2. psypi Entry Point (runtime)
 
 ```
-1. gleam build
-   Validates ALL Gleam code
-   Produces .mjs files
-
-2. gleam run -m psypi_cli/extension_generator
-   │
-   ├─ all_tools()
-   │   ├─ my_id_tool()         → PiToolCall value
-   │   ├─ partner_id_tool()    → PiToolCall value
-   │   ├─ task_add_tool()      → PiToolCall value
-   │   └─ task_list_tool()     → PiToolCall value
-   │
-   ├─ imports_text(tools)
-   │   ├─ to_import_line(tool) for each tool
-   │   ├─ list.unique (dedup)
-   │   └─ → "import { get_resolved_identity } from "...agent_identity.mjs";\n..."
-   │
-   ├─ helpers_text()
-   │   └─ → "  function unwrapGleamResult() {...}\n  pi.on('session_start', ...) {...}\n"
-   │
-   ├─ tools_text(tools)
-   │   ├─ to_js_text(tool) for each tool
-   │   └─ → "  pi.registerTool({ name: ..., ... });\n\n  ..."
-   │
-   └─ Concatenate all text:
-       imports + "export default function(pi) {\n" + helpers + tools + "}"
-       → Write to extension.js via simplifile.write
+bin/psypi.mjs
+    ↓ import { generate } from
+extension_generator.mjs
+    ↓ generate() returns string
+writeFileSync("extension.js", content)
+    ↓ spawn
+pi -e extension.js
 ```
 
-## Critical: All pi.* Calls Must Be Inside the Factory
+`psypi` generates `extension.js` at every startup — no stale extension possible.
+
+## Text Composition Flow
+
+```
+generate()
+  │
+  ├─ all_tools()
+  │   ├─ my_id_tool()         → PiToolCall value
+  │   ├─ partner_id_tool()    → PiToolCall value
+  │   ├─ task_add_tool()      → PiToolCall value
+  │   ├─ task_list_tool()     → PiToolCall value
+  │   └─ stats_show_tool()    → PiToolCall value
+  │
+  ├─ imports_text(tools)
+  │   ├─ to_import_line(tool) for each tool
+  │   ├─ list.unique (dedup)
+  │   └─ → "import { get_resolved_identity } from "...agent_identity.mjs";\n..."
+  │
+  ├─ helpers_text()
+  │   └─ → "  function unwrapGleamResult() {...}\n  pi.on('session_start', ...) {...}\n"
+  │
+  ├─ tools_text(tools)
+  │   ├─ to_js_text(tool) for each tool
+  │   └─ → "  pi.registerTool({ name: ..., ... });\n\n  ..."
+  │
+  └─ Concatenate:
+      imports + "\nexport default function(pi) {\n" + helpers + tools + "}\n"
+```
+
+## Critical Rules
+
+### All pi.* Calls Must Be Inside the Factory
 
 **Bug discovered 2026-05-08**: If `pi.on()` or `pi.registerTool()` is emitted outside `export default function(pi)`, Pi crashes with "pi is not defined".
 
-The correct structure:
-```javascript
-export default function(pi) {
-  function unwrapGleamResult(result) { ... }
-  let _sessionId = null;
-  pi.on('session_start', async (_event, ctx) => { ... });
-  pi.registerTool({ ... });
-}
-```
+### Single Source of Truth
 
-Both `generate()` and `write_extension()` must use the **same** composition order.
+`write_extension()` calls `generate()` — it never composes text itself.
+This prevents mismatched output between stdout and file write.
 
-## Path Handling
+### Build Cache
 
-The generator writes `extension.js` using a **relative path** from `gleam/psypi_core/` (where `gleam run` executes):
-
-```gleam
-let extension_path = "../../src/agent/extension/extension.js"
-```
-
-This works because `simplifile.write` resolves relative to `process.cwd()`.
-
-**Do NOT** use `path.join(PSYPI_ROOT, relativePath)` — this causes path doubling when the relative path contains `..` segments.
-
-## Why This Design Is Safe
-
-1. **Gleam compiler validates everything** — if a function signature changes, `my_id_tool()` won't compile
-2. **No hand-editing** — `extension.js` is 100% generated
-3. **No AI bypass** — an AI can't add a tool by editing JS; it must go through Gleam types
-4. **Everything is text** — the generator never constructs JS objects, only concatenates strings
-5. **Two sources, one truth** — compiled `.mjs` for imports, `PiToolCall.to_js_text()` for tool blocks
+Always `rm -rf build/` before `gleam build` after source changes.
+Gleam caches compiled output — stale cache causes old code to run.
 
 ## File Locations
 
 | File | Purpose |
 |------|---------|
+| `bin/psypi.mjs` | Entry point: imports generator, writes extension.js, spawns Pi |
 | `gleam/psypi_core/src/psypi_cli/pi_tool_call.gleam` | PiToolCall type + text conversion functions |
+| `gleam/psypi_core/src/psypi_cli/extension_generator.gleam` | Generator: collects tools, composes text |
 | `gleam/psypi_core/src/psypi_cli/agent_identity.gleam` | Exports `my_id_tool()`, `partner_id_tool()` |
 | `gleam/psypi_core/src/psypi_cli/task.gleam` | Exports `task_add_tool()`, `task_list_tool()` |
-| `gleam/psypi_core/src/psypi_cli/extension_generator.gleam` | Generator: collects tools, composes text, writes file |
-| `gleam/psypi_core/src/psypi_cli/extension_generator_ffi.mjs` | FFI helpers (path resolution) |
-| `src/agent/extension/extension.js` | **Generated output** — do not edit by hand |
+| `gleam/psypi_core/src/psypi_cli/stats.gleam` | Exports `stats_show_tool()` |
+| `src/agent/extension/extension.js` | **Generated at psypi startup** — do not hand-edit |
 
-## Adding a New Tool (Summary)
+## How psypi Starts
 
-1. Add `PiToolCall` value in the relevant Gleam module
-2. Import it in `extension_generator.gleam`
-3. Add to `all_tools()` list
-4. Run `rm -rf build/ && gleam build && gleam run -m psypi_cli/extension_generator`
-5. `extension.js` is regenerated automatically
+```bash
+cd /Users/jk/gits/hub/tools_ai/psypi
+psypi
+```
+
+Behind the scenes:
+1. `bin/psypi.mjs` imports compiled `extension_generator.mjs`
+2. `generate()` produces JS text from all `PiToolCall` values
+3. Writes to `src/agent/extension/extension.js`
+4. Spawns `pi -e extension.js`
+
+Every start produces a fresh extension from the latest compiled Gleam code.

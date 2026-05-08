@@ -14,3 +14,6 @@ yarn-error.log*
 
 # Build
 *.tsbuildinfo
+
+# Generated extension (build artifact, auto-generated at psypi start)
+src/agent/extension/extension.js
