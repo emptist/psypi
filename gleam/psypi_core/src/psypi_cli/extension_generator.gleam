@@ -20,15 +20,14 @@ import psypi_cli/agent_identity.{my_id_tool, partner_id_tool}
 import psypi_cli/task.{task_add_tool, task_list_tool}
 import psypi_cli/file_utils.{write_file}
 
+
 pub fn write_extension() -> Nil {
-  // From gleam/psypi_core/ (where gleam run executes), go up to project root
   let extension_path = "../../src/agent/extension/extension.js"
   let tools = all_tools()
   let content =
     imports_text(tools)
-    <> "\n"
-    <> helpers_text()
     <> "\nexport default function(pi) {\n"
+    <> helpers_text()
     <> tools_text(tools)
     <> "}\n"
   case write_file(extension_path, content) {
@@ -80,19 +79,19 @@ fn imports_text(tools: List(PiToolCall)) -> String {
 
 fn helpers_text() -> String {
   [
-    "function unwrapGleamResult(result) {",
-    "  if (!result) return { ok: false, error: 'null result' };",
-    "  const typeName = result.constructor?.name || '';",
-    "  if (typeName === 'Ok') return { ok: true, value: result['0'] };",
-    "  if (typeName === 'Error') return { ok: false, error: result['0']?.['0'] || result['0']?.toString() || 'Unknown' };",
-    "  return { ok: true, value: result };",
-    "}",
+    "  function unwrapGleamResult(result) {",
+    "    if (!result) return { ok: false, error: 'null result' };",
+    "    const typeName = result.constructor?.name || '';",
+    "    if (typeName === 'Ok') return { ok: true, value: result['0'] };",
+    "    if (typeName === 'Error') return { ok: false, error: result['0']?.['0'] || result['0']?.toString() || 'Unknown' };",
+    "    return { ok: true, value: result };",
+    "  }",
     "",
-    "// Session ID — obtained once at session start, never exposed again",
-    "let _sessionId = null;",
-    "pi.on('session_start', async (_event, ctx) => {",
-    "  _sessionId = ctx.sessionManager.getSessionId() || '';",
-    "});",
+    "  // Session ID — obtained once at session start, never exposed again",
+    "  let _sessionId = null;",
+    "  pi.on('session_start', async (_event, ctx) => {",
+    "    _sessionId = ctx.sessionManager.getSessionId() || '';",
+    "  });",
     "",
   ]
   |> list.map(fn(s) { s <> "\n" })
@@ -108,9 +107,8 @@ fn tools_text(tools: List(PiToolCall)) -> String {
 pub fn generate() -> String {
   let tools = all_tools()
   imports_text(tools)
-  <> "\n"
-  <> helpers_text()
   <> "\nexport default function(pi) {\n"
+  <> helpers_text()
   <> tools_text(tools)
   <> "}\n"
 }
