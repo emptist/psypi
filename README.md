@@ -151,6 +151,12 @@ pnpm dev
 - ✅ Fixed build errors (AgentIdentityService crypto import)
 - ✅ Created vision: Ever-Lasting Permanent AI Partner
 - ✅ Inter-review system operational (score: 70/100 - will improve with real Pi agent)
+- ✅ **Activity Tracking** - Auto-tracking of all tool calls (2026-05-08)
+
+## Developer Guides
+
+- [Activity Tracking](docs/DEVELOPER_GUIDE_ACTIVITY_TRACKING.md) - How activity logging works
+- [Agent Identity Design](docs/AGENT_IDENTITY_TRACKING_DESIGN.md) - Design documentation
 
 ## Migration Path
 
