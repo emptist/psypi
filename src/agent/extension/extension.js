@@ -5,6 +5,7 @@ import { get_resolved_identity } from "../../../gleam/psypi_core/build/dev/javas
 import { add } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
 import { list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
 import { stats } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/stats.mjs";
+import { save_version } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs";
 
 
 export default function(pi) {
@@ -20,6 +21,26 @@ export default function(pi) {
   let _sessionId = null;
   pi.on('session_start', async (_event, ctx) => {
     _sessionId = ctx.sessionManager.getSessionId() || '';
+  });
+
+  // Auto-backup hook: save file before edit/write
+  pi.on('tool_call', async (event, ctx) => {
+    if (event.toolName === 'edit' || event.toolName === 'write') {
+      const filePath = event.input?.path || event.input?.filePath;
+      if (!filePath) return;
+      try {
+        const fs = await import('fs');
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const { save_version } = await import('../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs');
+        const identity = await get_resolved_identity(false, _sessionId, 'psypi', '', '', 'psypi', '');
+        const r = unwrapGleamResult(identity);
+        if (r.ok) {
+          await save_version(filePath, content, r.value.id, '', 'auto-backup before ' + event.toolName);
+        }
+      } catch (err) {
+        // Silently fail — don't block the tool call
+      }
+    }
   });
 
   // Get current agent ID
@@ -88,6 +109,20 @@ export default function(pi) {
         const result = await stats();
         const r = unwrapGleamResult(result);
         return r.ok ? { content: [{ type: "text", text: `Tasks:${r.value.tasks} Issues:${r.value.issues} Skills:${r.value.skills} Meetings:${r.value.meetings}` }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] };
+      } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
+    }
+  });
+
+  // Save a file version to code_versions table (auto-backup before AI edits)
+  pi.registerTool({
+    name: "psypi-doc-save",
+    description: "Save a file version to code_versions table (auto-backup before AI edits)",
+    parameters: { "file_path": { type: "string" } },
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      try {
+        const result = await save_version(params.file_path, params.content || "", params.saved_by || "unknown", params.commit_hash || "", params.reason || "manual save");
+        const r = unwrapGleamResult(result);
+        return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] };
       } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
   });

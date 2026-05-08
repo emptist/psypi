@@ -2,6 +2,7 @@ import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import psypi_cli/db.{type DbError, type Connection, with_connection}
+import psypi_cli/pi_tool_call.{type PiToolCall, PiToolCall, raw_json, from_param, string_param}
 
 // Save a file version to database
 // Returns: Ok(version_id) or Error(DbError)
@@ -130,6 +131,29 @@ fn version_id_decoder() -> decode.Decoder(String) {
 fn content_decoder() -> decode.Decoder(String) {
   use content <- decode.field("content", decode.string)
   decode.success(content)
+}
+
+// -------------------------------------------------------------------
+// Pi Tool Call definition
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-doc-save — save a file version to database
+pub fn doc_save_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-doc-save",
+    description: "Save a file version to code_versions table (auto-backup before AI edits)",
+    params: [string_param("file_path")],
+    module: "code_version",
+    fn_name: "save_version",
+    args: [
+      from_param("params.file_path"),
+      from_param("params.content || \"\""),
+      from_param("params.saved_by || \"unknown\""),
+      from_param("params.commit_hash || \"\""),
+      from_param("params.reason || \"manual save\""),
+    ],
+    result_format: raw_json(),
+  )
 }
 
 // Query code_versions table with optional filters

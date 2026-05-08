@@ -19,6 +19,7 @@ import psypi_cli/pi_tool_call.{type PiToolCall, to_js_text, to_import_line}
 import psypi_cli/agent_identity.{my_id_tool, partner_id_tool}
 import psypi_cli/task.{task_add_tool, task_list_tool}
 import psypi_cli/stats.{stats_show_tool}
+import psypi_cli/code_version.{doc_save_tool}
 import psypi_cli/file_utils.{write_file}
 
 
@@ -48,6 +49,7 @@ pub fn all_tools() -> List(PiToolCall) {
     task_add_tool(),
     task_list_tool(),
     stats_show_tool(),
+    doc_save_tool(),
   ]
 }
 
@@ -89,6 +91,26 @@ fn helpers_text() -> String {
     "  let _sessionId = null;",
     "  pi.on('session_start', async (_event, ctx) => {",
     "    _sessionId = ctx.sessionManager.getSessionId() || '';",
+    "  });",
+    "",
+    "  // Auto-backup hook: save file before edit/write",
+    "  pi.on('tool_call', async (event, ctx) => {",
+    "    if (event.toolName === 'edit' || event.toolName === 'write') {",
+    "      const filePath = event.input?.path || event.input?.filePath;",
+    "      if (!filePath) return;",
+    "      try {",
+    "        const fs = await import('fs');",
+    "        const content = fs.readFileSync(filePath, 'utf-8');",
+    "        const { save_version } = await import('../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs');",
+    "        const identity = await get_resolved_identity(false, _sessionId, 'psypi', '', '', 'psypi', '');",
+    "        const r = unwrapGleamResult(identity);",
+    "        if (r.ok) {",
+    "          await save_version(filePath, content, r.value.id, '', 'auto-backup before ' + event.toolName);",
+    "        }",
+    "      } catch (err) {",
+    "        // Silently fail — don't block the tool call",
+    "      }",
+    "    }",
     "  });",
     "",
   ]
