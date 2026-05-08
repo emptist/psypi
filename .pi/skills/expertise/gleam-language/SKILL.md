@@ -62,6 +62,7 @@ All in `references/`:
 **Interop:** js-interop.md, erlang-interop.md, gleam-packages.md
 **Patterns:** functional-patterns.md, error-handling.md, async-patterns.md
 **Database:** postgresql-interop.md (psypi uses node_pg)
+**Path:** filepath.md — join, split, base_name, extension, etc.
 **Build:** build-compile.md, project-structure.md
 **Testing:** testing-gleeunit.md (NEW), test-patterns.md
 **Anti-patterns:** what-not-to-do.md
