@@ -72,7 +72,7 @@ All in `references/`:
 | pi-toolcall-type.md | PiToolCall type definition, fields, helpers |
 | result-format.md | ResultFormat variants (RawJson, Template, CustomJs) |
 | fn-arg.md | FnArg variants (JsLiteral, FromParam) |
-| architecture.md | Generator architecture, text composition flow |
+| architecture.md | Generator architecture, text composition flow, path handling |
 | type-mapping.md | Gleam types → how they compile to JS objects |
 </reference_index>
 
