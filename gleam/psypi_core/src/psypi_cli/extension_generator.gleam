@@ -1,186 +1,84 @@
-// extension_generator.gleam - Clean Pi Tool Generator
+// extension_generator.gleam — Pi Extension Generator
 //
-// Design (per discussion notes):
-//   - Session ID is internal only, never exposed
-//   - get_resolved_identity() is SYNCHRONOUS, no await needed
-//   - Every call triggers tracking (both pi tools and internal)
-//   - No caching - always call the function
-//   - Generator is simple: just generate JS call code
-//   - Tracking logic lives in Gleam functions, not in JS
+// Design:
+//   - Each Gleam module exports PiToolCall values (e.g., agent_identity.my_id_tool())
+//   - The generator COLLECTS these values and composes them into extension.js
+//   - Everything is TEXT — Gleam writes JS source code as strings
+//
+// Two sources of JS text:
+//   1. PiToolCall.to_js_text() → pi.registerTool({...}) blocks
+//   2. PiToolCall.to_import_line() → import { fn } from "path.mjs"
+//
+// The generator is a COOK: it gathers ingredients (PiToolCall values),
+// prepares them (converts to JS text), and assembles the final dish (extension.js).
 
 import gleam/io
 import gleam/list
 import gleam/string
+import psypi_cli/pi_tool_call.{type PiToolCall, to_js_text, to_import_line}
+import psypi_cli/agent_identity.{my_id_tool, partner_id_tool}
+import psypi_cli/task.{task_add_tool, task_list_tool}
+import psypi_cli/file_utils.{write_file}
 
-// -------------------------------------------------------------------
-// Types
-// -------------------------------------------------------------------
-
-pub type PiResultKind {
-  PiRawJson
-  PiSimpleText(String)
-  PiStats
-}
-
-pub type PiCallArg {
-  PiCallArg(name: String, expr: String)
-}
-
-pub type PiToolSpec {
-  PiToolSpec(
-    name: String,
-    description: String,
-    params_schema: String,
-    module: String,
-    import_alias: String,
-    gleam_fn: String,
-    args: List(PiCallArg),
-    result_kind: PiResultKind,
-  )
+pub fn write_extension() -> Nil {
+  // From gleam/psypi_core/ (where gleam run executes), go up to project root
+  let extension_path = "../../src/agent/extension/extension.js"
+  let tools = all_tools()
+  let content =
+    imports_text(tools)
+    <> "\n"
+    <> helpers_text()
+    <> "\nexport default function(pi) {\n"
+    <> tools_text(tools)
+    <> "}\n"
+  case write_file(extension_path, content) {
+    Ok(_) -> Nil
+    Error(e) -> io.println("Error writing extension.js: " <> string.inspect(e))
+  }
 }
 
 // -------------------------------------------------------------------
-// Helpers
+// Tool registry — the SINGLE place where all Pi tools are listed
+// To add a new tool:
+//   1. Define a PiToolCall value in its Gleam module
+//   2. Import it here
+//   3. Add it to the list below
 // -------------------------------------------------------------------
 
-fn p_string(name: String) -> String {
-  "{ \"" <> name <> "\": { type: \"string\" } }"
-}
-
-fn p_opt_string(name: String) -> String {
-  "{ \"" <> name <> "\": { type: \"string\", optional: true } }"
-}
-
-fn no_params() -> String {
-  "{}"
-}
-
-fn gleam_base_path() -> String {
-  "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli"
-}
-
-fn import_line(module: String, aliases: String) -> String {
-  "import { "
-  <> aliases
-  <> " } from \""
-  <> gleam_base_path()
-  <> "/"
-  <> module
-  <> ".mjs\";"
-}
-
-// -------------------------------------------------------------------
-// Tool specs - 3 pilot tools
-// -------------------------------------------------------------------
-
-pub fn pilot_tool_specs() -> List(PiToolSpec) {
+pub fn all_tools() -> List(PiToolCall) {
   [
-    // Tool 1: psypi-my-id — get current agent ID (permanent=false)
-    PiToolSpec(
-      name: "psypi-my-id",
-      description: "Get current agent ID",
-      params_schema: no_params(),
-      module: "agent_identity",
-      import_alias: "get_resolved_identity",
-      gleam_fn: "get_resolved_identity",
-      args: [
-        PiCallArg("permanent", "false"),
-        PiCallArg("session_id", "\"\""),
-        PiCallArg("project", "\"psypi\""),
-        PiCallArg("git_hash", "\"\""),
-        PiCallArg("machine_fingerprint", "\"\""),
-        PiCallArg("source", "\"psypi\""),
-        PiCallArg("model", "\"\""),
-      ],
-      result_kind: PiRawJson,
-    ),
-    // Tool 2: psypi-partner-id — get partner/monitor ID (permanent=true)
-    PiToolSpec(
-      name: "psypi-partner-id",
-      description: "Get partner/monitor ID (permanent identity)",
-      params_schema: no_params(),
-      module: "agent_identity",
-      import_alias: "get_resolved_identity",
-      gleam_fn: "get_resolved_identity",
-      args: [
-        PiCallArg("permanent", "true"),
-        PiCallArg("session_id", "\"\""),
-        PiCallArg("project", "\"psypi\""),
-        PiCallArg("git_hash", "\"\""),
-        PiCallArg("machine_fingerprint", "\"\""),
-        PiCallArg("source", "\"psypi\""),
-        PiCallArg("model", "\"\""),
-      ],
-      result_kind: PiRawJson,
-    ),
-    // Tool 3: psypi-task-add — add a task
-    PiToolSpec(
-      name: "psypi-task-add",
-      description: "Add a new task",
-      params_schema: p_string("title"),
-      module: "task",
-      import_alias: "task_add",
-      gleam_fn: "add",
-      args: [
-        PiCallArg("title", "params.title || \"\""),
-        PiCallArg("description", "\"\""),
-        PiCallArg("priority", "5"),
-        PiCallArg("created_by", "\"cli\""),
-      ],
-      result_kind: PiSimpleText("Task: ${r.value}"),
-    ),
-    // Tool 4: psypi-tasks — list tasks
-    PiToolSpec(
-      name: "psypi-tasks",
-      description: "List tasks, optionally filtered by status",
-      params_schema: p_opt_string("status"),
-      module: "task",
-      import_alias: "task_list",
-      gleam_fn: "list",
-      args: [PiCallArg("status", "params?.status || null")],
-      result_kind: PiRawJson,
-    ),
+    my_id_tool(),
+    partner_id_tool(),
+    task_add_tool(),
+    task_list_tool(),
   ]
 }
 
 // -------------------------------------------------------------------
-// Code generation
+// JS text composition
 // -------------------------------------------------------------------
 
-pub fn generate_imports(tools: List(PiToolSpec)) -> String {
+fn imports_text(tools: List(PiToolCall)) -> String {
   let header =
     [
       "// extension.js - Generated by Gleam extension_generator",
       "// DO NOT EDIT - Regenerate with: gleam run -m psypi_cli/extension_generator",
       "",
-      "import { get_resolved_identity } from \"../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs\";",
-      "import { log_activity } from \"../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/activity_log.mjs\";",
-      "",
     ]
     |> list.map(fn(s) { s <> "\n" })
     |> string.concat
 
-  let modules =
+  let lines =
     tools
-    |> list.filter(fn(t) {
-      t.module != "agent_identity" && t.module != "activity_log"
-    })
-    |> list.fold([], fn(acc, t) {
-      let m = t.module
-      let a = t.import_alias
-      case list.any(acc, fn(e: #(String, String)) { e.0 == m }) {
-        True -> acc
-        False -> [#(m, a), ..acc]
-      }
-    })
-    |> list.reverse
-    |> list.map(fn(m) { import_line(m.0, m.1) <> "\n" })
+    |> list.map(to_import_line)
+    |> list.unique
+    |> list.map(fn(line) { line <> "\n" })
     |> string.concat
 
-  header <> modules
+  header <> lines <> "\n"
 }
 
-pub fn generate_helpers() -> String {
+fn helpers_text() -> String {
   [
     "function unwrapGleamResult(result) {",
     "  if (!result) return { ok: false, error: 'null result' };",
@@ -190,93 +88,36 @@ pub fn generate_helpers() -> String {
     "  return { ok: true, value: result };",
     "}",
     "",
-    "// Auto-tracking: Log activity after each tool call",
-    "let _currentAgentId = null;",
-    "async function trackActivity(toolName, params, result) {",
-    "  if (!_currentAgentId) {",
-    "    try { const idResult = await get_resolved_identity(false, '', 'psypi', '', '', 'psypi', '');",
-    "    const unwrapped = unwrapGleamResult(idResult);",
-    "    _currentAgentId = unwrapped.ok ? unwrapped.value.id : 'unknown';",
-    "    } catch(e) { _currentAgentId = 'unknown'; }",
-    "  }",
-    "  if (_currentAgentId !== 'unknown') {",
-    "    const context = JSON.stringify({ tool: toolName, params: params, success: result?.ok });",
-    "    log_activity(_currentAgentId, 'tool_call', context).catch(() => {});",
-    "  }",
-    "}",
+    "// Session ID — obtained once at session start, never exposed again",
+    "let _sessionId = null;",
+    "pi.on('session_start', async (_event, ctx) => {",
+    "  _sessionId = ctx.sessionManager.getSessionId() || '';",
+    "});",
     "",
   ]
   |> list.map(fn(s) { s <> "\n" })
   |> string.concat
 }
 
-fn format_result_text(kind: PiResultKind) -> String {
-  case kind {
-    PiRawJson -> "JSON.stringify(r.value)"
-    PiSimpleText(tpl) -> "`" <> tpl <> "`"
-    PiStats ->
-      "`Tasks:${s.tasks} Issues:${s.issues} Skills:${s.skills} Meetings:${s.meetings}`"
-  }
-}
-
-pub fn generate_tool_registration(tool: PiToolSpec) -> String {
-  let args_str =
-    tool.args
-    |> list.map(fn(a) { a.expr })
-    |> string.join(", ")
-
-  let call_expr = tool.import_alias <> "(" <> args_str <> ")"
-  let result_text = format_result_text(tool.result_kind)
-
-  let formatter_block = case tool.result_kind {
-    PiStats -> {
-      "const s = r.value;\n        return r.ok ? { content: [{ type: \"text\", text: "
-      <> result_text
-      <> " }] } : "
-    }
-    _ ->
-      "return r.ok ? { content: [{ type: \"text\", text: "
-      <> result_text
-      <> " }] } : "
-  }
-
-  [
-    "  // " <> tool.description,
-    "  pi.registerTool({",
-    "    name: \"" <> tool.name <> "\",",
-    "    description: \"" <> tool.description <> "\",",
-    "    parameters: " <> tool.params_schema <> ",",
-    "    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {",
-    "      try {",
-    "        const result = await " <> call_expr <> ";",
-    "        const r = unwrapGleamResult(result);",
-    "        trackActivity(\"" <> tool.name <> "\", params, r);",
-    "        "
-      <> formatter_block
-      <> "{ content: [{ type: \"text\", text: `Error: ${r.error}` }] };",
-    "      } catch(e) { return { content: [{ type: \"text\", text: `Error: ${e.message}` }] }; }",
-    "    }",
-    "  });",
-    "",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
+fn tools_text(tools: List(PiToolCall)) -> String {
+  tools
+  |> list.map(to_js_text)
   |> string.concat
-}
-
-pub fn generate_glue(tools: List(PiToolSpec)) -> String {
-  let header = "export default function(pi) {\n"
-  let registrations =
-    tools
-    |> list.map(generate_tool_registration)
-    |> string.concat
-  header <> registrations <> "}\n"
 }
 
 pub fn generate() -> String {
-  let tools = pilot_tool_specs()
-  generate_imports(tools) <> "\n" <> generate_helpers() <> generate_glue(tools)
+  let tools = all_tools()
+  imports_text(tools)
+  <> "\n"
+  <> helpers_text()
+  <> "\nexport default function(pi) {\n"
+  <> tools_text(tools)
+  <> "}\n"
 }
 
 pub fn main() {
+  // Print to stdout (for debugging)
   generate() |> io.print
+  // Also write to extension.js
+  write_extension()
 }

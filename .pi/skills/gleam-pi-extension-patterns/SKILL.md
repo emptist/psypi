@@ -1,6 +1,6 @@
 ---
 name: gleam-pi-extension-patterns
-description: CRITICAL patterns for Gleam migration with Pi ExtensionAPI. Covers the #1 mistake: Pi extension MUST be manual .js/.ts (NOT compiled from .gleam!). Includes correct architecture, ExtensionAPI structure, and common pitfalls.
+description: CRITICAL patterns for Gleam migration with Pi ExtensionAPI. Covers the #1 mistake: Pi extension MUST be manual .js/.ts (NOT compiled from .gleam!). Includes correct architecture, ExtensionAPI structure, and common pitfalls. NOTE: For the new PiToolCall-based generator approach, see gleam-pi-tool-generator skill.
 ---
 
 # Gleam Pi Extension Patterns
@@ -200,6 +200,19 @@ When migrating TS to Gleam with Pi extension:
 - **Pi Extension Examples:** `/Users/jk/Library/pnpm/global/5/.pnpm/@mariozechner+pi-coding-agent@0.73.0_ws@8.20.0_zod@4.4.2/node_modules/@mariozechner/pi-coding-agent/examples/extensions/`
 - **Gleam Build Output:** `gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/*.mjs`
 - **AGENTS.md Rule:** See "CRITICAL Architecture Rule" section
+
+---
+
+## New Approach: PiToolCall Generator
+
+The old way was hand-editing `extension.js`. The new way uses Gleam `PiToolCall` types:
+
+- **Skill:** `gleam-pi-tool-generator` — complete guide to the new approach
+- **Key file:** `gleam/psypi_core/src/psypi_cli/pi_tool_call.gleam` — PiToolCall type
+- **Key file:** `gleam/psypi_core/src/psypi_cli/extension_generator.gleam` — text composer
+- **Generated:** `src/agent/extension/extension.js` — auto-generated, never hand-edit
+
+**For new tools, use the `gleam-pi-tool-generator` skill instead of this one.**
 
 ---
 

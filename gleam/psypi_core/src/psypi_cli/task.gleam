@@ -4,6 +4,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import psypi_cli/db
+import psypi_cli/pi_tool_call.{type PiToolCall, PiToolCall, raw_json, template, lit, from_param, string_param, opt_string_param}
 
 pub type TaskStatus {
   Pending
@@ -230,4 +231,41 @@ pub fn get(
       }
     })
   }, db_error_to_task_error)
+}
+
+// -------------------------------------------------------------------
+// Pi Tool Call definitions
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-task-add — add a new task
+pub fn task_add_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-task-add",
+    description: "Add a new task",
+    params: [string_param("title")],
+    module: "task",
+    fn_name: "add",
+    args: [
+      from_param("params.title || \"\""),
+      lit("\"\""),
+      lit("5"),
+      lit("\"cli\""),
+    ],
+    result_format: template("Task: ${r.value}"),
+  )
+}
+
+/// Pi tool: psypi-tasks — list tasks
+pub fn task_list_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-tasks",
+    description: "List tasks, optionally filtered by status",
+    params: [opt_string_param("status")],
+    module: "task",
+    fn_name: "list",
+    args: [
+      from_param("params?.status || null"),
+    ],
+    result_format: raw_json(),
+  )
 }

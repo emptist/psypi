@@ -2,9 +2,9 @@
 // DO NOT EDIT - Regenerate with: gleam run -m psypi_cli/extension_generator
 
 import { get_resolved_identity } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/agent_identity.mjs";
-import { log_activity } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/activity_log.mjs";
+import { add } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
+import { list } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
 
-import { task_add } from "../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs";
 
 function unwrapGleamResult(result) {
   if (!result) return { ok: false, error: 'null result' };
@@ -14,20 +14,12 @@ function unwrapGleamResult(result) {
   return { ok: true, value: result };
 }
 
-// Auto-tracking: Log activity after each tool call
-let _currentAgentId = null;
-async function trackActivity(toolName, params, result) {
-  if (!_currentAgentId) {
-    try { const idResult = await get_resolved_identity(false, '', 'psypi', '', '', 'psypi', '');
-    const unwrapped = unwrapGleamResult(idResult);
-    _currentAgentId = unwrapped.ok ? unwrapped.value.id : 'unknown';
-    } catch(e) { _currentAgentId = 'unknown'; }
-  }
-  if (_currentAgentId !== 'unknown') {
-    const context = JSON.stringify({ tool: toolName, params: params, success: result?.ok });
-    log_activity(_currentAgentId, 'tool_call', context).catch(() => {});
-  }
-}
+// Session ID — obtained once at session start, never exposed again
+let _sessionId = null;
+pi.on('session_start', async (_event, ctx) => {
+  _sessionId = ctx.sessionManager.getSessionId() || '';
+});
+
 
 export default function(pi) {
   // Get current agent ID
@@ -37,9 +29,8 @@ export default function(pi) {
     parameters: {},
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       try {
-        const result = await get_resolved_identity(false, "", "psypi", "", "", "psypi", "");
+        const result = await get_resolved_identity(false, _sessionId, "psypi", "", "", "psypi", "");
         const r = unwrapGleamResult(result);
-        trackActivity("psypi-my-id", params, r);
         return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] };
       } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
@@ -54,7 +45,6 @@ export default function(pi) {
       try {
         const result = await get_resolved_identity(true, "", "psypi", "", "", "psypi", "");
         const r = unwrapGleamResult(result);
-        trackActivity("psypi-partner-id", params, r);
         return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] };
       } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
@@ -67,9 +57,8 @@ export default function(pi) {
     parameters: { "title": { type: "string" } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       try {
-        const result = await task_add(params.title || "", "", 5, "cli");
+        const result = await add(params.title || "", "", 5, "cli");
         const r = unwrapGleamResult(result);
-        trackActivity("psypi-task-add", params, r);
         return r.ok ? { content: [{ type: "text", text: `Task: ${r.value}` }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] };
       } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
@@ -82,9 +71,8 @@ export default function(pi) {
     parameters: { "status": { type: "string", optional: true } },
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       try {
-        const result = await task_list(params?.status || null);
+        const result = await list(params?.status || null);
         const r = unwrapGleamResult(result);
-        trackActivity("psypi-tasks", params, r);
         return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] } : { content: [{ type: "text", text: `Error: ${r.error}` }] };
       } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
     }
