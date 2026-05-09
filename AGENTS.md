@@ -130,13 +130,24 @@ npm install    # ❌ Wrong
 **NEW**: Pi TUI → Pi tools → Gleam → Database
 
 ### Pi Tools Status:
-- **6 Pi tools** working ✅:
+- **17 Pi tools** working ✅:
   - `psypi-my-id` — Get agent ID
-  - `psypi-partner-id` — Get monitor/partner ID
+  - `psypi-monitor-id` — Get monitor/partner ID
   - `psypi-task-add` — Add a task
   - `psypi-tasks` — List tasks
   - `psypi-stats-show` — Show project statistics
   - `psypi-doc-save` — Save file version to code_versions DB
+  - `psypi-issue-add` — Add a new issue
+  - `psypi-issues` — List issues
+  - `psypi-issue-resolve` — Resolve an issue by ID
+  - `psypi-skill-list` — List skills
+  - `psypi-skill-get` — Get a skill by ID
+  - `psypi-skill-search` — Search skills by name
+  - `psypi-meetings` — List meetings
+  - `psypi-meeting-get` — Get a meeting by ID
+  - `psypi-meeting-opinions` — List opinions for a meeting
+  - `psypi-learn-save` — Save a learning to memory
+  - `psypi-memory-search` — Search memories by keyword
 - **TypeScript** fully removed — all files in `deprecated/` directory
 - **psypi** = Pi TUI entry point (generates extension.js from Gleam, then spawns Pi)
 
