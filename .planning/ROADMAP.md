@@ -98,7 +98,11 @@ Plans:
 - ✅ Flat file structure (gleam.toml at root, src/psypi/)
 - ✅ Auto-generated extension.js (no manual editing!)
 - ✅ Pi tools via Gleam PiToolCall types (type-safe!)
-- ✅ 6 working Pi tools
+- ✅ 9 working Pi tools (added issue tools)
+
+**Code Quality Issues to Fix (later):**
+- ⚠️ agentId uses String everywhere (74 occurrences) - should use custom AgentId type
+- ⚠️ Many modules have unused imports (warnings)
 
 ### 📋 v2.0 Production Ready (Planned)
 
