@@ -269,3 +269,18 @@ pub fn task_list_tool() -> PiToolCall {
     result_format: raw_json(),
   )
 }
+
+/// Pi tool: psypi-task-complete — mark a task as completed
+pub fn task_complete_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-task-complete",
+    description: "Mark a task as completed",
+    params: [string_param("task_id")],
+    module: "task",
+    fn_name: "complete",
+    args: [
+      from_param("params.task_id || \"\""),
+    ],
+    result_format: template("Task completed: ${r.value}"),
+  )
+}

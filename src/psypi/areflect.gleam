@@ -3,6 +3,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import psypi/db
+import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
 
 pub type ReflectionError {
   ConnectionError(String)
@@ -182,4 +183,24 @@ fn save_task(
       Ok(_) -> Ok(Nil)
     }
   })
+}
+
+// -------------------------------------------------------------------
+// Pi Tools
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-areflect — extract learnings, issues, and tasks from text
+pub fn areflect_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-areflect",
+    description: "Extract [LEARN], [ISSUE], [TASK] markers from text and save to database",
+    params: [string_param("text")],
+    module: "areflect",
+    fn_name: "areflect",
+    args: [
+      from_param("params.text || \"\""),
+      from_param("'psypi'"),
+    ],
+    result_format: template("Reflection: ${JSON.stringify(r.value)}"),
+  )
 }

@@ -4,6 +4,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import psypi/db
+import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
 
 pub type BroadcastPriority {
   Low
@@ -250,4 +251,41 @@ pub fn stats(
       }
     })
   }, db_error_to_broadcast_error)
+}
+
+// -------------------------------------------------------------------
+// Pi Tools
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-broadcast-send — send a broadcast message
+pub fn broadcast_send_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-broadcast-send",
+    description: "Send a broadcast message",
+    params: [string_param("message"), string_param("priority")],
+    module: "broadcast",
+    fn_name: "send",
+    args: [
+      from_param("'psypi'"),
+      from_param("params.message || \"\""),
+      from_param("params.priority || 'normal'"),
+    ],
+    result_format: template("Broadcast sent: ${r.value}"),
+  )
+}
+
+/// Pi tool: psypi-broadcasts — list broadcasts
+pub fn broadcast_list_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-broadcasts",
+    description: "List broadcast messages",
+    params: [string_param("limit")],
+    module: "broadcast",
+    fn_name: "list",
+    args: [
+      from_param("null"),
+      from_param("parseInt(params.limit || '10')"),
+    ],
+    result_format: template("Broadcasts: ${JSON.stringify(r.value)}"),
+  )
 }

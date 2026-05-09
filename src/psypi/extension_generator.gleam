@@ -17,6 +17,8 @@ import gleam/io
 import gleam/list
 import gleam/string
 import psypi/agent_identity.{monitor_id_tool, my_id_tool}
+import psypi/areflect.{areflect_tool}
+import psypi/broadcast.{broadcast_send_tool, broadcast_list_tool}
 import psypi/code_version.{doc_save_tool}
 import psypi/file_utils.{write_file}
 import psypi/issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
@@ -29,7 +31,7 @@ import psypi/pi_tool_call.{
 }
 import psypi/skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import psypi/stats.{stats_show_tool}
-import psypi/task.{task_add_tool, task_list_tool}
+import psypi/task.{task_add_tool, task_list_tool, task_complete_tool}
 
 @external(javascript, "./extension_generator_ffi.mjs", "get_project_root")
 pub fn get_project_root() -> String
@@ -82,6 +84,13 @@ pub fn all_tools() -> List(PiToolCall) {
     learn_save_tool(),
     // Memory
     memory_search_tool(),
+    // Broadcast
+    broadcast_send_tool(),
+    broadcast_list_tool(),
+    // Reflection (Monitor AI)
+    areflect_tool(),
+    // Task completion
+    task_complete_tool(),
   ]
 }
 
