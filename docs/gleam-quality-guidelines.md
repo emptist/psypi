@@ -46,6 +46,31 @@ import gleam/string  // never used
 
 **Fix:** Remove unused imports. Run `gleam build` - compiler warns about unused imports.
 
+### 2a. Import Aliasing (Avoid Name Collisions)
+
+When two modules export the same function name (e.g., `task.add` and `issue.add`), use aliases:
+
+```gleam
+import psypi/task.{add as task_add}
+import psypi/issue.{add as issue_add}
+```
+
+**Why:** Without aliases, you get "Identifier 'add' has already been declared" error at extension generation.
+
+### 2b. Labeled Arguments Rule
+
+After using a labeled argument, ALL subsequent arguments must also be labeled:
+
+```gleam
+// BAD - labeled then unlabeled
+template("foo"),  // ERROR!
+
+// GOOD - all labeled
+result_format: template("foo"),
+```
+
+**Why:** Gleam enforces this. Error: "Unexpected positional argument ... has been supplied after a labelled argument."
+
 ### 3. Magic Strings
 
 **Bad:**
