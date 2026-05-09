@@ -2,8 +2,9 @@ import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
-import gleam/option.{type Option, Some, None}
+import gleam/option.{type Option, None, Some}
 import psypi/db
+import psypi/agent_identity_types.{type AgentId, agent_id_to_string}
 
 pub type ActivityLog {
   ActivityLog(
@@ -46,9 +47,9 @@ fn activity_log_decoder() -> decode.Decoder(ActivityLog) {
 
 /// Log activity to database
 pub fn log_activity(
-  agent_id: String,
+  agent_id: AgentId,
   activity: String,
-  context: String, // JSON string
+  context: String,
 ) -> promise.Promise(Result(String, ActivityLoggingError)) {
   db.with_connection(fn(conn) {
     let sql = "
@@ -57,7 +58,7 @@ pub fn log_activity(
       RETURNING id
     "
     let params = [
-      dynamic.string(agent_id),
+      dynamic.string(agent_id_to_string(agent_id)),
       dynamic.string(activity),
       dynamic.string(context),
       dynamic.string(""), // git_hash - TODO

@@ -1,7 +1,7 @@
 import gleam/javascript/promise
 import gleam/json
 import psypi/db
-import psypi/agent_identity_types.{type AgentIdentity, type IdentityError, ConnectionError, QueryError}
+import psypi/agent_identity_types.{type AgentIdentity, type IdentityError, type AgentId, ConnectionError, QueryError, agent_id}
 import psypi/agent_identity_db.{insert_identity, fetch_identity_by_id}
 import psypi/agent_identity_logic.{generate_semantic_id}
 import psypi/activity_log
@@ -44,7 +44,7 @@ pub fn get_resolved_identity(
                   #("source", json.string(source)),
                   #("model", json.string(model)),
                 ]))
-                promise.map(activity_log.log_activity(identity.id, "get_resolved_identity", context), fn(_) {
+                promise.map(activity_log.log_activity(agent_id(identity.id), "get_resolved_identity", context), fn(_) {
                   Ok(identity)
                 })
               }
