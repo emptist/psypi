@@ -1,7 +1,7 @@
 import gleam/javascript/promise
 import gleam/json
 import psypi/db
-import psypi/agent_identity_types.{type AgentIdentity, type IdentityError, type AgentId, ConnectionError, QueryError, agent_id}
+import psypi/agent_identity_types.{type AgentIdentity, type IdentityError, ConnectionError, QueryError, agent_id}
 import psypi/agent_identity_db.{insert_identity, fetch_identity_by_id}
 import psypi/agent_identity_logic.{generate_semantic_id}
 import psypi/activity_log

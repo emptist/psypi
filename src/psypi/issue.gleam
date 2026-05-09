@@ -4,7 +4,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import psypi/db
-import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, lit, template}
+import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template}
 
 pub type IssueSeverity {
   Critical
