@@ -86,11 +86,11 @@ pub fn my_id_tool() -> PiToolCall {
   )
 }
 
-/// Pi tool: psypi-partner-id — get partner/monitor ID (permanent=true)
-pub fn partner_id_tool() -> PiToolCall {
+/// Pi tool: psypi-monitor-id — get monitor/partner ID (permanent=true)
+pub fn monitor_id_tool() -> PiToolCall {
   PiToolCall(
-    name: "psypi-partner-id",
-    description: "Get partner/monitor ID (permanent identity)",
+    name: "psypi-monitor-id",
+    description: "Get monitor/partner ID (permanent identity)",
     params: [],
     module: "agent_identity",
     fn_name: "get_resolved_identity",

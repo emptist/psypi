@@ -5,7 +5,7 @@ pub fn my_id() -> Result(String, String) {
   Ok("S-psypi-psypi")
 }
 
-pub fn partner_id() -> Result(String, String) {
+pub fn monitor_id() -> Result(String, String) {
   Ok("P-tencent/hy3-preview:free-psypi")
 }
 

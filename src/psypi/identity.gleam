@@ -59,8 +59,8 @@ pub fn get_current(session_id: String) -> promise.Promise(Result(Identity, Ident
   }, db_error_to_identity_error)
 }
 
-/// Get partner identity
-pub fn get_partner() -> promise.Promise(Result(Identity, IdentityError)) {
+/// Get monitor identity
+pub fn get_monitor() -> promise.Promise(Result(Identity, IdentityError)) {
   db.with_connection(fn(conn) {
     let sql = "
       SELECT id, agent_type 
@@ -80,7 +80,7 @@ pub fn get_partner() -> promise.Promise(Result(Identity, IdentityError)) {
             [row, ..] -> {
               case decode.run(row, identity_decoder()) {
                 Ok(id) -> Ok(id)
-                Error(_) -> Error(QueryError("Failed to decode partner identity"))
+                Error(_) -> Error(QueryError("Failed to decode monitor identity"))
               }
             }
           }

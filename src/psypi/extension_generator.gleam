@@ -16,7 +16,7 @@ import gleam/io
 import gleam/list
 import gleam/string
 import psypi/pi_tool_call.{type PiToolCall, type PiEventHook, to_js_text, to_import_line, event_hook_to_js, event_hook}
-import psypi/agent_identity.{my_id_tool, partner_id_tool}
+import psypi/agent_identity.{my_id_tool, monitor_id_tool}
 import psypi/task.{task_add_tool, task_list_tool}
 import psypi/stats.{stats_show_tool}
 import psypi/code_version.{doc_save_tool}
@@ -53,7 +53,7 @@ pub fn all_tools() -> List(PiToolCall) {
   [
     // Agent identity
     my_id_tool(),
-    partner_id_tool(),
+    monitor_id_tool(),
     // Tasks
     task_add_tool(),
     task_list_tool(),
