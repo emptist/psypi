@@ -85,11 +85,13 @@ Plans:
 - [x] 07-11: Extension generator → extension_generator.gleam (auto-generates extension.js!)
 
 **Remaining (next priority):**
-- [ ] 07-12: Migrate IssueService to Gleam (issue.gleam exists)
-- [ ] 07-13: Migrate SkillService to Gleam (skill.gleam, skill_loader.gleam exist)
-- [ ] 07-14: Migrate MeetingService to Gleam (meeting.gleam exists)
-- [ ] 07-15: Migrate BroadcastService to Gleam (broadcast.gleam exists)
-- [ ] 07-16: Test all tools via psypi and fix issues
+- [ ] 07-12: Add Issue Pi tools (issue_add, issue_list, issue_resolve) ← START HERE
+- [ ] 07-13: Add Skill Pi tools
+- [ ] 07-14: Add Meeting Pi tools
+- [ ] 07-15: Add Broadcast Pi tools
+- [ ] 07-16: Add Learning Pi tools
+- [ ] 07-17: Add Memory Pi tools
+- [ ] 07-18: Test all tools via psypi and fix issues
 
 **Key Achievements (2026-05-09):**
 - ✅ 100% Gleam core (no more pnpm build!)

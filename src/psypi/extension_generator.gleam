@@ -20,6 +20,7 @@ import psypi/agent_identity.{my_id_tool, partner_id_tool}
 import psypi/task.{task_add_tool, task_list_tool}
 import psypi/stats.{stats_show_tool}
 import psypi/code_version.{doc_save_tool}
+import psypi/issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
 import psypi/file_utils.{write_file}
 import filepath
 
@@ -48,12 +49,20 @@ pub fn write_extension() -> Nil {
 
 pub fn all_tools() -> List(PiToolCall) {
   [
+    // Agent identity
     my_id_tool(),
     partner_id_tool(),
+    // Tasks
     task_add_tool(),
     task_list_tool(),
+    // Stats
     stats_show_tool(),
+    // Code versioning
     doc_save_tool(),
+    // Issues
+    issue_add_tool(),
+    issue_list_tool(),
+    issue_resolve_tool(),
   ]
 }
 

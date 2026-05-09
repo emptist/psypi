@@ -4,6 +4,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import psypi/db
+import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, lit, template}
 
 pub type IssueSeverity {
   Critical
@@ -296,4 +297,58 @@ pub fn get(
       }
     })
   }, db_error_to_issue_error)
+}
+
+// -------------------------------------------------------------------
+// Pi Tools
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-issue-add — add a new issue
+pub fn issue_add_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-issue-add",
+    description: "Add a new issue",
+    params: [
+      string_param("title"),
+      string_param("description"),
+      string_param("severity"),
+      string_param("issue_type"),
+    ],
+    module: "issue",
+    fn_name: "add",
+    args: [
+      from_param("params.title || \"\""),
+      from_param("params.description || \"\""),
+      from_param("params.severity || \"Medium\""),
+      from_param("params.issue_type || \"Bug\""),
+      from_param("params.created_by || \"psypi\""),
+    ],
+    result_format: template("Issue added: ${r.value}"),
+  )
+}
+
+/// Pi tool: psypi-issues — list issues
+pub fn issue_list_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-issues",
+    description: "List issues, optionally filtered by status",
+    params: [opt_string_param("status")],
+    module: "issue",
+    fn_name: "list",
+    args: [from_param("params?.status || null")],
+    result_format: template("Issues: ${JSON.stringify(r.value)}"),
+  )
+}
+
+/// Pi tool: psypi-issue-resolve — resolve an issue
+pub fn issue_resolve_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-issue-resolve",
+    description: "Resolve an issue by ID",
+    params: [string_param("id")],
+    module: "issue",
+    fn_name: "resolve",
+    args: [from_param("params.id || \"\"")],
+    result_format: template("Issue resolved: ${r.value}"),
+  )
 }
