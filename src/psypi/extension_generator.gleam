@@ -77,7 +77,7 @@ fn auto_backup_handler_body() -> String {
     "      try {",
     "        const fs = await import('fs');",
     "        const content = fs.readFileSync(filePath, 'utf-8');",
-    "        const { save_version } = await import('../build/dev/javascript/psypi/psypi/code_version.mjs');",
+    "        const { save_version } = await import('./build/dev/javascript/psypi/psypi/code_version.mjs');",
     "        const identity = await get_resolved_identity(false, _sessionId, 'psypi', '', '', 'psypi', '');",
     "        const r = unwrapGleamResult(identity);",
     "        if (r.ok) {",
