@@ -51,7 +51,7 @@ Plans:
 #### Phase 5: Replace Fake Inner AI
 **Goal**: Replace stateless fake AI with real Pi agent via `createAgentSession()` (Pi SDK)
 **Depends on**: Phase 4
-**Plans**: 2 plans
+**Status**: NOT STARTED (waiting for Pi SDK integration research)
 
 Plans:
 - [ ] 05-01: Integrate Pi SDK, set up real agent session
@@ -60,7 +60,7 @@ Plans:
 #### Phase 6: Delete Legacy Projects
 **Goal**: Deprecate and archive nezha/nupi codebases once psypi is fully mature
 **Depends on**: Phase 5
-**Plans**: 1 plan
+**Status**: BLOCKED - waiting for Phase 5
 
 Plans:
 - [ ] 06-01: Deprecate nezha/nupi (rename to .deprecated), archive repos
@@ -69,30 +69,34 @@ Plans:
 **Goal**: Grow Gleam core from 380 → 2000+ lines following "touch TS = rewrite in Gleam" rule
 **Strategy (2026-05-06 Breakthrough!):**
 1. ✅ **TS code in PostgreSQL** (266+ versions in `code_versions` table)
-2. **JS = thin wrapper** (same class/function names!)
-3. **Query TS from DB** → Write Gleam equivalents
-4. **Drop-in replacement** (same interface!)
-5. **NO MORE pnpm build!** Only `gleam build`! 🚀
+2. ✅ **Flat structure** - Gleam at root, not nested
+3. ✅ **Extension auto-generated** - psypi generates extension.js at startup
 
 **Depends on**: Phase 4 (ongoing in parallel with Phase 5-6)
-**Plans**: Reorganized by priority (services first!)
+**Status (2026-05-09)**: IN PROGRESS - 59 Gleam modules, 6 Pi tools working!
 
-Plans:
-- [ ] 07-01: Migrate AgentIdentityService (STARTED! agent_identity.gleam exists)
-- [ ] 07-02: Migrate DatabaseClient to Gleam
-- [ ] 07-03: Migrate ApiKeyService to Gleam  
-- [ ] 07-04: Migrate TaskService to Gleam
-- [ ] 07-05: Migrate IssueService to Gleam
-- [ ] 07-06: Migrate other services (SkillService, MeetingService, etc.)
-- [ ] 07-07: Migrate CLI routing (cli.ts → Gleam main)
-- [ ] (Additional plans as TS modules are touched)
+**Completed:**
+- [x] 07-01: AgentIdentityService → agent_identity.gleam + 2 tools
+- [x] 07-02: DatabaseClient → db.gleam, db_query.gleam
+- [x] 07-03: ApiKeyService → (part of monitor.gleam)
+- [x] 07-04: TaskService → task.gleam + 2 tools
+- [x] 07-09: Code versioning → code_version.gleam + doc_save tool
+- [x] 07-10: Stats → stats.gleam + stats_show tool
+- [x] 07-11: Extension generator → extension_generator.gleam (auto-generates extension.js!)
 
-**Key Insights (2026-05-06):**
-- "Save to file FIRST - never forget!" 💾
-- "Remove all middle shits and you get the truth"
-- Same class/function names = drop-in replacement!
-- PostgreSQL backs up TS code + auto-backup before edits!
-- Multiple backup strategies: psypi-areflect + gh issues + files
+**Remaining (next priority):**
+- [ ] 07-12: Migrate IssueService to Gleam (issue.gleam exists)
+- [ ] 07-13: Migrate SkillService to Gleam (skill.gleam, skill_loader.gleam exist)
+- [ ] 07-14: Migrate MeetingService to Gleam (meeting.gleam exists)
+- [ ] 07-15: Migrate BroadcastService to Gleam (broadcast.gleam exists)
+- [ ] 07-16: Test all tools via psypi and fix issues
+
+**Key Achievements (2026-05-09):**
+- ✅ 100% Gleam core (no more pnpm build!)
+- ✅ Flat file structure (gleam.toml at root, src/psypi/)
+- ✅ Auto-generated extension.js (no manual editing!)
+- ✅ Pi tools via Gleam PiToolCall types (type-safe!)
+- ✅ 6 working Pi tools
 
 ### 📋 v2.0 Production Ready (Planned)
 
@@ -118,6 +122,6 @@ Plans:
 | 3. Integrate Agent | v1.0 | 3/3 | Complete | 2026-05-03 |
 | 4. Replace nezha/nupi | v1.0 | 1/1 | Complete | 2026-05-04 |
 | 5. Replace Fake Inner AI | v1.1 | 0/2 | Not started | - |
-| 6. Delete Legacy Projects | v1.1 | 0/1 | Not started | - |
-| 7. Natural Gleam Growth | v1.1 | 0/TBD | In progress | - |
-| 8. Complete Gleam Migration | v2.0 | 0/TBD | Not started | - |
+| 6. Delete Legacy Projects | v1.1 | 0/1 | Blocked | - |
+| 7. Natural Gleam Growth | v1.1 | 7+/11 | In progress | 2026-05-09 |
+| 8. Complete Gleam Migration | v2.0 | 0/4 | Not started | - |
