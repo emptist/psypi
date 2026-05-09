@@ -11,7 +11,7 @@ const __dirname = dirname(__filename);
 
 // Import the compiled Gleam generator
 const { generate } = await import(
-  join(__dirname, '../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/extension_generator.mjs')
+  join(__dirname, '../build/dev/javascript/psypi/psypi/extension_generator.mjs')
 );
 
 // Path to extension.js
