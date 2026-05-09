@@ -16,8 +16,8 @@ import gleam/filepath
 filepath.join("/usr/local", "bin")
 // -> "/usr/local/bin"
 
-filepath.join("gleam/psypi_core", "src/agent/extension/extension.js")
-// -> "gleam/psypi_core/src/agent/extension/extension.js"
+filepath.join(".", "extension.js")
+// -> "./extension.js"
 ```
 
 ### Split path into segments
@@ -89,12 +89,12 @@ case simplifile.write("path/to/file.txt", content) {
 
 ## Use Case: Dynamic Path Construction
 
-Instead of hardcoding relative paths like `"../../src/agent/extension/extension.js"`,
+Instead of hardcoding relative paths like `"../../build/dev/..."`,
 use `filepath.join` to compute paths from a known reference point:
 
 ```gleam
 let project_root = get_project_root()  // from FFI or env var
-let extension_path = filepath.join(project_root, "src/agent/extension/extension.js")
+let extension_path = filepath.join(project_root, "extension.js")
 ```
 
 This works regardless of where the build output lives.

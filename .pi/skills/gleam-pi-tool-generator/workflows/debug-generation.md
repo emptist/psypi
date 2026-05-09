@@ -31,7 +31,7 @@ Watch for `Error writing extension.js` messages.
 ### Step 3: Check Output
 
 ```bash
-cat src/agent/extension/extension.js
+cat extension.js
 ```
 
 Verify:

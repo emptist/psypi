@@ -77,7 +77,7 @@ gleam run -m psypi_cli/extension_generator
 
 ### Step 5: Verify
 
-Check `src/agent/extension/extension.js`:
+Check `extension.js`:
 - New tool's `pi.registerTool({...})` block present
 - Import statement for the module present
 - No duplicate imports

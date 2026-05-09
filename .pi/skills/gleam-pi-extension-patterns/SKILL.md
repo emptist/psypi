@@ -54,7 +54,7 @@ pi -e extension.gleam  # ❌ FAILS!
 
 ## Pi Extension Structure (REQUIRED!)
 
-### **File: `src/agent/extension/extension.js`**
+### **File: `extension.js`**
 
 ```javascript
 // MUST have this EXACT structure!
@@ -190,7 +190,7 @@ When migrating TS to Gleam with Pi extension:
 - [ ] Use `pi.registerTool()` for each tool
 - [ ] Use `pi.on()` for session hooks
 - [ ] Import Gleam `.mjs` modules with relative paths
-- [ ] Test with: `pi -e src/agent/extension/extension.js --help`
+- [ ] Test with: `pi -e extension.js --help`
 - [ ] Verify tools appear: `pi -e extension.js` then ask "what tools do you have?"
 
 ---
@@ -210,7 +210,7 @@ The old way was hand-editing `extension.js`. The new way uses Gleam `PiToolCall`
 - **Skill:** `gleam-pi-tool-generator` — complete guide to the new approach
 - **Key file:** `gleam/psypi_core/src/psypi_cli/pi_tool_call.gleam` — PiToolCall type
 - **Key file:** `gleam/psypi_core/src/psypi_cli/extension_generator.gleam` — text composer
-- **Generated:** `src/agent/extension/extension.js` — auto-generated, never hand-edit
+- **Generated:** `extension.js` — auto-generated, never hand-edit
 
 **For new tools, use the `gleam-pi-tool-generator` skill instead of this one.**
 

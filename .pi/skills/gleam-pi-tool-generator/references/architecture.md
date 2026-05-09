@@ -120,7 +120,7 @@ Gleam caches compiled output — stale cache causes old code to run.
 | `gleam/psypi_core/src/psypi_cli/task.gleam` | Exports `task_add_tool()`, `task_list_tool()` |
 | `gleam/psypi_core/src/psypi_cli/stats.gleam` | Exports `stats_show_tool()` |
 | `gleam/psypi_core/src/psypi_cli/code_version.gleam` | Exports `doc_save_tool()` |
-| `src/agent/extension/extension.js` | **Generated at psypi startup** — do not hand-edit |
+| `extension.js` | **Generated at psypi startup** — do not hand-edit |
 
 ## How psypi Starts
 
@@ -132,7 +132,7 @@ psypi
 Behind the scenes:
 1. `bin/psypi.mjs` imports compiled `extension_generator.mjs`
 2. `generate()` produces JS text from all `PiToolCall` values
-3. Writes to `src/agent/extension/extension.js`
+3. Writes to `extension.js`
 4. Spawns `pi -e extension.js`
 
 Every start produces a fresh extension from the latest compiled Gleam code.

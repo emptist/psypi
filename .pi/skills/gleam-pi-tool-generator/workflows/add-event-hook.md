@@ -63,7 +63,7 @@ psypi
 Check that the hook is in the generated `extension.js`:
 
 ```bash
-grep "pi.on('tool_call'" src/agent/extension/extension.js
+grep "pi.on('tool_call'" extension.js
 ```
 
 ## Common Mistakes

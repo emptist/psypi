@@ -58,7 +58,7 @@ gleam run -m psypi_cli/extension_generator
 
 ### Step 4: Verify
 
-Check `src/agent/extension/extension.js`:
+Check `extension.js`:
 - Changes reflected in the generated `pi.registerTool({...})` block
 - All `pi.*` calls still inside `export default function(pi)`
 - No duplicate imports
