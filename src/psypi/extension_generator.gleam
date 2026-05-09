@@ -22,6 +22,7 @@ import psypi/stats.{stats_show_tool}
 import psypi/code_version.{doc_save_tool}
 import psypi/issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
 import psypi/skill.{skill_list_tool, skill_get_tool, skill_search_tool}
+import psypi/meeting.{meeting_list_tool, meeting_get_tool, meeting_opinions_tool}
 import psypi/file_utils.{write_file}
 import filepath
 
@@ -68,6 +69,10 @@ pub fn all_tools() -> List(PiToolCall) {
     skill_list_tool(),
     skill_get_tool(),
     skill_search_tool(),
+    // Meetings
+    meeting_list_tool(),
+    meeting_get_tool(),
+    meeting_opinions_tool(),
   ]
 }
 

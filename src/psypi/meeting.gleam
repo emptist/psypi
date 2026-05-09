@@ -4,6 +4,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import psypi/db
+import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template}
 
 pub type MeetingStatus {
   Pending
@@ -306,4 +307,47 @@ pub fn complete(
       }
     })
   }, db_error_to_meeting_error)
+}
+
+// -------------------------------------------------------------------
+// Pi Tools
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-meetings — list meetings
+pub fn meeting_list_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-meetings",
+    description: "List meetings, optionally filtered by status",
+    params: [opt_string_param("status")],
+    module: "meeting",
+    fn_name: "list",
+    args: [from_param("params?.status || null")],
+    result_format: template("Meetings: ${JSON.stringify(r.value)}"),
+  )
+}
+
+/// Pi tool: psypi-meeting-get — get a meeting by ID
+pub fn meeting_get_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-meeting-get",
+    description: "Get a meeting by ID",
+    params: [string_param("id")],
+    module: "meeting",
+    fn_name: "get",
+    args: [from_param("params.id || \"\"")],
+    result_format: template("Meeting: ${JSON.stringify(r.value)}"),
+  )
+}
+
+/// Pi tool: psypi-meeting-opinions — list opinions for a meeting
+pub fn meeting_opinions_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-meeting-opinions",
+    description: "List opinions for a meeting",
+    params: [string_param("meeting_id")],
+    module: "meeting",
+    fn_name: "list_opinions",
+    args: [from_param("params.meeting_id || \"\"")],
+    result_format: template("Opinions: ${JSON.stringify(r.value)}"),
+  )
 }

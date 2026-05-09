@@ -94,6 +94,22 @@ pub type QueryError {
 fn query(sql: String) -> Result(List(Row), QueryError)
 ```
 
+### 6. Parameter Types Match Return Types
+
+**Bad:**
+```gleam
+pub fn list(status: Option(String))  // String, not MeetingStatus!
+```
+
+**Good:**
+```gleam
+pub fn list(status: Option(MeetingStatus))  // Type-safe!
+```
+
+**Why:** When function takes enum parameter but DB needs string, provide helper to convert both directions.
+
+**Example:** meeting.gleam has `string_to_status()` but lacks reverse (MeetingStatus → String). Add both for round-trip safety.
+
 ## Quality Checklist
 
 Before calling a module "done":
