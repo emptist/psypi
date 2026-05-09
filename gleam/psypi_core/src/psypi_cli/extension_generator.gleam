@@ -78,9 +78,10 @@ fn auto_backup_handler_body() -> String {
     "        const r = unwrapGleamResult(identity);",
     "        if (r.ok) {",
     "          await save_version(filePath, content, r.value.id, '', 'auto-backup before ' + event.toolName);",
+    "          ctx.ui.notify('Auto-backup: ' + filePath.split('/').pop(), 'info');",
     "        }",
     "      } catch (err) {",
-    "        // Silently fail — don't block the tool call",
+    "        ctx.ui.notify('Auto-backup failed: ' + err.message, 'error');",
     "      }",
     "    }",
   ]
@@ -128,26 +129,6 @@ fn helpers_text() -> String {
     "    _sessionId = ctx.sessionManager.getSessionId() || '';",
     "  });",
     "",
-    "  // Auto-backup hook: save file before edit/write",
-    "  pi.on('tool_call', async (event, ctx) => {",
-    "    if (event.toolName === 'edit' || event.toolName === 'write') {",
-    "      const filePath = event.input?.path || event.input?.filePath;",
-    "      if (!filePath) return;",
-    "      try {",
-    "        const fs = await import('fs');",
-    "        const content = fs.readFileSync(filePath, 'utf-8');",
-    "        const { save_version } = await import('../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/code_version.mjs');",
-    "        const identity = await get_resolved_identity(false, _sessionId, 'psypi', '', '', 'psypi', '');",
-    "        const r = unwrapGleamResult(identity);",
-    "        if (r.ok) {",
-    "          await save_version(filePath, content, r.value.id, '', 'auto-backup before ' + event.toolName);",
-    "        }",
-    "      } catch (err) {",
-    "        // Silently fail — don't block the tool call",
-    "      }",
-    "    }",
-    "  });",
-    "",
   ]
   |> list.map(fn(s) { s <> "\n" })
   |> string.concat
@@ -159,11 +140,19 @@ fn tools_text(tools: List(PiToolCall)) -> String {
   |> string.concat
 }
 
+fn event_hooks_text(hooks: List(PiEventHook)) -> String {
+  hooks
+  |> list.map(event_hook_to_js)
+  |> string.concat
+}
+
 pub fn generate() -> String {
   let tools = all_tools()
+  let hooks = all_event_hooks()
   imports_text(tools)
   <> "\nexport default function(pi) {\n"
   <> helpers_text()
+  <> event_hooks_text(hooks)
   <> tools_text(tools)
   <> "}\n"
 }
