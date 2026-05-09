@@ -1,61 +1,44 @@
-import gleam/javascript/promise
-import gleam/json
-import psypi/db
-import psypi/agent_identity_types.{type AgentIdentity, type IdentityError, ConnectionError, QueryError, agent_id}
-import psypi/agent_identity_db.{insert_identity, fetch_identity_by_id}
+import gleam/option
+import psypi/agent_identity_types.{type AgentId, type AgentIdentity, type IdentityError, AgentIdentity, agent_id}
 import psypi/agent_identity_logic.{generate_semantic_id}
-import psypi/activity_log
 import psypi/pi_tool_call.{type PiToolCall, PiToolCall, raw_json, lit}
 
-fn db_error_to_identity_error(e: db.DbError) -> IdentityError {
-  case e {
-    db.ConnectionError(msg) -> ConnectionError(msg)
-    db.QueryError(msg) -> QueryError(msg)
-  }
-}
-
-/// Get or create the resolved agent identity.
-/// This is the SINGLE SOURCE OF truth for agent identity.
-/// Session_id is passed in ONCE from JS (fromPi ctx), then封装进 AgentIdentity.
+/// Get resolved agent identity - PURE function, no DB needed.
+/// Simply computes the AgentIdentity from input parameters.
+/// Returns Result for JS compatibility.
 pub fn get_resolved_identity(
   permanent: Bool,
   session_id: String,
   project: String,
-  git_hash: String,
+  _git_hash: String,
   machine_fingerprint: String,
   source: String,
   model: String,
-) -> promise.Promise(Result(AgentIdentity, IdentityError)) {
-  db.with_connection(fn(conn) {
-    let id = generate_semantic_id(permanent, source, project, session_id, model)
+) -> Result(AgentIdentity, IdentityError) {
+  let id = generate_semantic_id(permanent, source, project, session_id, model)
+  Ok(AgentIdentity(
+    id: id,
+    project: option.None,
+    git_hash: option.None,
+    machine_fingerprint: machine_fingerprint,
+    session_id: session_id,
+    created_at: "",
+    display_name: option.None,
+    description: option.None,
+    source: option.None,
+  ))
+}
 
-    promise.await(insert_identity(conn, id, project, git_hash, machine_fingerprint, source, session_id), fn(insert_result) {
-      case insert_result {
-        Ok(_) -> {
-          promise.await(fetch_identity_by_id(conn, id), fn(fetch_result) {
-            case fetch_result {
-              Ok(identity) -> {
-                // ID Trigger: log that identity was resolved
-                // Fire-and-forget: don't block the identity return
-                let context = json.to_string(json.object([
-                  #("permanent", json.bool(permanent)),
-                  #("session_id", json.string(session_id)),
-                  #("project", json.string(project)),
-                  #("source", json.string(source)),
-                  #("model", json.string(model)),
-                ]))
-                promise.map(activity_log.log_activity(agent_id(identity.id), "get_resolved_identity", context), fn(_) {
-                  Ok(identity)
-                })
-              }
-              Error(e) -> promise.resolve(Error(e))
-            }
-          })
-        }
-        Error(e) -> promise.resolve(Error(e))
-      }
-    })
-  }, db_error_to_identity_error)
+/// Get agent ID - PURE function, no DB needed.
+/// Returns the computed ID string directly (not a Promise).
+pub fn get_agent_id(
+  permanent: Bool,
+  source: String,
+  project: String,
+  session_id: String,
+  model: String,
+) -> AgentId {
+  agent_id(generate_semantic_id(permanent, source, project, session_id, model))
 }
 
 // -------------------------------------------------------------------

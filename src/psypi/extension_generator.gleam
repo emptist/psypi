@@ -88,6 +88,7 @@ pub fn all_tools() -> List(PiToolCall) {
 pub fn all_event_hooks() -> List(PiEventHook) {
   [
     auto_backup_hook(),
+    activity_tracing_hook(),
   ]
 }
 
@@ -116,6 +117,29 @@ fn auto_backup_handler_body() -> String {
     "        ctx.ui.notify('Auto-backup failed: ' + err.message, 'error');",
     "      }",
     "    }",
+  ]
+  |> list.map(fn(s) { s <> "\n" })
+  |> string.concat
+}
+
+/// Activity tracing hook - logs ALL tool executions to activity_log table
+/// One line of code catches ALL activity - no need to add logging to individual functions!
+fn activity_tracing_hook() -> PiEventHook {
+  event_hook("tool_call", activity_tracing_handler_body())
+}
+
+fn activity_tracing_handler_body() -> String {
+  [
+    "    // Activity tracing: log every tool call to activity_log",
+    "    try {",
+    "      const { log_activity } = await import('./build/dev/javascript/psypi/psypi/activity_log.mjs');",
+    "      const { get_agent_id } = await import('./build/dev/javascript/psypi/psypi/agent_identity.mjs');",
+    "      const r = get_agent_id(false, 'psypi', 'psypi', _sessionId, '');",
+    "      const agentId = r.ok ? r.value : null;",
+    "      if (!agentId) return;",
+    "      const context = JSON.stringify({ tool: event.toolName, input: event.input });",
+    "      log_activity(agentId, event.toolName, context).then(() => {}).catch(() => {});",
+    "    } catch (err) {}",
   ]
   |> list.map(fn(s) { s <> "\n" })
   |> string.concat
