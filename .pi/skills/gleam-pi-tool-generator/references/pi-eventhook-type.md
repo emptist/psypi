@@ -78,9 +78,10 @@ fn auto_backup_handler_body() -> String {
     "        const r = unwrapGleamResult(identity);",
     "        if (r.ok) {",
     "          await save_version(filePath, content, r.value.id, '', 'auto-backup before ' + event.toolName);",
+    "          ctx.ui.notify('Auto-backup: ' + filePath.split('/').pop(), 'info');",
     "        }",
     "      } catch (err) {",
-    "        // Silently fail — don't block the tool call",
+    "        ctx.ui.notify('Auto-backup failed: ' + err.message, 'error');",
     "      }",
     "    }",
   ]

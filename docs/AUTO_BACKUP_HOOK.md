@@ -119,14 +119,9 @@ export default function (pi: ExtensionAPI) {
           filePath, content, identity.id, '', 'auto-backup before edit'
         );
         
-        if (VERBOSE) {
-          console.log(`[Auto-Backup] Saved ${filePath} before ${event.toolName}`);
-        }
+        ctx.ui.notify(`Auto-backup: ${filePath.split('/').pop()}`, 'info');
       } catch (err) {
-        // Log but don't block (file might not exist yet for `write`)
-        if (VERBOSE) {
-          console.log(`[Auto-Backup] Failed to save ${filePath}: ${err.message}`);
-        }
+        ctx.ui.notify(`Auto-backup failed: ${err.message}`, 'error');
       }
     }
   });

@@ -8,27 +8,27 @@ description: Agent instructions for psypi (READ FIRST!)
 
 **psypi** = **Psyche + Pi** = AI coordination system
 - **Technically**: psypi is a **Pi TUI with extensions**! 🎯
-- **Architecture**: Gleam core + TypeScript + Pi runtime
+- **Architecture**: Gleam core + Pi runtime (TypeScript fully removed!)
 - **Database**: ONE PostgreSQL per user home (shared across ALL projects)
 - **Status**: ✅ Working - Gleam reviews via `psypi-commit` Pi tool (inside Pi TUI)!
 
 ## 🚨 CRITICAL RULES (Read FIRST!)
 
-### 0. THE BIG PICTURE: CLI Commands → Pi Tools!
-**psypi is evolving:**
+### 0. THE BIG PICTURE: 100% Gleam + Pi Tools!
+**psypi is a Pi TUI with a Gleam-generated extension:**
 - **OLD way**: `psypi my-id` (CLI command → TypeScript → DB)
-- **NEW way**: `psypi` (launches Pi TUI) → `psypi-my-id` (Pi tool → Gleam → DB)
+- **NOW**: `psypi` (spawns Pi TUI) → Pi tools → Gleam → DB
 
 **Strategy:**
-1. **Pi tools FIRST** - All functionality via Pi tools (psypi-my-id, psypi-tasks, etc.)
-2. **Deprecate CLI commands** - Once Pi tool works, deprecate the CLI command
-3. **psypi = Pi TUI entry point** - Eventually, `psypi` just launches Pi with extensions!
-4. **NO MORE CLI commands** - `psypi autonomous` launching Pi TUI is DANGEROUS (infinite loops!)
+1. **Pi tools ONLY** - All functionality via Pi tools (psypi-my-id, psypi-tasks, etc.)
+2. **NO CLI commands** - TypeScript fully removed, all TS files in `deprecated/` directory
+3. **psypi = Pi TUI entry point** - `bin/psypi.mjs` generates extension.js from Gleam, then spawns Pi
+4. **NEVER spawn Pi from Pi tools** - infinite loop danger!
 
 **Current Status:**
-- ✅ 33+ Pi tools working
-- ✅ Most CLI commands deprecated (files moved to .ts.deprecated)
-- 🚧 `psypi` still launches Pi TUI (but shouldn't run CLI commands that launch Pi!)
+- ✅ 6 Pi tools working (psypi-my-id, psypi-partner-id, psypi-task-add, psypi-tasks, psypi-stats-show, psypi-doc-save)
+- ✅ All TypeScript removed — 100% Gleam core
+- ✅ `bin/psypi.mjs` auto-generates `extension.js` at every startup
 
 ---
 
@@ -67,22 +67,21 @@ exec('pi -e extension.js');  // Still spawns Pi!
 
 **Rule: Pi tools should call Gleam functions directly, NOT spawn Pi!**
 
-### 0. DELETE (don't deprecate!) - TS files are backed up in code_versions database!
-**CORRECT approach (file is already saved in DB!):**
+### 1. DELETE (don't deprecate!) - Move obsolete files to `deprecated/` directory!
+**CORRECT approach:**
 ```bash
-# ✅ CORRECT - File is backed up in code_versions database!
-rm file.ts
-rm file.mjs
+# ✅ CORRECT - Move to deprecated/ directory
+mv file.ts deprecated/
 
-# ❌ WRONG - Creates confusion, tsc might process it!
+# ❌ WRONG - Don't leave .ts.deprecated files around!
 mv file.ts file.ts.deprecated
 ```
 
-**Why?** The user's original instruction was to REMOVE (not deprecate!) because all TS files are already saved in the database!
+**Why?** All TS files are backed up in the code_versions database. The `deprecated/` directory keeps them for reference without cluttering the source tree.
 
 ---
 
-### 1. FORCE YOURSELF: Use `psypi-commit` Pi tool (NOT `git commit`!)
+### 2. FORCE YOURSELF: Use `psypi-commit` Pi tool (NOT `git commit`!)
 Inside Pi TUI, run:
 ```
 psypi-commit "feat: My change"
@@ -97,19 +96,8 @@ git commit -m "feat: My change"
 
 ---
 
-### 2. ONE SINGLE WAY: Session ID
-```typescript
-const sessionID = ctx?.sessionManager?.getSessionId();
-```
-
----
-
 ### 3. ONE SINGLE WAY: Agent ID
-```typescript
-const identity = await AgentIdentityService.getResolvedIdentity();
-const agentId = identity.id; // My ID (S- prefix)
-const monitorId = (await AgentIdentityService.getResolvedIdentity(true)).id; // Monitor (P- prefix)
-```
+Use the `psypi-my-id` and `psypi-partner-id` Pi tools. For Gleam code, use the `agent_identity.gleam` module.
 
 ---
 
@@ -135,35 +123,41 @@ npm install    # ❌ Wrong
 
 ---
 
-## 📊 Current Status (2026-05-07)
+## 📊 Current Status (2026-05-09)
 
 ### 🎯 Architecture Evolution (BIG CHANGE!)
 **OLD**: CLI commands → TypeScript → Database
 **NEW**: Pi TUI → Pi tools → Gleam → Database
 
 ### Pi Tools Status:
-- **33+ Pi tools** working ✅ (psypi-my-id, psypi-tasks, etc.)
-- **CLI commands** being deprecated as Pi tools take over!
-- **psypi** = just a Pi TUI entry point (with maybe `-c` option)
+- **6 Pi tools** working ✅:
+  - `psypi-my-id` — Get agent ID
+  - `psypi-partner-id` — Get monitor/partner ID
+  - `psypi-task-add` — Add a task
+  - `psypi-tasks` — List tasks
+  - `psypi-stats-show` — Show project statistics
+  - `psypi-doc-save` — Save file version to code_versions DB
+- **TypeScript** fully removed — all files in `deprecated/` directory
+- **psypi** = Pi TUI entry point (generates extension.js from Gleam, then spawns Pi)
 
 ### Build:
-- ✅ `gleam build` works (Gleam core growing!)
-- ❌ `pnpm build` DISABLED! (use `gleam build` ONLY!)
-- ✅ Gleam review via `psypi commit`
+- ✅ `cd gleam/psypi_core && rm -rf build/ && gleam build` (ALWAYS clean build first!)
+- ❌ `pnpm build` DOES NOT EXIST! (no `tsconfig.json`, no `package.json`!)
+- ✅ Gleam review via `psypi-commit` Pi tool
+
+**🚨 ALWAYS `rm -rf build/` before `gleam build`** — stale compiled output causes subtle bugs!
 
 ### 🚨 CRITICAL Architecture Rule:
 **Pi Extension = Generated from Gleam PiToolCall types!**
-- Pi extension MUST be `.js` — Gleam can't compile to Pi's required structure
-- **BUT**: `extension.js` is now AUTO-GENERATED by `gleam run -m psypi_cli/extension_generator`
+- `extension.js` is AUTO-GENERATED at every `psypi` startup from Gleam `PiToolCall` values
 - **NEVER hand-edit `extension.js`** — it's a build artifact, always regenerated
 - Each Gleam module exports `PiToolCall` values that define Pi tools
 - The generator collects `PiToolCall` values → composes JS text → writes `extension.js`
 - **Skill**: `gleam-pi-tool-generator` has the complete guide
 
 **Correct Pattern:**
-- `bin/psypi.mjs` → imports `main.mjs` (Gleam-compiled directly!) ✅
+- `bin/psypi.mjs` → imports compiled Gleam generator → generates `extension.js` → spawns Pi ✅
 - `extension.js` → auto-generated from `PiToolCall` values ✅
-- `extension.gleam` → ❌ NEVER! Pi can't load Gleam directly!
 - Hand-editing `extension.js` → ❌ NEVER! Always goes through Gleam types!
 
 **Files:**
@@ -171,12 +165,13 @@ npm install    # ❌ Wrong
 - `gleam/psypi_core/src/psypi_cli/extension_generator.gleam` — text composer (the cook)
 - `src/agent/extension/extension.js` — generated output (do not edit!)
 
-**Example:** See `/Users/jk/Library/pnpm/global/5/.pnpm/@mariozechner+pi-coding-agent@0.73.0_ws@8.20.0_zod@4.4.2/node_modules/@mariozechner/pi-coding-agent/examples/extensions/todo.ts`!
-
-**🚨 CRITICAL WARNING: NEVER run `pnpm build` again!**
-- It DESTROYS Gleam wrappers (covers them with OLD TypeScript!)
-- ONLY use `gleam build` for Gleam changes (0.04s vs 10s+!)
-- If you see `pnpm build` in any instructions, IGNORE IT!
+**To add a new Pi tool:**
+1. Define the Gleam function in its module
+2. Create a `PiToolCall` value (e.g., `my_tool()`)
+3. Import it in `extension_generator.gleam` and add to `all_tools()`
+4. Build: `cd gleam/psypi_core && rm -rf build/ && gleam build`
+5. Generate: `gleam run -m psypi_cli/extension_generator`
+6. Verify `src/agent/extension/extension.js` has the new tool
 
 ### ⚠️ CRITICAL WARNING:
 **NEVER run `psypi autonomous` from CLI!**
@@ -184,6 +179,13 @@ npm install    # ❌ Wrong
 - If Pi runs `psypi autonomous` tool, it calls ANOTHER Pi → INFINITE LOOP!
 - This eats all system resources in minutes!
 - **FIXED**: `psypi-autonomous` is now a Pi-only tool (not a CLI command)
+
+### 🚨 CRITICAL: Build Cache Issue
+After editing Gleam source, `gleam run` sometimes uses stale compiled output from `build/`. **Always clean:**
+```bash
+cd gleam/psypi_core
+rm -rf build/ && gleam build
+```
 
 ---
 
@@ -202,42 +204,34 @@ npm install    # ❌ Wrong
 ---
 
 **Remember**: 
-- ✅ Use `psypi commit` (mandatory review!)
-- ❌ NEVER run `pnpm build` - ONLY `gleam build`!
-- ✅ Deprecate: `file.ts` → `file.ts.deprecated`
+- ✅ Use `psypi-commit` Pi tool (mandatory review!)
+- ❌ NEVER run `pnpm build` — it doesn't exist anymore!
+- ✅ Delete/move to `deprecated/` — never leave `.ts.deprecated` files around
+- ✅ Always `rm -rf build/` before `gleam build`
 - ✅ Short + Simple = Better!
 
 ---
 
-## 🚨 CRITICAL: `package.json` is NOT Required!
+## 🚨 CRITICAL: `package.json` Does NOT Exist!
 
-**Proof (Tested 2026-05-07):**
-```bash
-mv package.json package.json.temp  # REMOVED!
-./bin/psypi.mjs --help           # ✅ STILL WORKS!
-cd gleam/psypi_core && gleam build  # ✅ WORKS!
-```
+**Current State (2026-05-09):** `package.json` has been removed. `tsconfig.json` has been removed.
 
 **What's Required (Must-Have!):**
-1. ✅ `gleam.toml` - Gleam project config!
-2. ✅ `manifest.toml` - Gleam dependency locks!
-3. ✅ `bin/psypi.mjs` - Thin wrapper (with shebang!)
-4. ✅ `gleam/.../build/` - Compiled Gleam `.mjs` files!
+1. ✅ `gleam/psypi_core/gleam.toml` - Gleam project config!
+2. ✅ `gleam/psypi_core/manifest.toml` - Gleam dependency locks!
+3. ✅ `bin/psypi.mjs` - Entry point (generates extension.js, spawns Pi)
+4. ✅ `gleam/psypi_core/build/` - Compiled Gleam `.mjs` files!
 5. ✅ `node_modules/` - Runtime deps (`pg`, `@sinclair/typebox`!)
+6. ✅ `pnpm-lock.yaml` - Lock file for restoring `node_modules/`
 
 **What's NOT Required:**
-- ❌ Root `package.json` - NOT needed for Gleam or Node.js runtime!
-- ❌ `imports` field - NOT used! (extension.js uses relative paths!)
-- ❌ `pnpm install` - ONLY if you delete `node_modules/` and need to restore it!
-
-**Keep `package.json` for Convenience:**
-- ✅ `pnpm install` to restore `node_modules/` if deleted
-- ✅ `pnpm link -g` for `psypi` command (easier than manual symlink!)
-- ✅ Documents project metadata (name, version, description!)
+- ❌ Root `package.json` - Does NOT exist!
+- ❌ `tsconfig.json` - Does NOT exist! (TypeScript fully removed)
+- ❌ `pnpm install` - ONLY if you delete `node_modules/` and need to restore it
 
 **Gleam has OWN package management:**
 - `gleam.toml` (NOT `package.json`!) handles Gleam deps!
-- Stored in `gleam/` directory (NOT `node_modules/`!)
+- Stored in `gleam/psypi_core/` directory (NOT `node_modules/`!)
 
 ---
 
