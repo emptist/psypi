@@ -28,7 +28,7 @@ pub fn get_project_root() -> String
 
 pub fn write_extension() -> Nil {
   let project_root = get_project_root()
-  let extension_path = filepath.join(project_root, "src/agent/extension/extension.js")
+  let extension_path = filepath.join(project_root, "extension.js")
   // IMPORTANT: Always call generate() — never compose text here.
   // Having two composition paths caused the "pi is not defined" bug.
   let content = generate()
@@ -77,7 +77,7 @@ fn auto_backup_handler_body() -> String {
     "      try {",
     "        const fs = await import('fs');",
     "        const content = fs.readFileSync(filePath, 'utf-8');",
-    "        const { save_version } = await import('../../../build/dev/javascript/psypi/psypi/code_version.mjs');",
+    "        const { save_version } = await import('../build/dev/javascript/psypi/psypi/code_version.mjs');",
     "        const identity = await get_resolved_identity(false, _sessionId, 'psypi', '', '', 'psypi', '');",
     "        const r = unwrapGleamResult(identity);",
     "        if (r.ok) {",

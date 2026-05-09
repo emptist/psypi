@@ -15,7 +15,7 @@ const { generate } = await import(
 );
 
 // Path to extension.js
-const extensionPath = join(__dirname, '../src/agent/extension/extension.js');
+const extensionPath = join(__dirname, '../extension.js');
 
 // Step 1: Generate extension.js from Gleam PiToolCall values
 const content = generate();

@@ -1,6 +1,9 @@
 # Gleam build output
 build/
 
+# Generated (regenerated at runtime)
+extension.js
+
 # Erlang/OTP
 *.beam
 *.ez
