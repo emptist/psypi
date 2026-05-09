@@ -21,6 +21,7 @@ import psypi/task.{task_add_tool, task_list_tool}
 import psypi/stats.{stats_show_tool}
 import psypi/code_version.{doc_save_tool}
 import psypi/issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
+import psypi/skill.{skill_list_tool, skill_get_tool, skill_search_tool}
 import psypi/file_utils.{write_file}
 import filepath
 
@@ -63,6 +64,10 @@ pub fn all_tools() -> List(PiToolCall) {
     issue_add_tool(),
     issue_list_tool(),
     issue_resolve_tool(),
+    // Skills
+    skill_list_tool(),
+    skill_get_tool(),
+    skill_search_tool(),
   ]
 }
 

@@ -4,6 +4,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import psypi/db
+import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template}
 
 pub type SkillSource {
   Clawhub
@@ -275,4 +276,47 @@ pub fn approve(
       }
     })
   }, db_error_to_skill_error)
+}
+
+// -------------------------------------------------------------------
+// Pi Tools
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-skill-list — list skills
+pub fn skill_list_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-skill-list",
+    description: "List skills, optionally filtered by status",
+    params: [opt_string_param("status")],
+    module: "skill",
+    fn_name: "list",
+    args: [from_param("params?.status || null")],
+    result_format: template("Skills: ${JSON.stringify(r.value)}"),
+  )
+}
+
+/// Pi tool: psypi-skill-get — get a skill by ID
+pub fn skill_get_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-skill-get",
+    description: "Get a skill by ID",
+    params: [string_param("id")],
+    module: "skill",
+    fn_name: "get",
+    args: [from_param("params.id || \"\"")],
+    result_format: template("Skill: ${JSON.stringify(r.value)}"),
+  )
+}
+
+/// Pi tool: psypi-skill-search — search skills by name
+pub fn skill_search_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-skill-search",
+    description: "Search skills by name",
+    params: [string_param("query")],
+    module: "skill",
+    fn_name: "search",
+    args: [from_param("params.query || \"\"")],
+    result_format: template("Search results: ${JSON.stringify(r.value)}"),
+  )
 }
