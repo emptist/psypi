@@ -12,20 +12,24 @@
 // The generator is a COOK: it gathers ingredients (PiToolCall values),
 // prepares them (converts to JS text), and assembles the final dish (extension.js).
 
+import filepath
 import gleam/io
 import gleam/list
 import gleam/string
-import psypi/pi_tool_call.{type PiToolCall, type PiEventHook, to_js_text, to_import_line, event_hook_to_js, event_hook}
-import psypi/agent_identity.{my_id_tool, monitor_id_tool}
-import psypi/task.{task_add_tool, task_list_tool}
-import psypi/stats.{stats_show_tool}
+import psypi/agent_identity.{monitor_id_tool, my_id_tool}
 import psypi/code_version.{doc_save_tool}
-import psypi/issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
-import psypi/skill.{skill_list_tool, skill_get_tool, skill_search_tool}
-import psypi/meeting.{meeting_list_tool, meeting_get_tool, meeting_opinions_tool}
-import psypi/learning.{learn_save_tool}
 import psypi/file_utils.{write_file}
-import filepath
+import psypi/issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
+import psypi/learning.{learn_save_tool}
+import psypi/meeting.{meeting_get_tool, meeting_list_tool, meeting_opinions_tool}
+import psypi/memory.{memory_search_tool}
+import psypi/pi_tool_call.{
+  type PiEventHook, type PiToolCall, event_hook, event_hook_to_js,
+  to_import_line, to_js_text,
+}
+import psypi/skill.{skill_get_tool, skill_list_tool, skill_search_tool}
+import psypi/stats.{stats_show_tool}
+import psypi/task.{task_add_tool, task_list_tool}
 
 @external(javascript, "./extension_generator_ffi.mjs", "get_project_root")
 pub fn get_project_root() -> String
@@ -76,6 +80,8 @@ pub fn all_tools() -> List(PiToolCall) {
     meeting_opinions_tool(),
     // Learning
     learn_save_tool(),
+    // Memory
+    memory_search_tool(),
   ]
 }
 

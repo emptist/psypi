@@ -4,6 +4,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import psypi/db
+import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
 
 pub type Memory {
   Memory(
@@ -117,4 +118,24 @@ pub fn search(
       }
     })
   }, db_error_to_memory_error)
+}
+
+// -------------------------------------------------------------------
+// Pi Tools
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-memory-search — search memories
+pub fn memory_search_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-memory-search",
+    description: "Search memories by keyword",
+    params: [string_param("query"), string_param("limit")],
+    module: "memory",
+    fn_name: "search",
+    args: [
+      from_param("params.query || ''"),
+      from_param("parseInt(params.limit || '10')"),
+    ],
+    result_format: template("Found {count} memories"),
+  )
 }
