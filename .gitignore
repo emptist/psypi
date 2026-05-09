@@ -18,3 +18,9 @@ node_modules/
 # Temp
 .tmp/
 .trae/
+
+# OS
+.DS_Store
+
+# GitHub
+.github/
