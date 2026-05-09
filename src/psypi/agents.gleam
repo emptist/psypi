@@ -3,6 +3,7 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import psypi/db
+import psypi/pi_tool_call.{type PiToolCall, PiToolCall, template}
 
 pub type Agent {
   Agent(
@@ -54,4 +55,21 @@ pub fn list() -> promise.Promise(Result(List(Agent), AgentError)) {
       }
     })
   }, db_error_to_agent_error)
+}
+
+// -------------------------------------------------------------------
+// Pi Tools
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-agents — list all agents
+pub fn agents_list_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-agents",
+    description: "List all registered agents",
+    params: [],
+    module: "agents",
+    fn_name: "list",
+    args: [],
+    result_format: template("Agents: ${JSON.stringify(r.value)}"),
+  )
 }

@@ -17,6 +17,7 @@ import gleam/io
 import gleam/list
 import gleam/string
 import psypi/agent_identity.{monitor_id_tool, my_id_tool}
+import psypi/agents.{agents_list_tool}
 import psypi/areflect.{areflect_tool}
 import psypi/broadcast.{broadcast_send_tool, broadcast_list_tool}
 import psypi/code_version.{doc_save_tool}
@@ -91,6 +92,8 @@ pub fn all_tools() -> List(PiToolCall) {
     areflect_tool(),
     // Task completion
     task_complete_tool(),
+    // Agents
+    agents_list_tool(),
   ]
 }
 
