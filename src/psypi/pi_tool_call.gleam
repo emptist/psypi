@@ -168,7 +168,7 @@ pub fn result_to_js(format: ResultFormat) -> String {
 pub fn to_js_text(tool: PiToolCall) -> String {
   let params_js = params_to_js(tool.params)
   let args_js = args_to_js(tool.args)
-  let call_expr = tool.fn_name <> "(" <> args_js <> ")"
+  let call_expr = tool.module <> "_" <> tool.fn_name <> "(" <> args_js <> ")"
   let result_js = result_to_js(tool.result_format)
 
   [
@@ -194,12 +194,11 @@ pub fn to_js_text(tool: PiToolCall) -> String {
 }
 
 /// Generate the import statement for this tool's Gleam module
-/// The import path is relative to extension.js location.
-/// extension.js lives at src/agent/extension/, so we go up to project root
-/// then into the Gleam build output.
+/// Uses aliased imports to avoid name collisions (e.g., add from task.mjs vs issue.mjs)
 pub fn to_import_line(tool: PiToolCall) -> String {
   let base = "./build/dev/javascript/psypi/psypi"
-  "import { " <> tool.fn_name <> " } from \"" <> base <> "/" <> tool.module <> ".mjs\";"
+  let alias = tool.module <> "_" <> tool.fn_name
+  "import { " <> tool.fn_name <> " as " <> alias <> " } from \"" <> base <> "/" <> tool.module <> ".mjs\";"
 }
 
 /// Generate the pi.on('event_name', handler) block as JS text
