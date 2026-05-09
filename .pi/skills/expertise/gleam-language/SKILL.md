@@ -66,7 +66,7 @@ All in `references/`:
 **Build:** build-compile.md, project-structure.md
 **Testing:** testing-gleeunit.md (NEW), test-patterns.md
 **Anti-patterns:** what-not-to-do.md
-**Quality:** gleam-quality-guidelines.md — type safety, custom ID types, error handling
+**Quality:** gleam-quality-guidelines.md — type safety, custom ID types (check existing first!), error handling
 </reference_index>
 
 <workflows_index>

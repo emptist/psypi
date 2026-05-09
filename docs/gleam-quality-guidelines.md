@@ -22,6 +22,20 @@ fn get_agent(agent_id: AgentId) -> Agent { ... }
 
 **Why:** AgentId as a wrapper makes it impossible to confuse agent IDs with other strings. The compiler catches type mismatches.
 
+### 1a. DO NOT Duplicate ID Types
+
+Before creating new ID types, CHECK if similar type already exists!
+
+- ✅ Use existing `AgentId` from `agent_identity_types.gleam`
+- ❌ Don't create new `SessionId`, `UserId`, etc. if AgentId works
+
+**How to check:**
+```bash
+grep -r "pub type.*Id" src/psypi/
+```
+
+If ID type exists, use it or extend it. Don't create competing types.
+
 ### 2. Unused Imports
 
 **Bad:**
