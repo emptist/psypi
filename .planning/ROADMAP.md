@@ -101,8 +101,9 @@ Plans:
 - ✅ 9 working Pi tools (added issue tools)
 
 **Code Quality Issues to Fix (later):**
-- ⚠️ agentId uses String everywhere (74 occurrences) - should use custom AgentId type
+- ⚠️ agentId uses String everywhere (74 occurrences) - should use custom AgentId type (use workflow improve-type-safety.md!)
 - ⚠️ Many modules have unused imports (warnings)
+- ⚠️ Check existing types BEFORE creating new ones (don't duplicate!)
 
 ### 📋 v2.0 Production Ready (Planned)
 

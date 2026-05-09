@@ -78,6 +78,7 @@ All in `workflows/`:
 |------|---------|
 | build-new-module.md | Create new Gleam module from scratch (NEW) |
 | migrate-ts-to-gleam.md | Convert TypeScript module to Gleam |
+| improve-type-safety.md | Add types without duplication (check first!) |
 | debug-gleam.md | Find and fix Gleam compilation/runtime errors |
 | gleam-js-interop.md | Call JavaScript from Gleam |
 | run-tests.md | Run Gleam tests with gleeunit |
