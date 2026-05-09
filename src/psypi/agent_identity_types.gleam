@@ -1,5 +1,18 @@
 import gleam/option
 
+/// Lightweight wrapper for agent ID - use this instead of String
+pub type AgentId { AgentId(String) }
+
+/// Helper to create AgentId from String
+pub fn agent_id(s: String) -> AgentId { AgentId(s) }
+
+/// Extract String from AgentId
+pub fn agent_id_to_string(id: AgentId) -> String {
+  case id {
+    AgentId(s) -> s
+  }
+}
+
 pub type AgentIdentity {
   AgentIdentity(
     id: String,
