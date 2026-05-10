@@ -22,7 +22,7 @@ import psypi/areflect.{areflect_tool}
 import psypi/broadcast.{broadcast_send_tool, broadcast_list_tool}
 import psypi/code_version.{doc_save_tool, doc_list_tool}
 import psypi/file_utils.{write_file}
-import psypi/monitor_ai.{monitor_health_tool, monitor_status_tool, monitor_alerts_tool}
+import psypi/monitor_ai.{monitor_health_tool, monitor_status_tool, monitor_alerts_tool, monitor_stats_tool, monitor_suggest_tool}
 import psypi/issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
 import psypi/learning.{learn_save_tool}
 import psypi/memory.{memory_search_tool}
@@ -97,6 +97,8 @@ pub fn all_tools() -> List(PiToolCall) {
     monitor_status_tool(),
     monitor_health_tool(),
     monitor_alerts_tool(),
+    monitor_stats_tool(),
+    monitor_suggest_tool(),
   ]
 }
 

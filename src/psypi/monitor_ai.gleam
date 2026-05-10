@@ -225,6 +225,130 @@ pub fn get_alerts() -> promise.Promise(Result(AlertMetrics, MonitorError)) {
 }
 
 // -------------------------------------------------------------------
+// Statistics - Track Model Quality
+// -------------------------------------------------------------------
+
+pub type ModelStats {
+  ModelStats(
+    total_reviews: Int,
+    avg_score: Int,
+    avg_response_time_ms: Int,
+    failure_count: Int,
+  )
+}
+
+fn model_stats_decoder() -> decode.Decoder(ModelStats) {
+  use total_reviews <- decode.field("total_reviews", decode.int)
+  use avg_score <- decode.field("avg_score", decode.int)
+  use avg_response_time_ms <- decode.field("avg_response_time_ms", decode.int)
+  use failure_count <- decode.field("failure_count", decode.int)
+  decode.success(ModelStats(total_reviews:, avg_score:, avg_response_time_ms:, failure_count:))
+}
+
+/// Track model quality from inter_review data
+pub fn get_model_stats() -> promise.Promise(Result(ModelStats, MonitorError)) {
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT 
+        COUNT(*)::INT as total_reviews,
+        COALESCE(AVG(overall_score), 0)::INT as avg_score,
+        COALESCE(AVG(EXTRACT(MILLISECONDS FROM (completed_at - requested_at))), 0)::INT as avg_response_time_ms,
+        COUNT(*) FILTER (WHERE status = 'failed')::INT as failure_count
+      FROM inter_reviews
+      WHERE requested_at > NOW() - INTERVAL '24 hours'
+    "
+    promise.map(db.query(conn, sql, []), fn(result) {
+      case result {
+        Error(e) -> Error(db_error_to_monitor_error(e))
+        Ok(query_result) -> {
+          case query_result.rows {
+            [row, ..] -> {
+              case decode.run(row, model_stats_decoder()) {
+                Ok(stats) -> Ok(stats)
+                Error(_) -> Error(DecodeError("Failed to decode model stats"))
+              }
+            }
+            _ -> Error(QueryError("No stats returned"))
+          }
+        }
+      }
+    })
+  }, db_error_to_monitor_error)
+}
+
+/// Record a review score (called after inter_review completes)
+pub fn record_review_score(review_id: String, score: Int) -> promise.Promise(Result(Nil, MonitorError)) {
+  db.with_connection(fn(conn) {
+    let sql = "UPDATE inter_reviews SET overall_score = $1 WHERE id = $2"
+    let params = [dynamic.int(score), dynamic.string(review_id)]
+    promise.map(db.query(conn, sql, params), fn(result) {
+      case result {
+        Ok(_) -> Ok(Nil)
+        Error(e) -> Error(db_error_to_monitor_error(e))
+      }
+    })
+  }, db_error_to_monitor_error)
+}
+
+// -------------------------------------------------------------------
+// Self-Design - Monitor Finds Own Jobs
+// -------------------------------------------------------------------
+
+pub type MonitorSuggestion {
+  MonitorSuggestion(suggestion_type: String, description: String, priority: Int)
+}
+
+fn suggestion_decoder() -> decode.Decoder(MonitorSuggestion) {
+  use suggestion_type <- decode.field("suggestion_type", decode.string)
+  use description <- decode.field("description", decode.string)
+  use priority <- decode.field("priority", decode.int)
+  decode.success(MonitorSuggestion(suggestion_type:, description:, priority:))
+}
+
+/// Detect if worker is idle and suggest work
+pub fn get_work_suggestions() -> promise.Promise(Result(List(MonitorSuggestion), MonitorError)) {
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT * FROM (
+        SELECT 'open_issues' as suggestion_type, 
+               'Review and resolve ' || COUNT(*)::TEXT || ' open issues' as description,
+               CASE WHEN severity = 'critical' THEN 1 ELSE 2 END as priority
+        FROM issues WHERE status = 'open'
+        GROUP BY severity
+        UNION ALL
+        SELECT 'stale_tasks' as suggestion_type,
+               'Review ' || COUNT(*)::TEXT || ' stale tasks (>7 days)' as description,
+               3 as priority
+        FROM tasks WHERE status = 'pending' AND created_at < NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT 'pending_skills' as suggestion_type,
+               'Review ' || COUNT(*)::TEXT || ' pending skills' as description,
+               4 as priority
+        FROM skills WHERE status = 'pending'
+      ) sub
+      ORDER BY priority
+      LIMIT 5
+    "
+    promise.map(db.query(conn, sql, []), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_monitor_error(e))
+        Ok(result) -> {
+          let suggestions = result.rows
+            |> list.map(fn(row) {
+              case decode.run(row, suggestion_decoder()) {
+                Ok(s) -> [s]
+                Error(_) -> []
+              }
+            })
+            |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
+          Ok(suggestions)
+        }
+      }
+    })
+  }, db_error_to_monitor_error)
+}
+
+// -------------------------------------------------------------------
 // Safety Check - Returns block if critical
 // -------------------------------------------------------------------
 
@@ -248,6 +372,36 @@ pub fn check_safety() -> promise.Promise(Result(SafetyResult, MonitorError)) {
       }
     }
   })
+}
+
+// -------------------------------------------------------------------
+// Pi Tools for Statistics and Self-Design
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-monitor-stats — get model quality statistics
+pub fn monitor_stats_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-monitor-stats",
+    description: "Get Monitor statistics (review scores, response times, failure rate)",
+    params: [],
+    module: "monitor_ai",
+    fn_name: "get_model_stats",
+    args: [],
+    result_format: raw_json(),
+  )
+}
+
+/// Pi tool: psypi-monitor-suggest — get work suggestions
+pub fn monitor_suggest_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-monitor-suggest",
+    description: "Get work suggestions from Monitor (open issues, stale tasks, pending skills)",
+    params: [],
+    module: "monitor_ai",
+    fn_name: "get_work_suggestions",
+    args: [],
+    result_format: raw_json(),
+  )
 }
 
 
