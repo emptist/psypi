@@ -26,7 +26,7 @@ description: Agent instructions for psypi (READ FIRST!)
 4. **NEVER spawn Pi from Pi tools** - infinite loop danger!
 
 **Current Status:**
-- ✅ 6 Pi tools working (psypi-my-id, psypi-partner-id, psypi-task-add, psypi-tasks, psypi-stats-show, psypi-doc-save)
+- ✅ 17 Pi tools working (psypi-my-id, psypi-tasks, etc.)
 - ✅ All TypeScript removed — 100% Gleam core
 - ✅ `bin/psypi.mjs` auto-generates `extension.js` at every startup
 
@@ -123,16 +123,17 @@ npm install    # ❌ Wrong
 
 ---
 
-## 📊 Current Status (2026-05-09)
+## 📊 Current Status (2026-05-10)
 
 ### 🎯 Architecture Evolution (BIG CHANGE!)
 **OLD**: CLI commands → TypeScript → Database
 **NEW**: Pi TUI → Pi tools → Gleam → Database
 
 ### Pi Tools Status:
-- **17 Pi tools** working ✅:
+- **18 Pi tools** working ✅:
   - `psypi-my-id` — Get agent ID
   - `psypi-monitor-id` — Get monitor/partner ID
+  - `psypi-monitor-consult` — Consult Monitor for difficult decisions
   - `psypi-task-add` — Add a task
   - `psypi-tasks` — List tasks
   - `psypi-stats-show` — Show project statistics
@@ -205,6 +206,19 @@ rm -rf build/ && gleam build
 - **Job**: Reviews commits via Gleam `run_review()`
 - **Tools**: `psypi-monitor-model`, `psypi-monitor-set-model`, `psypi-monitor-review`
 
+### Event Hooks for Monitor
+Monitor integrates via Pi event hooks in `extension.js`:
+- `session_start` — Session initialization, context setup
+- `agent_start` — Agent lifecycle start
+- `agent_end` — Agent lifecycle end  
+- `tool_call` — Tool execution with safety checks (can block dangerous operations)
+- `tool_result` — Tool result capture
+
+### Monitor Skill
+Worker can consult Monitor via the `monitor` skill (`.pi/skills/monitor/SKILL.md`):
+- **When**: architectural decisions, safety concerns, trade-offs, quality checks
+- **How**: Use `psypi-monitor-consult` tool or ask "Should I ask Monitor about...?"
+
 ---
 
 ## 📚 Key Files (Read These!)
@@ -225,7 +239,7 @@ rm -rf build/ && gleam build
 
 ## 🚨 CRITICAL: `package.json` Does NOT Exist!
 
-**Current State (2026-05-09):** `package.json` has been removed. `tsconfig.json` has been removed.
+**Current State (2026-05-10):** `package.json` has been removed. `tsconfig.json` has been removed.
 
 **What's Required (Must-Have!):**
 1. ✅ `gleam/psypi_core/gleam.toml` - Gleam project config!
@@ -246,4 +260,27 @@ rm -rf build/ && gleam build
 
 ---
 
-**Happy coding with psypi!** 🚀
+## 🧠 Self-Loading Skills logic
+**Don't wait for a skill to be provided in the prompt.**
+If a task requires specialized expertise (e.g., Gleam, Planning, Pi Platform), you can "load" the skill yourself:
+1. Find the skill file: `ls -R .pi/skills/`
+2. Read the `SKILL.md` file: `read path=".pi/skills/[skill-name]/SKILL.md"`
+3. Internalize the guidelines and apply them to the current task.
+
+This turns the AI from a passive receiver into an active specialist.
+
+---
+
+## 🛠️ LLM & Tool Use Warnings
+
+### Tool Call Schema Errors (HTTP 400)
+If you encounter `invalid_argument` or `parameters format error` when calling Pi tools:
+- **Cause**: The model is wrapping simple parameters in JSON objects (e.g., sending `{"title": {"text": "..."}}` instead of `{"title": "..."}`).
+- **Fix**: Ensure parameters exactly match the required type (String, Boolean, Number) and are not wrapped in extra objects.
+- **Common in**: Some local models (Ollama) or non-frontier models (Baidu, etc.) that struggle with strict JSON Schema tool-calling.
+
+### Local Model Limitations
+When using local models (Ollama) for development:
+- **Depth**: Local models may struggle with complex architecture and multi-file dependencies.
+- **Solution**: Use local models for simple edits and reads; use frontier models (Claude/GPT) for planning and critical reviews.
+- **Recommended Local Models**: `Codestral` (22B), `DeepSeek-Coder-V2-Lite` (16B).
