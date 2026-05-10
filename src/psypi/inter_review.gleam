@@ -21,7 +21,7 @@ import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import psypi/db
-import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
+import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param}
 
 pub type ReviewResult {
   ReviewResult(
@@ -316,22 +316,4 @@ pub fn is_review_complete(
       }
     }
   })
-}
-
-/// Pi tool: psypi-commit — commit with mandatory inter-review (QC gate)
-pub fn commit_tool() -> PiToolCall {
-  PiToolCall(
-    name: "psypi-commit",
-    description: "Commit with mandatory inter-review (QC gate)",
-    params: [string_param("message")],
-    module: "inter_review",
-    fn_name: "request_review",
-    args: [
-      from_param("null"),
-      from_param("null"),
-      from_param("'P-tencent/hy3-preview:free-psypi'"),
-      from_param("params.message || 'No commit message'"),
-    ],
-    result_format: template("Review requested: ${r.value}"),
-  )
 }

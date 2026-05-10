@@ -1,11 +1,20 @@
 # Inter-Review Design (Mode 3: End of Workflow)
 
 ## Overview
-Inter-review is triggered when worker is ready to commit (`psypi-commit`). It asks Monitor to review the code changes before committing.
+
+**KEY INSIGHT**: The key is INTELLIGENCE, not extension.js or automatic scripts.
+
+Technical implementation (extension.js, Gleam, callMonitor) is just the medium. The intelligence is the core.
+
+- Not: "we added a hook to extension.js"
+- But: "we have an intelligent system that learns from every cell"
 
 **CRITICAL**: Pre-commit review is MORE IMPORTANT than the commit itself in psypi system. It's not just a gate - it's a learning opportunity.
 
+Inter-review is triggered when worker is ready to commit (`psypi-commit`). It asks Monitor to review the code changes before committing.
+
 ## Workflow
+
 ```
 Worker writes code
         ↓
@@ -58,17 +67,7 @@ commit feedback,
 - What worker did this session
 - Patterns to watch for
 
-## Current State (needs fix)
-- ❌ inter_review still calls external LLM (P-tencent/hy3-preview)
-- ✅ Monitor has LLM capability via `callMonitor` in extension.js
-- ✅ Safety hooks already implemented
-
-## Implementation Plan
-1. Move `psypi-commit` tool from inter_review.gleam → extension_generator.gleam (where callMonitor lives)
-2. Implement context gathering (git diff, activity, project info)
-3. Call callMonitor() with full context
-4. Parse response for score/PASS/FAIL
-5. Decision: pass → git commit, fail → show feedback
+---
 
 ## Monitor's Expanded Role in Inter-Review
 
@@ -103,9 +102,33 @@ commit feedback,
 
 ---
 
+## Current State (needs fix)
+
+- ❌ inter_review still calls external LLM (P-tencent/hy3-preview)
+- ✅ Monitor has LLM capability via `callMonitor` in extension.js
+- ✅ Safety hooks already implemented
+- ❌ Need to implement all Monitor expanded roles
+
+## Implementation Plan
+
+1. Move `psypi-commit` tool from inter_review.gleam → extension_generator.gleam (where callMonitor lives)
+2. Implement context gathering (git diff, activity, project info)
+3. Call callMonitor() with full context
+4. Parse response for score/PASS/FAIL
+5. Decision: pass → git commit, fail → show feedback
+6. Implement expanded Monitor roles (1-5 above)
+
+---
+
 ## Monitor Modes (for reference)
+
 See docs/MONITOR_MODES.md - Mode 3 is end-of-workflow (this doc).
 
 ---
 
 *Updated: 2026-05-10*
+*Key insight: Pre-commit is not a gate - it's the most important learning/education opportunity in psypi*
+
+*Analogy: Intelligent system-level QC done at cellular level - each commit is a "cell" being quality-checked, not just a final inspection at the top.*
+
+*There is no standalone immune system separated from every cell - just as there is no separate Monitor from the workflow. Every interaction IS the immune system. Every review is personal AND system-wide learning.*

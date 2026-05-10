@@ -306,6 +306,7 @@ pub fn generate() -> String {
   <> event_hooks_text(hooks)
   <> tools_text(tools)
   <> monitor_consult_tool()
+  <> psypi_commit_tool()
   <> "}\n"
 }
 
@@ -324,6 +325,67 @@ fn monitor_consult_tool() -> String {
     "        const response = await callMonitor(messages, systemPrompt);",
     "        return { content: [{ type: 'text', text: response }] };",
     "      } catch(e) { return { content: [{ type: 'text', text: 'Monitor error: ' + e.message }] }; }",
+    "    }",
+    "  });",
+    "",
+  ]
+  |> list.map(fn(s) { s <> "\n" })
+  |> string.concat
+}
+
+fn psypi_commit_tool() -> String {
+  [
+    "  // psypi-commit - Inter-review with Monitor (replaces external LLM)",
+    "  pi.registerTool({",
+    "    name: 'psypi-commit',",
+    "    description: 'Commit with Monitor inter-review (intelligent QC at cell level)',",
+    "    parameters: { message: { type: 'string' } },",
+    "    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {",
+    "      try {",
+    "        // 1. Gather git diff (THE WHAT)",
+    "        const { execSync } = await import('child_process');",
+    "        let changedFiles = '';",
+    "        let diff = '';",
+    "        try {",
+    "          changedFiles = execSync('git diff --name-only', { encoding: 'utf8' });",
+    "          diff = execSync('git diff', { encoding: 'utf8', maxBuffer: 10*1024*1024 });",
+    "        } catch(e) { return { content: [{ type: 'text', text: 'Error getting git diff: ' + e.message }] }; }",
+    "",
+    "        // 2. Format context (WHAT + WHY)",
+    "        const message = params.message || 'No commit message';",
+    "        const context = `",
+    "CHANGES (WHAT):",
+    "Files: ${changedFiles}",
+    "---",
+    "DIFF:",
+    "${diff.substring(0, 8000)}",
+    "---",
+    "COMMIT MESSAGE: ${message}",
+    "---",
+    "REVIEW REQUEST: Assess code quality, safety, and fit for project. Respond with PASS or FAIL, score 0-100, and brief feedback.",
+    "`;",
+    "",
+    "        // 3. Call Monitor (not external LLM!)",
+    "        const systemPrompt = 'You are Monitor. Review this code commit. Be thorough but fair. Consider: code quality, safety, patterns, potential bugs. Respond exactly: PASS/FAIL, SCORE/100, FEEDBACK.';",
+    "        const messages = [{ role: 'user', content: [{ type: 'text', text: context }], timestamp: Date.now() }];",
+    "        const response = await callMonitor(messages, systemPrompt);",
+    "",
+    "        // 4. Parse response",
+    "        const passMatch = response.match(/PASS/i);",
+    "        const scoreMatch = response.match(/SCORE.?(\\d+)/i);",
+    "        const score = scoreMatch ? parseInt(scoreMatch[1]) : 0;",
+    "        const isPass = passMatch && score >= 70;",
+    "",
+    "        if (!isPass) {",
+    "          return { content: [{ type: 'text', text: 'Review: ' + response + '\\n\\n❌ Score ' + score + '/100 - Need improvements before commit' }] };",
+    "        }",
+    "",
+    "        // 5. Commit if pass",
+    "        try { execSync('git add -A && git commit -m \"' + message.replace(/\"/g, '\\\\\"') + '\"', { encoding: 'utf8' }); }",
+    "        catch(e) { return { content: [{ type: 'text', text: 'Review PASSED but commit failed: ' + e.message }] }; }",
+    "",
+    "        return { content: [{ type: 'text', text: '✅ Review PASSED (' + score + '/100)\\n✅ Committed: ' + message }] };",
+    "      } catch(e) { return { content: [{ type: 'text', text: 'Error: ' + e.message }] }; }",
     "    }",
     "  });",
     "",
