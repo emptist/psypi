@@ -146,7 +146,7 @@ pub fn doc_save_tool() -> PiToolCall {
     module: "code_version",
     fn_name: "save_version",
     args: [
-      from_param("params.file_path"),
+      from_param("params.file_path || \"\""),
       from_param("params.content || \"\""),
       from_param("params.saved_by || \"unknown\""),
       from_param("params.commit_hash || \"\""),

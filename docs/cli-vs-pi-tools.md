@@ -35,7 +35,7 @@
 | `stats`                         | Yes          | `psypi-stats`             | Done                      |
 | `tools`                         | Yes          | `psypi-tools`              | Done (TS)                 |
 | `agents`                        | Yes          | `psypi-agents`             | Done (TS)                 |
-| `visits`                        | Yes          | `psypi-visits`            | Done                      |
+| `visits`                        | -            | `psypi-visits`            | Let it go (no DB table)  |
 | `validate-commit <message>`     | Yes          | `psypi-validate-commit`    | Done (TS)                 |
 | `meeting <subcommand>`          | Yes          | `psypi-meeting-*`         | Done                      |
 | `help [command]`                | Yes          | `psypi-help`               | TODO (Gleam main)        |

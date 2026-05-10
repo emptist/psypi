@@ -1,6 +1,9 @@
 import gleam/dynamic
+import gleam/dynamic/decode
+import gleam/int
 import gleam/javascript/promise
 import gleam/list
+import gleam/result
 import gleam/string
 import psypi/db
 import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
@@ -11,11 +14,16 @@ pub type ReflectionError {
   DecodeError(String)
 }
 
+pub type IssueSummary {
+  IssueSummary(id: String, title: String, status: String, severity: String)
+}
+
 pub type ReflectionResult {
   ReflectionResult(
     learnings: Int,
     issues: Int,
     tasks: Int,
+    issue_list: List(IssueSummary),
   )
 }
 
@@ -33,11 +41,38 @@ fn parse_marker(text: String, marker: String) -> List(String) {
 
 pub fn parse(
   text: String,
-) -> Result(#(List(String), List(String), List(String)), String) {
+) -> Result(#(List(String), List(String), List(String), Int), String) {
   let learnings = parse_marker(text, "[LEARN]")
   let issues = parse_marker(text, "[ISSUE]")
   let tasks = parse_marker(text, "[TASK]")
-  Ok(#(learnings, issues, tasks))
+  let issue_list_count = parse_issue_list_marker(text)
+  Ok(#(learnings, issues, tasks, issue_list_count))
+}
+
+fn parse_issue_list_marker(text: String) -> Int {
+  text
+  |> string.split("\n")
+  |> list.filter(fn(line) { string.contains(line, "[ISSUELIST]") })
+  |> list.first
+  |> result.map(fn(line) {
+    line
+    |> string.replace("[ISSUELIST]", "")
+    |> string.trim
+    |> parse_count_from_issue_list
+  })
+  |> result.unwrap(0)
+}
+
+fn parse_count_from_issue_list(s: String) -> Int {
+  let parts = string.split(s, " ")
+  let count_str = case list.drop(parts, 1) {
+    [first, ..] -> first
+    _ -> s
+  }
+  case int.parse(count_str) {
+    Ok(n) -> n
+    Error(_) -> 5
+  }
 }
 
 fn db_error_to_reflection_error(e: db.DbError) -> ReflectionError {
@@ -51,24 +86,75 @@ pub fn areflect(
   text: String,
   agent_id: String,
 ) -> promise.Promise(Result(ReflectionResult, ReflectionError)) {
-  let #(learnings, issues, tasks) = case parse(text) {
+  let #(learnings, issues, tasks, issue_list_count) = case parse(text) {
     Ok(result) -> result
-    Error(_) -> #([], [], [])
+    Error(_) -> #([], [], [], 0)
   }
 
   db.with_connection(fn(conn) {
     promise.await(save_learnings(conn, learnings, agent_id), fn(_) {
       promise.await(save_issues(conn, issues, agent_id), fn(_) {
         promise.await(save_tasks(conn, tasks, agent_id), fn(_) {
-          promise.resolve(Ok(ReflectionResult(
-            learnings: list.length(learnings),
-            issues: list.length(issues),
-            tasks: list.length(tasks),
-          )))
+          promise.map(fetch_recent_issues(conn, issue_list_count), fn(issue_list) {
+            case issue_list {
+              Ok(issues) -> Ok(ReflectionResult(
+                learnings: list.length(learnings),
+                issues: list.length(issues),
+                tasks: list.length(tasks),
+                issue_list: issues,
+              ))
+              Error(e) -> Error(e)
+            }
+          })
         })
       })
     })
   }, db_error_to_reflection_error)
+}
+
+fn issue_summary_decoder() -> decode.Decoder(IssueSummary) {
+  use id <- decode.field("id", decode.string)
+  use title <- decode.field("title", decode.string)
+  use status <- decode.field("status", decode.string)
+  use severity <- decode.field("severity", decode.string)
+  decode.success(IssueSummary(id: id, title: title, status: status, severity: severity))
+}
+
+fn fetch_recent_issues(
+  conn: db.Connection,
+  count: Int,
+) -> promise.Promise(Result(List(IssueSummary), ReflectionError)) {
+  case count {
+    0 -> promise.resolve(Ok([]))
+    _ -> {
+      let sql = "
+        SELECT id, title, status, severity
+        FROM issues
+        ORDER BY 
+          CASE severity 
+            WHEN 'critical' THEN 1 
+            WHEN 'high' THEN 2 
+            WHEN 'medium' THEN 3 
+            WHEN 'low' THEN 4 
+            ELSE 5 
+          END,
+          created_at DESC
+        LIMIT $1
+      "
+      let params = [dynamic.int(count)]
+      promise.map(db.query(conn, sql, params), fn(query_result) {
+        case query_result {
+          Ok(result) -> {
+            let issues = result.rows
+              |> list.map(fn(row) { decode.run(row, issue_summary_decoder()) })
+              |> list.filter_map(fn(r) { r })
+            Ok(issues)
+          }
+          Error(_) -> Error(QueryError("Failed to fetch issues"))
+        }
+      })
+    }
+  }
 }
 
 fn save_learnings(
@@ -193,7 +279,7 @@ fn save_task(
 pub fn areflect_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-areflect",
-    description: "Extract [LEARN], [ISSUE], [TASK] markers from text and save to database",
+    description: "Extract [LEARN], [ISSUE], [TASK], [ISSUELIST] markers from text and save to database",
     params: [string_param("text")],
     module: "areflect",
     fn_name: "areflect",

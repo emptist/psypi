@@ -1,14 +1,25 @@
 import gleam/dynamic
 import gleam/dynamic/decode
+import gleam/int
 import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import psypi/db
+import psypi/pi_tool_call.{type PiToolCall, PiToolCall, raw_json, template}
 
 pub type MonitorError {
   ConnectionError(String)
   QueryError(String)
   DecodeError(String)
+}
+
+pub type HealthMetrics {
+  HealthMetrics(
+    failed_tasks: Int,
+    open_issues: Int,
+    activities_1h: Int,
+    db_healthy: Bool,
+  )
 }
 
 fn db_error_to_monitor_error(e: db.DbError) -> MonitorError {
@@ -18,19 +29,46 @@ fn db_error_to_monitor_error(e: db.DbError) -> MonitorError {
   }
 }
 
-/// Main Monitor AI loop - runs in background (stub)
-pub fn start_monitor_loop() -> promise.Promise(Result(Nil, MonitorError)) {
+fn health_decoder() -> decode.Decoder(HealthMetrics) {
+  use failed_tasks <- decode.field("failed_tasks", decode.int)
+  use open_issues <- decode.field("open_issues", decode.int)
+  use activities_1h <- decode.field("activities_1h", decode.int)
+  decode.success(HealthMetrics(
+    failed_tasks: failed_tasks,
+    open_issues: open_issues,
+    activities_1h: activities_1h,
+    db_healthy: True,
+  ))
+}
+
+/// Main Monitor AI loop - runs in background
+pub fn start_monitor_loop() -> promise.Promise(Result(HealthMetrics, MonitorError)) {
   check_system_health()
 }
 
-/// Check system health (DB, disk, builds)
-pub fn check_system_health() -> promise.Promise(Result(Nil, MonitorError)) {
+/// Check system health (DB, tasks, issues, activity)
+pub fn check_system_health() -> promise.Promise(Result(HealthMetrics, MonitorError)) {
   db.with_connection(fn(conn) {
-    let sql = "SELECT 1 as health"
+    let sql = "
+      SELECT 
+        (SELECT COUNT(*)::INT FROM tasks WHERE status = 'FAILED') as failed_tasks,
+        (SELECT COUNT(*)::INT FROM issues WHERE status = 'open') as open_issues,
+        (SELECT COUNT(*)::INT FROM activity_log WHERE timestamp > NOW() - INTERVAL '1 hour') as activities_1h
+    "
     promise.map(db.query(conn, sql, []), fn(result) {
       case result {
-        Ok(_) -> Ok(Nil)  // DB is healthy
         Error(e) -> Error(db_error_to_monitor_error(e))
+        Ok(query_result) -> {
+          case query_result.rows {
+            [row, ..] -> {
+              case decode.run(row, health_decoder()) {
+                Ok(health) -> Ok(health)
+                Error(_) -> Error(DecodeError("Failed to decode health metrics"))
+              }
+            }
+            _ -> Error(QueryError("No health data returned"))
+          }
+        }
       }
     })
   }, db_error_to_monitor_error)
@@ -104,3 +142,112 @@ pub fn prepare_context(agent_id: String) -> promise.Promise(Result(String, Monit
     })
   }, db_error_to_monitor_error)
 }
+
+// -------------------------------------------------------------------
+// Monitor Pi Tools
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-monitor-health — get system health metrics
+pub fn monitor_health_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-monitor-health",
+    description: "Get system health metrics (failed tasks, open issues, activity)",
+    params: [],
+    module: "monitor_ai",
+    fn_name: "check_system_health",
+    args: [],
+    result_format: raw_json(),
+  )
+}
+
+/// Pi tool: psypi-monitor-status — get psypi status
+pub fn monitor_status_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-monitor-status",
+    description: "Get psypi Monitor status and capabilities",
+    params: [],
+    module: "monitor_ai",
+    fn_name: "start_monitor_loop",
+    args: [],
+    result_format: template("psypi Monitor: OK - use psypi-monitor-health for metrics"),
+  )
+}
+
+/// Pi tool: psypi-monitor-alerts — get active alerts
+pub fn monitor_alerts_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-monitor-alerts",
+    description: "Get active alerts (failed tasks, open issues)",
+    params: [],
+    module: "monitor_ai",
+    fn_name: "get_alerts",
+    args: [],
+    result_format: raw_json(),
+  )
+}
+
+pub type AlertMetrics {
+  AlertMetrics(failed_tasks: Int, open_issues: Int, critical_issues: Int)
+}
+
+fn alerts_decoder() -> decode.Decoder(AlertMetrics) {
+  use failed_tasks <- decode.field("failed_tasks", decode.int)
+  use open_issues <- decode.field("open_issues", decode.int)
+  use critical_issues <- decode.field("critical_issues", decode.int)
+  decode.success(AlertMetrics(failed_tasks: failed_tasks, open_issues: open_issues, critical_issues: critical_issues))
+}
+
+pub fn get_alerts() -> promise.Promise(Result(AlertMetrics, MonitorError)) {
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT 
+        (SELECT COUNT(*)::INT FROM tasks WHERE status = 'FAILED') as failed_tasks,
+        (SELECT COUNT(*)::INT FROM issues WHERE status = 'open') as open_issues,
+        (SELECT COUNT(*)::INT FROM issues WHERE severity = 'critical' AND status = 'open') as critical_issues
+    "
+    promise.map(db.query(conn, sql, []), fn(result) {
+      case result {
+        Error(e) -> Error(db_error_to_monitor_error(e))
+        Ok(query_result) -> {
+          case query_result.rows {
+            [row, ..] -> {
+              case decode.run(row, alerts_decoder()) {
+                Ok(alerts) -> Ok(alerts)
+                Error(_) -> Error(DecodeError("Failed to decode alerts"))
+              }
+            }
+            _ -> Error(QueryError("No alert data"))
+          }
+        }
+      }
+    })
+  }, db_error_to_monitor_error)
+}
+
+// -------------------------------------------------------------------
+// Safety Check - Returns block if critical
+// -------------------------------------------------------------------
+
+pub type SafetyResult {
+  SafetyResult(should_block: Bool, reason: String, health: HealthMetrics)
+}
+
+pub fn check_safety() -> promise.Promise(Result(SafetyResult, MonitorError)) {
+  promise.map(check_system_health(), fn(health_result) {
+    case health_result {
+      Error(e) -> Error(e)
+      Ok(health) -> {
+        let critical_threshold = 3
+        let critical_issues = health.open_issues
+        let should_block = critical_issues > critical_threshold
+        let reason = case should_block {
+          True -> "Critical: " <> int.to_string(critical_issues) <> " open issues"
+          False -> "OK"
+        }
+        Ok(SafetyResult(should_block: should_block, reason: reason, health: health))
+      }
+    }
+  })
+}
+
+

@@ -2,7 +2,7 @@ import gleam/io
 
 /// Simple hello function
 pub fn hello(name: String) -> String {
-  "Hello, " <> name <> "!"
+  "Hi, " <> name <> "!"
 }
 
 /// Print hello message
