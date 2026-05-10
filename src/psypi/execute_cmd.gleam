@@ -13,6 +13,6 @@ pub type CmdError {
   TimeoutError
 }
 
-@external(javascript, "./execute_cmd_ffi.mjs", "execute")
+@external(javascript, "./node_ffi.mjs", "execute")
 pub fn execute(cmd: String, timeout: Int) -> promise.Promise(Result(CmdResult, CmdError))
 

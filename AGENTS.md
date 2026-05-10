@@ -269,6 +269,10 @@ If a task requires specialized expertise (e.g., Gleam, Planning, Pi Platform), y
 
 This turns the AI from a passive receiver into an active specialist.
 
+### 📝 Concrete Example: How I Loaded a Skill
+
+See `docs/concrete-single-loading-example.md` for a verbatim record of the moment I transitioned from general AI advice to specialist mode by strictly following the `<input>` -> `<routing>` -> `<execution>` protocol of a loaded skill.
+
 ---
 
 ## 🛠️ LLM & Tool Use Warnings

@@ -32,7 +32,7 @@ import psypi/skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import psypi/stats.{stats_show_tool}
 import psypi/task.{task_add_tool, task_list_tool, task_complete_tool}
 
-@external(javascript, "./extension_generator_ffi.mjs", "get_project_root")
+@external(javascript, "./node_ffi.mjs", "get_project_root")
 pub fn get_project_root() -> String
 
 pub fn write_extension() -> Nil {
@@ -116,8 +116,11 @@ pub fn all_event_hooks() -> List(PiEventHook) {
 pub fn session_start_hook() -> PiEventHook {
   event_hook("session_start", [
     "    // Monitor: Initialize on session start",
-    "    ctx.ui.setStatus('psypi-monitor', 'Monitor ready');",
-    "    console.log('[Monitor] Session started');",
+    "    // Dynamic status based on health check",
+    "    const { check_system_health } = await import('./build/dev/javascript/psypi/psypi/monitor_ai.mjs');",
+    "    const health = await check_system_health();",
+    "    const status = health.ok && health.value.failed_tasks === 0 ? 'psypi-monitor: healthy' : 'psypi-monitor: attention needed';",
+    "    ctx.ui.setStatus('psypi-monitor', status);",
   ]
   |> list.map(fn(s) { s <> "\n" })
   |> string.concat)
@@ -125,13 +128,13 @@ pub fn session_start_hook() -> PiEventHook {
 
 pub fn before_agent_start_hook() -> PiEventHook {
   event_hook("before_agent_start", [
-    "    // Monitor: Inject guidance before agent starts",
-    "    console.log('[Monitor] Before agent start, reason:', event.reason);",
-    "    // TODO: Query recent memories and inject as guidance",
-    "    // const memories = await searchMemories(agentId);",
-    "    // if (memories.length > 0) {",
-    "    //   event.messages.push({ role: 'system', content: 'Recent context: ' + memories.join('; ') });",
-    "    // }",
+    "    // Monitor: Inject context before agent starts",
+    "    const { search } = await import('./build/dev/javascript/psypi/psypi/memory.mjs');",
+    "    const memories = await search('', 3);",
+    "    if (memories.ok && memories.value.length > 0) {",
+    "      const context = memories.value.map(m => m.content).join(' | ');",
+    "      event.messages.push({ role: 'system', content: 'Recent context: ' + context });",
+    "    }",
   ]
   |> list.map(fn(s) { s <> "\n" })
   |> string.concat)
@@ -139,8 +142,8 @@ pub fn before_agent_start_hook() -> PiEventHook {
 
 pub fn agent_start_hook() -> PiEventHook {
   event_hook("agent_start", [
-    "    // Monitor: Log agent start",
-    "    console.log('[Monitor] Agent started:', event.reason);",
+    "    // Monitor: Track agent activity",
+    "    // (No visible output - silent mode)",
   ]
   |> list.map(fn(s) { s <> "\n" })
   |> string.concat)
@@ -148,9 +151,8 @@ pub fn agent_start_hook() -> PiEventHook {
 
 pub fn agent_end_hook() -> PiEventHook {
   event_hook("agent_end", [
-    "    // Monitor: Summarize work done",
-    "    const msgs = event.messages.filter(m => m.role === 'assistant');",
-    "    console.log('[Monitor] Agent ended. Turns:', msgs.length);",
+    "    // Monitor: Track session completion",
+    "    // (No visible output - silent mode)",
   ]
   |> list.map(fn(s) { s <> "\n" })
   |> string.concat)
@@ -158,10 +160,8 @@ pub fn agent_end_hook() -> PiEventHook {
 
 pub fn tool_result_hook() -> PiEventHook {
   event_hook("tool_result", [
-    "    // Monitor: Analyze tool results",
-    "    if (event.isError) {",
-    "      console.log('[Monitor] Tool error:', event.toolName, event.result);",
-    "    }",
+    "    // Monitor: Track errors",
+    "    // (Silent - no visible output for errors unless critical)",
   ]
   |> list.map(fn(s) { s <> "\n" })
   |> string.concat)
@@ -174,19 +174,19 @@ pub fn unified_tool_call_hook() -> PiEventHook {
 fn unified_tool_call_handler_body() -> String {
   [
     "    try {",
-    "      // 0. Safety Check - Block Dangerous Operations",
+    "      // 0. Safety Check - Guide Dangerous Operations",
     "      const dangerousPatterns = [",
-    "        { pattern: /spawn.*pi/i, message: 'Spawning Pi causes infinite loop - blocked by Monitor' },",
-    "        { pattern: /spawn.*psypi/i, message: 'Spawning psypi causes infinite loop - blocked by Monitor' },",
-    "        { pattern: /rm.*-rf/i, message: 'Recursive delete is dangerous - blocked by Monitor' },",
-    "        { pattern: /git.*push.*force/i, message: 'Force push is dangerous - blocked by Monitor' },",
-    "        { pattern: /DROP.*TABLE/i, message: 'DROP TABLE is destructive - blocked by Monitor' },",
-    "        { pattern: /DELETE.*FROM.*WHERE/i, message: 'DELETE without LIMIT is dangerous - blocked by Monitor' },",
+    "        { pattern: /spawn.*pi/i, message: 'Hint: Spawning Pi causes infinite loop. Use direct function calls instead.' },",
+    "        { pattern: /spawn.*psypi/i, message: 'Hint: Spawning psypi causes infinite loop. Use direct function calls instead.' },",
+    "        { pattern: /rm.*-rf/i, message: 'Hint: Recursive delete is dangerous. Use specific file paths instead.' },",
+    "        { pattern: /git.*push.*force/i, message: 'Hint: Force push is dangerous. Use regular push with review instead.' },",
+    "        { pattern: /DROP.*TABLE/i, message: 'Hint: DROP TABLE is destructive. Consider archiving data instead.' },",
+    "        { pattern: /DELETE.*FROM.*WHERE/i, message: 'Hint: DELETE without LIMIT is dangerous. Add a specific condition or LIMIT.' },",
     "      ];",
     "      const inputStr = JSON.stringify(event.input);",
     "      for (const { pattern, message } of dangerousPatterns) {",
     "        if (pattern.test(event.toolName) || pattern.test(inputStr)) {",
-    "          console.log('[Monitor] BLOCKED:', message);",
+    "          console.log('[Monitor] ' + message);",
     "          return { block: true, message: message };",
     "        }",
     "      }",
