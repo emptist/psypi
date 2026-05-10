@@ -102,21 +102,26 @@ retry ───→ git commit succeeds
 
 ---
 
-## Current State (needs fix)
+## Current State (as of 2026-05-10)
 
-- ❌ inter_review still calls external LLM (P-tencent/hy3-preview)
-- ✅ Monitor has LLM capability via `callMonitor` in extension.js
+### Implemented ✅
+- ✅ psypi-commit uses Monitor LLM (callMonitor, not external P-tencent)
+- ✅ Context gathering (git diff)
+- ✅ PASS/FAIL + score response
+- ✅ Review ID system (UUID format, matches DB schema)
+- ✅ Strict process: can't commit without valid review_id
 - ✅ Safety hooks already implemented
-- ❌ Need to implement all Monitor expanded roles
 
-## Implementation Plan
+### What's Done (Plan 10-02, 10-03)
+- Phase 10-02: Basic inter-review with Monitor LLM
+- Phase 10-03: Review ID system for audit trail
 
-1. Move `psypi-commit` tool from inter_review.gleam → extension_generator.gleam (where callMonitor lives)
-2. Implement context gathering (git diff, activity, project info)
-3. Call callMonitor() with full context
-4. Parse response for score/PASS/FAIL
-5. Decision: pass → git commit, fail → show feedback
-6. Implement expanded Monitor roles (1-5 above)
+### Remaining (Expanded Monitor Roles)
+- ❌ Instructions: teach tools/skills/workflow
+- ❌ Statistics: model quality, language efficiency
+- ❌ Self-design: find own jobs
+- ❌ Learn mistakes: track patterns
+- ❌ Proactive improvement: suggest education/skills
 
 ---
 
@@ -132,3 +137,15 @@ See docs/MONITOR_MODES.md - Mode 3 is end-of-workflow (this doc).
 *Analogy: Intelligent system-level QC done at cellular level - each commit is a "cell" being quality-checked, not just a final inspection at the top.*
 
 *There is no standalone immune system separated from every cell - just as there is no separate Monitor from the workflow. Every interaction IS the immune system. Every review is personal AND system-wide learning.*
+
+## Process Summary
+
+```
+# Step 1: Get review (no ID yet)
+psypi-commit "my commit message"
+→ Monitor reviews → PASS/FAIL + UUID
+
+# Step 2: Commit with ID
+psypi-commit "my commit message" --review-id=<UUID-from-step-1>
+→ Verified → commit succeeds
+```
