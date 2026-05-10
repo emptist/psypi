@@ -186,7 +186,6 @@ fn unified_tool_call_handler_body() -> String {
     "      const inputStr = JSON.stringify(event.input);",
     "      for (const { pattern, message } of dangerousPatterns) {",
     "        if (pattern.test(event.toolName) || pattern.test(inputStr)) {",
-    "          console.log('[Monitor] ' + message);",
     "          return { block: true, message: message };",
     "        }",
     "      }",
