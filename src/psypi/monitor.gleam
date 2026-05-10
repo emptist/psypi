@@ -61,6 +61,24 @@ pub fn get_model() -> promise.Promise(Result(Option(MonitorModel), MonitorError)
   }, db_error_to_monitor_error)
 }
 
+/// Record current model being used (called on session start)
+pub fn record_current_model(model_name: String) -> promise.Promise(Result(Nil, MonitorError)) {
+  db.with_connection(fn(conn) {
+    let sql = "
+      INSERT INTO activity_log (agent_id, activity_type, context)
+      VALUES ('system', 'model_used', $1)
+    "
+    let params = [dynamic.string("model:" <> model_name)]
+
+    promise.map(db.query(conn, sql, params), fn(result) {
+      case result {
+        Ok(_) -> Ok(Nil)
+        Error(e) -> Error(db_error_to_monitor_error(e))
+      }
+    })
+  }, db_error_to_monitor_error)
+}
+
 /// Set the Monitor AI model in database
 pub fn set_model(
   provider: String,

@@ -116,7 +116,12 @@ pub fn all_event_hooks() -> List(PiEventHook) {
 pub fn session_start_hook() -> PiEventHook {
   event_hook("session_start", [
     "    // Monitor: Initialize on session start",
-    "    // Dynamic status based on health check",
+    "    // 1. Record current model to database",
+    "    const { record_current_model } = await import('./build/dev/javascript/psypi/psypi/monitor.mjs');",
+    "    if (ctx.model) {",
+    "      record_current_model(ctx.model).then(() => {}).catch(() => {});",
+    "    }",
+    "    // 2. Dynamic status based on health check",
     "    const { check_system_health } = await import('./build/dev/javascript/psypi/psypi/monitor_ai.mjs');",
     "    const health = await check_system_health();",
     "    const status = health.ok && health.value.failed_tasks === 0 ? 'psypi-monitor: healthy' : 'psypi-monitor: attention needed';",
