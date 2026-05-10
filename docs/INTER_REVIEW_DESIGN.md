@@ -13,31 +13,31 @@ Technical implementation (extension.js, Gleam, callMonitor) is just the medium. 
 
 Inter-review is triggered when worker is ready to commit (`psypi-commit`). It asks Monitor to review the code changes before committing.
 
-## Workflow
+## Workflow (Strict with Review ID)
 
 ```
 Worker writes code
         ↓
-psypi-commit (trigger)
+psypi-commit (request review, no ID yet)
         ↓
-┌───────────────┐
-│ inter_review  │
-│   (workflow)  │
-└───────┬───────┘
-        ↓
-Monitor reviews (LLM)
-        ↓
-    Score + PASS/FAIL + Feedback
+Monitor reviews → generates REVIEW_ID + PASS/FAIL + score
         ↓
    ┌────┴────┐
    ↓         ↓
- PASS      FAIL
+ FAIL       PASS + REVIEW_ID
    ↓         ↓
-git    worker sees
-commit feedback,
-       fixes,
-       retries
+Worker      psypi-commit --review-id=XYZ
+fixes           ↓
+   ↓      Monitor verifies ID is valid + recent
+   ↓         ↓
+retry ───→ git commit succeeds
 ```
+
+**Key principles:**
+- REVIEW_ID: unique, timestamped, from Monitor
+- Strict: can't commit without valid recent ID
+- Fair: each attempt gets fresh review (new ID)
+- Audit trail: every commit has review ID logged
 
 ## What Monitor Needs
 
