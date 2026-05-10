@@ -351,3 +351,16 @@ pub fn meeting_opinions_tool() -> PiToolCall {
     result_format: template("Opinions: ${JSON.stringify(r.value)}"),
   )
 }
+
+/// Pi tool: psypi-meeting-add — add a meeting
+pub fn meeting_create_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-meeting-add",
+    description: "Add a new meeting",
+    params: [string_param("topic"), opt_string_param("created_by")],
+    module: "meeting",
+    fn_name: "create",
+    args: [from_param("params.topic || \"\""), from_param("params.created_by || \"psypi\"")],
+    result_format: template("Meeting created: ${JSON.stringify(r.value)}"),
+  )
+}
