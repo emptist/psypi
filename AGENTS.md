@@ -26,7 +26,9 @@ description: Agent instructions for psypi (READ FIRST!)
 4. **NEVER spawn Pi from Pi tools** - infinite loop danger!
 
 **Current Status:**
-- ✅ 17 Pi tools working (psypi-my-id, psypi-tasks, etc.)
+- ✅ 25+ Pi tools working
+- ✅ Monitor system with 3 modes (Silent, Middle, End)
+- ✅ Single node_ffi.mjs (consolidated from 4)
 - ✅ All TypeScript removed — 100% Gleam core
 - ✅ `bin/psypi.mjs` auto-generates `extension.js` at every startup
 
@@ -130,25 +132,19 @@ npm install    # ❌ Wrong
 **NEW**: Pi TUI → Pi tools → Gleam → Database
 
 ### Pi Tools Status:
-- **18 Pi tools** working ✅:
-  - `psypi-my-id` — Get agent ID
-  - `psypi-monitor-id` — Get monitor/partner ID
-  - `psypi-monitor-consult` — Consult Monitor for difficult decisions
-  - `psypi-task-add` — Add a task
-  - `psypi-tasks` — List tasks
-  - `psypi-stats-show` — Show project statistics
-  - `psypi-doc-save` — Save file version to code_versions DB
-  - `psypi-issue-add` — Add a new issue
-  - `psypi-issues` — List issues
-  - `psypi-issue-resolve` — Resolve an issue by ID
-  - `psypi-skill-list` — List skills
-  - `psypi-skill-get` — Get a skill by ID
-  - `psypi-skill-search` — Search skills by name
-  - `psypi-meetings` — List meetings
-  - `psypi-meeting-get` — Get a meeting by ID
-  - `psypi-meeting-opinions` — List opinions for a meeting
-  - `psypi-learn-save` — Save a learning to memory
-  - `psypi-memory-search` — Search memories by keyword
+- **25+ Pi tools** working ✅:
+  - Identity: `psypi-my-id`, `psypi-monitor-id`
+  - Tasks: `psypi-task-add`, `psypi-tasks`, `psypi-task-complete`
+  - Stats: `psypi-stats-show`
+  - Code: `psypi-doc-save`, `psypi-doc-list`
+  - Issues: `psypi-issue-add`, `psypi-issues`, `psypi-issue-resolve`
+  - Skills: `psypi-skill-list`, `psypi-skill-get`, `psypi-skill-search`
+  - Meetings: `psypi-meetings`, `psypi-meeting-get`, `psypi-meeting-opinions`
+  - Memory: `psypi-learn-save`, `psypi-memory-search`
+  - Broadcast: `psypi-broadcast-send`, `psypi-broadcasts`
+  - Reflection: `psypi-areflect`
+  - Agents: `psypi-agents`
+  - Monitor: `psypi-monitor-status`, `psypi-monitor-health`, `psypi-monitor-alerts`, `psypi-monitor-stats`, `psypi-monitor-suggest`, `psypi-monitor-consult`, `psypi-commit`
 - **TypeScript** fully removed — all files in `deprecated/` directory
 - **psypi** = Pi TUI entry point (generates extension.js from Gleam, then spawns Pi)
 
@@ -173,9 +169,9 @@ npm install    # ❌ Wrong
 - Hand-editing `extension.js` → ❌ NEVER! Always goes through Gleam types!
 
 **Files:**
-- `gleam/psypi_core/src/psypi_cli/pi_tool_call.gleam` — PiToolCall type + text converters
-- `gleam/psypi_core/src/psypi_cli/extension_generator.gleam` — text composer (the cook)
-- `src/agent/extension/extension.js` — generated output (do not edit!)
+- `src/psypi/pi_tool_call.gleam` — PiToolCall type + text converters
+- `src/psypi/extension_generator.gleam` — text composer (the cook)
+- `extension.js` — generated output (do not edit!)
 
 **To add a new Pi tool:**
 1. Define the Gleam function in its module
