@@ -6,7 +6,7 @@ pub fn my_id() -> Result(String, String) {
 }
 
 pub fn monitor_id() -> Result(String, String) {
-  Ok("P-tencent/hy3-preview:free-psypi")
+  Ok("P-anthropic/claude-3.5-sonnet-psypi")
 }
 
 pub fn my_session_id() -> Result(String, String) {
