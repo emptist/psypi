@@ -156,6 +156,22 @@ pub fn doc_save_tool() -> PiToolCall {
   )
 }
 
+/// Pi tool: psypi-doc-list — list file version history
+pub fn doc_list_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-doc-list",
+    description: "List version history for a file",
+    params: [string_param("file_path"), string_param("limit")],
+    module: "code_version",
+    fn_name: "get_versions",
+    args: [
+      from_param("params.file_path || \"\""),
+      from_param("parseInt(params.limit || '10')"),
+    ],
+    result_format: raw_json(),
+  )
+}
+
 // Query code_versions table with optional filters
 // Returns: Ok(list of version rows) or Error(DbError)
 pub fn query_versions(

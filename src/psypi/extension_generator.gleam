@@ -20,7 +20,7 @@ import psypi/agent_identity.{monitor_id_tool, my_id_tool}
 import psypi/agents.{agents_list_tool}
 import psypi/areflect.{areflect_tool}
 import psypi/broadcast.{broadcast_send_tool, broadcast_list_tool}
-import psypi/code_version.{doc_save_tool}
+import psypi/code_version.{doc_save_tool, doc_list_tool}
 import psypi/file_utils.{write_file}
 import psypi/monitor_ai.{monitor_health_tool, monitor_status_tool, monitor_alerts_tool}
 import psypi/issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
@@ -67,6 +67,7 @@ pub fn all_tools() -> List(PiToolCall) {
     stats_show_tool(),
     // Code versioning
     doc_save_tool(),
+    doc_list_tool(),
     // Issues
     issue_add_tool(),
     issue_list_tool(),
