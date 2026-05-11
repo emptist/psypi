@@ -37,11 +37,36 @@ gleam run -m extension_generator
 
 | File              | Purpose                      |
 | ----------------- | ---------------------------- |
+| `bin/psypi.mjs`   | Node.js entry point (hand-written) |
 | `src/*.gleam`     | Gleam source code            |
 | `extension.js`    | Generated Pi extension       |
 | `node_ffi.mjs`    | Node.js interop (single FFI) |
 | `docs/MONITOR.md` | Monitor system docs          |
 | `AGENTS.md`       | Developer guide              |
+
+## Entry Point: bin/psypi.mjs
+
+`bin/psypi.mjs` is the **hand-written Node.js entry point**. It bridges Gleam-compiled code with Pi:
+
+```
+src/extension_generator.gleam  (Gleam source)
+         │
+         ▼ gleam build
+build/dev/javascript/psypi/extension_generator.mjs  (compiled)
+         │
+         ▼ bin/psypi.mjs imports and calls generate()
+extension.js  (generated Pi extension)
+         │
+         ▼ pi -e extension.js
+Pi running with psypi tools
+```
+
+**Why hand-written?** Gleam compiles to ES modules, not executables. We need Node.js to:
+1. Import Gleam-compiled modules dynamically
+2. Generate `extension.js` at runtime
+3. Spawn the Pi process
+
+See `docs/architecture/ENTRY_POINT.md` for full documentation.
 
 ## Monitor System
 
