@@ -169,8 +169,8 @@ npm install    # ❌ Wrong
 - Hand-editing `extension.js` → ❌ NEVER! Always goes through Gleam types!
 
 **Files:**
-- `src/psypi/pi_tool_call.gleam` — PiToolCall type + text converters
-- `src/psypi/extension_generator.gleam` — text composer (the cook)
+- `src/pi_tool_call.gleam` — PiToolCall type + text converters
+- `src/extension_generator.gleam` — text composer (the cook)
 - `extension.js` — generated output (do not edit!)
 
 **To add a new Pi tool:**
@@ -178,7 +178,7 @@ npm install    # ❌ Wrong
 2. Create a `PiToolCall` value (e.g., `my_tool()`)
 3. Import it in `extension_generator.gleam` and add to `all_tools()`
 4. Build: `cd gleam/psypi_core && rm -rf build/ && gleam build`
-5. Generate: `gleam run -m psypi_cli/extension_generator`
+5. Generate: `gleam run -m extension_generator`
 6. Verify `src/agent/extension/extension.js` has the new tool
 
 ### ⚠️ CRITICAL WARNING:
@@ -191,7 +191,6 @@ npm install    # ❌ Wrong
 ### 🚨 CRITICAL: Build Cache Issue
 After editing Gleam source, `gleam run` sometimes uses stale compiled output from `build/`. **Always clean:**
 ```bash
-cd gleam/psypi_core
 rm -rf build/ && gleam build
 ```
 

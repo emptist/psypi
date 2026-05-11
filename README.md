@@ -17,7 +17,7 @@ psypi
 
 ## Architecture
 
-- **Gleam core** - All logic in Gleam (`src/psypi/`)
+- **Gleam core** - All logic in Gleam (`src/`)
 - **Pi extension** - Auto-generated from Gleam (`extension.js`)
 - **Database** - PostgreSQL (one per user home)
 
@@ -28,20 +28,20 @@ psypi
 gleam build
 
 # Regenerate extension.js
-gleam run -m psypi/extension_generator
+gleam run -m extension_generator
 
 # The extension.js is auto-generated - NEVER edit manually!
 ```
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `src/psypi/*.gleam` | Gleam source code |
-| `extension.js` | Generated Pi extension |
-| `node_ffi.mjs` | Node.js interop (single FFI) |
-| `docs/MONITOR.md` | Monitor system docs |
-| `AGENTS.md` | Developer guide |
+| File              | Purpose                      |
+| ----------------- | ---------------------------- |
+| `src/*.gleam`     | Gleam source code            |
+| `extension.js`    | Generated Pi extension       |
+| `node_ffi.mjs`    | Node.js interop (single FFI) |
+| `docs/MONITOR.md` | Monitor system docs          |
+| `AGENTS.md`       | Developer guide              |
 
 ## Monitor System
 
@@ -56,4 +56,4 @@ See `docs/MONITOR.md` for complete documentation.
 18+ tools via Gleam → extension.js generation. Add new tools by:
 1. Define `PiToolCall` in Gleam module
 2. Add to `all_tools()` in `extension_generator.gleam`
-3. Run `gleam run -m psypi/extension_generator`
+3. Run `gleam run -m extension_generator`

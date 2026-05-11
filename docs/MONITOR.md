@@ -122,9 +122,9 @@ retry ────────────────────────�
 
 | File | Purpose |
 |------|---------|
-| `src/psypi/monitor.gleam` | Model configuration (get/set) |
-| `src/psypi/monitor_ai.gleam` | Functions: health, stats, suggestions, alerts |
-| `src/psypi/extension_generator.gleam` | Generates extension.js with tools + hooks |
+| `src/monitor.gleam` | Model configuration (get/set) |
+| `src/monitor_ai.gleam` | Functions: health, stats, suggestions, alerts |
+| `src/extension_generator.gleam` | Generates extension.js with tools + hooks |
 | `extension.js` | Generated output (auto-regenerated) |
 
 ### How It Works

@@ -27,13 +27,13 @@ Unify the generic activity logging and the specialized auto-backup logic into a 
 
 ### Phase 2: Core Implementation
 - [ ] **Task 2: Refactor Generator Functions**
-    - **Description**: Create `unified_tool_call_handler_body()` in `src/psypi/extension_generator.gleam` and remove the two obsolete handler functions.
+    - **Description**: Create `unified_tool_call_handler_body()` in `src/extension_generator.gleam` and remove the two obsolete handler functions.
     - **Acceptance criteria**:
         - [ ] New function produces a single, syntactically correct JS block.
         - [ ] Obsolete functions `auto_backup_handler_body` and `activity_tracing_handler_body` are deleted.
-    - **Verification**: `gleam run -m psypi/extension_generator` produces a build without errors.
+    - **Verification**: `gleam run -m extension_generator` produces a build without errors.
     - **Dependencies**: Task 1
-    - **Files likely touched**: `src/psypi/extension_generator.gleam`
+    - **Files likely touched**: `src/extension_generator.gleam`
     - **Estimated scope**: S
 
 - [ ] **Task 3: Register the Unified Hook**
@@ -43,7 +43,7 @@ Unify the generic activity logging and the specialized auto-backup logic into a 
         - [ ] `extension.js` output contains exactly one `pi.on('tool_call', ...)` block for the combined logic.
     - **Verification**: `grep "pi.on('tool_call'"` on `extension.js` results in only one match for the interception logic.
     - **Dependencies**: Task 2
-    - **Files likely touched**: `src/psypi/extension_generator.gleam`
+    - **Files likely touched**: `src/extension_generator.gleam`
     - **Estimated scope**: XS
 
 ### Checkpoint: Functional Integration
@@ -59,7 +59,7 @@ Unify the generic activity logging and the specialized auto-backup logic into a 
         - [ ] All tools and hooks use the new naming convention.
     - **Verification**: `extension.js` reflects the new naming; all tools continue to function.
     - **Dependencies**: Checkpoint 1
-    - **Files likely touched**: `src/psypi/extension_generator.gleam`, `src/psypi/pi_tool_call.gleam`
+    - **Files likely touched**: `src/extension_generator.gleam`, `src/pi_tool_call.gleam`
     - **Estimated scope**: M
 
 ## Risks and Mitigations
