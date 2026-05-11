@@ -68,6 +68,16 @@ pub type PiEventHook {
   )
 }
 
+/// A Pi slash command — human types /command in chat to invoke.
+/// The handler body is JS text that receives (args, ctx) like other extensions.
+pub type PiCommandReg {
+  PiCommandReg(
+    name: String,         // e.g. "monitor-listen"
+    description: String,  // shown when user types /commands
+    handler_body: String, // JS handler body: async (args, ctx) => { ... }
+  )
+}
+
 // -------------------------------------------------------------------
 // PiParam helpers
 // -------------------------------------------------------------------
@@ -217,4 +227,29 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
 /// Helper to create an event hook
 pub fn event_hook(name: String, handler_body: String) -> PiEventHook {
   PiEventHook(event_name: name, handler_body: handler_body)
+}
+
+// -------------------------------------------------------------------
+// PiCommandReg → JS text
+// -------------------------------------------------------------------
+
+/// Helper to create a slash command
+pub fn command(name: String, description: String, handler_body: String) -> PiCommandReg {
+  PiCommandReg(name: name, description: description, handler_body: handler_body)
+}
+
+/// Generate the pi.registerCommand({...}) block as JS text
+pub fn command_to_js(cmd: PiCommandReg) -> String {
+  [
+    "  // " <> cmd.description,
+    "  pi.registerCommand(\"" <> cmd.name <> "\", {",
+    "    description: \"" <> cmd.description <> "\",",
+    "    handler: async (args, ctx) => {",
+    cmd.handler_body,
+    "    }",
+    "  });",
+    "",
+  ]
+  |> list.map(fn(s) { s <> "\n" })
+  |> string.concat
 }

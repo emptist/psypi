@@ -319,8 +319,8 @@ pub fn issue_add_tool() -> PiToolCall {
     args: [
       from_param("params.title || \"\""),
       from_param("params.description || \"\""),
-      from_param("params.severity || \"Medium\""),
-      from_param("params.issue_type || \"Bug\""),
+      from_param("params.severity || \"medium\""),
+      from_param("params.issue_type || \"bug\""),
       from_param("params.created_by || \"psypi\""),
     ],
     result_format: template("Issue added: ${r.value}"),
