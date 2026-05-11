@@ -31,6 +31,7 @@ import meeting.{
 import memory.{memory_search_tool}
 import monitor_ai.{
   monitor_alerts_tool, monitor_health_tool, monitor_listen_command,
+  monitor_reload_command,
   monitor_stats_tool, monitor_status_tool, monitor_suggest_tool,
 }
 import pi_tool_call.{
@@ -148,13 +149,15 @@ pub fn before_agent_start_hook() -> PiEventHook {
   event_hook(
     "before_agent_start",
     [
-      "    // Monitor: Inject context before agent starts",
-      "    const { search } = await import('./build/dev/javascript/psypi/memory.mjs');",
-      "    const memories = await search('', 3);",
-      "    if (memories.ok && memories.value.length > 0) {",
-      "      const context = memories.value.map(m => m.content).join(' | ');",
-      "      event.messages.push({ role: 'system', content: 'Recent context: ' + context });",
-      "    }",
+      "    // Monitor Super Worker: Enable ALL worker tools",
+      "    pi.setActiveTools(['read', 'bash', 'edit', 'write', 'glob', 'grep', 'find', 'ls']);",
+      "    // Monitor autonomous analysis on session start",
+      "    const { analyze_and_act } = await import('./build/dev/javascript/psypi/monitor_ai.mjs');",
+      "    analyze_and_act().then(r => {",
+      "      if (r.ok && r.value?.action) {",
+      "        ctx.ui.notify('Monitor: ' + r.value.action, 'info');",
+      "      }",
+      "    }).catch(e => { console.error('Monitor analyze error:', e.message); });",
     ]
       |> list.map(fn(s) { s <> "\n" })
       |> string.concat,
@@ -295,21 +298,24 @@ fn helpers_text() -> String {
     "    _sessionId = ctx.sessionManager.getSessionId() || '';",
     "  });",
     "",
-    "  // Monitor LLM call helper - uses same model as worker",
-    "  async function callMonitor(ctx, messages, systemPrompt) {",
-    "    if (!ctx.model) throw new Error('No model available');",
-    "    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);",
-    "    if (!auth.ok || !auth.apiKey) throw new Error(auth.error || 'No API key');",
-    "    const response = await complete(",
-    "      ctx.model,",
-    "      { systemPrompt, messages },",
-    "      { apiKey: auth.apiKey, headers: auth.headers }",
-    "    );",
-    "    return response.content",
-    "      .filter(c => c.type === 'text')",
-    "      .map(c => c.text)",
-    "      .join('\\n');",
-    "  }",
+    "    // Monitor LLM call helper - uses same model as worker",
+    "    async function callMonitor(ctx, messages, systemPrompt) {",
+    "      if (!ctx.model) throw new Error('No model available');",
+    "      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);",
+    "      if (!auth.ok || !auth.apiKey) throw new Error(auth.error || 'No API key');",
+    "      // Tell Monitor what tools it has access to",
+    "      const availableTools = pi.getActiveTools().join(', ');",
+    "      const fullPrompt = systemPrompt + '\\n\\nAVAILABLE TOOLS: ' + availableTools + '\\nYou have full access to these tools.';",
+    "      const response = await complete(",
+    "        ctx.model,",
+    "        { systemPrompt: fullPrompt, messages },",
+    "        { apiKey: auth.apiKey, headers: auth.headers }",
+    "      );",
+    "      return response.content",
+    "        .filter(c => c.type === 'text')",
+    "        .map(c => c.text)",
+    "        .join('\\n');",
+    "    }",
     "",
   ]
   |> list.map(fn(s) { s <> "\n" })
@@ -334,6 +340,7 @@ pub fn all_commands() -> List(PiCommandReg) {
   [
     // Monitor commands
     monitor_listen_command(),
+    monitor_reload_command(),
   ]
 }
 

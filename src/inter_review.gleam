@@ -21,7 +21,6 @@ import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import db
-import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param}
 
 pub type ReviewResult {
   ReviewResult(

@@ -408,23 +408,17 @@ pub fn monitor_suggest_tool() -> PiToolCall {
 // Slash commands for human interaction
 // -------------------------------------------------------------------
 
-/// /monitor-listen command - Human tells Monitor what to do, Monitor replies
+/// /monitor-listen command - Human tells Monitor what to do, Monitor replies in chat
 pub fn monitor_listen_command() -> PiCommandReg {
   command(
     "monitor-listen",
-    "Tell Monitor what to do - human communicates with Monitor AI",
+    "Talk to Monitor AI directly - human and Monitor exchange in chat",
     "
-      // This is a communication channel: human tells Monitor what to do
-      // Monitor can acknowledge, advise, or take action
-      
       // If no arguments, show help
       if (!args || args.trim() === '') {
         ctx.ui.notify('Usage: /monitor-listen <message>\\nExample: /monitor-listen What should I work on?', 'info');
         return;
       }
-      
-      // Show human's message first
-      ctx.ui.notify('You: ' + args, 'info');
       
       // Use the existing callMonitor helper
       const systemPrompt = 'You are Monitor, a senior technical advisor. The human is communicating with you directly. Be concise and helpful.';
@@ -432,11 +426,132 @@ pub fn monitor_listen_command() -> PiCommandReg {
       
       try {
         const reply = await callMonitor(ctx, messages, systemPrompt);
-        ctx.ui.notify('Monitor: ' + reply, 'warning');
+        // Inject Monitor's reply directly into session chat
+        pi.sendMessage({
+          customType: 'monitor-reply',
+          content: [{ type: 'text', text: 'Monitor: ' + reply }],
+          display: 'monitor',
+          details: { tool: 'monitor-listen' }
+        }, { triggerTurn: false });
       } catch(e) {
-        ctx.ui.notify('Monitor error: ' + e.message, 'error');
+        pi.sendMessage({
+          customType: 'monitor-reply',
+          content: [{ type: 'text', text: 'Monitor error: ' + e.message }],
+          display: 'error',
+          details: { tool: 'monitor-listen', error: e.message }
+        }, { triggerTurn: false });
       }
     ",
   )
+}
+
+/// /monitor-reload command - Reload Pi extensions (for Monitor's self-improvement)
+pub fn monitor_reload_command() -> PiCommandReg {
+  command(
+    "monitor-reload",
+    "Reload Pi extensions - used after Monitor modifies its own Gleam code",
+    "
+      ctx.ui.notify('Reloading extensions...', 'info');
+      await ctx.reload();
+      ctx.ui.notify('Extensions reloaded. Monitor updated.', 'info');
+    ",
+  )
+}
+
+// -------------------------------------------------------------------
+// Super Worker: Autonomous Actions
+// -------------------------------------------------------------------
+
+pub type MonitorAction {
+  MonitorAction(action: String, details: String)
+}
+
+fn action_row_decoder() -> decode.Decoder(MonitorAction) {
+  use action <- decode.field("action", decode.string)
+  use details <- decode.field("details", decode.string)
+  decode.success(MonitorAction(action: action, details: details))
+}
+
+/// Analyze system state and take autonomous action
+/// Called on session_start and agent_end events
+pub fn analyze_and_act() -> promise.Promise(Result(MonitorAction, MonitorError)) {
+  db.with_connection(fn(conn) {
+    let sql = "
+      SELECT * FROM (
+        -- Failed tasks needing attention
+        SELECT 'failed_tasks' as action, 
+               COUNT(*)::TEXT || ' failed tasks need review' as details
+        FROM tasks WHERE status = 'FAILED'
+        UNION ALL
+        -- Critical open issues
+        SELECT 'critical_issues' as action,
+               COUNT(*)::TEXT || ' critical issues need resolution' as details
+        FROM issues WHERE status = 'open' AND severity = 'critical'
+        UNION ALL
+        -- Stale pending tasks (>7 days)
+        SELECT 'stale_tasks' as action,
+               COUNT(*)::TEXT || ' stale pending tasks' as details
+        FROM tasks WHERE status = 'pending' AND created_at < NOW() - INTERVAL '7 days'
+        UNION ALL
+        -- All good
+        SELECT 'healthy' as action,
+               'System is healthy' as details
+        WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE status = 'FAILED')
+          AND NOT EXISTS (SELECT 1 FROM issues WHERE status = 'open' AND severity = 'critical')
+      ) sub
+      ORDER BY CASE action 
+        WHEN 'failed_tasks' THEN 1 
+        WHEN 'critical_issues' THEN 2 
+        WHEN 'stale_tasks' THEN 3 
+        ELSE 4 
+      END
+      LIMIT 1
+    "
+    promise.map(db.query(conn, sql, []), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_monitor_error(e))
+        Ok(result) -> {
+          case result.rows {
+            [row, ..] -> {
+              case decode.run(row, action_row_decoder()) {
+                Ok(action) -> Ok(action)
+                Error(_) -> Ok(MonitorAction(action: "unknown", details: "Could not decode action"))
+              }
+            }
+            [] -> Ok(MonitorAction(action: "healthy", details: "System is healthy"))
+          }
+        }
+      }
+    })
+  }, db_error_to_monitor_error)
+}
+
+/// Auto-file an issue from tool error
+pub fn auto_file_issue(
+  tool_name: String,
+  error_message: String,
+) -> promise.Promise(Result(String, MonitorError)) {
+  db.with_connection(fn(conn) {
+    let sql = "
+      INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+      VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'development')
+      RETURNING id
+    "
+    let title = "Tool error: " <> tool_name
+    let description = "Error from " <> tool_name <> ": " <> error_message
+    let params = [dynamic.string(title), dynamic.string(description)]
+    
+    promise.map(db.query(conn, sql, params), fn(result) {
+      case result {
+        Error(e) -> Error(db_error_to_monitor_error(e))
+        Ok(query_result) -> {
+          case query_result.rows {
+            [_row, ..] -> Ok("Issue auto-filed: " <> tool_name)
+            [] -> Ok("Issue auto-filed: " <> tool_name)
+          }
+        }
+      }
+    })
+  }, db_error_to_monitor_error)
 }
 
