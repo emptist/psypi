@@ -197,7 +197,8 @@ When migrating TS to Gleam with Pi extension:
 
 ## References
 
-- **Pi Extension Examples:** `/Users/jk/Library/pnpm/global/5/.pnpm/@mariozechner+pi-coding-agent@0.73.0_ws@8.20.0_zod@4.4.2/node_modules/@mariozechner/pi-coding-agent/examples/extensions/`
+- **Pi Extension Examples:** `/Users/jk/Library/pnpm/global/5/.pnpm/@earendil-works+pi-coding-agent@*/node_modules/@earendil-works/pi-coding-agent/examples/extensions/`
+- **Note:** Pi repo changed from `@mariozechner/pi-coding-agent` to `@earendil-works/pi-coding-agent` (v0.74.0+)
 - **Gleam Build Output:** `gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/*.mjs`
 - **AGENTS.md Rule:** See "CRITICAL Architecture Rule" section
 
