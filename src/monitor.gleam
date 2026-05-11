@@ -2,7 +2,7 @@ import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/option.{type Option, None, Some}
-import psypi/db
+import db
 
 pub type MonitorModel {
   MonitorModel(

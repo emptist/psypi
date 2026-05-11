@@ -196,7 +196,7 @@ pub fn to_js_text(tool: PiToolCall) -> String {
 /// Generate the import statement for this tool's Gleam module
 /// Uses aliased imports to avoid name collisions (e.g., add from task.mjs vs issue.mjs)
 pub fn to_import_line(tool: PiToolCall) -> String {
-  let base = "./build/dev/javascript/psypi/psypi"
+  let base = "./build/dev/javascript/psypi"
   let alias = tool.module <> "_" <> tool.fn_name
   "import { " <> tool.fn_name <> " as " <> alias <> " } from \"" <> base <> "/" <> tool.module <> ".mjs\";"
 }

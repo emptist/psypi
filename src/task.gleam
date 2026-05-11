@@ -3,8 +3,8 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import psypi/db
-import psypi/pi_tool_call.{type PiToolCall, PiToolCall, raw_json, template, lit, from_param, string_param, opt_string_param}
+import db
+import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, template, lit, from_param, string_param, opt_string_param}
 
 pub type TaskStatus {
   Pending

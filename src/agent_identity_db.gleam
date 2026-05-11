@@ -5,8 +5,8 @@ import gleam/option
 import gleam/list
 import gleam/string
 import gleam/dynamic/decode
-import psypi/db
-import psypi/agent_identity_types.{AgentIdentity, type AgentIdentity, type IdentityError, ConnectionError, QueryError, NotFound}
+import db
+import agent_identity_types.{AgentIdentity, type AgentIdentity, type IdentityError, ConnectionError, QueryError, NotFound}
 
 fn db_error_to_identity_error(e: db.DbError) -> IdentityError {
   case e {

@@ -3,8 +3,8 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/string
-import psypi/db
-import psypi/pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
+import db
+import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
 
 pub type Memory {
   Memory(

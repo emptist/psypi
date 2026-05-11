@@ -1,5 +1,5 @@
 import gleam/javascript/promise
-import psypi/db
+import db
 
 pub type MigrateError {
   ConnectionError(String)

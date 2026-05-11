@@ -4,8 +4,8 @@ import gleam/int
 import gleam/javascript/promise
 import gleam/list
 import gleam/string
-import psypi/db
-import psypi/pi_tool_call.{type PiToolCall, PiToolCall, raw_json, template}
+import db
+import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, template}
 
 pub type MonitorError {
   ConnectionError(String)

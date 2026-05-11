@@ -3,8 +3,8 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import psypi/db
-import psypi/agent_identity_types.{type AgentId, agent_id_to_string}
+import db
+import agent_identity_types.{type AgentId, agent_id_to_string}
 
 pub type ActivityLog {
   ActivityLog(

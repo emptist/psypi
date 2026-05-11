@@ -1,7 +1,7 @@
 import gleam/option
-import psypi/agent_identity_types.{type AgentId, type AgentIdentity, type IdentityError, AgentIdentity, agent_id}
-import psypi/agent_identity_logic.{generate_semantic_id}
-import psypi/pi_tool_call.{type PiToolCall, PiToolCall, raw_json, lit}
+import agent_identity_types.{type AgentId, type AgentIdentity, type IdentityError, AgentIdentity, agent_id}
+import agent_identity_logic.{generate_semantic_id}
+import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, lit}
 
 /// Get resolved agent identity - PURE function, no DB needed.
 /// Simply computes the AgentIdentity from input parameters.

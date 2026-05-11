@@ -1,8 +1,8 @@
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/int
-import psypi/db.{type DbError, type Connection, with_connection}
-import psypi/pi_tool_call.{type PiToolCall, PiToolCall, custom_js}
+import db.{type DbError, type Connection, with_connection}
+import pi_tool_call.{type PiToolCall, PiToolCall, custom_js}
 
 pub type Stats {
   Stats(tasks: Int, issues: Int, skills: Int, meetings: Int)

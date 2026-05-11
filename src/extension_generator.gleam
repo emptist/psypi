@@ -16,21 +16,21 @@ import filepath
 import gleam/io
 import gleam/list
 import gleam/string
-import psypi/agent_identity.{monitor_id_tool, my_id_tool}
-import psypi/agents.{agents_list_tool}
-import psypi/areflect.{areflect_tool}
-import psypi/broadcast.{broadcast_send_tool, broadcast_list_tool}
-import psypi/code_version.{doc_save_tool, doc_list_tool}
-import psypi/file_utils.{write_file}
-import psypi/monitor_ai.{monitor_health_tool, monitor_status_tool, monitor_alerts_tool, monitor_stats_tool, monitor_suggest_tool}
-import psypi/issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
-import psypi/learning.{learn_save_tool}
-import psypi/memory.{memory_search_tool}
-import psypi/meeting.{meeting_get_tool, meeting_list_tool, meeting_opinions_tool, meeting_create_tool}
-import psypi/pi_tool_call.{type PiToolCall, type PiEventHook, event_hook, to_import_line, to_js_text, event_hook_to_js}
-import psypi/skill.{skill_get_tool, skill_list_tool, skill_search_tool}
-import psypi/stats.{stats_show_tool}
-import psypi/task.{task_add_tool, task_list_tool, task_complete_tool}
+import agent_identity.{monitor_id_tool, my_id_tool}
+import agents.{agents_list_tool}
+import areflect.{areflect_tool}
+import broadcast.{broadcast_send_tool, broadcast_list_tool}
+import code_version.{doc_save_tool, doc_list_tool}
+import file_utils.{write_file}
+import monitor_ai.{monitor_health_tool, monitor_status_tool, monitor_alerts_tool, monitor_stats_tool, monitor_suggest_tool}
+import issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
+import learning.{learn_save_tool}
+import memory.{memory_search_tool}
+import meeting.{meeting_get_tool, meeting_list_tool, meeting_opinions_tool, meeting_create_tool}
+import pi_tool_call.{type PiToolCall, type PiEventHook, event_hook, to_import_line, to_js_text, event_hook_to_js}
+import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
+import stats.{stats_show_tool}
+import task.{task_add_tool, task_list_tool, task_complete_tool}
 
 @external(javascript, "./node_ffi.mjs", "get_project_root")
 pub fn get_project_root() -> String
@@ -118,12 +118,12 @@ pub fn session_start_hook() -> PiEventHook {
   event_hook("session_start", [
     "    // Monitor: Initialize on session start",
     "    // 1. Record current model to database",
-    "    const { record_current_model } = await import('./build/dev/javascript/psypi/psypi/monitor.mjs');",
+    "    const { record_current_model } = await import('./build/dev/javascript/monitor.mjs');",
     "    if (ctx.model) {",
     "      record_current_model(ctx.model).then(() => {}).catch(() => {});",
     "    }",
     "    // 2. Dynamic status based on health check",
-    "    const { check_system_health } = await import('./build/dev/javascript/psypi/psypi/monitor_ai.mjs');",
+    "    const { check_system_health } = await import('./build/dev/javascript/monitor_ai.mjs');",
     "    const health = await check_system_health();",
     "    const status = health.ok && health.value.failed_tasks === 0 ? 'psypi-monitor: healthy' : 'psypi-monitor: attention needed';",
     "    ctx.ui.setStatus('psypi-monitor', status);",
@@ -135,7 +135,7 @@ pub fn session_start_hook() -> PiEventHook {
 pub fn before_agent_start_hook() -> PiEventHook {
   event_hook("before_agent_start", [
     "    // Monitor: Inject context before agent starts",
-    "    const { search } = await import('./build/dev/javascript/psypi/psypi/memory.mjs');",
+    "    const { search } = await import('./build/dev/javascript/memory.mjs');",
     "    const memories = await search('', 3);",
     "    if (memories.ok && memories.value.length > 0) {",
     "      const context = memories.value.map(m => m.content).join(' | ');",
@@ -203,7 +203,7 @@ fn unified_tool_call_handler_body() -> String {
     "      const agentId = rId.value.id;",
     "",
     "      // 2. Generic Activity Tracing",
-    "      const { log_activity } = await import('./build/dev/javascript/psypi/psypi/activity_log.mjs');",
+    "      const { log_activity } = await import('./build/dev/javascript/activity_log.mjs');",
     "      const context = JSON.stringify({ tool: event.toolName, input: event.input });",
     "      log_activity(agentId, event.toolName, context).then(() => {}).catch(() => {});",
     "",
@@ -213,7 +213,7 @@ fn unified_tool_call_handler_body() -> String {
     "        if (filePath) {",
     "          const fs = await import('fs');",
     "          const content = fs.readFileSync(filePath, 'utf-8');",
-    "          const { save_version } = await import('./build/dev/javascript/psypi/psypi/code_version.mjs');",
+    "          const { save_version } = await import('./build/dev/javascript/code_version.mjs');",
     "          await save_version(filePath, content, agentId, '', 'auto-backup before ' + event.toolName);",
     "          // Use setStatus for more visible persistent feedback in footer",
     "          ctx.ui.setStatus('psypi-autobackup', '✓ Auto-backed: ' + filePath.split('/').pop());",

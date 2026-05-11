@@ -1,8 +1,8 @@
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
-import psypi/db.{type DbError, type Connection, with_connection}
-import psypi/pi_tool_call.{type PiToolCall, PiToolCall, raw_json, from_param, string_param}
+import db.{type DbError, type Connection, with_connection}
+import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, from_param, string_param}
 
 // Save a file version to database
 // Returns: Ok(version_id) or Error(DbError)

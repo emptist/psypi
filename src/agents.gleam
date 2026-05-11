@@ -2,8 +2,8 @@ import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
-import psypi/db
-import psypi/pi_tool_call.{type PiToolCall, PiToolCall, template}
+import db
+import pi_tool_call.{type PiToolCall, PiToolCall, template}
 
 pub type Agent {
   Agent(

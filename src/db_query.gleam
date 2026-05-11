@@ -1,7 +1,7 @@
 import gleam/dynamic
 import gleam/javascript/promise
 import gleam/list
-import psypi/db
+import db
 
 pub type QueryResult {
   QueryResult(

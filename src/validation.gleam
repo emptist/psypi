@@ -1,7 +1,7 @@
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
-import psypi/db
+import db
 
 pub type ValidationResult {
   ValidationResult(
