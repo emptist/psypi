@@ -12,25 +12,34 @@
 // The generator is a COOK: it gathers ingredients (PiToolCall values),
 // prepares them (converts to JS text), and assembles the final dish (extension.js).
 
+import agent_identity.{monitor_id_tool, my_id_tool}
+import agents.{agents_list_tool}
+import areflect.{areflect_tool}
+import broadcast.{broadcast_list_tool, broadcast_send_tool}
+import code_version.{doc_list_tool, doc_save_tool}
+import file_utils.{write_file}
 import filepath
 import gleam/io
 import gleam/list
 import gleam/string
-import agent_identity.{monitor_id_tool, my_id_tool}
-import agents.{agents_list_tool}
-import areflect.{areflect_tool}
-import broadcast.{broadcast_send_tool, broadcast_list_tool}
-import code_version.{doc_save_tool, doc_list_tool}
-import file_utils.{write_file}
-import monitor_ai.{monitor_health_tool, monitor_status_tool, monitor_alerts_tool, monitor_stats_tool, monitor_suggest_tool}
 import issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
 import learning.{learn_save_tool}
+import meeting.{
+  meeting_create_tool, meeting_get_tool, meeting_list_tool,
+  meeting_opinions_tool,
+}
 import memory.{memory_search_tool}
-import meeting.{meeting_get_tool, meeting_list_tool, meeting_opinions_tool, meeting_create_tool}
-import pi_tool_call.{type PiToolCall, type PiEventHook, event_hook, to_import_line, to_js_text, event_hook_to_js}
+import monitor_ai.{
+  monitor_alerts_tool, monitor_health_tool, monitor_listen_command,
+  monitor_stats_tool, monitor_status_tool, monitor_suggest_tool,
+}
+import pi_tool_call.{
+  type PiCommandReg, type PiEventHook, type PiToolCall, command_to_js,
+  event_hook, event_hook_to_js, to_import_line, to_js_text,
+}
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import stats.{stats_show_tool}
-import task.{task_add_tool, task_list_tool, task_complete_tool}
+import task.{task_add_tool, task_complete_tool, task_list_tool}
 
 @external(javascript, "./node_ffi.mjs", "get_project_root")
 pub fn get_project_root() -> String
@@ -115,62 +124,77 @@ pub fn all_event_hooks() -> List(PiEventHook) {
 }
 
 pub fn session_start_hook() -> PiEventHook {
-  event_hook("session_start", [
-    "    // Monitor: Initialize on session start",
-    "    // 1. Record current model to database",
-    "    const { record_current_model } = await import('./build/dev/javascript/psypi/monitor.mjs');",
-    "    if (ctx.model) {",
-    "      record_current_model(ctx.model).then(() => {}).catch(() => {});",
-    "    }",
-    "    // 2. Dynamic status based on health check",
-    "    const { check_system_health } = await import('./build/dev/javascript/psypi/monitor_ai.mjs');",
-    "    const health = await check_system_health();",
-    "    const status = health.ok && health.value.failed_tasks === 0 ? 'psypi-monitor: healthy' : 'psypi-monitor: attention needed';",
-    "    ctx.ui.setStatus('psypi-monitor', status);",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat)
+  event_hook(
+    "session_start",
+    [
+      "    // Monitor: Initialize on session start",
+      "    // 1. Record current model to database",
+      "    const { record_current_model } = await import('./build/dev/javascript/psypi/monitor.mjs');",
+      "    if (ctx.model) {",
+      "      record_current_model(ctx.model).then(() => {}).catch(() => {});",
+      "    }",
+      "    // 2. Dynamic status based on health check",
+      "    const { check_system_health } = await import('./build/dev/javascript/psypi/monitor_ai.mjs');",
+      "    const health = await check_system_health();",
+      "    const status = health.ok && health.value.failed_tasks === 0 ? 'psypi-monitor: healthy' : 'psypi-monitor: attention needed';",
+      "    ctx.ui.setStatus('psypi-monitor', status);",
+    ]
+      |> list.map(fn(s) { s <> "\n" })
+      |> string.concat,
+  )
 }
 
 pub fn before_agent_start_hook() -> PiEventHook {
-  event_hook("before_agent_start", [
-    "    // Monitor: Inject context before agent starts",
-    "    const { search } = await import('./build/dev/javascript/psypi/memory.mjs');",
-    "    const memories = await search('', 3);",
-    "    if (memories.ok && memories.value.length > 0) {",
-    "      const context = memories.value.map(m => m.content).join(' | ');",
-    "      event.messages.push({ role: 'system', content: 'Recent context: ' + context });",
-    "    }",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat)
+  event_hook(
+    "before_agent_start",
+    [
+      "    // Monitor: Inject context before agent starts",
+      "    const { search } = await import('./build/dev/javascript/psypi/memory.mjs');",
+      "    const memories = await search('', 3);",
+      "    if (memories.ok && memories.value.length > 0) {",
+      "      const context = memories.value.map(m => m.content).join(' | ');",
+      "      event.messages.push({ role: 'system', content: 'Recent context: ' + context });",
+      "    }",
+    ]
+      |> list.map(fn(s) { s <> "\n" })
+      |> string.concat,
+  )
 }
 
 pub fn agent_start_hook() -> PiEventHook {
-  event_hook("agent_start", [
-    "    // Monitor: Track agent activity",
-    "    // (No visible output - silent mode)",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat)
+  event_hook(
+    "agent_start",
+    [
+      "    // Monitor: Track agent activity",
+      "    // (No visible output - silent mode)",
+    ]
+      |> list.map(fn(s) { s <> "\n" })
+      |> string.concat,
+  )
 }
 
 pub fn agent_end_hook() -> PiEventHook {
-  event_hook("agent_end", [
-    "    // Monitor: Track session completion",
-    "    // (No visible output - silent mode)",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat)
+  event_hook(
+    "agent_end",
+    [
+      "    // Monitor: Track session completion",
+      "    // (No visible output - silent mode)",
+    ]
+      |> list.map(fn(s) { s <> "\n" })
+      |> string.concat,
+  )
 }
 
 pub fn tool_result_hook() -> PiEventHook {
-  event_hook("tool_result", [
-    "    // Monitor: Track errors",
-    "    // (Silent - no visible output for errors unless critical)",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat)
+  event_hook(
+    "tool_result",
+    [
+      "    // Monitor: Track errors",
+      "    // (Silent - no visible output for errors unless critical)",
+    ]
+      |> list.map(fn(s) { s <> "\n" })
+      |> string.concat,
+  )
 }
 
 pub fn unified_tool_call_hook() -> PiEventHook {
@@ -271,21 +295,21 @@ fn helpers_text() -> String {
     "    _sessionId = ctx.sessionManager.getSessionId() || '';",
     "  });",
     "",
-"  // Monitor LLM call helper - uses same model as worker",
-  "  async function callMonitor(ctx, messages, systemPrompt) {",
-  "    if (!ctx.model) throw new Error('No model available');",
-  "    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);",
-  "    if (!auth.ok || !auth.apiKey) throw new Error(auth.error || 'No API key');",
-  "    const response = await complete(",
-  "      ctx.model,",
-  "      { systemPrompt, messages },",
-  "      { apiKey: auth.apiKey, headers: auth.headers }",
-  "    );",
-  "    return response.content",
-  "      .filter(c => c.type === 'text')",
-  "      .map(c => c.text)",
-  "      .join('\\n');",
-  "  }",
+    "  // Monitor LLM call helper - uses same model as worker",
+    "  async function callMonitor(ctx, messages, systemPrompt) {",
+    "    if (!ctx.model) throw new Error('No model available');",
+    "    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);",
+    "    if (!auth.ok || !auth.apiKey) throw new Error(auth.error || 'No API key');",
+    "    const response = await complete(",
+    "      ctx.model,",
+    "      { systemPrompt, messages },",
+    "      { apiKey: auth.apiKey, headers: auth.headers }",
+    "    );",
+    "    return response.content",
+    "      .filter(c => c.type === 'text')",
+    "      .map(c => c.text)",
+    "      .join('\\n');",
+    "  }",
     "",
   ]
   |> list.map(fn(s) { s <> "\n" })
@@ -298,6 +322,27 @@ fn tools_text(tools: List(PiToolCall)) -> String {
   |> string.concat
 }
 
+// -------------------------------------------------------------------
+// Commands registry — the SINGLE place where all Pi commands are listed
+// To add a new command:
+//   1. Define a PiCommandReg value in its Gleam module (like monitor_listen_command)
+//   2. Import it here
+//   3. Add it to the list below
+// -------------------------------------------------------------------
+
+pub fn all_commands() -> List(PiCommandReg) {
+  [
+    // Monitor commands
+    monitor_listen_command(),
+  ]
+}
+
+fn commands_text(commands: List(PiCommandReg)) -> String {
+  commands
+  |> list.map(command_to_js)
+  |> string.concat
+}
+
 fn event_hooks_text(hooks: List(PiEventHook)) -> String {
   hooks
   |> list.map(event_hook_to_js)
@@ -307,11 +352,13 @@ fn event_hooks_text(hooks: List(PiEventHook)) -> String {
 pub fn generate() -> String {
   let tools = all_tools()
   let hooks = all_event_hooks()
+  let commands = all_commands()
   imports_text(tools)
   <> "\nexport default function(pi) {\n"
   <> helpers_text()
   <> event_hooks_text(hooks)
   <> tools_text(tools)
+  <> commands_text(commands)
   <> monitor_consult_tool()
   <> psypi_commit_tool()
   <> "}\n"

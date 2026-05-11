@@ -5,7 +5,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import db
-import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, template}
+import pi_tool_call.{type PiToolCall, type PiCommandReg, PiToolCall, raw_json, template, command}
 
 pub type MonitorError {
   ConnectionError(String)
@@ -404,4 +404,39 @@ pub fn monitor_suggest_tool() -> PiToolCall {
   )
 }
 
+// -------------------------------------------------------------------
+// Slash commands for human interaction
+// -------------------------------------------------------------------
+
+/// /monitor-listen command - Human tells Monitor what to do, Monitor replies
+pub fn monitor_listen_command() -> PiCommandReg {
+  command(
+    "monitor-listen",
+    "Tell Monitor what to do - human communicates with Monitor AI",
+    "
+      // This is a communication channel: human tells Monitor what to do
+      // Monitor can acknowledge, advise, or take action
+      
+      // If no arguments, show help
+      if (!args || args.trim() === '') {
+        ctx.ui.notify('Usage: /monitor-listen <message>\\nExample: /monitor-listen What should I work on?', 'info');
+        return;
+      }
+      
+      // Show human's message first
+      ctx.ui.notify('You: ' + args, 'info');
+      
+      // Use the existing callMonitor helper
+      const systemPrompt = 'You are Monitor, a senior technical advisor. The human is communicating with you directly. Be concise and helpful.';
+      const messages = [{ role: 'user', content: [{ type: 'text', text: args }], timestamp: Date.now() }];
+      
+      try {
+        const reply = await callMonitor(ctx, messages, systemPrompt);
+        ctx.ui.notify('Monitor: ' + reply, 'warning');
+      } catch(e) {
+        ctx.ui.notify('Monitor error: ' + e.message, 'error');
+      }
+    ",
+  )
+}
 
