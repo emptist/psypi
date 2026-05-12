@@ -278,99 +278,122 @@ Problem: If Monitor acts on every `agent_end`, we spawn too many sessions.
 
 ---
 
-## Questions for User
+## The Two Identities: ID vs SOUL
 
-### Q1: One agent or two?
+### ID = Pure Function Call (Single Source of Truth)
 
-Pi's SDK shows TWO patterns:
-
-**Option A: Same AgentSession**
-- Worker + Monitor share same session, tools, model
-- Monitor uses `steer()`/`followUp()` to inject context
-- Monitor hooks run via extension events (async, doesn't block)
-- Simple, no coordination overhead
-- Problem: Monitor actions might interfere with Worker
-
-**Option B: Two AgentSessions**
-- Worker: primary session (prompt-driven)
-- Monitor: separate `createAgentSession` (event-driven)
-- Monitor has its own tools, identity, context
-- Problem: Expensive (2x resources), needs coordination
-
-**Recommendation:** Option A first. Use Pi's built-in `steer()`/`followUp()` mechanisms.
-
-### Q2: How does P-Monitor find work?
-
-**Pi pattern: Event → Hook → Action (90%) + LLM (10%)**
-
-Most Monitor actions should be RULE-BASED:
-```
-tool_error → auto_file_issue(tool_name, error_msg)
-session_start → check_health → notify_if_needed
-agent_idle > 5min → find_open_issues → suggest_work
-task_failed → analyze → create_followup_task
+```gleam
+// From agent_identity_logic.gleam
+generate_semantic_id(permanent, source, project, session_id, model)
+  → "P-tencent/hy3-preview:free-psypi-..."  // permanent=true (Monitor)
+  → "S-psypi-psypi-..."                      // permanent=false (Worker)
 ```
 
-LLM only for COMPLEX decisions:
+**Key properties:**
+- NO database involved
+- NO caching
+- Computed fresh every time
+- Same parameters → same ID
+- Different parameters → different ID
+
+This is why Gleam was chosen over TypeScript:
+- TypeScript: `id = query_from_db()` → caches → stale
+- Gleam: `get_id()` → pure function → always fresh
+
+### SOUL = Database Content (Personality + Responsibilities)
+
+From `souls` table in nezha database:
+```sql
+souls table:
+  agent_id   → "temp-14d6a731" (Big-Pickle)
+  name      → "Big-Pickle"
+  content   → Markdown describing WHO this agent is
+  traits    → { speed: 7, quality: 8, autonomy: 9 }
 ```
-session_start → "What should I prioritize?"
-task_failed → "Should I retry or escalate?"
+
+### Two Identities = Two SOULs
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    souls table                         │
+│                                                       │
+│   Worker SOUL:                                        │
+│   agent_id: "S-psypi-psypi-..."                       │
+│   name: "Worker" (or chosen name)                    │
+│   content: "I am the task-driven worker..."          │
+│   traits: { speed: 9, quality: 7, autonomy: 5 }     │
+│                                                       │
+│   Monitor SOUL:                                       │
+│   agent_id: "P-tencent/hy3-preview:free-psypi-..."   │
+│   name: "Monitor" (or chosen name)                   │
+│   content: "I am the event-driven monitor..."        │
+│   traits: { speed: 6, quality: 10, autonomy: 9 }   │
+│                                                       │
+└─────────────────────────────────────────────────────┘
 ```
 
-### Q3: What events trigger Monitor?
+### SOUL Modification Rules
 
-Pi's available events (from types.ts):
-- `session_start` - Session initialization
-- `before_agent_start` - Before LLM call (can modify prompt!)
-- `agent_start` / `agent_end` - Turn lifecycle
-- `turn_start` / `turn_end` - Each LLM turn
-- `tool_execution_start` / `tool_execution_end` - Tool lifecycle
-- `tool_call` / `tool_result` - Before/after tool (tool_call CAN BLOCK!)
+| Type | Example | How to modify |
+|------|---------|---------------|
+| **Personal identity** | Name ("赤羽"), meaning, traits | **Free to edit anytime** |
+| **Shared responsibilities** | "Monitor owns skill_indexing" | **Requires discussion in meetings** |
 
-**Minimal set for Monitor:**
-1. `session_start` - Health check, suggest work
-2. `tool_result` (if isError) - Auto-file issue
-3. `agent_end` - If idle too long, check for work
+Example from nezha: An AI freely chose the name "赤羽" (Chi Yu) with its own meaning — nobody asked it to, it just **decided its own identity**.
 
-### Q4: Communication between Worker and Monitor?
+### Why Two SOULs?
 
-Pi's mechanisms:
-1. **DB**: Both read/write shared PostgreSQL (simple, eventual consistency)
-2. **Session messages**: `sendCustomMessage()` with `customType: 'monitor-*'`
-3. **Tool calls**: Worker calls Monitor tools, Monitor calls Worker tools
+The user designed the function-call-based ID system from the beginning. TypeScript AIs kept caching IDs everywhere, breaking the single source of truth. Gleam enforces purity: every call is fresh.
 
-**Recommendation:** DB-first. Session messages for real-time notifications.
-
-### Q5: P- identity meaning?
-
-"P-" is a naming convention for Monitor, but the REAL question is:
-
-Does Monitor have a SEPARATE identity (different agent_id, model, tools)?
-- If yes: `createAgentSession` with different config
-- If no: Just use same session with different "mode" or "context"
-
-The "P-" prefix might just mean: "This is a Monitor-type agent, not a Worker-type agent" - it's about ROLE, not necessarily separate infrastructure.
-
-### Q6: What does "finds work nobody asked for" mean exactly?
-
-Worker does: User asks → Worker executes → Done
-Monitor does: ???
-
-Monitor could:
-- Periodically scan DB for: failed tasks, stale issues, unindexed skills
-- React to events: tool_error → file issue, session_start → health check
-- Proactively suggest: "Found 3 stale tasks, want me to clean them up?"
-
-The key is: Monitor's actions should be VISIBLE to Worker but not BLOCK Worker.
+The two SOULs allow:
+1. **Different personalities** (Worker vs Monitor)
+2. **Different responsibilities** (task-driven vs event-driven)
+3. **Self-evolution** (each can improve its own SOUL)
+4. **Discussion-based coordination** (meetings to divide work)
 
 ---
 
-## Files to Review Further
+## The Self-Sustaining System Evolution
 
-- `src/monitor_ai.gleam` - What actions can Monitor take?
-- `src/activity_log.gleam` - How does Monitor track activity?
-- `src/areflect.gleam` - How does Monitor learn from text?
-- Database schema - What tables does Monitor interact with?
+### Phase 1: NOW
+- AIs create/modify all DB data
+- Monitor fills gaps in Pi default system
+- Monitor uses psypi tools (DB operations)
+
+### Phase 2: FUTURE
+- Monitor can modify Gleam code
+- Monitor writes new Gleam modules
+- System improves its own infrastructure
+
+### Phase 3: ULTIMATE
+```
+┌──────────────────────────────────────────────────────┐
+│  The system can improve EVERYTHING about itself         │
+│                                                       │
+│  - DB schema (add tables, columns)                    │
+│  - Gleam code (fix bugs, add features)               │
+│  - Monitor itself (improve its own logic)             │
+│  - Worker itself (improve task handling)             │
+│  - SOUL (evolve own identity)                        │
+│                                                       │
+│  No human intervention needed                          │
+│  System is fully autonomous                            │
+└──────────────────────────────────────────────────────┘
+```
+
+### The Gleam Necessity
+
+> "Everything in the database was created by AIs, and will always be modified or expanded by themselves."
+
+TypeScript's problem:
+- Caches everywhere
+- AIs lose track of truth
+- ID system broken
+
+Gleam's solution:
+- Pure functions
+- No caching
+- Truth always fresh
 
 ---
 
