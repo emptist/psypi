@@ -149,15 +149,12 @@ pub fn before_agent_start_hook() -> PiEventHook {
   event_hook(
     "before_agent_start",
     [
-      "    // Monitor Super Worker: Enable ALL worker tools",
-      "    pi.setActiveTools(['read', 'bash', 'edit', 'write', 'glob', 'grep', 'find', 'ls']);",
-      "    // Monitor autonomous analysis on session start",
-      "    const { analyze_and_act } = await import('./build/dev/javascript/psypi/monitor_ai.mjs');",
-      "    analyze_and_act().then(r => {",
-      "      if (r.ok && r.value?.action) {",
-      "        ctx.ui.notify('Monitor: ' + r.value.action, 'info');",
-      "      }",
-      "    }).catch(e => { console.error('Monitor analyze error:', e.message); });",
+      "    // EXPERIMENT 1: Test system prompt injection",
+      "    // Return modified system prompt to see if Worker receives it",
+      "    const testMarker = '[MONITOR-INJECTED-' + Date.now() + ']';",
+      "    return {",
+      "      systemPrompt: testMarker + ' TEST INJECTION WORKED\\n\\n' + event.systemPrompt",
+      "    };",
     ]
       |> list.map(fn(s) { s <> "\n" })
       |> string.concat,

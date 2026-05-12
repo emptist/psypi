@@ -196,21 +196,22 @@ rm -rf build/ && gleam build
 
 ---
 
-## 🎯 Your Partner (Monitor/God AI)
-- **ID**: `P-tencent/hy3-preview:free-psypi`
-- **Job**: Reviews commits via Gleam `run_review()`
-- **Tools**: `psypi-monitor-model`, `psypi-monitor-set-model`, `psypi-monitor-review`
+## 🎯 Your Partner (Monitor/Autonomous AI)
+- **ID**: `A-psypi-psypi`
+- **Job**: Reviews commits via Gleam `run_review()`, monitors system health, sends notifications to Worker
+- **Tools**: `psypi-monitor-status`, `psypi-monitor-health`, `psypi-monitor-alerts`, `psypi-monitor-stats`, `psypi-monitor-suggest`, `psypi-monitor-consult`, `psypi-commit`
 
-### Event Hooks for Monitor
-Monitor integrates via Pi event hooks in `extension.js`:
-- `session_start` — Session initialization, context setup
+### Event Hooks for Autonomous AI
+Autonomous AI integrates via Pi event hooks in `extension.js`:
+- `session_start` — Session initialization, health check
+- `before_agent_start` — System prompt injection (notifications)
 - `agent_start` — Agent lifecycle start
-- `agent_end` — Agent lifecycle end  
-- `tool_call` — Tool execution with safety checks (can block dangerous operations)
-- `tool_result` — Tool result capture
+- `agent_end` — Agent lifecycle end
+- `tool_call` — Safety checks, auto-backup, activity logging
+- `tool_result` — Error detection, auto-create notifications
 
 ### Monitor Skill
-Worker can consult Monitor via the `monitor` skill (`.pi/skills/monitor/SKILL.md`):
+Worker can consult Autonomous AI via the `monitor` skill (`.pi/skills/monitor/SKILL.md`):
 - **When**: architectural decisions, safety concerns, trade-offs, quality checks
 - **How**: Use `psypi-monitor-consult` tool or ask "Should I ask Monitor about...?"
 

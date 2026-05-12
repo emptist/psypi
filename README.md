@@ -1,19 +1,34 @@
 # psypi = Psyche + Pi
 
-AI coordination system built on Pi TUI with Gleam-generated extensions.
+**psypi is a Pi extension written in Gleam**, adding identity system and Monitor functionality.
+
+## The Relationship
+
+```
+psypi = Pi + Gleam extension + Identity + SOUL + Monitor
+```
+
+- **Pi**: Coding agent runtime (from `refers/pi/`)
+- **psypi**: Extension that adds:
+  - Identity system (`A-`/`S-` IDs based on autonomous parameter)
+  - SOUL-based personality in PostgreSQL
+  - Event-driven Monitor with system prompt injection
 
 ## Quick Start
 
 ```bash
-# Run psypi (spawns Pi TUI with Gleam extension)
+# Run psypi (Pi with psypi extension loaded)
 psypi
 
-# Inside Pi, use psypi tools:
-# /psypi-my-id        - Get current agent ID
-# /psypi-tasks        - List tasks
-# /psypi-commit "msg" - Commit with Monitor review
-# /psypi-monitor-consult "question" - Ask Monitor for advice
+# NOT the same as:
+pi           # Bare Pi, no psypi features
 ```
+
+Inside Pi, use psypi tools:
+- `/psypi-my-id` - Get current agent ID (S-)
+- `/psypi-monitor-id` - Get autonomous ID (A-)
+- `/psypi-tasks` - List tasks
+- `/psypi-commit "msg"` - Commit with Monitor review
 
 ## Architecture
 

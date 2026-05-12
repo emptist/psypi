@@ -59,13 +59,13 @@ pub fn get_current(session_id: String) -> promise.Promise(Result(Identity, Ident
   }, db_error_to_identity_error)
 }
 
-/// Get monitor identity
+/// Get autonomous/monitor identity
 pub fn get_monitor() -> promise.Promise(Result(Identity, IdentityError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT id, agent_type 
-      FROM agent_identities 
-      WHERE id LIKE 'P-%' 
+      SELECT id, agent_type
+      FROM agent_identities
+      WHERE id LIKE 'A-%'
       ORDER BY created_at DESC
       LIMIT 1
     "
@@ -76,7 +76,7 @@ pub fn get_monitor() -> promise.Promise(Result(Identity, IdentityError)) {
         Error(e) -> Error(db_error_to_identity_error(e))
         Ok(result) -> {
           case result.rows {
-            [] -> Error(NotFound("Partner identity not found"))
+            [] -> Error(NotFound("Autonomous identity not found"))
             [row, ..] -> {
               case decode.run(row, identity_decoder()) {
                 Ok(id) -> Ok(id)

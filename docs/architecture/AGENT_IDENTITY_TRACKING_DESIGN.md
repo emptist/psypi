@@ -1,253 +1,385 @@
 # Agent Identity — Single Source of Truth
 
-## 核心原则
+## The Complete Flow Chain
 
-1. **`AgentIdentity` 类型是唯一因** — 所有关于"我是谁"的信息都在这个类型里
-2. **数据库是存放结果的地方，不是查询的来源** — Gleam 不查 DB 来获取身份，而是把计算好的结果存进去
-3. **session_id 是 `AgentIdentity` 的内在属性** — agent_id 的最后一部分就是 session_id，不需要单独传递
-4. **任何需要身份的地方，都必须通过 `get_resolved_identity` 获取** — 不直接读 DB，不硬编码
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          REQUIREMENT OF ID                                   │
+│                                                                              │
+│  "Every action in psypi requires an agent_id. No exceptions."                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     generate_semantic_id(autonomous, ...)                    │
+│                                                                              │
+│  Pure function, no DB lookup, no cache — computed fresh every time          │
+│                                                                              │
+│  Parameters:                                                                 │
+│    autonomous: Bool  ← THE DECISION POINT                                  │
+│    source: String                                                         │
+│    project: String                                                         │
+│    session_id: String                                                      │
+│    model: String                                                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │                               │
+           autonomous = false              autonomous = true
+                    │                               │
+                    ▼                               ▼
+        ┌───────────────────────┐       ┌───────────────────────┐
+        │  S-psypi-psypi-unknown │       │   A-psypi-psypi        │
+        │                       │       │                       │
+        │  Session-driven        │       │  Autonomous-driven   │
+        │  (Prompt-triggered)    │       │  (Event-triggered)    │
+        └───────────────────────┘       └───────────────────────┘
+                    │                               │
+                    └───────────────┬───────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           IDENTITIES (SOUL)                                   │
+│                                                                              │
+│  From souls table:                                                          │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ agent_id: S-psypi-psypi-unknown                                       │   │
+│  │ name: Worker                                                          │   │
+│  │ traits: { speed: 9, quality: 7, autonomy: 5, focus: "task-completion" }│   │
+│  │ content: "I am the prompt-driven task executor..."                    │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ agent_id: A-psypi-psypi                                               │   │
+│  │ name: Monitor                                                        │   │
+│  │ traits: { speed: 6, quality: 10, autonomy: 9, focus: "system-health" }│   │
+│  │ content: "I am the event-driven system guardian..."                  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  Same AI, different identity → different behaviors and actions              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │                               │
+                    ▼                               ▼
+        ┌───────────────────────┐       ┌───────────────────────┐
+        │    BEHAVIORS &        │       │    BEHAVIORS &        │
+        │    ACTIONS (Worker)   │       │    ACTIONS (Monitor)  │
+        │                       │       │                       │
+        │  • Waits for prompts  │       │  • Watches for events │
+        │  • Executes tasks     │       │  • Detects problems  │
+        │  • Uses tools         │       │  • Analyzes system   │
+        │  • Reports results    │       │  • Creates alerts    │
+        │  • Rest after work   │       │  • Rests while idle  │
+        └───────────────────────┘       └───────────────────────┘
+                    │                               │
+                    └───────────────┬───────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           TIME PHASES                                        │
+│                                                                              │
+│  The system runs in continuous sequential phases:                            │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                                                                     │   │
+│  │    ┌─────────┐     ┌─────────┐     ┌─────────────┐                │   │
+│  │    │ Phase 1 │ ──► │ Phase 2 │ ──► │ Phase 3     │                │   │
+│  │    │ Worker  │     │ Monitor │     │ Worker      │                │   │
+│  │    │ Works   │     │ Detects │     │ Receives    │                │   │
+│  │    └─────────┘     └─────────┘     └─────────────┘                │   │
+│  │         │               │                  │                      │   │
+│  │         └───────────────┴──────────────────┘                      │   │
+│  │                     Loop continues                                  │   │
+│  │                                                                     │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  Phase 1: Worker acts on user prompt                                        │
+│  Phase 2: Monitor detects events while Worker rests                         │
+│  Phase 3: Worker receives Monitor's notifications before next task          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         EVENTS / PROMPTS                                    │
+│                                                                              │
+│  Two wake-up paths for the same AI:                                         │
+│                                                                              │
+│  ┌─────────────────────────────────┐   ┌─────────────────────────────────┐  │
+│  │           PROMPTS               │   │           EVENTS                 │  │
+│  │                                 │   │                                 │  │
+│  │  Type: User input               │   │  Type: Pi hooks firing           │  │
+│  │  Trigger: Human types           │   │  Trigger: System conditions     │  │
+│  │  ID: S- (autonomous=false)      │   │  ID: A- (autonomous=true)      │  │
+│  │  Flow: Prompt → Worker → Act    │   │  Flow: Event → Monitor → Detect │  │
+│  │                                 │   │                                 │  │
+│  │  Example:                       │   │  Example:                       │  │
+│  │  "Fix the bug in file.ts"       │   │  tool_result with isError=true  │  │
+│  │                                 │   │                                 │  │
+│  └─────────────────────────────────┘   └─────────────────────────────────┘  │
+│                                                                              │
+│  Prompt path: User → Worker (S-)                                           │
+│  Event path: Hook → Monitor (A-) → notification → Worker (S-)              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            NEXT RUN                                          │
+│                                                                              │
+│  The cycle repeats with fresh IDs computed every time:                      │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                                                                     │   │
+│  │    User Prompt or Event                                             │   │
+│  │            │                                                        │   │
+│  │            ▼                                                        │   │
+│  │    generate_semantic_id(autonomous, ...)  ← Fresh computation!     │   │
+│  │            │                                                        │   │
+│  │            ▼                                                        │   │
+│  │    S- or A- ID (depending on autonomous)                           │   │
+│  │            │                                                        │   │
+│  │            ▼                                                        │   │
+│  │    Lookup SOUL from DB (by agent_id)                               │   │
+│  │            │                                                        │   │
+│  │            ▼                                                        │   │
+│  │    Behaviors & Actions based on SOUL                                │   │
+│  │            │                                                        │   │
+│  │            ▼                                                        │   │
+│  │    Write to DB (activity_log, notifications, etc.)                 │   │
+│  │            │                                                        │   │
+│  │            ▼                                                        │   │
+│  │    Next prompt or event triggers the cycle again                   │   │
+│  │                                                                     │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  Key property: ID is ALWAYS computed fresh, NEVER cached or stored          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-# Agent Identity Tracking Design
+## The Identity Continuum
 
-## Implemented Features
+Same AI, different trigger → different ID → different SOUL → different behavior
 
-### ✅ Tracking Status
+| Parameter | Worker (S-) | Monitor (A-) |
+|-----------|-------------|--------------|
+| `autonomous` | `false` | `true` |
+| Trigger | User prompts | Events/Hooks |
+| Prefix | `S-` (Session) | `A-` (Autonomous) |
+| ID Example | `S-psypi-psypi-unknown` | `A-psypi-psypi` |
+| SOUL Traits | speed=9, focus=task-completion | quality=10, focus=system-health |
+| Behavior | "User asked me to do X" | "Tool error detected → analyze → notify" |
 
-| Tracking Layer | Table | Trigger | Status |
-|---------------|-------|---------|--------|
-| Activity | `activity_log` | Every tool call | ✅ Implemented |
-| Auto-tracking | `activity_log` | Via extension.js generator | ✅ Implemented |
-| Session | `agent_sessions` | Session start | ⏳ Future |
+---
 
-### How It Works
+## Agent ID Required for All Actions
 
-**1. ID Trigger Point** (Always active):
-- Every call to `get_resolved_identity()` automatically logs to `activity_log`
-- Records: `agent_id`, `activity="get_resolved_identity"`, context with parameters
+Every action in psypi requires an `agent_id`. No exceptions.
 
-**2. Auto Tool Tracking** (Implemented):
-- Modified `extension_generator.gleam` to auto-inject tracking
-- Every Pi tool call automatically logs to `activity_log`
-- Records: `agent_id`, `activity="tool_call"`, context with tool name, params, success
+```gleam
+// Gleam: generate_semantic_id() - PURE function, no DB lookup
+generate_semantic_id(autonomous: Bool, source, project, session_id, model)
+  → "S-psypi-psypi-unknown"  // autonomous=false
+  → "A-psypi-psypi"          // autonomous=true
+```
+
+### Convention: How to Get ID
+
+| Context | How to Get ID |
+|---------|---------------|
+| Tool calls (Worker) | `get_resolved_identity(false, sessionId, ...)` → S- |
+| Hooks/Events (Monitor) | `get_resolved_identity(true, ...)` → A- |
+| No parameters needed | `psypi-my-id` tool → S- |
+| Monitor/Partner ID | `psypi-monitor-id` tool → A- |
+
+---
+
+## Two Identities, Two SOULs
+
+From `souls` table in psypi database:
+
+```sql
+souls table:
+  agent_id   → "S-psypi-psypi-unknown" (Worker)
+             → "A-psypi-psypi" (Monitor)
+  name       → "Worker" / "Monitor"
+  content    → Markdown describing WHO this identity is
+  traits     → { speed: 9, quality: 7, autonomy: 5 }
+```
+
+### SOUL Modification Rules
+
+| Type | Example | How to modify |
+|------|---------|---------------|
+| **Personal identity** | Name ("Worker"), meaning, traits | **Free to edit anytime** |
+| **Shared responsibilities** | "Monitor owns skill_indexing" | **Requires discussion in meetings** |
+
+---
+
+## Time Phases: Sequential Execution
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Continuous Loop                            │
+│                                                             │
+│  ┌─────────┐     ┌─────────┐     ┌─────────────┐          │
+│  │ Phase 1 │ ──► │ Phase 2 │ ──► │ Phase 3     │          │
+│  │ Worker  │     │ Monitor │     │ Worker      │          │
+│  │ acts    │     │ detects │     │ receives    │          │
+│  └─────────┘     └─────────┘     └─────────────┘          │
+│       │               │                  │                 │
+│       │               │                  │                 │
+│       └───────────────┴──────────────────┘                 │
+│                     Loop continues                           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Phase 1: Worker Acts
+- User prompt arrives
+- `before_agent_start` hook reads notifications from DB
+- Worker receives system prompt with pending alerts
+- Worker executes task
+
+### Phase 2: Monitor Detects
+- Events fire (tool_result, session_start, etc.)
+- Hook with `autonomous=true` runs
+- Monitor analyzes system state
+- Monitor writes to `notifications` table
+
+### Phase 3: Worker Receives
+- Next user prompt triggers `before_agent_start`
+- Hook reads pending notifications for Worker
+- Notifications injected into system prompt
+- Worker acknowledges and acts
+
+---
+
+## Events vs Prompts: Two Wake-up Paths
+
+| Path | Trigger | ID Used | Example |
+|------|---------|---------|--------|
+| **Prompts** | User input | `S-` | "Do X task" |
+| **Events** | Hook execution | `A-` | tool_error detected |
+
+---
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   Two Trigger Points                        │
+│                   Two Trigger Points                          │
 ├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ID Trigger                   Event Trigger                 │
-│  get_resolved_identity()     Pi Tool (via extension.js)    │
-│         │                            │                      │
-│         └────────────┬───────────────┘                      │
-│                      ↓                                      │
-│              activity_log table                             │
-│         (agent_id, activity, context)                       │
-│                                                             │
+│                                                               │
+│  Prompt Trigger              Event Trigger                    │
+│  get_resolved_identity()   get_resolved_identity()          │
+│  (autonomous=false)        (autonomous=true)                 │
+│         │                           │                        │
+│         └────────────┬──────────────┘                        │
+│                      ↓                                        │
+│              activity_log table                               │
+│         (agent_id, activity, context)                         │
+│                                                               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 数据流
+### Data Flow
 
 ```
 Pi ctx.sessionManager.getSessionId()
         │
-        ▼ (一次性传入)
-get_resolved_identity(permanent, session_id, project, ...)
+        ▼
+get_resolved_identity(autonomous, session_id, project, ...)
         │
-        ▼ (封装进类型)
-AgentIdentity { id, session_id, project, source, ... }
+        ▼
+AgentIdentity { id: "S-" or "A-", session_id, project, source, ... }
         │
         ├──► activity_log (ID Trigger: "get_resolved_identity")
         │
-        └──► 返回给 JS，后续所有操作从 identity 中取 id
-            │
-            ├──► activity_log (Event Trigger: "tool_call")
-            └──► 其他需要 agent_id 的地方
+        └──► Returns to JS, subsequent operations use this ID
+             │
+             ├──► activity_log (Event Trigger: "tool_call")
+             └──► notifications table (Monitor → Worker)
 ```
+
+---
 
 ## Implementation Details
 
 ### 1. Gleam Module: agent_identity.gleam
-- Modified `get_resolved_identity` to call `activity_log.log_activity`
-- Logs: `agent_id`, `activity="get_resolved_identity"`, context with all parameters
 
-### 2. Generator: extension_generator.gleam
-- Added `trackActivity()` helper function
-- Added `log_activity` import
-- Every tool auto-calls `trackActivity(toolName, params, result)`
+```gleam
+pub fn get_resolved_identity(
+  autonomous: Bool,     // false → S-, true → A-
+  session_id: String,
+  project: String,
+  _git_hash: String,
+  machine_fingerprint: String,
+  source: String,
+  model: String,
+) -> Result(AgentIdentity, IdentityError)
+```
+
+### 2. Gleam Module: agent_identity_logic.gleam
+
+```gleam
+pub fn generate_semantic_id(autonomous, source, project, session_id, model) -> String {
+  let prefix = case autonomous {
+    True -> "A"   // Autonomous (event-driven)
+    False -> "S"  // Session (prompt-driven)
+  }
+  // ... generates full ID
+}
+```
 
 ### 3. Generated Code: extension.js
-- Imports: `get_resolved_identity`, `log_activity`
-- Each tool executes: Gleam call → unwrap result → trackActivity()
+
+```javascript
+// Worker ID (autonomous defaults to false)
+agent_identity_get_resolved_identity(false, _sessionId, 'psypi', '', '', 'psypi', '')
+
+// Monitor ID (autonomous = true)
+agent_identity_get_resolved_identity(true, '', 'psypi', '', '', 'psypi', '')
+```
+
+---
 
 ## Database Records
 
 ```sql
--- ID Trigger
-agent_id: S-psypi-psypi
+-- Prompt Trigger (Worker/S-)
+agent_id: S-psypi-psypi-unknown
 activity: get_resolved_identity
-context: {"model": "", "source": "psypi", "project": "psypi", "permanent": false, "session_id": ""}
+context: {"autonomous": false, "source": "psypi", "project": "psypi", "session_id": "..."}
 
--- Tool Trigger  
-agent_id: S-psypi-psypi
-activity: tool_call
-context: {"tool": "psypi-tasks", "params": {"status": "pending"}, "success": true}
+-- Event Trigger (Monitor/A-)
+agent_id: A-psypi-psypi
+activity: tool_result
+context: {"tool": "read", "isError": true, "error": "File not found"}
 ```
 
-## Future Enhancements
+---
 
-- Session tracking via `agent_sessions` table
-- Detailed activity tracking via Pi Tool: `psypi-log-activity(action, context)`
-- Event-based tracking system
+## Key Insight
 
-## Files Modified
+> **ID is computed fresh from function call parameters — never from database, never cached.**
 
-| File | Change |
-|------|--------|
-| `agent_identity.gleam` | Added activity_log call |
-| `extension_generator.gleam` | Added auto-tracking code |
-| `extension.js` | Regenerated with tracking |
+This is why Gleam was chosen:
+- TypeScript: `id = query_from_db()` → caches → stale
+- Gleam: `generate_semantic_id()` → pure function → always fresh
 
-The key insight is that **regardless of how it's triggered, the underlying logic is the same**:
+---
 
-```gleam
-// Unified emission function
-emit_activity(
-  actor: AgentIdentity,      // WHO (always required)
-  action: String,            // WHAT (what happened)
-  target: Option(Target),    // WHICH (optional)
-  context: JSON             // DETAILS (optional)
-)
-```
+## Status
 
-This follows Functional Programming principles:
-- Core function does one thing (return identity)
-- Side effects are handled by separate functions (emit_activity)
-- Implementation can change anytime without affecting callers
-
-## Two Trigger Points
-
-| Trigger Point | When | Session_ID Source |
-|--------------|------|-------------------|
-| **ID Trigger** | `get_resolved_identity()` called | JS 从 ctx 获取，传一次给 Gleam |
-| **Event Trigger** | Pi tool `execute` 时 | 从 `AgentIdentity` 对象中取（不碰 ctx） |
-
-ID Trigger 记录 "获取了身份"，Event Trigger 记录 "执行了什么工具操作"。
-
-### ID Trigger
-- JS 从 Pi 的 `ctx.sessionManager.getSessionId()` 获取 session_id
-- 调用 `get_resolved_identity(permanent, session_id, ...)`
-- Gleam 把 session_id 封装进 `AgentIdentity`，同时写入 activity_log
-- 从此时起，session_id 就在 `AgentIdentity` 里，不再单独传递
-
-### Event Trigger
-- JS 从缓存的 `AgentIdentity` 对象中取 `identity.id`
-- 调用 `log_activity(identity.id, "tool_call", context)`
-- **不再碰 ctx**，不需要 `trackActivity` 函数
-
-## PiToolSpec — Gleam 端的 Tool 定义
-
-每个 Pi tool 在 Gleam 里用一个 `PiToolSpec` 描述：
-
-```gleam
-pub type PiToolSpec {
-  PiToolSpec(
-    name: String,           // "psypi-my-id"
-    description: String,    // "Get current agent ID"
-    parameters: String,     // TypeBox schema 的 JS 字符串
-    import: String,         // Gleam 模块导入路径
-    function: String,       // Gleam 函数名
-    args: List(PiCallArg),  // 参数列表
-  )
-}
-```
-
-`extension_generator.gleam` 读取 `List(PiToolSpec)`，生成符合 Pi API 要求的 `extension.js`。
-
-生成的 `extension.js` 结构固定：
-1. import Gleam 编译出的 `.mjs` 模块
-2. `unwrapGleamResult` helper（处理 Gleam 的 Ok/Error）
-3. 每个 tool 调用 `pi.registerTool({ name, description, parameters, execute })`
-4. `execute` 内部 await Gleam 函数，unwrap 结果，返回 `{ content: [...] }`
-
-**关键点：** `_ctx` 只在需要 session_id 的工具里使用（`psypi=my-id`, `psypi-partner-id`），其他工具不需要碰 `_ctx`。
-
-## Implementation Status
-
-### ✅ Step 1: DONE - Add emit_activity to activity_log module
-- Activity_log module already had `log_activity` function
-
-### ✅ Step 2: DONE - Modify get_resolved_identity to trigger activity logging
-- Modified `agent_identity.gleam` to call `activity_log.log_activity` after getting identity
-- Logs: agent_id, activity="get_resolved_identity", context with all parameters
-
-### ✅ Step 3: DONE - Test the implementation
-- Build: SUCCESS
-- Test: SUCCESS
-- Verified activity_log has new record
-
-### ⏳ Step 4: (Future) Add event trigger via Pi Tool
-- Add psypi-log-activity tool
-- Connect to emit_activity
-
-### Files to Create/Modify
-
-| File | Action | Description |
-|------|--------|-------------|
-| `activity_log.gleam` | Modify | Add emit_activity function |
-| `agent_identity.gleam` | Modify | Call emit_activity after getting identity |
-
-### Code Changes
-
-#### activity_log.gleam - Add emit_activity
-
-```gleam
-pub fn emit_activity(
-  actor: AgentIdentity,
-  action: String,
-  target: Option(String),
-  context: String,
-) -> promise.Promise(Result(Nil, ActivityLoggingError)) {
-  // Insert into activity_log
-  // ...
-}
-```
-
-#### agent_identity.gleam - Trigger on get_resolved_identity
-
-```gleam
-pub fn get_resolved_identity(...) {
-  // Existing logic to get identity
-  let identity = ...
-  
-  // NEW: Emit activity (fire and forget - don't block)
-  emit_activity(identity, "get_resolved_identity", None, "{...}")
-  
-  identity
-}
-```
-
-## Future Extension
-
-### Future: Detailed Activity Tracking via Pi Tools or Events
-
-The current design is a **simple foundation**. In the future, detailed AI activity tracking could be implemented via:
-
-- **Pi Tools**: Create tools like `psypi-log-activity(activity_type, context)` that AI can call
-- **Events**: Emit events when AI performs actions, with event listeners logging to activity_log
-
-This allows:
-- More granular tracking (what exactly the AI is doing)
-- Better context (tool parameters, results, etc.)
-- Extensible (add new activity types without code changes)
-
-### Current Implementation (Simple Foundation)
-
-For now, implement the basic tracking:
-- Every call to `get_resolved_identity` logs one activity record
-- This establishes the tracking mechanism
-- Future extensions can build on this infrastructure
+- [x] `autonomous` parameter (replaces `permanent`)
+- [x] `A-` prefix for Autonomous (replaces `P-`)
+- [x] `S-` prefix for Session (unchanged)
+- [x] Two SOUL entries in database
+- [x] Sequential execution: Worker → Monitor → Worker
+- [ ] System prompt injection (experiments pending)

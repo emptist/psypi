@@ -4,6 +4,44 @@
 
 `bin/psypi.mjs` is the **hand-written Node.js entry point** for psypi. It bridges Gleam-compiled code with the Pi runtime.
 
+## What is psypi?
+
+**psypi = Psyche + Pi**
+
+psypi is NOT dependent on Pi — it IS a Pi extension written in Gleam:
+- **Pi**: The coding agent runtime (from `refers/pi/`)
+- **psypi**: A Pi extension that adds:
+  - Identity system (Worker/Monitor via `A-`/`S-` IDs)
+  - SOUL-based personality storage in database
+  - Monitor functionality (event-driven, autonomous)
+
+## Relationship: Pi ⊂ psypi
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         psypi                                │
+│                   (Pi Extension in Gleam)                    │
+│                                                              │
+│  ┌───────────────────────────────────────────────────────┐   │
+│  │                       Pi                               │   │
+│  │  (coding agent runtime from refers/pi/)              │   │
+│  └───────────────────────────────────────────────────────┘   │
+│                                                              │
+│  + Identity system (A-/S- IDs)                             │
+│  + SOUL in database                                         │
+│  + Monitor hooks and tools                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+When you run `psypi`:
+1. Loads Gleam code → generates `extension.js`
+2. Spawns `pi -e extension.js`
+3. Pi runs with psypi extension loaded
+
+**`pi` vs `psypi`:**
+- `pi` - bare Pi runtime, no psypi features
+- `psypi` - Pi + psypi extension + Gleam tools + identity system
+
 ## Why Hand-Written?
 
 Gleam compiles to ES modules (`.mjs`), not executable files. We need a Node.js entry point to:

@@ -2,11 +2,11 @@
 // Small + Pure = Resilience!
 
 pub fn my_id() -> Result(String, String) {
-  Ok("S-psypi-psypi")
+  Ok("S-psypi-psypi-unknown")
 }
 
 pub fn monitor_id() -> Result(String, String) {
-  Ok("P-tencent/hy3-preview:free-psypi")
+  Ok("A-psypi-psypi")
 }
 
 pub fn my_session_id() -> Result(String, String) {

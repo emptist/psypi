@@ -1,18 +1,18 @@
-# Monitor - Intelligent System for psypi
+# Monitor - Autonomous System Guardian for psypi
 
-**Monitor = "immune system" of psypi** - a set of Gleam functions + Pi tools + event hooks identified by a permanent ID.
+**Monitor = "immune system" of psypi** - a set of Gleam functions + Pi tools + event hooks identified by an autonomous ID.
 
 ## What is Monitor?
 
 Monitor is NOT a separate agent process. It's simply:
-- `monitor_ai.gleam` - Gleam functions (health, stats, suggestions)
-- `monitor.gleam` - Model config
+- `monitor.gleam` - Functions (notifications, model config, health)
+- `monitor_ai.gleam` - AI functions (suggestions, stats, alerts)
 - Pi tools (`psypi-monitor-*`, `psypi-commit`, `psypi-monitor-consult`)
-- Event hooks in `extension.js` (tool_call, session_start, agent_end, etc.)
+- Event hooks in `extension.js` (tool_call, session_start, before_agent_start, etc.)
 
-All run under a **permanent identity** (from `get_resolved_identity(true, ...)`).
+All run under an **autonomous identity** (from `get_resolved_identity(autonomous=true, ...)` → `A-psypi-psypi`).
 
-**Core principle:** No spawn, no separate loop, no periodic tasks. Just functions that happen to share a permanent ID.
+**Core principle:** No spawn, no separate loop, no periodic tasks. Just functions that happen to share an autonomous ID.
 
 ---
 
@@ -189,7 +189,103 @@ Monitor has no periodic polling. Everything is triggered by:
 | Learn mistakes (track patterns) | 🔲 Future |
 | Proactive improvement suggestions | 🔲 Future |
 
+## Future Improvements
+
+| Feature | Status |
+|---------|--------|
+| Statistics (model quality) | ✅ Done |
+| Self-design (find work) | ✅ Done |
+| System prompt injection (notifications) | 🔲 In Progress |
+| Autonomous code modification | 🔲 Future |
+| Learn mistakes (track patterns) | 🔲 Future |
+
 ---
 
-*Updated: 2026-05-10*
-*See also: docs/INTER_REVIEW_DESIGN.md for Mode 3 details*
+## The Complete Chain: ID → Identity → Behavior → Phase → Event → Next Run
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  1. REQUIREMENT OF ID                                                        │
+│     "Every action requires an agent_id. No exceptions."                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  2. IDENTITY COMPUTATION                                                      │
+│     generate_semantic_id(autonomous, ...) → A-psypi-psypi                   │
+│     Pure function, no DB, no cache — computed fresh every time               │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  3. IDENTITIES (SOUL)                                                        │
+│     A-psypi-psypi (Monitor) → SOUL from souls table                          │
+│     { name: "Monitor", traits: { quality: 10, autonomy: 9 }, content: ... }  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  4. BEHAVIORS AND ACTIONS                                                     │
+│     • Event-driven (autonomous=true)                                         │
+│     • Detects tool errors, system health                                     │
+│     • Creates notifications for Worker                                       │
+│     • Reviews code, consults on decisions                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  5. TIME PHASES (Sequential Execution)                                       │
+│                                                                              │
+│     Phase 1: Worker acts on user prompt (S-)                                 │
+│           ↓                                                                  │
+│     Phase 2: Monitor detects events (A-) while Worker rests                   │
+│           ↓                                                                  │
+│     Phase 3: before_agent_start injects notifications into Worker           │
+│           ↓                                                                  │
+│     Loop: Worker → Monitor → Worker                                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  6. EVENTS / PROMPTS                                                         │
+│                                                                              │
+│     Prompt path: User → Worker (S-) → Tool execution                        │
+│     Event path:  Hook fires → Monitor (A-) → writes notification            │
+│                  ↓ before_agent_start → Worker receives (S-)                │
+│                                                                              │
+│     Key: autonomous=true for hooks, autonomous=false for tools              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  7. NEXT RUN                                                                 │
+│     User prompt or event triggers the cycle again                            │
+│     ID is ALWAYS computed fresh — never cached or stored                    │
+│                                                                              │
+│     ┌──────────────────────────────────────────────────────────────────┐     │
+│     │  User Prompt / Event                                             │     │
+│     │       │                                                          │     │
+│     │       ▼                                                          │     │
+│     │  generate_semantic_id(autonomous, ...)  ← Fresh!                │     │
+│     │       │                                                          │     │
+│     │       ▼                                                          │     │
+│     │  Lookup SOUL from DB                                             │     │
+│     │       │                                                          │     │
+│     │       ▼                                                          │     │
+│     │  Behavior based on SOUL                                          │     │
+│     │       │                                                          │     │
+│     │       ▼                                                          │     │
+│     │  Write to DB (activity_log, notifications)                       │     │
+│     │       │                                                          │     │
+│     │       ▼                                                          │     │
+│     │  Next run ← ─────────────────────────────────────────────────────│     │
+│     └──────────────────────────────────────────────────────────────────┘     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+*Updated: 2026-05-12*

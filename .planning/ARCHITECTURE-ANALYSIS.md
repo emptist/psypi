@@ -284,9 +284,9 @@ Problem: If Monitor acts on every `agent_end`, we spawn too many sessions.
 
 ```gleam
 // From agent_identity_logic.gleam
-generate_semantic_id(permanent, source, project, session_id, model)
-  → "P-tencent/hy3-preview:free-psypi-..."  // permanent=true (Monitor)
-  → "S-psypi-psypi-..."                      // permanent=false (Worker)
+generate_semantic_id(autonomous, source, project, session_id, model)
+  → "A-psypi-psypi"    // autonomous=true (Monitor)
+  → "S-psypi-psypi-unknown"  // autonomous=false (Worker)
 ```
 
 **Key properties:**
@@ -296,9 +296,9 @@ generate_semantic_id(permanent, source, project, session_id, model)
 - Same parameters → same ID
 - Different parameters → different ID
 
-This is why Gleam was chosen over TypeScript:
-- TypeScript: `id = query_from_db()` → caches → stale
-- Gleam: `get_id()` → pure function → always fresh
+**The `autonomous` parameter:**
+- `autonomous=false` (S-) → Prompt-triggered, session-driven
+- `autonomous=true` (A-) → Event-triggered, autonomous
 
 ### SOUL = Database Content (Personality + Responsibilities)
 

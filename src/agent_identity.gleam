@@ -7,7 +7,7 @@ import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, lit}
 /// Simply computes the AgentIdentity from input parameters.
 /// Returns Result for JS compatibility.
 pub fn get_resolved_identity(
-  permanent: Bool,
+  autonomous: Bool,
   session_id: String,
   project: String,
   _git_hash: String,
@@ -15,7 +15,7 @@ pub fn get_resolved_identity(
   source: String,
   model: String,
 ) -> Result(AgentIdentity, IdentityError) {
-  let id = generate_semantic_id(permanent, source, project, session_id, model)
+  let id = generate_semantic_id(autonomous, source, project, session_id, model)
   Ok(AgentIdentity(
     id: id,
     project: option.None,
@@ -32,13 +32,13 @@ pub fn get_resolved_identity(
 /// Get agent ID - PURE function, no DB needed.
 /// Returns the computed ID string directly (not a Promise).
 pub fn get_agent_id(
-  permanent: Bool,
+  autonomous: Bool,
   source: String,
   project: String,
   session_id: String,
   model: String,
 ) -> AgentId {
-  agent_id(generate_semantic_id(permanent, source, project, session_id, model))
+  agent_id(generate_semantic_id(autonomous, source, project, session_id, model))
 }
 
 // -------------------------------------------------------------------
@@ -47,7 +47,7 @@ pub fn get_agent_id(
 // The generator collects these and composes them into extension.js.
 // -------------------------------------------------------------------
 
-/// Pi tool: psypi-my-id — get current agent ID (permanent=false)
+/// Pi tool: psypi-my-id — get current agent ID (autonomous=false → S-)
 /// session_id is obtained from Pi ctx's session_start hook
 pub fn my_id_tool() -> PiToolCall {
   PiToolCall(
@@ -69,11 +69,11 @@ pub fn my_id_tool() -> PiToolCall {
   )
 }
 
-/// Pi tool: psypi-monitor-id — get monitor/partner ID (permanent=true)
+/// Pi tool: psypi-monitor-id — get autonomous/monitor ID (autonomous=true → A-)
 pub fn monitor_id_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-monitor-id",
-    description: "Get monitor/partner ID (permanent identity)",
+    description: "Get monitor/partner ID (autonomous identity)",
     params: [],
     module: "agent_identity",
     fn_name: "get_resolved_identity",
