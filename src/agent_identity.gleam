@@ -5,7 +5,7 @@ import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, lit}
 
 /// Get resolved agent identity - PURE function, no DB needed.
 /// Simply computes the AgentIdentity from input parameters.
-/// Returns Result for JS compatibility.
+/// Returns Error if session_id is missing (ID requires session context).
 pub fn get_resolved_identity(
   autonomous: Bool,
   session_id: String,
@@ -15,30 +15,35 @@ pub fn get_resolved_identity(
   source: String,
   model: String,
 ) -> Result(AgentIdentity, IdentityError) {
-  let id = generate_semantic_id(autonomous, source, project, session_id, model)
-  Ok(AgentIdentity(
-    id: id,
-    project: option.None,
-    git_hash: option.None,
-    machine_fingerprint: machine_fingerprint,
-    session_id: session_id,
-    created_at: "",
-    display_name: option.None,
-    description: option.None,
-    source: option.None,
-  ))
+  case generate_semantic_id(autonomous, source, project, session_id, model) {
+    Ok(id) -> Ok(AgentIdentity(
+      id: id,
+      project: option.None,
+      git_hash: option.None,
+      machine_fingerprint: machine_fingerprint,
+      session_id: session_id,
+      created_at: "",
+      display_name: option.None,
+      description: option.None,
+      source: option.None,
+    ))
+    Error(e) -> Error(e)
+  }
 }
 
 /// Get agent ID - PURE function, no DB needed.
-/// Returns the computed ID string directly (not a Promise).
+/// Returns Error if session_id is missing.
 pub fn get_agent_id(
   autonomous: Bool,
   source: String,
   project: String,
   session_id: String,
   model: String,
-) -> AgentId {
-  agent_id(generate_semantic_id(autonomous, source, project, session_id, model))
+) -> Result(AgentId, IdentityError) {
+  case generate_semantic_id(autonomous, source, project, session_id, model) {
+    Ok(id) -> Ok(agent_id(id))
+    Error(e) -> Error(e)
+  }
 }
 
 // -------------------------------------------------------------------
@@ -79,7 +84,7 @@ pub fn monitor_id_tool() -> PiToolCall {
     fn_name: "get_resolved_identity",
     args: [
       lit("true"),
-      lit("\"\""),
+      lit("_sessionId"),
       lit("\"psypi\""),
       lit("\"\""),
       lit("\"\""),

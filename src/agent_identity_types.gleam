@@ -1,5 +1,13 @@
 import gleam/option
 
+/// Identity-related errors
+pub type IdentityError {
+  MissingSessionId
+  ConnectionError(String)
+  QueryError(String)
+  NotFound(String)
+}
+
 /// Lightweight wrapper for agent ID - use this instead of String
 pub type AgentId { AgentId(String) }
 
@@ -25,10 +33,4 @@ pub type AgentIdentity {
     description: option.Option(String),
     source: option.Option(String),
   )
-}
-
-pub type IdentityError {
-  ConnectionError(String)
-  QueryError(String)
-  NotFound(String)
 }
