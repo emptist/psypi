@@ -1,12 +1,11 @@
-// generator/session_start.gleam — Session initialization
-// Checks system health and displays [Autonomic] message if issues found
+// generator/session_start.gleam — Session initialization (silent)
 
 import gleam/list
 import gleam/string
 
 pub fn handler_body() -> String {
   [
-    "    // Session start: check health, display [Autonomic] message if issues\n",
+    "    // Session start: record model, set status (silent)\n",
     "    try {\n",
     "      const { record_current_model } = await import('./build/dev/javascript/psypi/monitor.mjs');\n",
     "      if (ctx.model) {\n",
@@ -14,16 +13,8 @@ pub fn handler_body() -> String {
     "      }\n",
     "      const { check_system_health } = await import('./build/dev/javascript/psypi/monitor_ai.mjs');\n",
     "      const health = await check_system_health();\n",
-    "      if (health.ok) {\n",
-    "        const failed = health.value.failed_tasks;\n",
-    "        const issues = health.value.open_issues;\n",
-    "        if (failed > 0 || issues > 0) {\n",
-    "          const msg = '[Autonomic] System check: ' + failed + ' failed tasks, ' + issues + ' open issues. Directing Somatic Worker to investigate.';\n",
-    "          ctx.ui.notify(msg, 'warning');\n",
-    "        } else {\n",
-    "          ctx.ui.setStatus('psypi-autonomic', '[Autonomic] System healthy');\n",
-    "        }\n",
-    "      }\n",
+    "      const status = health.ok && health.value.failed_tasks === 0 ? 'psypi-autonomic: healthy' : 'psypi-autonomic: attention needed';\n",
+    "      ctx.ui.setStatus('psypi-autonomic', status);\n",
     "    } catch(err) {\n",
     "      // Non-blocking\n",
     "    }\n",
