@@ -409,7 +409,7 @@ pub fn monitor_suggest_tool() -> PiToolCall {
 // -------------------------------------------------------------------
 
 /// /autonomic-listen command - Human tells Monitor what to do, Monitor replies in chat
-pub fn monitor_listen_command() -> PiCommandReg {
+pub fn autonomic_listen_command() -> PiCommandReg {
   command(
     "autonomic-listen",
     "Talk to Monitor AI directly - human and Monitor exchange in chat",
@@ -446,7 +446,7 @@ pub fn monitor_listen_command() -> PiCommandReg {
 }
 
 /// /autonomic-reload command - Reload Pi extensions (for Monitor's self-improvement)
-pub fn monitor_reload_command() -> PiCommandReg {
+pub fn autonomic_reload_command() -> PiCommandReg {
   command(
     "autonomic-reload",
     "Reload Pi extensions - used after Monitor modifies its own Gleam code",

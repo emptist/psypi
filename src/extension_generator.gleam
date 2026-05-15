@@ -17,7 +17,7 @@ import issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
 import learning.{learn_save_tool}
 import meeting.{meeting_create_tool, meeting_get_tool, meeting_list_tool, meeting_opinions_tool}
 import memory.{memory_search_tool}
-import monitor_ai.{monitor_alerts_tool, monitor_health_tool, monitor_stats_tool, monitor_status_tool, monitor_suggest_tool, monitor_listen_command, monitor_reload_command}
+import monitor_ai.{monitor_alerts_tool, monitor_health_tool, monitor_stats_tool, monitor_status_tool, monitor_suggest_tool, autonomic_listen_command, autonomic_reload_command}
 
 import pi_tool_call.{type PiToolCall, type PiEventHook, type PiCommandReg, command_to_js, event_hook, event_hook_to_js, to_import_line, to_js_text}
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
@@ -112,8 +112,8 @@ pub fn all_event_hooks() -> List(PiEventHook) {
 pub fn all_commands() -> List(PiCommandReg) {
   [
     // Monitor commands (from monitor_ai module)
-    monitor_listen_command(),
-    monitor_reload_command(),
+    autonomic_listen_command(),
+    autonomic_reload_command()
   ]
 }
 
