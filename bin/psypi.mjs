@@ -6,17 +6,18 @@ import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { writeFileSync, realpathSync } from 'fs';
 
-// Resolve the project directory (where this script lives, following symlinks)
+// Resolve the project directory (parent of bin/, following symlinks)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(realpathSync(__filename));
+const projectDir = resolve(__dirname, '..');
 
 // Import the compiled Gleam generator from the project's build directory
 const { generate } = await import(
-  join(__dirname, 'build/dev/javascript/psypi/extension_generator.mjs')
+  join(projectDir, 'build/dev/javascript/psypi/extension_generator.mjs')
 );
 
 // Path to extension.js (in the project directory)
-const extensionPath = join(__dirname, 'extension.js');
+const extensionPath = join(projectDir, 'extension.js');
 
 // Step 1: Generate extension.js from Gleam PiToolCall values
 const content = generate();
@@ -30,7 +31,7 @@ const piArgs = ['-e', extensionPath, ...args];
 const child = spawn(piBin, piArgs, {
   stdio: 'inherit',
   shell: false,
-  cwd: __dirname
+  cwd: projectDir
 });
 
 child.on('close', (code) => {
