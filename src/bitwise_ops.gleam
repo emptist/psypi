@@ -1,6 +1,7 @@
 import gleam/int
 
-/// Bitwise AND
+
+/// Bitwise AND operation (test)
 pub fn and(x: Int, y: Int) -> Int {
   int.bitwise_and(x, y)
 }
@@ -15,7 +16,7 @@ pub fn xor(x: Int, y: Int) -> Int {
   int.bitwise_exclusive_or(x, y)
 }
 
-/// Bitwise NOT (shift to 32-bit)
+/// Bitwise NOT (one's complement)
 pub fn not(x: Int) -> Int {
   int.bitwise_not(x)
 }

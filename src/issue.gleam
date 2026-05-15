@@ -57,33 +57,57 @@ pub type IssueError {
   DecodeError(String)
 }
 
-pub fn string_to_severity(s: String) -> IssueSeverity {
+pub fn string_to_severity(s: String) -> Result(IssueSeverity, String) {
   case s {
-    "critical" -> Critical
-    "high" -> High
-    "low" -> Low
-    "cosmetic" -> Cosmetic
-    _ -> Medium
+    "critical" -> Ok(Critical)
+    "high" -> Ok(High)
+    "medium" -> Ok(Medium)
+    "low" -> Ok(Low)
+    "cosmetic" -> Ok(Cosmetic)
+    _ -> Error("Invalid severity: " <> s <> ". Allowed: critical, high, medium, low, cosmetic")
   }
 }
 
-pub fn string_to_status(s: String) -> IssueStatus {
+pub fn string_to_status(s: String) -> Result(IssueStatus, String) {
   case s {
-    "in_progress" -> InProgress
-    "resolved" -> Resolved
-    "closed" -> Closed
-    _ -> Open
+    "open" -> Ok(Open)
+    "in_progress" -> Ok(InProgress)
+    "resolved" -> Ok(Resolved)
+    "closed" -> Ok(Closed)
+    _ -> Error("Invalid status: " <> s <> ". Allowed: open, in_progress, resolved, closed")
   }
 }
 
-pub fn string_to_type(t: String) -> IssueType {
+pub fn string_to_type(t: String) -> Result(IssueType, String) {
   case t {
-    "inconsistency" -> Inconsistency
-    "feature" -> Feature
-    "improvement" -> Improvement
-    "question" -> Question
-    "debt" -> Debt
-    _ -> Bug
+    "bug" -> Ok(Bug)
+    "inconsistency" -> Ok(Inconsistency)
+    "feature" -> Ok(Feature)
+    "improvement" -> Ok(Improvement)
+    "question" -> Ok(Question)
+    "debt" -> Ok(Debt)
+    _ -> Error("Invalid issue_type: " <> t <> ". Allowed: bug, inconsistency, feature, improvement, question, debt")
+  }
+}
+
+pub fn severity_to_string(s: IssueSeverity) -> String {
+  case s {
+    Critical -> "critical"
+    High -> "high"
+    Medium -> "medium"
+    Low -> "low"
+    Cosmetic -> "cosmetic"
+  }
+}
+
+pub fn type_to_string(t: IssueType) -> String {
+  case t {
+    Bug -> "bug"
+    Inconsistency -> "inconsistency"
+    Feature -> "feature"
+    Improvement -> "improvement"
+    Question -> "question"
+    Debt -> "debt"
   }
 }
 
@@ -104,13 +128,25 @@ pub fn issue_decoder() -> decode.Decoder(Issue) {
   use reported_by <- decode.field("reported_by", decode.optional(decode.string))
   use source <- decode.field("source", decode.optional(decode.string))
 
+  let severity = case string_to_severity(severity_str) {
+    Ok(s) -> s
+    Error(_) -> Medium
+  }
+  let status = case string_to_status(status_str) {
+    Ok(s) -> s
+    Error(_) -> Open
+  }
+  let issue_type = case string_to_type(issue_type_str) {
+    Ok(t) -> t
+    Error(_) -> Bug
+  }
   decode.success(Issue(
     id: id,
     title: title,
     description: description,
-    severity: string_to_severity(severity_str),
-    status: string_to_status(status_str),
-    issue_type: string_to_type(issue_type_str),
+    severity: severity,
+    status: status,
+    issue_type: issue_type,
     created_at: created_at,
     resolved_at: resolved_at,
     created_by: created_by,
@@ -142,37 +178,47 @@ pub fn add(
   issue_type: String,
   created_by: String,
 ) -> promise.Promise(Result(String, IssueError)) {
-  db.with_connection(fn(conn) {
-    let sql = "
-      INSERT INTO issues (title, description, severity, issue_type, created_by)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id
-    "
-    let params = [
-      dynamic.string(title),
-      dynamic.string(description),
-      dynamic.string(severity),
-      dynamic.string(issue_type),
-      dynamic.string(created_by),
-    ]
+  case string_to_severity(severity) {
+    Error(e) -> promise.resolve(Error(QueryError(e)))
+    Ok(severity_val) -> {
+      case string_to_type(issue_type) {
+        Error(e) -> promise.resolve(Error(QueryError(e)))
+        Ok(type_val) -> {
+          db.with_connection(fn(conn) {
+            let sql = "
+              INSERT INTO issues (title, description, severity, issue_type, created_by)
+              VALUES ($1, $2, $3, $4, $5)
+              RETURNING id
+            "
+            let params = [
+              dynamic.string(title),
+              dynamic.string(description),
+              dynamic.string(severity_to_string(severity_val)),
+              dynamic.string(type_to_string(type_val)),
+              dynamic.string(created_by),
+            ]
 
-    promise.map(db.query(conn, sql, params), fn(query_result) {
-      case query_result {
-        Error(e) -> Error(db_error_to_issue_error(e))
-        Ok(result) -> {
-          case result.rows {
-            [row, ..] -> {
-              case decode.run(row, id_decoder()) {
-                Ok(id) -> Ok(id)
-                Error(_) -> Error(DecodeError("Failed to decode id"))
+            promise.map(db.query(conn, sql, params), fn(query_result) {
+              case query_result {
+                Error(e) -> Error(db_error_to_issue_error(e))
+                Ok(result) -> {
+                  case result.rows {
+                    [row, ..] -> {
+                      case decode.run(row, id_decoder()) {
+                        Ok(id) -> Ok(id)
+                        Error(_) -> Error(DecodeError("Failed to decode id"))
+                      }
+                    }
+                    _ -> Error(NotFound("No id returned"))
+                  }
+                }
               }
-            }
-            _ -> Error(NotFound("No id returned"))
-          }
+            })
+          }, db_error_to_issue_error)
         }
       }
-    })
-  }, db_error_to_issue_error)
+    }
+  }
 }
 
 pub fn list(

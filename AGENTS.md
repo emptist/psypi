@@ -38,6 +38,39 @@ The dream-team architecture is the core concept. One AI, two SOULs, alternating 
 
 Below you will find quick usage examples and a reference for the most common tools.
 
+### 0a. GLEAM TYPE SYSTEM: Use It Properly!
+
+**This codebase was ported from TypeScript. A common mistake: Gleam types exist but are bypassed at the boundaries.**
+
+**Rule: Enums are the source of truth. Validate at the boundary, use internally, convert at the DB edge.**
+
+**Correct pattern for any user-facing input:**
+```
+User input (String) → string_to_*() → Result(Enum, Error)
+  → Error: reject with clear error message
+  → Ok(enum_val): use enum throughout Gleam code → enum_to_string() → DB write
+```
+
+**Anti-pattern (NEVER do this):**
+```
+User input (String) → string_to_*() → Enum (silently defaults unknown values)
+  → bypass enum, pass raw string directly to DB
+  → DB check constraint catches it (if you're lucky)
+```
+
+**Concrete example from `src/issue.gleam` (fixed 2026-05-15):**
+- OLD: `string_to_type("task")` → silently returned `Bug` → DB constraint violation
+- NEW: `string_to_type("task")` → returns `Error("Invalid issue_type: task. Allowed: bug, inconsistency, feature, improvement, question, debt")`
+
+**When adding/modifying Gleam code:**
+1. Define the enum/type properly
+2. Write `string_to_*` converters that return `Result`, NOT silent defaults
+3. Write `*_to_string` converters for DB writes
+4. Use the enum variant in all Gleam logic (pattern matching, function args)
+5. Only convert to String at the DB boundary
+
+**NEVER pass raw user strings directly to SQL. ALWAYS validate through the enum first.
+
 ### 0. THE BIG PICTURE: 100% Gleam + Pi Tools!
 **psypi is a Pi TUI with a Gleam-generated extension:**
 - **OLD way**: `psypi my-id` (CLI command → TypeScript → DB)

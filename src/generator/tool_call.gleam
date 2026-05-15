@@ -16,7 +16,7 @@ pub fn handler_body() -> String {
     "            const content = fs.readFileSync(filePath, 'utf-8');\n",
     "            const { save_version } = await import('./build/dev/javascript/psypi/code_version.mjs');\n",
     "            await save_version(filePath, content, 'psypi', '', 'auto-backup');\n",
-    "            ctx.ui.setStatus('psypi-autobackup', '[OK] ' + filePath.split('/').pop());\n",
+    "            ctx.ui.setStatus('psypi-autobackup', 'Auto-backed up ' + filePath.split('/').pop());\n",
     "          } catch(e) {\n",
     "            ctx.ui.setStatus('psypi-autobackup', '[FAIL] ' + e.message);\n",
     "          }\n",
