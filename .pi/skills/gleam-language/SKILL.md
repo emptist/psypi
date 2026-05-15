@@ -22,6 +22,21 @@ Use `case` expressions, not if/else. Gleam has no null, no undefined - use `Opti
 
 ### 5. Pipe Operator for Readability
 Chain operations with `|>` pipe operator. Gleam reads left-to-right.
+
+### 6. Module Imports Use `/` Not `.`
+Gleam module paths use `/` for submodules: `import generator/tool_call`, NOT `import generator.tool_call`. Dots are for record field access.
+
+### 7. String Literals in Lists Need Careful Escaping
+When building JS code as Gleam string literals in a list, each line must be a separate string with proper escaping. Use `\n` for newlines within strings, and ensure each list item is properly closed with `",`.
+
+### 8. Every Module Must Import Its Dependencies
+Unlike some languages, Gleam requires explicit imports for every module used. `list.map` requires `import gleam/list`. The compiler will tell you exactly what's missing.
+
+### 9. Small Modules Prevent Edit Failures
+Keep modules under 100 lines. Large files cause edit tool failures and old code accumulation. Split into focused modules: one file, one responsibility.
+
+### 10. Gleam is the Bridge, JS is the Runtime
+Gleam compiles to JavaScript. At runtime, only JS exists. Gleam's job is to compose text (JS source code) that gets written to `extension.js`. Think of Gleam as the "cook" that prepares ingredients (JS text) and assembles the final dish (extension.js).
 </essential_principles>
 
 <intake>
@@ -66,7 +81,8 @@ All in `references/`:
 **Build:** build-compile.md, project-structure.md
 **Testing:** testing-gleeunit.md (NEW), test-patterns.md
 **Anti-patterns:** what-not-to-do.md
-**Quality:** gleam-quality-guidelines.md — type safety, custom ID types (check existing first!), error handling
+**Quality:** gleam-quality-guidelines.md — type safety, custom ID types (check first!), error handling
+**Psypi-Specific:** psypi-gleam-patterns.md — lessons learned from psypi development
 </reference_index>
 
 <workflows_index>
