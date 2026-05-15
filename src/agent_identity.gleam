@@ -52,12 +52,12 @@ pub fn get_agent_id(
 // The generator collects these and composes them into extension.js.
 // -------------------------------------------------------------------
 
-/// Pi tool: psypi-my-id — get current agent ID (autonomous=false → S-)
+/// Pi tool: psypi-somatic-id — get Somatic Worker ID (autonomous=false → S-)
 /// session_id is obtained from Pi ctx's session_start hook
-pub fn my_id_tool() -> PiToolCall {
+pub fn somatic_id_tool() -> PiToolCall {
   PiToolCall(
-    name: "psypi-my-id",
-    description: "Get current agent ID",
+    name: "psypi-somatic-id",
+    description: "Get Somatic Worker ID (S- prefix, prompt-driven)",
     params: [],
     module: "agent_identity",
     fn_name: "get_resolved_identity",
@@ -74,11 +74,12 @@ pub fn my_id_tool() -> PiToolCall {
   )
 }
 
-/// Pi tool: psypi-monitor-id — get autonomous/monitor ID (autonomous=true → A-)
-pub fn monitor_id_tool() -> PiToolCall {
+/// Pi tool: psypi-autonomic-id — get Autonomic Worker ID (autonomous=true → A-)
+/// Uses the SAME session_id as somatic-id, only the prefix differs (A- vs S-)
+pub fn autonomic_id_tool() -> PiToolCall {
   PiToolCall(
-    name: "psypi-monitor-id",
-    description: "Get monitor/partner ID (autonomous identity)",
+    name: "psypi-autonomic-id",
+    description: "Get Autonomic Worker ID (A- prefix, event-driven). Same session as somatic, only identity prefix differs.",
     params: [],
     module: "agent_identity",
     fn_name: "get_resolved_identity",
