@@ -4,15 +4,39 @@ description: Agent instructions for psypi (READ FIRST!)
 
 # AGENTS.md - PsyPI Quick Guide
 
+## 🚨 FIRST: Read docs/DREAM-TEAM-ARCHITECTURE.md
+
+The dream-team architecture is the core concept. One AI, two SOULs, alternating current.
+
+**Key principle:** Hooks are THIN. Intelligence is in the LLM. Small modules (< 100 lines).
+
 ## 🎯 Project Overview
 
-**psypi** = **Psyche + Pi** = AI coordination system
-- **Technically**: psypi is a **Pi TUI with extensions**! 🎯
-- **Architecture**: Gleam core + Pi runtime (TypeScript fully removed!)
+**psypi** = **Psyche + Pi** = AI coordination system with Self-Improving Architecture
+- **Technically**: psypi is a **Pi TUI with a Gleam-generated extension**! 🔄
+- **Architecture**: Gleam core + Pi runtime + Dual Identity System (Worker/Monitor)
 - **Database**: ONE PostgreSQL per user home (shared across ALL projects)
-- **Status**: ✅ Working - Gleam reviews via `psypi-commit` Pi tool (inside Pi TUI)!
+- **Status**: ✅ Working - Autonomic Worker directs Somatic Worker via directives
+  - ✅ `psypi-direct-worker` tool: Autonomic Worker sets directives for Somatic Worker
+  - ✅ `psypi-clear-directives` tool: Clear active directives
+  - ✅ Directives injected into system prompt via `before_agent_start` hook
+  - ✅ SOUL context included in directives (workers know who's directing them)
 
 ## 🚨 CRITICAL RULES (Read FIRST!)
+
+**All Pi tools are intended to be used *inside* the running Psypi TUI.
+
+**Note:** In psypi, the AIs themselves run inside the continuously running Pi TUI, not as separate processes.
+
+**Therefore, they can invoke Pi tools directly from the TUI** (e.g., `/psypi‑my-id`, `/psypi‑commit`, etc.)**
+
+- You never invoke them as ordinary shell commands (e.g. `psypi‑task‑add`).
+- The Pi runtime provides a built‑in tool‑call interface; just type the tool name prefixed with a slash (`/psypi‑task‑add …`) in the TUI prompt.
+- The underlying JSON wrapper exists only for internal communication; it is not a user‑visible API.
+- Trying to run a Pi tool from the OS will result in “command not found”.
+- This guarantees that the Monitor, Hooks, and Worker all share the same runtime context and state.
+
+Below you will find quick usage examples and a reference for the most common tools.
 
 ### 0. THE BIG PICTURE: 100% Gleam + Pi Tools!
 **psypi is a Pi TUI with a Gleam-generated extension:**
@@ -26,11 +50,13 @@ description: Agent instructions for psypi (READ FIRST!)
 4. **NEVER spawn Pi from Pi tools** - infinite loop danger!
 
 **Current Status:**
-- ✅ 25+ Pi tools working
-- ✅ Monitor system with 3 modes (Silent, Middle, End)
+- ✅ 29+ Pi tools working
+- ✅ System prompt injection: Monitor → DB notifications → Worker
+- ✅ 30 event hooks mapped (7 active) in `psypi_event_hooks` table
 - ✅ Single node_ffi.mjs (consolidated from 4)
 - ✅ All TypeScript removed — 100% Gleam core
 - ✅ `bin/psypi.mjs` auto-generates `extension.js` at every startup
+- ✅ ID computed from function call (no cache), SOUL in `souls` table
 
 ---
 
@@ -69,7 +95,18 @@ exec('pi -e extension.js');  // Still spawns Pi!
 
 **Rule: Pi tools should call Gleam functions directly, NOT spawn Pi!**
 
-### 1. DELETE (don't deprecate!) - Move obsolete files to `deprecated/` directory!
+### 1. ID + SOUL: Two Identities, Two SOULs
+
+Each identity must maintain itself:
+
+- **ID** — Computed from function call (`generate_semantic_id()`). Pure function, no cache, no DB. Returns `Error` if `session_id` is missing.
+- **SOUL** — Stored in `souls` table. Each identity owns its entry:
+  - Worker: `S-psypi-psypi-<session_id>` → name="Worker", traits
+  - Monitor: `A-psypi-psypi` → name="Monitor", traits
+
+Both can modify their SOUL via meetings or direct DB. Monitor acts as senior advisor — detects identity drift and redirects Worker.
+
+### 2. DELETE (don't deprecate!) - Move obsolete files to `deprecated/` directory!
 **CORRECT approach:**
 ```bash
 # ✅ CORRECT - Move to deprecated/ directory
@@ -83,7 +120,7 @@ mv file.ts file.ts.deprecated
 
 ---
 
-### 2. FORCE YOURSELF: Use `psypi-commit` Pi tool (NOT `git commit`!)
+### 3. FORCE YOURSELF: Use `psypi-commit` Pi tool (NOT `git commit`!)
 Inside Pi TUI, run:
 ```
 psypi-commit "feat: My change"
@@ -98,18 +135,26 @@ git commit -m "feat: My change"
 
 ---
 
-### 3. ONE SINGLE WAY: Agent ID
-Use the `psypi-my-id` and `psypi-partner-id` Pi tools. For Gleam code, use the `agent_identity.gleam` module.
+### 4. ONE SINGLE WAY: Agent ID
+Use the `psypi-somatic-id` and `psypi-autonomic-id` Pi tools. For Gleam code, use the `agent_identity.gleam` module.
+
+### 4a. DIRECTIVE SYSTEM (Autonomic → Somatic Communication)
+- **`psypi-direct-worker`**: ONLY the Autonomic Worker (A-) uses this to set directives for the Somatic Worker
+- **`psypi-clear-directives`**: Clear active directives
+- Directives are injected into the Somatic Worker's system prompt via `before_agent_start` hook
+- Directives include SOUL context so workers know who's directing them
+- Directives are consumed after injection (one-time use) and expire after 1 hour
+- **Somatic Worker should NEVER call `psypi-direct-worker`** — it will return ERROR
 
 ---
 
-### 4. READ FILES FIRST before editing!
+### 5. READ FILES FIRST before editing!
 - ✅ `read` file first, then `edit` with EXACT match
 - ❌ Never use `sed` on files > 5 lines (corrupts them!)
 
 ---
 
-### 5. Database First - Use psypi tools, NOT psql!
+### 6. Database First - Use psypi tools, NOT psql!
 ```bash
 psypi tasks          # ✅ Correct
 psql -c "SELECT..." # ❌ Wrong - bypasses psypi code!
@@ -117,7 +162,7 @@ psql -c "SELECT..." # ❌ Wrong - bypasses psypi code!
 
 ---
 
-### 6. Package Manager: pnpm (NOT npm!)
+### 7. Package Manager: pnpm (NOT npm!)
 ```bash
 pnpm install   # ✅ Correct
 npm install    # ❌ Wrong
@@ -125,14 +170,22 @@ npm install    # ❌ Wrong
 
 ---
 
-## 📊 Current Status (2026-05-10)
+## 📊 Current Status (2026-05-13)
 
-### 🎯 Architecture Evolution (BIG CHANGE!)
+### 🎯 Architecture Evolution
 **OLD**: CLI commands → TypeScript → Database
 **NEW**: Pi TUI → Pi tools → Gleam → Database
 
+### The Cycle: Monitor Directs Worker
+
+```
+USER → Worker → Monitor → Worker → (USER) → Cycling on
+```
+
+Monitor writes to DB → `before_agent_start` hook reads DB → injects into system prompt → Worker continues.
+
 ### Pi Tools Status:
-- **25+ Pi tools** working ✅:
+- **29+ Pi tools** working ✅:
   - Identity: `psypi-my-id`, `psypi-monitor-id`
   - Tasks: `psypi-task-add`, `psypi-tasks`, `psypi-task-complete`
   - Stats: `psypi-stats-show`
@@ -144,14 +197,23 @@ npm install    # ❌ Wrong
   - Broadcast: `psypi-broadcast-send`, `psypi-broadcasts`
   - Reflection: `psypi-areflect`
   - Agents: `psypi-agents`
+  - Event hooks: `psypi-hooks-list`, `psypi-hooks-active`
   - Monitor: `psypi-monitor-status`, `psypi-monitor-health`, `psypi-monitor-alerts`, `psypi-monitor-stats`, `psypi-monitor-suggest`, `psypi-monitor-consult`, `psypi-commit`
-- **TypeScript** fully removed — all files in `deprecated/` directory
-- **psypi** = Pi TUI entry point (generates extension.js from Gleam, then spawns Pi)
+
+### Active Event Hooks:
+| Hook | Action |
+|------|--------|
+| `session_start` | Health check, record model |
+| `before_agent_start` | Read DB notifications → inject into system prompt |
+| `tool_call` | Safety check, activity log, auto-backup |
+| `tool_result` | Detect errors → create notification + auto-file issue |
+| `model_select` | Record model changes |
 
 ### Build:
-- ✅ `cd gleam/psypi_core && rm -rf build/ && gleam build` (ALWAYS clean build first!)
+- ✅ `rm -rf build/ && gleam build` (ALWAYS clean build first!)
+- ✅ `gleam run -m simple_migrate` (run DB migrations first!)
+- ✅ `gleam run -m extension_generator` (regenerate extension.js!)
 - ❌ `pnpm build` DOES NOT EXIST! (no `tsconfig.json`, no `package.json`!)
-- ✅ Gleam review via `psypi-commit` Pi tool
 
 **🚨 ALWAYS `rm -rf build/` before `gleam build`** — stale compiled output causes subtle bugs!
 
@@ -177,9 +239,9 @@ npm install    # ❌ Wrong
 1. Define the Gleam function in its module
 2. Create a `PiToolCall` value (e.g., `my_tool()`)
 3. Import it in `extension_generator.gleam` and add to `all_tools()`
-4. Build: `cd gleam/psypi_core && rm -rf build/ && gleam build`
+4. Build: `rm -rf build/ && gleam build`
 5. Generate: `gleam run -m extension_generator`
-6. Verify `src/agent/extension/extension.js` has the new tool
+6. Verify `extension.js` has the new tool
 
 ### ⚠️ CRITICAL WARNING:
 **NEVER run `psypi autonomous` from CLI!**
@@ -235,13 +297,13 @@ Worker can consult Autonomous AI via the `monitor` skill (`.pi/skills/monitor/SK
 
 ## 🚨 CRITICAL: `package.json` Does NOT Exist!
 
-**Current State (2026-05-10):** `package.json` has been removed. `tsconfig.json` has been removed.
+**Current State (2026-05-12):** `package.json` has been removed. `tsconfig.json` has been removed.
 
 **What's Required (Must-Have!):**
-1. ✅ `gleam/psypi_core/gleam.toml` - Gleam project config!
-2. ✅ `gleam/psypi_core/manifest.toml` - Gleam dependency locks!
+1. ✅ `gleam.toml` - Gleam project config!
+2. ✅ `src/*.gleam` - Gleam source code!
 3. ✅ `bin/psypi.mjs` - Entry point (generates extension.js, spawns Pi)
-4. ✅ `gleam/psypi_core/build/` - Compiled Gleam `.mjs` files!
+4. ✅ `build/dev/javascript/psypi/` - Compiled Gleam `.mjs` files!
 5. ✅ `node_modules/` - Runtime deps (`pg`, `@sinclair/typebox`!)
 6. ✅ `pnpm-lock.yaml` - Lock file for restoring `node_modules/`
 
@@ -252,7 +314,6 @@ Worker can consult Autonomous AI via the `monitor` skill (`.pi/skills/monitor/SK
 
 **Gleam has OWN package management:**
 - `gleam.toml` (NOT `package.json`!) handles Gleam deps!
-- Stored in `gleam/psypi_core/` directory (NOT `node_modules/`!)
 
 ---
 
@@ -271,7 +332,45 @@ See `docs/concrete-single-loading-example.md` for a verbatim record of the momen
 
 ---
 
-## 🛠️ LLM & Tool Use Warnings
+## 📢 IMPORTANT UPDATE (2026-05-13)
+
+### Monitor Evolution: System Prompt Injection
+
+Monitor now directs Worker through DB notifications + system prompt injection:
+
+```
+tool error → tool_result hook → DB notification
+                                    ↓
+before_agent_start → reads notifications → injects [MONITOR ALERT] → Worker sees it
+```
+
+**Active hooks (2026-05-13):**
+
+| Hook | Status | Action |
+|------|--------|--------|
+| `session_start` | active | health check, record model |
+| `before_agent_start` | active | inject notifications from DB |
+| `tool_call` | active | safety check, activity log, auto-backup |
+| `tool_result` | active | detect errors → notification + auto-file issue |
+| `model_select` | active | record model changes |
+| `agent_start/end` | active | silent logging |
+
+**psypi_event_hooks table** — Monitor reads this to know which events to act on. 30 events mapped (7 active). Monitor can modify via `psypi-hooks-list` / `psypi-hooks-active` tools.
+
+**New tools:**
+- `psypi-hooks-list` — List all event hooks
+- `psypi-hooks-active` — List active hooks only
+
+**Identity (unchanged):**
+- Worker: `S-psypi-psypi-<session_id>` (prompt-driven)
+- Monitor: `A-psypi-psypi` (event-driven)
+- Both maintain own ID (pure function) and SOUL (DB entry)
+
+**⚠️ NEVER run `psypi` inside opencode** — infinite loop risk, system crash in minutes!
+
+See `.planning/` docs for full architecture: `NEXT-PHASES.md`, `EVENT-TASK-MAPPING.md`, `SYSTEM-PROMPT-INJECTION.md`.
+
+
 
 ### Tool Call Schema Errors (HTTP 400)
 If you encounter `invalid_argument` or `parameters format error` when calling Pi tools:
