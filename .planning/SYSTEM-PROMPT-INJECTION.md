@@ -1,5 +1,7 @@
 # System Prompt Injection via before_agent_start Hook
 
+<!-- The user suspects if it is correct or true: "The logic will live in the agent_end hook (the only place A currently runs) and will use only the live ctx API" -->
+
 ## The Gap
 
 ```
