@@ -23,10 +23,18 @@ pub fn connect() -> promise.Promise(Result(Connection, DbError)) {
 
   let client = node_pg.new_client(config)
 
-  promise.map(node_pg.connect(client), fn(result) {
-    case result {
-      Ok(_) -> Ok(Connection(client))
-      Error(e) -> Error(ConnectionError(e.message))
+  promise.await(node_pg.connect(client), fn(connect_result) {
+    case connect_result {
+      Error(e) -> promise.resolve(Error(ConnectionError(e.message)))
+      Ok(_) -> {
+        // Set app.current_project_id for RLS policies
+        // This allows INSERT/UPDATE/SELECT on tables with project isolation
+        let project_id = "0d324e68-b399-4b85-bd8a-6b1ef7b46168"
+        let set_sql = "SET app.current_project_id = '" <> project_id <> "'"
+        promise.map(node_pg.query(client, set_sql, []), fn(_) {
+          Ok(Connection(client))
+        })
+      }
     }
   })
 }
