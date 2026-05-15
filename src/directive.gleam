@@ -5,7 +5,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import db
-import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, template, string_param, opt_string_param, from_param}
+import pi_tool_call.{type PiToolCall, PiToolCall, template, string_param, opt_string_param, from_param}
 import agent_identity.{get_resolved_identity}
 
 pub type DirectiveError {
