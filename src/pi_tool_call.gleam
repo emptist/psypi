@@ -180,11 +180,12 @@ pub fn to_js_text(tool: PiToolCall) -> String {
   let args_js = args_to_js(tool.args)
   let call_expr = tool.module <> "_" <> tool.fn_name <> "(" <> args_js <> ")"
   let result_js = result_to_js(tool.result_format)
+  let name = tool.name
 
   [
     "  // " <> tool.description,
     "  pi.registerTool({",
-    "    name: \"" <> tool.name <> "\",",
+    "    name: \"" <> name <> "\",",
     "    description: \"" <> tool.description <> "\",",
     "    parameters: " <> params_js <> ",",
     "    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {",
@@ -192,14 +193,14 @@ pub fn to_js_text(tool: PiToolCall) -> String {
     "        const result = await " <> call_expr <> ";",
     "        const r = unwrapGleamResult(result);",
     "        if (!r.ok) {",
-    "          ctx.ui.notify('Tool " <> tool.name <> " error: ' + r.error, 'error');",
+    "          pi_extension_notify_error(ctx, 'Tool " <> name <> " error: ' + r.error);",
     "        }",
     "        return r.ok ? { content: [{ type: \"text\", text: "
       <> result_js
       <> " }] } : { content: [{ type: \"text\", text: `Error: ${r.error}` }] };",
     "      } catch(e) {",
-    "        ctx.ui.notify('Tool " <> tool.name <> " exception: ' + e.message, 'error');",
-    "        return { content: [{ type: \"text\", text: `Error: ${e.message}` }] };",
+    "        pi_extension_notify_error(ctx, 'Tool " <> name <> " exception: ' + (e.message || String(e)));",
+    "        return { content: [{ type: \"text\", text: `Error: ${e.message || String(e)}` }] };",
     "      }",
     "    }",
     "  });",

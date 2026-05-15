@@ -18,6 +18,7 @@ import learning.{learn_save_tool}
 import meeting.{meeting_create_tool, meeting_get_tool, meeting_list_tool, meeting_opinions_tool}
 import memory.{memory_search_tool}
 import monitor_ai.{monitor_alerts_tool, monitor_health_tool, monitor_stats_tool, monitor_status_tool, monitor_suggest_tool}
+
 import pi_tool_call.{type PiToolCall, type PiEventHook, type PiCommandReg, command_to_js, event_hook, event_hook_to_js, to_import_line, to_js_text}
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import stats.{stats_show_tool}
@@ -126,6 +127,7 @@ fn imports_text(tools: List(PiToolCall)) -> String {
     "// DO NOT EDIT - Regenerate with: gleam run -m extension_generator",
     "",
     "import { complete, getModel } from \"@mariozechner/pi-ai\";",
+    "import { notify_error as pi_extension_notify_error } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
     "",
   ]
   |> list.map(fn(s) { s <> "\n" })

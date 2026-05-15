@@ -178,12 +178,12 @@ pub fn add(
   issue_type: String,
   created_by: String,
 ) -> promise.Promise(Result(String, IssueError)) {
-  case string_to_severity(severity) {
-    Error(e) -> promise.resolve(Error(QueryError(e)))
-    Ok(severity_val) -> {
-      case string_to_type(issue_type) {
-        Error(e) -> promise.resolve(Error(QueryError(e)))
-        Ok(type_val) -> {
+  case list.contains(["critical", "high", "medium", "low", "cosmetic"], severity) {
+    False -> promise.resolve(Error(QueryError("Invalid severity: " <> severity <> ". Allowed: critical, high, medium, low, cosmetic")))
+    True -> {
+      case list.contains(["bug", "inconsistency", "feature", "improvement", "question", "debt"], issue_type) {
+        False -> promise.resolve(Error(QueryError("Invalid issue_type: " <> issue_type <> ". Allowed: bug, inconsistency, feature, improvement, question, debt")))
+        True -> {
           db.with_connection(fn(conn) {
             let sql = "
               INSERT INTO issues (title, description, severity, issue_type, created_by)
@@ -193,8 +193,8 @@ pub fn add(
             let params = [
               dynamic.string(title),
               dynamic.string(description),
-              dynamic.string(severity_to_string(severity_val)),
-              dynamic.string(type_to_string(type_val)),
+              dynamic.string(severity),
+              dynamic.string(issue_type),
               dynamic.string(created_by),
             ]
 
