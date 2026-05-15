@@ -1,18 +1,12 @@
-// generator/before_agent_start.gleam — Simple restart question for S-worker
+// generator/before_agent_start.gleam — Empty (no A-worker trigger here)
+// A-worker is only activated for inter-review and commit via psypi-commit tool
 
 import gleam/list
 import gleam/string
 
 pub fn handler_body() -> String {
   [
-    "    // AUTONOMIC: Ask S-worker what's next (simple restart)\n",
-    "    try {\n",
-    "      return {\n",
-    "        systemPrompt: event.systemPrompt + '\\n\\n[DIRECTIVES]\\n1. [Autonomic] What is the next step you plan to do to improve psypi?\\n[END DIRECTIVES]',\n",
-    "      };\n",
-    "    } catch(err) {\n",
-    "      // Non-blocking\n",
-    "    }\n",
+    "    // before_agent_start: no A-worker trigger (only for inter-review/commit)\n",
   ]
   |> list.map(fn(s) { s <> "\n" })
   |> string.concat
