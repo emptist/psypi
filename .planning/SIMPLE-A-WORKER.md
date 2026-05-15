@@ -1,107 +1,98 @@
 # Simple A-Worker: Ask S 2 Questions
 
-**Design:** At `before_agent_start`, A asks S exactly 2 questions. S answers and goes back to work.
+**Design:** At `before_agent_start`, A checks if S was idle. If yes, A asks S 2 questions.
 
 ---
 
-## How It Works
+## The Mechanism
+
+`BeforeAgentStartEvent` fires after user submits prompt but before agent loop.
+
+A checks `ctx.isIdle()`:
+- `true` → S was idle (not working) → A injects 2 questions
+- `false` → S is still working → A stays silent
+
+```typescript
+// BeforeAgentStartEventResult
+interface BeforeAgentStartEventResult {
+    systemPrompt?: string;  // Replace system prompt for this turn
+}
+```
+
+A returns a modified system prompt with 2 questions appended.
+
+---
+
+## Flow
 
 ```
-S finishes working → agent_end fires
+User sends message
   → before_agent_start fires
-    → A checks context, decides 2 questions
-    → A injects questions into system prompt
-  → S wakes up, sees questions, answers them
-  → S continues working with A's context
+    → A checks ctx.isIdle()
+      │
+      ├─ true (S was idle)
+      │   ├─ A reads session context (what S was doing)
+      │   ├─ A selects 2 questions
+      │   └─ A returns modified system prompt with questions
+      │
+      └─ false (S was working)
+          └─ A returns nothing (no injection)
+  → S wakes up
+    → Sees questions in system prompt (if any)
+    → Answers them naturally
+    → Continues working
 ```
 
 ---
 
-## A's Decision Logic
+## A's Question Selection
 
-A reads the session context and picks 2 questions from these categories:
-
-### Category 1: Context Preservation (always relevant)
-- "What was the most important thing you just accomplished?"
-- "What should I make sure to remember for next time?"
-
-### Category 2: Direction (when S might be stuck)
-- "What's blocking you right now?"
-- "What do you plan to work on next?"
-
-### Category 3: Quality (when code was written)
-- "Is there anything you'd change about what you just did?"
-- "Are there any edge cases you haven't handled?"
-
-### Category 4: Knowledge (when learning happened)
-- "What's the key insight from this session?"
-- "What would you tell your past self about this work?"
-
----
-
-## Selection Rules
-
-A picks 2 questions based on what S was doing:
+A reads recent session entries to understand what S was doing, then picks 2 questions:
 
 | S's Recent Activity | Question 1 | Question 2 |
 |---------------------|------------|------------|
 | Code changes | What was the most important change? | Is there anything you'd change? |
-| Bug fix | What was the root cause? | What should I remember for next time? |
-| File creation | What's the purpose of this file? | Are there edge cases to handle? |
-| Task completion | What did you accomplish? | What's the next task? |
-| Stuck/blocked | What's blocking you? | What do you need to unblock? |
-| Learning/research | What's the key insight? | How does this affect our approach? |
+| Bug fix | What was the root cause? | What should I remember? |
+| Task completion | What did you accomplish? | What's next? |
+| Stuck/blocked | What's blocking you? | What do you need? |
+| Learning | What's the key insight? | How does this affect our approach? |
+| Nothing recent | What should I work on? | Any blockers? |
 
 ---
 
-## Implementation
+## System Prompt Injection Format
 
-### Step 1: A reads session context
-
-```gleam
-// In before_agent_start handler
-// Read recent session entries to understand what S was doing
-// Check: file edits, tool calls, task completions, errors
 ```
+[Before you continue, I have 2 questions about your recent work:]
 
-### Step 2: A selects 2 questions
+1. <question 1>
+2. <question 2>
 
-```gleam
-// Simple pattern matching on recent activity
-// Pick 2 questions from the appropriate category
+[Please answer them briefly, then continue with your work.]
 ```
-
-### Step 3: A injects into system prompt
-
-```gleam
-// Format:
-// [Autonomic] Before you continue, please answer:
-// 1. <question 1>
-// 2. <question 2>
-//
-// Your answers will help me understand your work better.
-```
-
-### Step 4: S answers and continues
-
-S sees the questions in the system prompt, answers them naturally, and continues working. A reads the answers at the next `before_agent_start`.
 
 ---
 
-## Why This Works
+## Implementation Steps (龟兔赛跑)
 
-1. **Simple**: Only 2 questions, easy to implement
-2. **Non-intrusive**: S answers naturally, no separate interaction
-3. **Context-preserving**: A learns what S was thinking
-4. **Adaptive**: Questions match what S was doing
-5. **Gradual**: Can add more sophistication later
+### Step 1: Basic Hook
+- Create `before_agent_start` handler
+- Check `ctx.isIdle()`
+- If idle, append 2 generic questions to system prompt
+- Test: Does S see the questions?
+
+### Step 2: Context-Aware Questions
+- Read recent session entries
+- Select questions based on what S was doing
+- Test: Are questions relevant?
+
+### Step 3: Save Q&A
+- Save questions and answers to database
+- Build knowledge base over time
+- Test: Can A reference past Q&A?
 
 ---
 
-## Next Steps After This Works
+## Key Principle
 
-1. Save A's questions and S's answers to database
-2. Build a knowledge base from Q&A pairs
-3. A starts making suggestions, not just asking
-4. A starts setting directives based on patterns
-5. Full autonomous operation
+**A only speaks when S is idle.** Never interrupt S while working.
