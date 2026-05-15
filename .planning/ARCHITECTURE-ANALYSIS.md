@@ -399,16 +399,37 @@ Gleam's solution:
 
 ## Summary
 
-| Aspect | Current (Broken) | Target |
-|--------|-----------------|--------|
-| Monitor trigger | LLM generic prompt | Event-driven rules |
-| Monitor power | Text-only (complete) | Full tools (like Worker) |
-| Architecture | Separate LLM + bridge | Same agent, hooks |
-| Work discovery | "Decide what to do" | Event → Condition → Action |
-| Code complexity | High (dead code, broken paths) | Low (clear rules) |
-| Cost | High (LLM for simple DB queries) | Low (rules for 90%, LLM for 10%) |
+| Aspect | Old Design | Current Status | Target |
+|--------|-----------|----------------|--------|
+| Monitor trigger | LLM generic prompt | Event-driven rules | ✅ Done |
+| Monitor power | Text-only (complete) | ⚠️ Partial - DB + LLM, no direct tools | Full tools (like Worker) |
+| Architecture | Separate LLM + bridge | ✅ Same agent, hooks | ✅ Done |
+| Work discovery | "Decide what to do" | ✅ Event → Condition → Action | ✅ Done |
+| System prompt injection | Not implemented | ✅ Before_agent_start reads DB → injects | ✅ Done |
+
+**Status (2026-05-13):**
+- Phase 1 mostly done: events connected, injection works
+- **MISSING**: Monitor still doesn't have full tool access (`setActiveTools` not implemented)
+- `callMonitor()` is text-only LLM consultation
 
 **Core insight:** Monitor should be event-driven automation with LLM for edge cases, NOT an LLM wrapper with tool bridge.
+
+---
+
+## Implementation Status
+
+### ✅ Implemented
+- `before_agent_start` → reads DB notifications → injects into system prompt
+- `tool_result` → detects errors → notification + auto-file issue
+- `session_start` → health check, record model
+- `model_select` → record model changes
+- `psypi_event_hooks` table → 30 events mapped
+- `psypi-hooks-list` + `psypi-hooks-active` tools
+
+### ⚠️ Not Yet Implemented
+- **Monitor full tool access** — `before_agent_start` should call `pi.setActiveTools([...])` to enable Worker tools for Monitor
+- `callMonitor()` currently does LLM consultation only (text, no tool execution)
+- Phase 2-3 (Monitor writes code, modifies schema) not started
 
 ---
 

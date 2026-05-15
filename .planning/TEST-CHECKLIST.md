@@ -12,7 +12,15 @@
 - [ ] Monitor SOUL loads: `A-psypi-psypi` → name="Monitor", traits
 - [ ] Different SOULs → different behaviors
 
-## 3. System Prompt Injection (Experiment 1)
+## 3. System Prompt Injection — Implemented (Experiment 1)
+
+- [x] `before_agent_start` hook reads DB notifications
+- [x] `tool_result` hook detects errors → notification + auto-file
+- [x] `model_select` hook records model changes
+- [ ] Manual test: send message → see `[MONITOR ALERT]` if notifications exist
+- [ ] DB test: insert notification → send message → check if injected
+
+## 4. Notification Round-trip (Experiment 2)
 
 - [ ] Run `psypi`
 - [ ] Send any message
@@ -45,6 +53,7 @@ VALUES ('S-psypi-psypi-unknown', 'high', 'Test', 'Check this!');
 
 ```bash
 rm -rf build/ && gleam build
+gleam run -m simple_migrate    # Run DB migrations first
 gleam run -m extension_generator
 psypi
 ```

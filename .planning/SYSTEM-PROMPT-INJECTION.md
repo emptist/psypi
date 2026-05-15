@@ -308,6 +308,8 @@ pi.on('before_agent_start', async (event, ctx) => {
 - [x] notifications table created
 - [x] monitor.gleam: added notification functions
 - [x] Experiment 1 ready (simple injection test)
+- [x] `before_agent_start` hook implemented (Phase 1 complete)
+- [x] `tool_result` hook: error detection → notification + auto-file issue
 - [ ] Test: simple injection (Experiment 1)
 - [ ] Test: DB read (Experiment 2)
 - [ ] Test: full round-trip (Experiment 4)
