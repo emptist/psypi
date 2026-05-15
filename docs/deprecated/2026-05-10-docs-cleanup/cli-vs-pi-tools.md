@@ -24,9 +24,9 @@
 | `inter-review-request <taskId>` | Yes          | `psypi-inter-review-request` | Done (TS)             |
 | `inter-review-show <reviewId>`  | Yes          | `psypi-inter-review-show` | Done (TS)                 |
 | `inter-reviews [status]`        | Yes          | `psypi-inter-reviews`      | Done (TS)                 |
-| `inner set-model`               | Yes          | `psypi-monitor-set-model` | Done                      |
+| `inner set-model`               | Yes          | `psypi-autonomic-set-model` | Done                      |
 | `inner model`                   | Yes          | `psypi-partner-id`        | Done (same as partner-id) |
-| `inner review`                  | Yes          | `psypi-monitor-review`    | Done                      |
+| `inner review`                  | Yes          | `psypi-autonomic-review`    | Done                      |
 | `status`                        | Yes          | `psypi-status`            | Done                      |
 | `doc-save <name> <content>`     | Yes          | `psypi-doc-save`          | Done                      |
 | `doc-list`                      | Yes          | `psypi-doc-list`          | Done                      |
@@ -48,10 +48,10 @@ The `inner` command is **misleadingly named**. It's actually about the **Monitor
 
 | Subcommand                           | What it does                          | Pi Tool                   | Status |
 | ------------------------------------ | ------------------------------------- | ------------------------- | ------ |
-| `inner set-model [provider] [model]` | Set the Monitor AI model         | `psypi-monitor-set-model` | Done   |
+| `inner set-model [provider] [model]` | Set the Monitor AI model         | `psypi-autonomic-set-model` | Done   |
 | `inner model`                        | Get Monitor ID (same as `partner-id`) | `psypi-partner-id`        | Done   |
-| `inner monitor-model`                 | Get Monitor AI model                | `psypi-monitor-model`     | NEW    |
-| `inner review`                       | Run inter-review by Monitor AI        | `psypi-monitor-review`    | Done   |
+| `inner autonomic-model`                 | Get Monitor AI model                | `psypi-autonomic-model`     | NEW    |
+| `inner review`                       | Run inter-review by Monitor AI        | `psypi-autonomic-review`    | Done   |
 
 **Recommendation**: Rename `inner` CLI to `monitor` for clarity.
 
@@ -79,7 +79,7 @@ The `inner` command is **misleadingly named**. It's actually about the **Monitor
 | `psypi-doc-restore`    | Restore a file version         |
 | `psypi-skill-search`   | Search skills by keyword       |
 | `psypi-broadcast-list` | List broadcast messages         |
-| `psypi-monitor-model`  | Show Monitor AI model (new!)   |
+| `psypi-autonomic-model`  | Show Monitor AI model (new!)   |
 
 Note: These Pi tools exist in the extension but don't have corresponding CLI commands.
 

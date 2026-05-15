@@ -447,9 +447,9 @@ pub fn generate() -> String {
 
 fn monitor_consult_tool() -> String {
   [
-    "  // psypi-monitor-consult - LLM-powered consultation tool",
+    "  // psypi-autonomic-consult - LLM-powered consultation tool",
     "  pi.registerTool({",
-    "    name: 'psypi-monitor-consult',",
+    "    name: 'psypi-autonomic-consult',",
     "    description: 'Consult Monitor for difficult decisions - returns LLM-generated advice',",
     "    parameters: { question: { type: 'string' } },",
     "    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {",

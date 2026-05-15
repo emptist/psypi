@@ -405,7 +405,7 @@ export default function (pi) {
     }
   });
 
-  // System tools (renamed from monitor- to system-)
+  // System tools (renamed from autonomic- to system-)
   pi.registerTool({
     name: "psypi-system-health",
     description: "Check system health",

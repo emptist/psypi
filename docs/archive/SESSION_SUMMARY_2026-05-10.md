@@ -8,7 +8,7 @@ Implement Monitor for psypi - local LLM consultant + silent safety hooks.
 ## Progress
 
 ### Done
-1. ✅ Plan 08-02: psypi-monitor-consult tool - already implemented (uses ctx.model → callMonitor)
+1. ✅ Plan 08-02: psypi-autonomic-consult tool - already implemented (uses ctx.model → callMonitor)
 2. ✅ Plan 08-03: before_agent_start hook - added and working
 3. ✅ 7 event hooks in extension.js now
 

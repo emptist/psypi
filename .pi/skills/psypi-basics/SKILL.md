@@ -14,7 +14,7 @@ description: Quick cheat‑sheet for using Psypi from the TUI (Atonomic vs Somat
 ## Getting your identity
 ```
 /psypi‑my-id          # returns Somatic Worker ID (S‑…)
-/psypi‑monitor-id     # returns Atonomic Worker ID (A‑…)
+/psypi‑autonomic-id     # returns Atonomic Worker ID (A‑…)
 ```
 
 ## Common Pi‑tools (use **inside the Psypi TUI**; just type a leading `/`)

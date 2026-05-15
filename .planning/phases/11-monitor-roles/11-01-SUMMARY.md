@@ -8,12 +8,12 @@ Expand Monitor system with two new capabilities: statistics tracking (model qual
 ### Task 1: Statistics - Model Quality Tracking ✅
 - Added `get_model_stats()` function in `monitor_ai.gleam` - tracks review scores, avg response time, failure count from inter_reviews table (24h window)
 - Added `record_review_score()` function to store review scores
-- Added `psypi-monitor-stats` Pi tool
+- Added `psypi-autonomic-stats` Pi tool
 
 ### Task 2: Self-Design - Monitor Finds Own Jobs ✅
 - Added `get_work_suggestions()` function in `monitor_ai.gleam` - queries open issues, stale tasks (>7 days), pending skills
 - Returns prioritized suggestions (critical issues first, then stale tasks, then pending skills)
-- Added `psypi-monitor-suggest` Pi tool
+- Added `psypi-autonomic-suggest` Pi tool
 
 ### Task 3: Integration ✅
 - Added tools to `all_tools()` in `extension_generator.gleam`
@@ -22,8 +22,8 @@ Expand Monitor system with two new capabilities: statistics tracking (model qual
 - `extension.js` regenerated with 2 new Pi tools
 
 ## New Pi Tools
-- `psypi-monitor-stats` - Get Monitor statistics (review scores, response times, failure rate)
-- `psypi-monitor-suggest` - Get work suggestions from Monitor (open issues, stale tasks, pending skills)
+- `psypi-autonomic-stats` - Get Monitor statistics (review scores, response times, failure rate)
+- `psypi-autonomic-suggest` - Get work suggestions from Monitor (open issues, stale tasks, pending skills)
 
 ## No New Tables
 Used existing `inter_reviews` table for statistics (24h query).

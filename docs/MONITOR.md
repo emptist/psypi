@@ -7,7 +7,7 @@
 Monitor is NOT a separate agent process. It's simply:
 - `monitor.gleam` - Functions (notifications, model config, health)
 - `monitor_ai.gleam` - AI functions (suggestions, stats, alerts)
-- Pi tools (`psypi-monitor-*`, `psypi-commit`, `psypi-monitor-consult`)
+- Pi tools (`psypi-autonomic-*`, `psypi-commit`, `psypi-autonomic-consult`)
 - Event hooks in `extension.js` (tool_call, session_start, before_agent_start, etc.)
 
 All run under an **autonomous identity** (from `get_resolved_identity(autonomous=true, ...)` → `A-psypi-psypi`).
@@ -43,7 +43,7 @@ All run under an **autonomous identity** (from `get_resolved_identity(autonomous
           │ 2. MIDDLE OF WORKFLOW (proactive)        │
           │                                          │
           │ Worker: "Should I use array or dict?"   │
-          │ psypi-monitor-consult → Monitor          │
+          │ psypi-autonomic-consult → Monitor          │
           └──────────────────────────────────────────┘
 ```
 
@@ -72,8 +72,8 @@ Monitor watches and maintains the system via event hooks:
 Worker proactively consults Monitor:
 
 ```bash
-psypi-monitor-consult "Should I use array or dict?"
-psypi-monitor-consult "What do you think about this approach?"
+psypi-autonomic-consult "Should I use array or dict?"
+psypi-autonomic-consult "What do you think about this approach?"
 ```
 
 Returns LLM-generated advice using same model as worker.
@@ -106,12 +106,12 @@ retry ────────────────────────�
 | Tool | Description |
 |------|-------------|
 | `psypi-my-id` | Get current agent ID |
-| `psypi-monitor-id` | Get monitor/partner permanent ID |
-| `psypi-monitor-health` | Get system health metrics |
-| `psypi-monitor-alerts` | Get active alerts (failed tasks, open issues) |
-| `psypi-monitor-stats` | Get model quality (review scores, response times, failure rate) |
-| `psypi-monitor-suggest` | Get work suggestions (open issues, stale tasks, pending skills) |
-| `psypi-monitor-consult` | Consult Monitor for difficult decisions (LLM) |
+| `psypi-autonomic-id` | Get monitor/partner permanent ID |
+| `psypi-autonomic-health` | Get system health metrics |
+| `psypi-autonomic-alerts` | Get active alerts (failed tasks, open issues) |
+| `psypi-autonomic-stats` | Get model quality (review scores, response times, failure rate) |
+| `psypi-autonomic-suggest` | Get work suggestions (open issues, stale tasks, pending skills) |
+| `psypi-autonomic-consult` | Consult Monitor for difficult decisions (LLM) |
 | `psypi-commit` | Commit with inter-review (Mode 3) |
 
 ---
@@ -175,7 +175,7 @@ Monitor IS the workflow. It's not a separate process - it's the permanent identi
 Monitor has no periodic polling. Everything is triggered by:
 - Worker actions (tool calls)
 - Workflow boundaries (commit)
-- Explicit requests (psypi-monitor-consult)
+- Explicit requests (psypi-autonomic-consult)
 
 ---
 

@@ -22,18 +22,18 @@ inter_reviews: 6027 completed
 - extension.js generated with Monitor tools ✓
 
 ## Tools Available
-- psypi-monitor-status - Returns "psypi Monitor: OK"
-- psypi-monitor-health - Returns health metrics (JSON)
-- psypi-monitor-alerts - Returns alert counts (JSON)
+- psypi-autonomic-status - Returns "psypi Monitor: OK"
+- psypi-autonomic-health - Returns health metrics (JSON)
+- psypi-autonomic-alerts - Returns alert counts (JSON)
 
 ## Not Done (for discussion)
 - setInterval health check in extension hooks (needs careful implementation)
 - prepare_context() implementation (code_versions table doesn't exist)
 
 ## Files
-- `.planning/phases/08-monitor-design/08-01-RESEARCH.md`
-- `.planning/phases/08-monitor-design/08-01-FINDINGS.md`
-- `.planning/phases/08-monitor-design/08-02-PLAN.md`
+- `.planning/phases/08-autonomic-design/08-01-RESEARCH.md`
+- `.planning/phases/08-autonomic-design/08-01-FINDINGS.md`
+- `.planning/phases/08-autonomic-design/08-02-PLAN.md`
 
 ## Tags
 #monitor #demo #psypi #health-checks

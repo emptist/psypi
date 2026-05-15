@@ -136,10 +136,10 @@ tool error detected
 
 ### Autonomic Worker Tools
 
-- `psypi-monitor-status` — Autonomic Worker status
-- `psypi-monitor-health` — System health metrics
-- `psypi-monitor-alerts` — Active alerts
-- `psypi-monitor-suggest` — Work suggestions
+- `psypi-autonomic-status` — Autonomic Worker status
+- `psypi-autonomic-health` — System health metrics
+- `psypi-autonomic-alerts` — Active alerts
+- `psypi-autonomic-suggest` — Work suggestions
 - `psypi-consult-autonomic` — LLM-powered consultation
 - `psypi-commit` — Commit with Autonomic Worker inter-review
 

@@ -123,7 +123,7 @@ Monitor is NOT a separate agent. It's:
 - `monitor.gleam` — Functions (notifications, model config)
 - `monitor_ai.gleam` — AI functions (stats, alerts)
 - Event hooks in `extension.js`
-- Pi tools (`psypi-monitor-*`)
+- Pi tools (`psypi-autonomic-*`)
 
 All run under **autonomous identity** (`A-psypi-psypi-<sid>`).
 
@@ -166,7 +166,7 @@ Via event hooks:
 
 ### Mode 2: Middle of Workflow (Proactive)
 
-Worker calls `psypi-monitor-consult` for advice.
+Worker calls `psypi-autonomic-consult` for advice.
 
 ### Mode 3: End of Workflow (Inter-review)
 

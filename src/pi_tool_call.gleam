@@ -72,7 +72,7 @@ pub type PiEventHook {
 /// The handler body is JS text that receives (args, ctx) like other extensions.
 pub type PiCommandReg {
   PiCommandReg(
-    name: String,         // e.g. "monitor-listen"
+    name: String,         // e.g. "autonomic-listen"
     description: String,  // shown when user types /commands
     handler_body: String, // JS handler body: async (args, ctx) => { ... }
   )

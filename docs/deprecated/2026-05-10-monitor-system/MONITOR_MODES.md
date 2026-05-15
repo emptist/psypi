@@ -27,7 +27,7 @@
          │                                          │
          │ Worker: "Should I use array or dict?"   │
          │ Worker: "What do you think?"            │
-         │ psypi-monitor-consult → Monitor          │
+         │ psypi-autonomic-consult → Monitor          │
          └──────────────────────────────────────────┘
 ```
 
@@ -45,7 +45,7 @@ Monitor watches and maintains the system:
 Worker proactively consults Monitor:
 - "Should I use array or dict?"
 - "What do you think about this approach?"
-- Tool: `psypi-monitor-consult`
+- Tool: `psypi-autonomic-consult`
 
 ## Mode 3: End of Workflow (triggered)
 Triggered at workflow boundaries (e.g., git commit):
@@ -58,7 +58,7 @@ Triggered at workflow boundaries (e.g., git commit):
 
 ## Current State (needs fixing)
 - Mode 1: ✅ Implemented (event hooks)
-- Mode 2: ✅ Implemented (psypi-monitor-consult)
+- Mode 2: ✅ Implemented (psypi-autonomic-consult)
 - Mode 3: ❌ Still uses external LLM (P-tencent/hy3-preview:free-psypi)
 
 **Fix needed:** inter_review should use Monitor's LLM, not external service.

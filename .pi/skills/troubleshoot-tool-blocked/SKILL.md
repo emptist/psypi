@@ -34,7 +34,7 @@ The Psypi system tracks these as issues; checking recent issues can provide clue
 ## Step 2: Examine System Logs and Recent Issues
 - Run `psypi-issues` to see recent issues, especially those related to the blocked tool or system components
 - Look for issues with titles like "Undefined function", "database schema mismatch", "import aliasing", or specific to the blocked tool
-- Check system health: `psypi-monitor-health` and `psypi-monitor-alerts` for any flags
+- Check system health: `psypi-autonomic-health` and `psypi-autonomic-alerts` for any flags
 
 **B. Database Schema Mismatches**
 - Look for errors like "column X does not exist in table Y"

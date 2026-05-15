@@ -10,7 +10,7 @@ Enable the Atonomic Worker (Monitor) to modify the system prompt that the Somati
 - **Monitor → Worker communication** currently happens via:
   1. DB notifications → `before_agent_start` hook → injects `[MONITOR ALERT]` into system prompt
   2. `tool_result` hook → auto-creates notifications on errors
-  3. `psypi-monitor-consult` tool → LLM-powered advice
+  3. `psypi-autonomic-consult` tool → LLM-powered advice
 - **Problem**: The Atonomic Worker has NO direct way to modify the system prompt. It can only create DB notifications (limited, one-shot) or respond to consult requests (reactive, not proactive).
 
 ### What Pi Supports (from docs)
@@ -54,7 +54,7 @@ The Atonomic Worker needs a **dedicated tool** that writes a "system prompt dire
 
 ### Issue 5: Atonomic Worker cannot proactively direct Somatic Worker
 **Severity**: Critical (this is the main task)  
-**Problem**: The Atonomic Worker has no tool to set persistent system prompt directives. It can only react to `psypi-monitor-consult` requests or create one-shot DB notifications.  
+**Problem**: The Atonomic Worker has no tool to set persistent system prompt directives. It can only react to `psypi-autonomic-consult` requests or create one-shot DB notifications.  
 **Fix**: Create a new `psypi-set-directive` tool and update the `before_agent_start` hook.
 
 ## Tasks

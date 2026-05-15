@@ -196,7 +196,7 @@ generate_semantic_id(autonomous: Bool, source, project, session_id, model)
 | Tool calls (Worker) | `get_resolved_identity(false, sessionId, ...)` → S- |
 | Hooks/Events (Monitor) | `get_resolved_identity(true, ...)` → A- |
 | No parameters needed | `psypi-my-id` tool → S- |
-| Monitor/Partner ID | `psypi-monitor-id` tool → A- |
+| Monitor/Partner ID | `psypi-autonomic-id` tool → A- |
 
 ---
 

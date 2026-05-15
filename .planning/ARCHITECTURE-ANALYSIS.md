@@ -5,7 +5,7 @@
 ### Original Premise (Paradox Found)
 > "Build a Monitor AI with the same power as the Worker AI"
 
-**Problem discovered:** "Monitor" was being built as a SEPARATE AI with `complete()` (text-only) → `psypi-monitor-exec` bridge. This is WEAKER than Worker, not equal.
+**Problem discovered:** "Monitor" was being built as a SEPARATE AI with `complete()` (text-only) → `psypi-autonomic-exec` bridge. This is WEAKER than Worker, not equal.
 
 ### Corrected Understanding
 - **Worker (no prefix)**: Triggered by user/system prompts
@@ -154,7 +154,7 @@ This suggests the Monitor needs to PROACTIVELY communicate state changes, not ju
 
 ### Architecture A: What We Built
 ```
-Event → Hook → callMonitor (LLM text) → psypi-monitor-exec → Gleam → DB
+Event → Hook → callMonitor (LLM text) → psypi-autonomic-exec → Gleam → DB
 ```
 
 ### Architecture B: What We Should Build
@@ -164,7 +164,7 @@ Event → Hook → P-Monitor (real Pi agent with tools) → DB
 
 Architecture A adds unnecessary complexity:
 - LLM adds latency and cost for things that are just DB queries
-- The `psypi-monitor-exec` bridge is a workaround for the LLM not having tools
+- The `psypi-autonomic-exec` bridge is a workaround for the LLM not having tools
 - Monitor is WEAKER than Worker because it can't use tools directly
 
 ---
@@ -273,7 +273,7 @@ Problem: If Monitor acts on every `agent_end`, we spawn too many sessions.
    - Better: Scheduled queries + event triggers
 
 4. **Tool access for Monitor**
-   - Current: `psypi-monitor-exec` (roundabout)
+   - Current: `psypi-autonomic-exec` (roundabout)
    - Better: Direct tool calls (same as Worker)
 
 ---

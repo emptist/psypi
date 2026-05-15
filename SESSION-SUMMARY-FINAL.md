@@ -42,9 +42,9 @@ A-worker messages display with `[Autonomic]` prefix on screen.
 
 ### 5. Renamed tools
 - `psypi-my-id` → `psypi-somatic-id`
-- `psypi-monitor-id` → `psypi-autonomic-id`
+- `psypi-autonomic-id` → `psypi-autonomic-id`
 - `psypi-set-directive` → `psypi-direct-worker`
-- `psypi-monitor-consult` → `psypi-consult-autonomic`
+- `psypi-autonomic-consult` → `psypi-consult-autonomic`
 
 ### 6. Updated documentation
 - `docs/DREAM-TEAM-ARCHITECTURE.md` — Complete rewrite with AC metaphor

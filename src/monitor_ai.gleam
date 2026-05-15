@@ -147,10 +147,10 @@ pub fn prepare_context(agent_id: String) -> promise.Promise(Result(String, Monit
 // Monitor Pi Tools
 // -------------------------------------------------------------------
 
-/// Pi tool: psypi-monitor-health — get system health metrics
+/// Pi tool: psypi-autonomic-health — get system health metrics
 pub fn monitor_health_tool() -> PiToolCall {
   PiToolCall(
-    name: "psypi-monitor-health",
+    name: "psypi-autonomic-health",
     description: "Get system health metrics (failed tasks, open issues, activity)",
     params: [],
     module: "monitor_ai",
@@ -160,23 +160,23 @@ pub fn monitor_health_tool() -> PiToolCall {
   )
 }
 
-/// Pi tool: psypi-monitor-status — get psypi status
+/// Pi tool: psypi-autonomic-status — get psypi status
 pub fn monitor_status_tool() -> PiToolCall {
   PiToolCall(
-    name: "psypi-monitor-status",
+    name: "psypi-autonomic-status",
     description: "Get psypi Monitor status and capabilities",
     params: [],
     module: "monitor_ai",
     fn_name: "start_monitor_loop",
     args: [],
-    result_format: template("psypi Monitor: OK - use psypi-monitor-health for metrics"),
+    result_format: template("psypi Monitor: OK - use psypi-autonomic-health for metrics"),
   )
 }
 
-/// Pi tool: psypi-monitor-alerts — get active alerts
+/// Pi tool: psypi-autonomic-alerts — get active alerts
 pub fn monitor_alerts_tool() -> PiToolCall {
   PiToolCall(
-    name: "psypi-monitor-alerts",
+    name: "psypi-autonomic-alerts",
     description: "Get active alerts (failed tasks, open issues)",
     params: [],
     module: "monitor_ai",
@@ -378,10 +378,10 @@ pub fn check_safety() -> promise.Promise(Result(SafetyResult, MonitorError)) {
 // Pi Tools for Statistics and Self-Design
 // -------------------------------------------------------------------
 
-/// Pi tool: psypi-monitor-stats — get model quality statistics
+/// Pi tool: psypi-autonomic-stats — get model quality statistics
 pub fn monitor_stats_tool() -> PiToolCall {
   PiToolCall(
-    name: "psypi-monitor-stats",
+    name: "psypi-autonomic-stats",
     description: "Get Monitor statistics (review scores, response times, failure rate)",
     params: [],
     module: "monitor_ai",
@@ -391,10 +391,10 @@ pub fn monitor_stats_tool() -> PiToolCall {
   )
 }
 
-/// Pi tool: psypi-monitor-suggest — get work suggestions
+/// Pi tool: psypi-autonomic-suggest — get work suggestions
 pub fn monitor_suggest_tool() -> PiToolCall {
   PiToolCall(
-    name: "psypi-monitor-suggest",
+    name: "psypi-autonomic-suggest",
     description: "Get work suggestions from Monitor (open issues, stale tasks, pending skills)",
     params: [],
     module: "monitor_ai",
@@ -408,15 +408,15 @@ pub fn monitor_suggest_tool() -> PiToolCall {
 // Slash commands for human interaction
 // -------------------------------------------------------------------
 
-/// /monitor-listen command - Human tells Monitor what to do, Monitor replies in chat
+/// /autonomic-listen command - Human tells Monitor what to do, Monitor replies in chat
 pub fn monitor_listen_command() -> PiCommandReg {
   command(
-    "monitor-listen",
+    "autonomic-listen",
     "Talk to Monitor AI directly - human and Monitor exchange in chat",
     "
       // If no arguments, show help
       if (!args || args.trim() === '') {
-        ctx.ui.notify('Usage: /monitor-listen <message>\\nExample: /monitor-listen What should I work on?', 'info');
+        ctx.ui.notify('Usage: /autonomic-listen <message>\\nExample: /autonomic-listen What should I work on?', 'info');
         return;
       }
       
@@ -428,27 +428,27 @@ pub fn monitor_listen_command() -> PiCommandReg {
         const reply = await callMonitor(ctx, messages, systemPrompt);
         // Inject Monitor's reply directly into session chat
         pi.sendMessage({
-          customType: 'monitor-reply',
+          customType: 'autonomic-reply',
           content: [{ type: 'text', text: 'Monitor: ' + reply }],
           display: 'monitor',
-          details: { tool: 'monitor-listen' }
+          details: { tool: 'autonomic-listen' }
         }, { triggerTurn: false });
       } catch(e) {
         pi.sendMessage({
-          customType: 'monitor-reply',
+          customType: 'autonomic-reply',
           content: [{ type: 'text', text: 'Monitor error: ' + e.message }],
           display: 'error',
-          details: { tool: 'monitor-listen', error: e.message }
+          details: { tool: 'autonomic-listen', error: e.message }
         }, { triggerTurn: false });
       }
     ",
   )
 }
 
-/// /monitor-reload command - Reload Pi extensions (for Monitor's self-improvement)
+/// /autonomic-reload command - Reload Pi extensions (for Monitor's self-improvement)
 pub fn monitor_reload_command() -> PiCommandReg {
   command(
-    "monitor-reload",
+    "autonomic-reload",
     "Reload Pi extensions - used after Monitor modifies its own Gleam code",
     "
       ctx.ui.notify('Reloading extensions...', 'info');

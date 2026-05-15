@@ -57,7 +57,7 @@
 /Users/jk/gits/hub/tools_ai/psypi/src/agent/extension/db.ts
 /Users/jk/gits/hub/tools_ai/psypi/src/agent/extension/extension.ts
 /Users/jk/gits/hub/tools_ai/psypi/src/agent/index.ts
-/Users/jk/gits/hub/tools_ai/psypi/src/agent/monitor-extension.ts
+/Users/jk/gits/hub/tools_ai/psypi/src/agent/autonomic-extension.ts
 /Users/jk/gits/hub/tools_ai/psypi/src/cli-wrapper.ts
 /Users/jk/gits/hub/tools_ai/psypi/src/kernel/config/Config.ts
 /Users/jk/gits/hub/tools_ai/psypi/src/kernel/config/constants.ts

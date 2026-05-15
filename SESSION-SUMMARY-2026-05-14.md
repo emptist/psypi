@@ -22,7 +22,7 @@ Additionally, `agent_identity_get_resolved_identity` and `log_activity` calls cr
 
 ## Tool Renaming
 - `psypi-my-id` → `psypi-somatic-id` (S- prefix, prompt-driven)
-- `psypi-monitor-id` → `psypi-autonomic-id` (A- prefix, event-driven)
+- `psypi-autonomic-id` → `psypi-autonomic-id` (A- prefix, event-driven)
 - `psypi-set-directive` → `psypi-direct-worker` (better English, only A-worker uses this)
 
 ## Key Architectural Insight

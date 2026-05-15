@@ -60,7 +60,7 @@ psypi instance
 ### Round 3: Monitor Tool Design
 - [ ] Define tool parameters (what worker asks Monitor)
 - [ ] Design system prompt for Monitor
-- [ ] Implement: psypi-monitor-consult tool in Gleam
+- [ ] Implement: psypi-autonomic-consult tool in Gleam
 
 ### Round 4: Safety Integration
 - [ ] Research: tool_call hook can return { block: true }
@@ -87,7 +87,7 @@ const response = await complete(model, { messages: [...] }, { apiKey, headers })
 ### IMPLEMENTED: First Working Monitor Tool
 - Added `@mariozechner/pi-ai` import to extension.js
 - Added `callMonitor` helper function in helpers_text()
-- Added `psypi-monitor-consult` tool that calls LLM
+- Added `psypi-autonomic-consult` tool that calls LLM
 - Uses SAME model as worker (ctx.model)
 - No spawn, no external service, no loop!
 
@@ -114,7 +114,7 @@ async function callMonitor(messages, systemPrompt) {
 
 ### Verified Working
 - extension.js regenerated with new tool
-- Tool name: psypi-monitor-consult
+- Tool name: psypi-autonomic-consult
 - Parameter: question (string)
 - Uses worker's model via ctx.model
 
@@ -128,7 +128,7 @@ async function callMonitor(messages, systemPrompt) {
 
 ## Verification Criteria
 
-- [ ] Worker can call psypi-monitor-consult
+- [ ] Worker can call psypi-autonomic-consult
 - [ ] Monitor returns LLM-generated response
 - [ ] No spawn, no external service, no loop
 - [ ] Safety block works for dangerous operations

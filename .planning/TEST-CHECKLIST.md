@@ -3,7 +3,7 @@
 ## 1. Identity Computation
 
 - [ ] `psypi-my-id` returns `S-psypi-psypi-unknown`
-- [ ] `psypi-monitor-id` returns `A-psypi-psypi`
+- [ ] `psypi-autonomic-id` returns `A-psypi-psypi`
 - [ ] IDs are computed fresh (no caching)
 
 ## 2. SOUL Lookup
@@ -66,7 +66,7 @@ psypi
 
 # Inside psypi:
 /psypi-my-id        # Should show S-psypi-psypi-unknown
-/psypi-monitor-id  # Should show A-psypi-psypi
+/psypi-autonomic-id  # Should show A-psypi-psypi
 /psypi-tasks       # Should list tasks
 /psypi-issues      # Should list issues
 ```
@@ -76,5 +76,5 @@ psypi
 | Command | Expected |
 |---------|----------|
 | `/psypi-my-id` | `{"id":"S-psypi-psypi-unknown",...}` |
-| `/psypi-monitor-id` | `{"id":"A-psypi-psypi",...}` |
+| `/psypi-autonomic-id` | `{"id":"A-psypi-psypi",...}` |
 | `[MONITOR-INJECTED-...]` | Visible in response after running psypi |

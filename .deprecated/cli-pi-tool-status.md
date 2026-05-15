@@ -24,9 +24,9 @@ This table lists which CLI commands have been promoted to Pi tools, based on cod
 | `inter-review-request <taskId>` | ✅ Yes               | `psypi-inter-review-request`  | Found in extension.js                        |
 | `inter-review-show <reviewId>`  | ✅ Yes               | `psypi-inter-review-show`     | Found in extension.js                        |
 | `inter-reviews [status]`        | ✅ Yes               | `psypi-inter-reviews`         | Found in extension.js                        |
-| `inner set-model`               | ❌ No                | `psypi-monitor-set-model`     | Not found in code                             |
+| `inner set-model`               | ❌ No                | `psypi-autonomic-set-model`     | Not found in code                             |
 | `inner model`                   | ✅ Yes               | `psypi-partner-id`            | Same as partner-id (found)                   |
-| `inner review`                  | ❌ No                | `psypi-monitor-review`        | Not found in code                             |
+| `inner review`                  | ❌ No                | `psypi-autonomic-review`        | Not found in code                             |
 | `status`                        | ❌ No                | `psypi-status` (documented)   | Not found in code                             |
 | `doc-save <name> <content>`     | ❌ No                | `psypi-doc-save` (documented) | Not found in code                             |
 | `doc-list`                      | ❌ No                | `psypi-doc-list` (documented) | Not found in code                             |

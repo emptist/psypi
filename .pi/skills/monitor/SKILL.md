@@ -23,7 +23,7 @@ Simply include Monitor in your thinking by asking:
 - "Should I ask Monitor about...?"
 - "What would Monitor say about...?"
 
-Monitor will provide guidance through the psypi-monitor-consult tool when you call it.
+Monitor will provide guidance through the psypi-autonomic-consult tool when you call it.
 
 ## What Monitor Considers
 

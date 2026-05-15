@@ -137,7 +137,7 @@ Monitor writes to DB → system evolves.
 
 ```
 S-worker1-<sid> → S-worker-N-<sid>  (multiple workers)
-A-monitor1-<sid> → A-monitor-N-<sid>  (multiple monitors)
+A-monitor1-<sid> → A-autonomic-N-<sid>  (multiple monitors)
 ```
 
 Each has own SOUL, own responsibilities.

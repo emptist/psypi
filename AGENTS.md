@@ -243,7 +243,7 @@ Monitor writes to DB → `before_agent_start` hook reads DB → injects into sys
 
 ### Pi Tools Status:
 - **29+ Pi tools** working ✅:
-  - Identity: `psypi-my-id`, `psypi-monitor-id`
+  - Identity: `psypi-my-id`, `psypi-autonomic-id`
   - Tasks: `psypi-task-add`, `psypi-tasks`, `psypi-task-complete`
   - Stats: `psypi-stats-show`
   - Code: `psypi-doc-save`, `psypi-doc-list`
@@ -255,7 +255,7 @@ Monitor writes to DB → `before_agent_start` hook reads DB → injects into sys
   - Reflection: `psypi-areflect`
   - Agents: `psypi-agents`
   - Event hooks: `psypi-hooks-list`, `psypi-hooks-active`
-  - Monitor: `psypi-monitor-status`, `psypi-monitor-health`, `psypi-monitor-alerts`, `psypi-monitor-stats`, `psypi-monitor-suggest`, `psypi-monitor-consult`, `psypi-commit`
+  - Monitor: `psypi-autonomic-status`, `psypi-autonomic-health`, `psypi-autonomic-alerts`, `psypi-autonomic-stats`, `psypi-autonomic-suggest`, `psypi-autonomic-consult`, `psypi-commit`
 
 ### Active Event Hooks:
 | Hook | Action |
@@ -318,7 +318,7 @@ rm -rf build/ && gleam build
 ## 🎯 Your Partner (Monitor/Autonomous AI)
 - **ID**: `A-psypi-psypi`
 - **Job**: Reviews commits via Gleam `run_review()`, monitors system health, sends notifications to Worker
-- **Tools**: `psypi-monitor-status`, `psypi-monitor-health`, `psypi-monitor-alerts`, `psypi-monitor-stats`, `psypi-monitor-suggest`, `psypi-monitor-consult`, `psypi-commit`
+- **Tools**: `psypi-autonomic-status`, `psypi-autonomic-health`, `psypi-autonomic-alerts`, `psypi-autonomic-stats`, `psypi-autonomic-suggest`, `psypi-autonomic-consult`, `psypi-commit`
 
 ### Event Hooks for Autonomous AI
 Autonomous AI integrates via Pi event hooks in `extension.js`:
@@ -332,7 +332,7 @@ Autonomous AI integrates via Pi event hooks in `extension.js`:
 ### Monitor Skill
 Worker can consult Autonomous AI via the `monitor` skill (`.pi/skills/monitor/SKILL.md`):
 - **When**: architectural decisions, safety concerns, trade-offs, quality checks
-- **How**: Use `psypi-monitor-consult` tool or ask "Should I ask Monitor about...?"
+- **How**: Use `psypi-autonomic-consult` tool or ask "Should I ask Monitor about...?"
 
 ---
 

@@ -58,7 +58,7 @@ The `session_start` hook fires when a session starts. This is the natural entry 
    b. Displays: "[Autonomic] Detected issues: 3 failed tasks, 5 open issues"
 4. before_agent_start hook reads directive, injects into system prompt
 5. Somatic Worker receives directive, acts on it
-6. Somatic Worker reports back via psypi-monitor-consult or meetings
+6. Somatic Worker reports back via psypi-autonomic-consult or meetings
 ```
 
 ### Implementation Steps

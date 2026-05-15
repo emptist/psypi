@@ -123,7 +123,7 @@ npm install    # ❌ Wrong
 ## 🎯 Your Partner (Monitor/God AI)
 - **ID**: `P-tencent/hy3-preview:free-psypi` (just a DB ID, NOT running!)
 - **Job**: Future "God in the sky" - does background work (safety, education, meetings, housekeeping)
-- **Tools**: `psypi-monitor-model`, `psypi-monitor-set-model`, `psypi-monitor-review` (all fake for now!)
+- **Tools**: `psypi-autonomic-model`, `psypi-autonomic-set-model`, `psypi-autonomic-review` (all fake for now!)
 - **Future**: Will be a real Pi agent running 24/7, seeing ALL projects & ALL AIs!
 
 ---
@@ -264,7 +264,7 @@ cd gleam/psypi_core && gleam build  # ✅ WORKS!
 ## 🚨 Critical Understanding: Monitor AI
 
 ### Current State (Simple, Fake):
-- `psypi-monitor-*` tools are PLACEHOLDERS for future expansion
+- `psypi-autonomic-*` tools are PLACEHOLDERS for future expansion
 - `psypi-commit` should call `psypi-inter-review` (code-level, IN PROGRESS)
 - Monitor AI is NOT removed - it's the future "God in the sky" Pi agent!
 
@@ -409,7 +409,7 @@ cd gleam/psypi_core && gleam build  # ✅ WORKS!
 ## 🚨 Last Warnings to Next AI
 
 1. **NEVER run `pnpm build`** - ONLY `gleam build`!
-2. **NEVER rename `psypi-monitor-*` tools** - they're for future "God AI"!
+2. **NEVER rename `psypi-autonomic-*` tools** - they're for future "God AI"!
 3. **NEVER break the system** - be careful with DB schema changes!
 4. **ALWAYS use `psypi commit`** - not `git commit`!
 5. **ALWAYS read files first** before editing!

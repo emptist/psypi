@@ -18,7 +18,7 @@ The Monitor should move from a "Chatty Assistant" to a "Silent Guardian."
 - **Worker-to-Worker (Internal)**: The Monitor communicates with the Worker AI (via system prompts/context injection) to guide the process without bothering the user.
 - **Emergency Channel (Human-Facing)**: The Monitor only speaks to the user when:
     - **System is in Danger**: (e.g., Infinite loop, recursive delete, critical crash).
-    - **Explicit Request**: The user calls a monitor tool (e.g., `psypi-monitor-health`).
+    - **Explicit Request**: The user calls a monitor tool (e.g., `psypi-autonomic-health`).
 
 ## 🛠️ Architectural Pivot: From Hooks to Service
 The "repeated started" messages reveal that the Monitor is currently implemented as a collection of reactive JS hooks rather than a persistent service.

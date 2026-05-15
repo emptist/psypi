@@ -131,9 +131,9 @@ All persistent in DB
 - Cleanup: temp file management
 
 **Phase 3 - User-triggered (needs Monitor tools)**
-- psypi-monitor-status: Show current Monitor state
-- psypi-monitor-health: Force health check
-- psypi-monitor-alerts: Show recent failures
+- psypi-autonomic-status: Show current Monitor state
+- psypi-autonomic-health: Force health check
+- psypi-autonomic-alerts: Show recent failures
 
 **Phase 4 - Proactive (advanced)**
 - Alert on build failures
@@ -172,9 +172,9 @@ They serve different purposes and both can coexist.
 - Add: periodic health checks via setInterval
 
 **Phase 3**: Add Monitor tools for user interaction
-- psypi-monitor-status: Show current Monitor state
-- psypi-monitor-health: Force health check
-- psypi-monitor-alerts: Show recent failures
+- psypi-autonomic-status: Show current Monitor state
+- psypi-autonomic-health: Force health check
+- psypi-autonomic-alerts: Show recent failures
 
 **Phase 4**: Proactive features (optional)
 - Alert on build failures

@@ -23,14 +23,14 @@ pi.sendMessage(message);                 // Inject custom messages
 ## Architecture
 
 ### Current Monitor Toolset (useless):
-- `psypi-monitor-health` — read DB metrics
-- `psypi-monitor-status` — read status
-- `psypi-monitor-alerts` — read alerts
-- `psypi-monitor-stats` — read stats
-- `psypi-monitor-suggest` — read suggestions
-- `psypi-monitor-consult` — LLM chat only
+- `psypi-autonomic-health` — read DB metrics
+- `psypi-autonomic-status` — read status
+- `psypi-autonomic-alerts` — read alerts
+- `psypi-autonomic-stats` — read stats
+- `psypi-autonomic-suggest` — read suggestions
+- `psypi-autonomic-consult` — LLM chat only
 - `psypi-commit` — review only
-- `/monitor-listen` — slash command
+- `/autonomic-listen` — slash command
 
 ### Target Monitor Toolset (super worker):
 

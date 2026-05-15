@@ -74,9 +74,9 @@ src/kernel/cli/TaskCommands.ts          → ⚠️ Missing psypi-task-complete
 ```
 
 **Commands deleted WITHOUT Pi tool replacement:**
-1. ❌ `psypi-monitor-review` (was in MonitoringCommands.ts) → No Pi tool!
-2. ❌ `psypi-monitor-set-model` → No Pi tool!
-3. ❌ `psypi-monitor-model` → No Pi tool!
+1. ❌ `psypi-autonomic-review` (was in MonitoringCommands.ts) → No Pi tool!
+2. ❌ `psypi-autonomic-set-model` → No Pi tool!
+3. ❌ `psypi-autonomic-model` → No Pi tool!
 4. ❌ `psypi-review` (from ReviewCommands.ts) → No Pi tool!
 5. ❌ `psypi-validate-commit` → Not registered!
 
@@ -114,7 +114,7 @@ Gleam modules with tool functions NOT in `extension.js`:
 ### Missing/Broken
 - ❌ `psypi-task-complete` (NOT registered!)
 - ❌ `psypi-commit` (uses fake Monitor AI)
-- ❌ `psypi-monitor-review` (deleted CLI, no Pi tool)
+- ❌ `psypi-autonomic-review` (deleted CLI, no Pi tool)
 - ❌ `psypi-tools` (not registered)
 - ❌ `psypi-agents` (not registered)
 - ❌ `psypi-validate-commit` (not registered)
@@ -130,7 +130,7 @@ Gleam modules with tool functions NOT in `extension.js`:
 4. ⚠️ Create `psypi-commit` real tool (call inter-review)
 
 ### Future (After Gleam Migration)
-1. 📋 Implement `psypi-monitor-review` (system review tool)
+1. 📋 Implement `psypi-autonomic-review` (system review tool)
 2. 📋 Implement `psypi-validate-commit` (commit validation)
 3. 📋 Rewrite Monitor AI as full Pi agent ("God in the sky")
 

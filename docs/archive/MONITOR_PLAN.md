@@ -18,7 +18,7 @@ Implement Monitor for psypi - local LLM consultant + silent safety hooks.
 - [ ] Define what operations are "dangerous" (spawn, delete, etc.)
 
 ### Phase 3: Consultation Tool
-- [ ] Test psypi-monitor-consult tool in Pi
+- [ ] Test psypi-autonomic-consult tool in Pi
 - [ ] Verify it calls LLM via ctx.model
 - [ ] Handle edge cases (timeout, model unavailable)
 

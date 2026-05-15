@@ -25,7 +25,7 @@
 
 ## Next Step
 Phase 08 complete - Monitor implementation done:
-- psypi-monitor-consult tool ✓
+- psypi-autonomic-consult tool ✓
 - before_agent_start hook ✓
 - Safety hook with block ✓
 
