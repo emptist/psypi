@@ -132,12 +132,36 @@ exec('pi -e extension.js');  // Still spawns Pi!
 
 Each identity must maintain itself:
 
-- **ID** — Computed from function call (`generate_semantic_id()`). Pure function, no cache, no DB. Returns `Error` if `session_id` is missing.
-- **SOUL** — Stored in `souls` table. Each identity owns its entry:
-  - Worker: `S-psypi-psypi-<session_id>` → name="Worker", traits
-  - Monitor: `A-psypi-psypi` → name="Monitor", traits
+- **ID** — Computed from function call (`generate_semantic_id()`). Pure function, no cache, no DB. Format: `(A|S)-source-project-model[-thinking_level]`. Model and thinking level come from `ctx.model` (live reference, always current). See `docs/AGENT-IDENTITY.md` for full details.
+  - Worker: `S-psypi-psypi-openrouter/owl-alpha` → name="Worker", traits
+  - Monitor: `A-psypi-psypi-openrouter/owl-alpha` → name="Monitor", traits
+  - With thinking: `A-psypi-psypi-anthropic/claude-opus-4-5-high`
+- **SOUL** — Stored in `souls` table. Each identity owns its entry.
 
 Both can modify their SOUL via meetings or direct DB. Monitor acts as senior advisor — detects identity drift and redirects Worker.
+
+#### `ctx.model` — Live Model Reference
+
+The Pi SDK provides `ctx.model` on every event handler and tool `execute()` call.
+It is a **live getter** — always reflects the current model even if changed mid-session:
+
+```javascript
+// In generated extension.js tool wrappers:
+async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    const modelId = ctx.model?.id || '';              // "openrouter/owl-alpha"
+    const thinking = ctx.model?.thinkingLevel || '';  // "medium" or ""
+    const provider = ctx.model?.provider;              // "openrouter"
+    const ctxWindow = ctx.model?.contextWindow;        // 128000
+}
+```
+
+**Key facts:**
+- `ctx.model` is live — reads `AgentSession.model` at call time
+- `pi.setModel()` changes the model; `ctx.model` reflects it immediately
+- `settings.json` is NOT updated on `/model` change — use `ctx.model` for truth
+- `ctx.model.thinkingLevel` is the active thinking level ("off"|"minimal"|"low"|"medium"|"high"|"xhigh")
+- There is NO `pi.getModel()` — use `ctx.model` instead
+- See `docs/AGENT-IDENTITY.md` for the full identity system documentation
 
 ### 2. DELETE (don't deprecate!) - Move obsolete files to `deprecated/` directory!
 **CORRECT approach:**
@@ -394,10 +418,11 @@ before_agent_start → reads notifications → injects [MONITOR ALERT] → Worke
 - `psypi-hooks-list` — List all event hooks
 - `psypi-hooks-active` — List active hooks only
 
-**Identity (unchanged):**
-- Worker: `S-psypi-psypi-<session_id>` (prompt-driven)
-- Monitor: `A-psypi-psypi` (event-driven)
-- Both maintain own ID (pure function) and SOUL (DB entry)
+**Identity:**
+- Worker: `S-psypi-psypi-<model_id>[-<thinking_level>]` (prompt-driven)
+- Monitor: `A-psypi-psypi-<model_id>[-<thinking_level>]` (event-driven)
+- Both maintain own ID (pure function, model-aware via `ctx.model`) and SOUL (DB entry)
+- See `docs/AGENT-IDENTITY.md` for full details
 
 **⚠️ NEVER run `psypi` inside opencode** — infinite loop risk, system crash in minutes!
 

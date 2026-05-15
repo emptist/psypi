@@ -19,14 +19,14 @@ psypi = Pi + Gleam extension + Identity + SOUL + Dual Workers
 
 | ID | Name | Focus | Traits |
 |----|------|-------|--------|
-| `S-psypi-psypi-unknown` | Somatic Worker | task-completion | speed:9, quality:7, autonomy:5 |
-| `A-psypi-psypi` | Autonomic Worker | system-health | speed:6, quality:10, autonomy:9 |
+| `S-psypi-psypi-<model_id>` | Somatic Worker | task-completion | speed:9, quality:7, autonomy:5 |
+| `A-psypi-psypi-<model_id>` | Autonomic Worker | system-health | speed:6, quality:10, autonomy:9 |
 
 ### ID + SOUL Maintenance
 
 Both identities must maintain themselves:
 
-- **ID** — Computed from function call (no cache, no DB). `generate_semantic_id()` returns `Error` if missing `session_id`.
+- **ID** — Computed from function call (no cache, no DB). Format: `(A|S)-source-project-model[-thinking_level]`. Model and thinking level come from `ctx.model` (live reference from Pi SDK). See `docs/AGENT-IDENTITY.md` for details.
 - **SOUL** — Stored in `souls` table. Each identity owns its entry and can modify it via meetings or direct DB access.
 
 Autonomic Worker acts as "senior advisor" — if Somatic Worker loses track of identity, Autonomic Worker detects and redirects.

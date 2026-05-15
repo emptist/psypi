@@ -32,16 +32,20 @@ fn soul_decoder() -> decode.Decoder(String) {
 }
 
 /// Set a system directive — Atonomic Worker uses this to direct Somatic Worker.
-/// Gets the Atonomic identity and includes SOUL context.
+/// Gets the Atonomic identity (model-aware) and includes SOUL context.
+///
+/// model_id and thinking_level come from the live ctx.model in the tool wrapper.
 pub fn set_directive(
   directive_text: String,
   priority: String,
-  session_id: String,
+  model_id: String,
+  thinking_level: String,
 ) -> promise.Promise(Result(String, DirectiveError)) {
   db.with_connection(fn(conn) {
     // 1. Get Atonomic identity (autonomous=true → A- prefix)
+    //    ID format: A-psypi-psypi-<model_id>[-<thinking_level>]
     let identity = get_resolved_identity(
-      True, session_id, "psypi", "", "", "psypi", ""
+      True, "psypi", "psypi", model_id, thinking_level
     )
     case identity {
       Error(_) -> promise.resolve(Error(QueryError("Identity error")))
@@ -171,18 +175,20 @@ pub fn mark_directives_consumed(agent_id: String) -> promise.Promise(Result(Nil,
 pub fn direct_worker_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-direct-worker",
-    description: "Direct the Somatic Worker. Only the Autonomic Worker should use this. Gets Autonomic identity, includes SOUL context. The directive will be injected into the Somatic Worker's system prompt on its next turn.",
+    description: "Direct the Somatic Worker. Only the Autonomic Worker should use this. Gets Autonomic identity (model-aware from ctx), includes SOUL context. The directive will be injected into the Somatic Worker's system prompt on its next turn.",
     params: [
       string_param("directive_text"),
       opt_string_param("priority"),
-      opt_string_param("session_id"),
     ],
     module: "directive",
     fn_name: "set_directive",
     args: [
       from_param("params.directive_text || \"\""),
       from_param("params.priority || \"medium\""),
-      from_param("params.session_id || _sessionId"),
+      // model_id from ctx.model.id — live reference, always current
+      from_param("ctx.model?.id || ''"),
+      // thinking_level from ctx — empty string when off/unavailable
+      from_param("(ctx.model?.thinkingLevel || '')"),
     ],
     result_format: template("${r.value}"),
   )

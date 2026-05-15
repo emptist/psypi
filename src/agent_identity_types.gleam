@@ -32,5 +32,7 @@ pub type AgentIdentity {
     display_name: option.Option(String),
     description: option.Option(String),
     source: option.Option(String),
+    model: option.Option(String),
+    thinking_level: option.Option(String),
   )
 }
