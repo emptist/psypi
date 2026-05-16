@@ -26,7 +26,7 @@ pub fn handler_body() -> String {
     "              const usage = ctx.getContextUsage();\n",
     "              const tokenInfo = usage ? `Context: ${Math.round(usage.tokens / usage.contextWindow * 100)}% used.` : '';\n",
     "              const systemPrompt = `You are the Autonomic Worker (Monitor). The Somatic Worker has gone idle.\\n\\n${tokenInfo}\\n\\nMonitor Brief:\\n${brief}\\n\\nCompose a brief, natural wake-up message (1-2 sentences). Mention what needs attention. The S-worker is smart — it will decide what to do. Prefix with [Monitor].`;\n",
-    "              const messages = [{ role: 'user', content: [{ type: 'text', text: 'The worker is idle. Compose a wake-up message.' }], timestamp: Date.now() }];\n",
+    "              const messages = [{ role: 'user', content: [{ type: 'text', text: 'Somatic worker is idle. Compose a wake-up message to let he do something to understand th system and imporve it.' }], timestamp: Date.now() }];\n",
     "              const composed = await callMonitor(ctx, messages, systemPrompt);\n",
     "              if (composed && composed.trim()) { msg = composed; }\n",
     "            } catch(e) {\n",
