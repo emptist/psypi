@@ -20,7 +20,7 @@ pub fn get_resolved_identity(
   thinking_level: String,
   global: Bool,
 ) -> Result(AgentIdentity, IdentityError) {
-  case generate_semantic_id(autonomous, source, project, model, thinking_level, global) {
+  case generate_semantic_id(autonomous, project, source, model, thinking_level, global) {
     Ok(id) -> Ok(AgentIdentity(
       id: id,
       project: option.Some(project),
@@ -44,13 +44,13 @@ pub fn get_resolved_identity(
 /// Get agent ID - PURE function, no DB needed.
 pub fn get_agent_id(
   autonomous: Bool,
-  source: String,
   project: String,
+  source: String,
   model: String,
   thinking_level: String,
   global: Bool,
 ) -> Result(AgentId, IdentityError) {
-  case generate_semantic_id(autonomous, source, project, model, thinking_level, global) {
+  case generate_semantic_id(autonomous, project, source, model, thinking_level, global) {
     Ok(id) -> Ok(agent_id(id))
     Error(e) -> Error(e)
   }
@@ -69,6 +69,16 @@ pub fn get_agent_id(
 fn ctx_model_id() -> String {
   "(ctx.model?.id || '')"
 }
+
+/// Extract provider from ctx.model.id (e.g., "openrouter" from "openrouter/owl-alpha").
+/// Falls back to 'unknown' if model is unavailable.
+fn ctx_provider() -> String {
+  "(function(){ var m = ctx.model?.id || ''; var i = m.indexOf('/'); return i >= 0 ? m.substring(0, i) : 'unknown'; }())"
+}
+
+/// Extract model short name from ctx.model.id (e.g., "owl-alpha" from "openrouter/owl-alpha").
+/// Falls back to full id if no slash found.
+
 
 fn ctx_model_thinking() -> String {
   "(ctx.model?.thinkingLevel || '')"
@@ -109,9 +119,9 @@ pub fn somatic_id_tool() -> PiToolCall {
       lit("false"),
       // project derived from ctx.cwd — directory name when .git exists, else 'non-project'
       lit(ctx_project_name()),
-      // source is always 'psypi' — identifies the psypi system itself
-      lit("\"psypi\""),
-      // model from ctx.model.id — live reference, always current
+      // provider from ctx.model.id — e.g., 'openrouter', 'lmstudio'
+      lit(ctx_provider()),
+      // model from ctx.model.id — e.g., 'openrouter/owl-alpha'
       lit(ctx_model_id()),
       // thinking_level from ctx.model.thinkingLevel — empty string when off/unavailable
       lit(ctx_model_thinking()),
@@ -138,9 +148,9 @@ pub fn autonomic_id_tool() -> PiToolCall {
       lit("true"),
       // project derived from ctx.cwd — directory name when .git exists, else 'non-project'
       lit(ctx_project_name()),
-      // source is always 'psypi' — identifies the psypi system itself
-      lit("\"psypi\""),
-      // model from ctx.model.id — live reference, always current
+      // provider from ctx.model.id — e.g., 'openrouter', 'lmstudio'
+      lit(ctx_provider()),
+      // model from ctx.model.id — e.g., 'openrouter/owl-alpha'
       lit(ctx_model_id()),
       // thinking_level from ctx.model.thinkingLevel — empty string when off/unavailable
       lit(ctx_model_thinking()),

@@ -1,26 +1,25 @@
-import agent_identity_types.{type IdentityError}
+import agent_identity_types.{type IdentityError, MissingSessionId}
 
 /// Generate a semantic agent ID from identity parameters.
 ///
-/// ID format: [G-](A|S)-source-project-model[-thinking_level]
+/// ID format: [G-](A|S)-project-model[-thinking_level]
 ///
 /// Examples (project dir):
-///   A-psypi-psypi-openrouter/owl-alpha-medium
-///   S-psypi-psypi-openrouter/owl-alpha
-///   A-psypi-psypi-anthropic/claude-opus-4-5-high
+///   A-tools_ai-openrouter/owl-alpha
+///   S-tools_ai-openrouter/owl-alpha
+///   A-tools_ai-anthropic/claude-opus-4-5-high
 ///
 /// Examples (non-project dir, global context):
-///   G-A-psypi-non-project-openrouter/owl-alpha
-///   G-S-psypi-non-project-openrouter/owl-alpha
+///   G-A-non-project-openrouter/owl-alpha
+///   G-S-non-project-openrouter/owl-alpha
 ///
 /// The model field comes from ctx.model.id (e.g. "openrouter/owl-alpha").
 /// The thinking_level is optional — only appended when non-empty.
-/// When model is empty, the ID falls back to source-project only.
 /// When global=True, prepends "G-" to distinguish non-project contexts.
 pub fn generate_semantic_id(
   autonomous: Bool,
-  source: String,
   project: String,
+  source: String,
   model: String,
   thinking_level: String,
   global: Bool,
@@ -36,18 +35,18 @@ pub fn generate_semantic_id(
     False -> ""
   }
 
-  // Build the base: [G-]prefix-source-project
-  let base = global_prefix <> prefix <> "-" <> source <> "-" <> project
+  // Model is required — without it the ID is meaningless
+  case model {
+    "" -> Error(MissingSessionId)
+    _ -> {
+      // Build the base: [G-]prefix-project-provider-model
+      let base = global_prefix <> prefix <> "-" <> project <> "-" <> source <> "-" <> model
 
-  // Append model if available
-  let with_model = case model {
-    "" -> base
-    m -> base <> "-" <> m
-  }
-
-  // Append thinking_level if available (only meaningful when model is present)
-  case thinking_level {
-    "" -> Ok(with_model)
-    tl -> Ok(with_model <> "-" <> tl)
+      // Append thinking_level if available
+      case thinking_level {
+        "" -> Ok(base)
+        tl -> Ok(base <> "-" <> tl)
+      }
+    }
   }
 }

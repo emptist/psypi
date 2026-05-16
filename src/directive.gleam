@@ -44,9 +44,15 @@ pub fn set_directive(
   db.with_connection(fn(conn) {
     // 1. Get Atonomic identity (autonomous=true → A- prefix)
     //    ID format: A-psypi-psypi-<model_id>[-<thinking_level>]
+    // Extract provider from model_id (e.g., "openrouter" from "openrouter/owl-alpha")
+    let provider = case string.split(model_id, "/") {
+      [p, ..] -> p
+      _ -> "unknown"
+    }
     let identity = get_resolved_identity(
-      True, "psypi", "psypi", model_id, thinking_level
+      True, "psypi", provider, model_id, thinking_level, False
     )
+    // Args: autonomous, project, source, model, thinking_level, global
     case identity {
       Error(_) -> promise.resolve(Error(QueryError("Identity error")))
       Ok(id_val) -> {
