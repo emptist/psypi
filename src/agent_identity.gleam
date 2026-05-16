@@ -95,7 +95,7 @@ fn ctx_project_name() -> String {
 /// Returns 'true' if the project name is 'non-project' (no .git found),
 /// 'false' otherwise. Used to set the global flag in the agent ID.
 fn ctx_is_global() -> String {
-  "(function(){ var cwd = ctx.cwd || ''; if(!cwd) return 'true'; try { require('fs').statSync(cwd + '/.git'); return 'false'; } catch(e) { return 'true'; } }())"
+  "(function(){ var cwd = ctx.cwd || ''; if(!cwd) return true; try { require('fs').statSync(cwd + '/.git'); return false; } catch(e) { return true; } }())"
 }
 
 /// Pi tool: psypi-somatic-id — get Somatic Worker ID (autonomous=false → S-)
