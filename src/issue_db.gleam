@@ -5,6 +5,7 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import db
 import issue_types.{type Issue, type IssueError, ConnectionError, QueryError, DecodeError, NotFound, Medium, Open, Bug, string_to_severity, string_to_status, string_to_type}
 
@@ -111,11 +112,12 @@ pub fn list(
   status: Option(String),
   severity: Option(String),
   issue_type: Option(String),
+  project_id: Option(String),
   limit: Int,
   offset: Int,
 ) -> promise.Promise(Result(List(Issue), IssueError)) {
   db.with_connection(fn(conn) {
-    let #(sql, params) = sql_with_filters(status, severity, issue_type, limit, offset)
+    let #(sql, params) = sql_with_filters(status, severity, issue_type, project_id, limit, offset)
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
         Error(e) -> Error(db_error_to_issue_error(e))
@@ -134,35 +136,57 @@ fn sql_with_filters(
   status: Option(String),
   severity: Option(String),
   issue_type: Option(String),
+  project_id: Option(String),
   limit: Int,
   offset: Int,
 ) -> #(String, List(dynamic.Dynamic)) {
-  // Use hardcoded SQL for each filter combination to avoid $ interpolation issues
-  case status, severity, issue_type {
-    Some(s), Some(sev), Some(t) ->
-      #("SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues WHERE status = $1 AND severity = $2 AND issue_type = $3 ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $4 OFFSET $5",
-        [dynamic.string(s), dynamic.string(sev), dynamic.string(t), dynamic.int(limit), dynamic.int(offset)])
-    Some(s), Some(sev), None ->
-      #("SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues WHERE status = $1 AND severity = $2 ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $3 OFFSET $4",
-        [dynamic.string(s), dynamic.string(sev), dynamic.int(limit), dynamic.int(offset)])
-    Some(s), None, Some(t) ->
-      #("SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues WHERE status = $1 AND issue_type = $2 ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $3 OFFSET $4",
-        [dynamic.string(s), dynamic.string(t), dynamic.int(limit), dynamic.int(offset)])
-    Some(s), None, None ->
-      #("SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues WHERE status = $1 ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $2 OFFSET $3",
-        [dynamic.string(s), dynamic.int(limit), dynamic.int(offset)])
-    None, Some(sev), Some(t) ->
-      #("SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues WHERE severity = $1 AND issue_type = $2 ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $3 OFFSET $4",
-        [dynamic.string(sev), dynamic.string(t), dynamic.int(limit), dynamic.int(offset)])
-    None, Some(sev), None ->
-      #("SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues WHERE severity = $1 ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $2 OFFSET $3",
-        [dynamic.string(sev), dynamic.int(limit), dynamic.int(offset)])
-    None, None, Some(t) ->
-      #("SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues WHERE issue_type = $1 ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $2 OFFSET $3",
-        [dynamic.string(t), dynamic.int(limit), dynamic.int(offset)])
-    None, None, None ->
-      #("SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $1 OFFSET $2",
-        [dynamic.int(limit), dynamic.int(offset)])
+  let base_sql = "SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues"
+  let order_limit = " ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $" <> string.inspect(limit) <> " OFFSET $" <> string.inspect(offset)
+
+  // Build WHERE clause dynamically
+  let #(where_clause, where_params) = build_where(status, severity, issue_type, project_id)
+  #(base_sql <> where_clause <> order_limit, where_params)
+}
+
+fn build_where(
+  status: Option(String),
+  severity: Option(String),
+  issue_type: Option(String),
+  project_id: Option(String),
+) -> #(String, List(dynamic.Dynamic)) {
+  let conditions = []
+  let params = []
+  let #(conditions, params) = case status {
+    Some(s) -> {
+      let idx = list.length(params) + 1
+      #(["status = $" <> string.inspect(idx), ..conditions], [dynamic.string(s), ..params])
+    }
+    None -> #(conditions, params)
+  }
+  let #(conditions, params) = case severity {
+    Some(s) -> {
+      let idx = list.length(params) + 1
+      #(["severity = $" <> string.inspect(idx), ..conditions], [dynamic.string(s), ..params])
+    }
+    None -> #(conditions, params)
+  }
+  let #(conditions, params) = case issue_type {
+    Some(t) -> {
+      let idx = list.length(params) + 1
+      #(["issue_type = $" <> string.inspect(idx), ..conditions], [dynamic.string(t), ..params])
+    }
+    None -> #(conditions, params)
+  }
+  let #(conditions, params) = case project_id {
+    Some(p) -> {
+      let idx = list.length(params) + 1
+      #(["project_id = $" <> string.inspect(idx), ..conditions], [dynamic.string(p), ..params])
+    }
+    None -> #(conditions, params)
+  }
+  case conditions {
+    [] -> #("", [])
+    _ -> #(" WHERE " <> string.join(list.reverse(conditions), " AND "), params)
   }
 }
 
@@ -170,42 +194,21 @@ fn sql_count_with_filters(
   status: Option(String),
   severity: Option(String),
   issue_type: Option(String),
+  project_id: Option(String),
 ) -> #(String, List(dynamic.Dynamic)) {
-  case status, severity, issue_type {
-    Some(s), Some(sev), Some(t) ->
-      #("SELECT COUNT(*)::INT as cnt FROM issues WHERE status = $1 AND severity = $2 AND issue_type = $3",
-        [dynamic.string(s), dynamic.string(sev), dynamic.string(t)])
-    Some(s), Some(sev), None ->
-      #("SELECT COUNT(*)::INT as cnt FROM issues WHERE status = $1 AND severity = $2",
-        [dynamic.string(s), dynamic.string(sev)])
-    Some(s), None, Some(t) ->
-      #("SELECT COUNT(*)::INT as cnt FROM issues WHERE status = $1 AND issue_type = $2",
-        [dynamic.string(s), dynamic.string(t)])
-    Some(s), None, None ->
-      #("SELECT COUNT(*)::INT as cnt FROM issues WHERE status = $1",
-        [dynamic.string(s)])
-    None, Some(sev), Some(t) ->
-      #("SELECT COUNT(*)::INT as cnt FROM issues WHERE severity = $1 AND issue_type = $2",
-        [dynamic.string(sev), dynamic.string(t)])
-    None, Some(sev), None ->
-      #("SELECT COUNT(*)::INT as cnt FROM issues WHERE severity = $1",
-        [dynamic.string(sev)])
-    None, None, Some(t) ->
-      #("SELECT COUNT(*)::INT as cnt FROM issues WHERE issue_type = $1",
-        [dynamic.string(t)])
-    None, None, None ->
-      #("SELECT COUNT(*)::INT as cnt FROM issues",
-        [])
-  }
+  let base_sql = "SELECT COUNT(*)::INT as cnt FROM issues"
+  let #(where_clause, where_params) = build_where(status, severity, issue_type, project_id)
+  #(base_sql <> where_clause, where_params)
 }
 
 pub fn count(
   status: Option(String),
   severity: Option(String),
   issue_type: Option(String),
+  project_id: Option(String),
 ) -> promise.Promise(Result(Int, IssueError)) {
   db.with_connection(fn(conn) {
-    let #(sql, params) = sql_count_with_filters(status, severity, issue_type)
+    let #(sql, params) = sql_count_with_filters(status, severity, issue_type, project_id)
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
         Error(e) -> Error(db_error_to_issue_error(e))

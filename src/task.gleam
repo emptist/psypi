@@ -131,30 +131,10 @@ pub fn add(
 
 pub fn list(
   status: Option(String),
+  project_id: Option(String),
 ) -> promise.Promise(Result(List(Task), TaskError)) {
   db.with_connection(fn(conn) {
-    let sql = case status {
-      Some(_) -> "
-        SELECT id, title, description, status, priority, result, error, retry_count,
-               created_at::text, updated_at::text, completed_at::text, created_by, source
-        FROM tasks
-        WHERE status = $1
-        ORDER BY priority DESC, created_at ASC
-        LIMIT 100
-      "
-      None -> "
-        SELECT id, title, description, status, priority, result, error, retry_count,
-               created_at::text, updated_at::text, completed_at::text, created_by, source
-        FROM tasks
-        ORDER BY priority DESC, created_at ASC
-        LIMIT 100
-      "
-    }
-
-    let params = case status {
-      Some(s) -> [dynamic.string(s)]
-      None -> []
-    }
+    let #(sql, params) = sql_with_filters(status, project_id)
 
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
@@ -169,6 +149,32 @@ pub fn list(
       }
     })
   }, db_error_to_task_error)
+}
+
+fn sql_with_filters(
+  status: Option(String),
+  project_id: Option(String),
+) -> #(String, List(dynamic.Dynamic)) {
+  let base_sql = "
+    SELECT id, title, description, status, priority, result, error, retry_count,
+           created_at::text, updated_at::text, completed_at::text, created_by, source
+    FROM tasks
+  "
+  let order_limit = " ORDER BY priority DESC, created_at ASC LIMIT 100 "
+
+  case status, project_id {
+    Some(s), Some(p) ->
+      #(base_sql <> " WHERE status = $1 AND project_id = $2 " <> order_limit,
+        [dynamic.string(s), dynamic.string(p)])
+    Some(s), None ->
+      #(base_sql <> " WHERE status = $1 " <> order_limit,
+        [dynamic.string(s)])
+    None, Some(p) ->
+      #(base_sql <> " WHERE project_id = $1 " <> order_limit,
+        [dynamic.string(p)])
+    None, None ->
+      #(base_sql <> order_limit, [])
+  }
 }
 
 pub fn complete(
@@ -259,12 +265,16 @@ pub fn task_add_tool() -> PiToolCall {
 pub fn task_list_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-tasks",
-    description: "List tasks, optionally filtered by status",
-    params: [opt_string_param("status")],
+    description: "List tasks, optionally filtered by status and project_id",
+    params: [
+      opt_string_param("status"),
+      opt_string_param("project_id"),
+    ],
     module: "task",
     fn_name: "list",
     args: [
       from_param("params?.status || null"),
+      from_param("params?.project_id || null"),
     ],
     result_format: raw_json(),
   )
