@@ -18,8 +18,9 @@ pub fn get_resolved_identity(
   source: String,
   model: String,
   thinking_level: String,
+  global: Bool,
 ) -> Result(AgentIdentity, IdentityError) {
-  case generate_semantic_id(autonomous, source, project, model, thinking_level) {
+  case generate_semantic_id(autonomous, source, project, model, thinking_level, global) {
     Ok(id) -> Ok(AgentIdentity(
       id: id,
       project: option.Some(project),
@@ -47,8 +48,9 @@ pub fn get_agent_id(
   project: String,
   model: String,
   thinking_level: String,
+  global: Bool,
 ) -> Result(AgentId, IdentityError) {
-  case generate_semantic_id(autonomous, source, project, model, thinking_level) {
+  case generate_semantic_id(autonomous, source, project, model, thinking_level, global) {
     Ok(id) -> Ok(agent_id(id))
     Error(e) -> Error(e)
   }
@@ -72,6 +74,20 @@ fn ctx_model_thinking() -> String {
   "(ctx.model?.thinkingLevel || '')"
 }
 
+/// Extract project name from ctx.cwd.
+/// Checks if .git exists in the directory — if not, it's a non-project dir.
+/// Uses the last path component as the project name when .git exists.
+/// Falls back to 'non-project' when no .git is found or cwd is empty.
+fn ctx_project_name() -> String {
+  "(function(){ var cwd = ctx.cwd || ''; if(!cwd) return 'non-project'; var parts = cwd.split('/').filter(Boolean); var dir = parts.pop() || ''; try { require('fs').statSync(cwd + '/.git'); return dir; } catch(e) { return 'non-project'; } }())"
+}
+
+/// Returns 'true' if the project name is 'non-project' (no .git found),
+/// 'false' otherwise. Used to set the global flag in the agent ID.
+fn ctx_is_global() -> String {
+  "(function(){ var cwd = ctx.cwd || ''; if(!cwd) return 'true'; try { require('fs').statSync(cwd + '/.git'); return 'false'; } catch(e) { return 'true'; } }())"
+}
+
 /// Pi tool: psypi-somatic-id — get Somatic Worker ID (autonomous=false → S-)
 ///
 /// ID format: S-psypi-psypi-<model_id>[-<thinking_level>]
@@ -91,12 +107,16 @@ pub fn somatic_id_tool() -> PiToolCall {
     fn_name: "get_resolved_identity",
     args: [
       lit("false"),
-      lit("\"psypi\""),
+      // project derived from ctx.cwd — directory name when .git exists, else 'non-project'
+      lit(ctx_project_name()),
+      // source is always 'psypi' — identifies the psypi system itself
       lit("\"psypi\""),
       // model from ctx.model.id — live reference, always current
       lit(ctx_model_id()),
       // thinking_level from ctx.model.thinkingLevel — empty string when off/unavailable
       lit(ctx_model_thinking()),
+      // global flag — true when no .git found (non-project dir), prepends G- to ID
+      lit(ctx_is_global()),
     ],
     result_format: raw_json(),
   )
@@ -116,12 +136,16 @@ pub fn autonomic_id_tool() -> PiToolCall {
     fn_name: "get_resolved_identity",
     args: [
       lit("true"),
-      lit("\"psypi\""),
+      // project derived from ctx.cwd — directory name when .git exists, else 'non-project'
+      lit(ctx_project_name()),
+      // source is always 'psypi' — identifies the psypi system itself
       lit("\"psypi\""),
       // model from ctx.model.id — live reference, always current
       lit(ctx_model_id()),
       // thinking_level from ctx.model.thinkingLevel — empty string when off/unavailable
       lit(ctx_model_thinking()),
+      // global flag — true when no .git found (non-project dir), prepends G- to ID
+      lit(ctx_is_global()),
     ],
     result_format: raw_json(),
   )
