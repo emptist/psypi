@@ -128,27 +128,33 @@ pub fn custom_js(expr: String) -> ResultFormat {
 // -------------------------------------------------------------------
 
 /// Generate the TypeBox parameters schema as JS text
+/// Produces proper JSON Schema: { type: "object", properties: {...}, required: [...] }
+/// This is required for strict models like LM Studio's Qwen3-4b which reject
+/// the shorthand format with "invalid_union_discriminator: Expected 'object'"
 pub fn params_to_js(params: List(PiParam)) -> String {
   case params {
-    [] -> "{}"
+    [] -> "{ \"type\": \"object\", \"properties\": {} }"
     _ -> {
-      let fields =
+      let properties =
         params
         |> list.map(fn(p) {
           let base = case p.param_type {
-            "string" -> "{ type: \"string\""
-            "number" -> "{ type: \"number\""
-            "boolean" -> "{ type: \"boolean\""
-            _ -> "{ type: \"" <> p.param_type <> "\""
+            "string" -> "{ \"type\": \"string\""
+            "number" -> "{ \"type\": \"number\""
+            "boolean" -> "{ \"type\": \"boolean\""
+            _ -> "{ \"type\": \"" <> p.param_type <> "\""
           }
-          let closing = case p.required {
-            True -> " }"
-            False -> ", optional: true }"
-          }
-          "\"" <> p.name <> "\": " <> base <> closing
+          "\"" <> p.name <> "\": " <> base <> " }"
         })
+        |> string.join(",\n      ")
+
+      let required =
+        params
+        |> list.filter(fn(p) { p.required })
+        |> list.map(fn(p) { "\"" <> p.name <> "\"" })
         |> string.join(", ")
-      "{ " <> fields <> " }"
+
+      "{ \"type\": \"object\",\n    \"properties\": {\n      " <> properties <> "\n    },\n    \"required\": [" <> required <> "]\n  }"
     }
   }
 }
