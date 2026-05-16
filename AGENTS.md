@@ -16,11 +16,12 @@ The dream-team architecture is the core concept. One AI, two SOULs, alternating 
 - **Technically**: psypi is a **Pi TUI with a Gleam-generated extension**! 🔄
 - **Architecture**: Gleam core + Pi runtime + Dual Identity System (Worker/Monitor)
 - **Database**: ONE PostgreSQL per user home (shared across ALL projects)
-- **Status**: ✅ Working - Autonomic Worker directs Somatic Worker via directives
-  - ✅ `psypi-direct-worker` tool: Autonomic Worker sets directives for Somatic Worker
-  - ✅ `psypi-clear-directives` tool: Clear active directives
-  - ✅ Directives injected into system prompt via `before_agent_start` hook
-  - ✅ SOUL context included in directives (workers know who's directing them)
+- **Status**: ✅ Working - Autonomic Worker directs Somatic Worker via direct messaging
+  - ✅ A-worker uses `ctx.isIdle()` checks (NOT lifecycle hooks!)
+  - ✅ A-worker waits 3 seconds, checks again if still idle
+  - ✅ If idle, A-worker sends visible messages to S-worker
+  - ✅ No more database injection or `before_agent_start` hook nonsense
+  - ✅ Direct messaging: `pi.sendMessage()` with `[Monitor]` prefix
 
 ## 🚨 CRITICAL RULES (Read FIRST!)
 

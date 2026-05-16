@@ -1,11 +1,11 @@
-// generator/tool_result.gleam — Detect errors, log only (no A-worker trigger)
+// generator/tool_result.gleam — Detect errors, notify + inject into session
 
 import gleam/list
 import gleam/string
 
 pub fn handler_body() -> String {
   [
-    "    // Detect errors → log only, no A-worker trigger\n",
+    "    // Detect errors → notify (debug) + inject into session for S-worker\n",
     "    try {\n",
     "      const resultStr = JSON.stringify(event.result || '');\n",
     "      const isError = resultStr.includes('\"error\"') || resultStr.includes('Error:') || resultStr.includes('execution error') || resultStr.includes('tool_execution_blocked') || resultStr.includes('\"is_error\":true');\n",
@@ -15,8 +15,15 @@ pub fn handler_body() -> String {
     "        const resultObj = JSON.parse(resultStr);\n",
     "        errorMsg = resultObj.error || resultObj.message || resultObj.content?.[0]?.text || errorMsg;\n",
     "      } catch(e) {}\n",
-    "      // Log error only — no directive creation, no A-worker trigger\n",
+    "      // Debug: log error in UI\n",
     "      ctx.ui.notify('Tool error: ' + (event.toolName || 'unknown') + ' — ' + errorMsg.substring(0, 200), 'error');\n",
+    "      // Inject into session and force immediate new turn\n",
+    "      pi.sendMessage({\n",
+    "        customType: 'autonomic-error',\n",
+    "        content: [{ type: 'text', text: '[Monitor] Tool error: ' + (event.toolName || 'unknown') + ' — ' + errorMsg.substring(0, 200) }],\n",
+    "        display: 'persistent',\n",
+    "        details: { source: 'tool_result', toolName: event.toolName }\n",
+    "      }, { triggerTurn: true });\n",
     "    } catch(err) {\n",
     "      // Non-blocking\n",
     "    }\n",

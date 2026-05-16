@@ -108,4 +108,112 @@ Implement the core psypi coordination mechanism where the Autonomic Worker (A-wo
 
 ---
 
-*Prepared by the Autonomic Worker planning module. Implementation completed and ready for testing.*
+## SDK Context Findings (2026-05-16)
+
+After reading the Pi SDK extensions reference, here is what `ctx` and `pi` provide to the A-worker inside event hooks:
+
+### What `ctx` provides (ExtensionContext)
+
+| Property | Description | Useful for A-worker? |
+|---|---|---|
+| `ctx.isIdle()` | Whether agent is idle | ✅ Already used for idle detection |
+| `ctx.getContextUsage()` | Token usage vs model context window | ✅ Could decide whether to wake S-worker based on context fullness |
+| `ctx.sessionManager` | Read-only access to session entries, messages, history | ✅ Could read recent conversation to understand what S-worker was doing |
+| `ctx.model` / `ctx.modelRegistry` | Current model info, API keys | ℹ️ Available but not needed for coordination |
+| `ctx.getSystemPrompt()` | Current system prompt string | ℹ️ Could inspect S-worker's instructions |
+| `ctx.signal` | Abort signal (usually undefined when idle) | ❌ Not useful in idle context |
+| `ctx.hasPendingMessages()` | Whether queued messages exist | ✅ Could check before sending wake-up to avoid duplicates |
+| `ctx.cwd` | Current working directory | ℹ️ Available if needed |
+| `ctx.ui` | UI methods (notify, setStatus, etc.) | ✅ Could show status in TUI footer |
+| `ctx.shutdown()` | Request graceful shutdown | ❌ Not needed |
+| `ctx.compact()` | Trigger compaction | ❌ Not needed |
+
+### What `pi` provides (ExtensionAPI)
+
+| Method | Description | Useful for A-worker? |
+|---|---|---|
+| `pi.sendMessage(msg, opts)` | Inject custom message into session | ✅ Already used for wake-up |
+| `pi.broadcast(msg)` | Global broadcast | ✅ Alternative method [B] |
+| `pi.sendUserMessage(content)` | Send user message (appears as if typed) | ✅ Could be used instead of sendMessage |
+| `pi.appendEntry(type, data)` | Persist extension state across sessions | ✅ Could log wake-up history |
+| `pi.setSessionName(name)` | Set session display name | ❌ Not needed |
+| `pi.setLabel(entryId, label)` | Bookmark entries in session tree | ❌ Not needed |
+| `pi.getCommands()` | List available slash commands | ℹ️ Could check what S-worker can do |
+| `pi.getActiveTools()` | List active tools | ℹ️ Already used in callMonitor helper |
+| `pi.registerTool()` | Register new tool | ❌ Not needed for coordination |
+| `pi.registerCommand()` | Register slash command | ❌ Not needed for coordination |
+| `pi.on(event, handler)` | Subscribe to events | ✅ Already used for agent_end |
+| `pi.exec(cmd, args)` | Execute shell command | ❌ Not needed |
+| `pi.reload()` | Reload extensions | ❌ Not needed |
+
+### Key Insight
+
+**`ctx` and `pi` together provide rich context about the session state** — the A-worker can:
+
+1. **Read conversation history** via `ctx.sessionManager.getEntries()` — understand what the S-worker was doing before going idle
+2. **Check context usage** via `ctx.getContextUsage()` — decide if it's a good time to wake the worker (e.g., wait for compaction if context is full)
+3. **Check pending messages** via `ctx.hasPendingMessages()` — avoid duplicate wake-ups
+4. **Persist state** via `pi.appendEntry()` — log wake-up events for debugging
+5. **Use `pi.sendUserMessage()`** — alternative to `pi.sendMessage()` that appears as a real user message
+
+**What `ctx` does NOT provide:**
+- Direct DB state (issue counts, task counts, etc.) — still requires DB queries
+- The S-worker's internal state or memory
+
+### Simplified Architecture
+
+The A-worker does NOT need to query the DB or compose smart messages. The minimal pattern is:
+
+```
+agent_end → setTimeout(5s) → ctx.isIdle()
+  → pi.sendMessage('[Monitor] Wake up.', { triggerTurn: true })
+    → S-worker wakes, checks psypi-issues / psypi-tasks itself
+```
+
+The S-worker is smart enough to check for pending work. The A-worker's only job is to **wake it up**.
+
+### Possible Enhancements (Future)
+
+If smarter wake-up messages are needed:
+- Read `ctx.sessionManager.getEntries()` to understand recent activity
+- Query DB for work counts and include in message
+- Use `ctx.getContextUsage()` to add context-aware hints (e.g., "context is 80% full, consider compacting")
+- Use `pi.appendEntry()` to log wake-up patterns for self-improvement analysis
+
+---
+
+## Update (2026-05-16): Smarter Message Composition
+
+### Changes Made
+
+1. **Renamed `customType`** from `monitor-wake-up` to `monitor-calling` — better reflects the A-worker actively calling the S-worker.
+
+2. **LLM now receives context** — the system prompt now includes:
+   - Identity: "You are the Autonomic Worker (A-worker), the Monitor"
+   - Token/context usage from `ctx.getContextUsage()` — so the LLM can mention compaction if context is full
+   - Instruction to compose a context-appropriate message (1-2 sentences)
+   - Fallback to static message if LLM call fails
+
+3. **Removed `worker_coordination.gleam` dependency** — no longer imports or calls the Gleam DB query module. The A-worker composes messages entirely via `callMonitor` in JS.
+
+### Current Flow
+
+```
+agent_end → setTimeout(5s) → ctx.isIdle()
+  → ctx.getContextUsage() → token info
+    → callMonitor(systemPrompt + tokenInfo)
+      → LLM composes contextual [Monitor] message
+        → pi.sendMessage({ customType: 'monitor-calling' }, { triggerTurn: true })
+          → S-worker wakes, checks for work
+```
+
+### Observations
+
+- LLM message varies each time (non-deterministic) — sometimes adds flair like "idle time is entropy"
+- LLM can hallucinate — claimed pending work when DB was empty
+- Token usage info is now fed into the LLM, so it can mention context fullness
+- The S-worker always double-checks by calling psypi-issues/psypi-tasks itself, so hallucinations are harmless
+
+---
+
+*Prepared by the Autonomic Worker planning module. Implementation updated with context-aware message composition.*
