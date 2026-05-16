@@ -22,13 +22,13 @@ export function spawn_pi(args) {
 // Execute command with timeout (default 30s)
 export function execute(cmd, timeout = 30000) {
   try {
-    const output = execSync(cmd, { 
-      encoding: 'utf-8', 
+    const output = execSync(cmd, {
+      encoding: 'utf-8',
       timeout: timeout,
       stdio: ['pipe', 'pipe', 'pipe']
     });
     return { ok: true, value: { stdout: output || '', stderr: '', status: 0 } };
-  } catch(e) {
+  } catch (e) {
     return { ok: false, value: { ExecutionError: e.message || 'Command failed' } };
   }
 }
@@ -38,7 +38,7 @@ export function exists(cmd) {
   try {
     execSync('which ' + cmd, { stdio: 'ignore' });
     return true;
-  } catch(e) {
+  } catch (e) {
     return false;
   }
 }

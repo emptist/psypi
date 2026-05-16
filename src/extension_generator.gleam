@@ -13,7 +13,7 @@ import filepath
 import gleam/io
 import gleam/list
 import gleam/string
-import issue.{issue_add_tool, issue_list_tool, issue_resolve_tool}
+import issue_tools.{issue_add_tool, issue_list_tool, issue_count_tool, issue_get_tool, issue_resolve_tool}
 import learning.{learn_save_tool}
 import meeting.{meeting_create_tool, meeting_get_tool, meeting_list_tool, meeting_opinions_tool}
 import memory.{memory_search_tool}
@@ -53,6 +53,8 @@ pub fn all_tools() -> List(PiToolCall) {
     // Issues
     issue_add_tool(),
     issue_list_tool(),
+    issue_count_tool(),
+    issue_get_tool(),
     issue_resolve_tool(),
     // Skills
     skill_list_tool(),

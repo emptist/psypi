@@ -4,6 +4,14 @@ description: Agent instructions for psypi (READ FIRST!)
 
 # AGENTS.md - PsyPI Quick Guide
 
+## 📋 Database: table_documentation
+
+The `table_documentation` table in the psypi database contains schema documentation for all tables. Keep it in sync with the actual database schema. Query it with:
+```sql
+SELECT * FROM table_documentation ORDER BY table_name;
+```
+Update it whenever you add/remove/modify tables or columns.
+
 ## 🚨 FIRST: Read docs/DREAM-TEAM-ARCHITECTURE.md
 
 The dream-team architecture is the core concept. One AI, two SOULs, alternating current.
