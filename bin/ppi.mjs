@@ -13,7 +13,7 @@ const projectDir = resolve(__dirname, '..');
 
 // Import the compiled Gleam generator from the project's build directory
 const { generate } = await import(
-  join(projectDir, 'build/dev/javascript/psypi/extension_generator.mjs')
+    join(projectDir, 'build/dev/javascript/psypi/extension_generator.mjs')
 );
 
 // Path to extension.js (in the project directory)
@@ -29,16 +29,16 @@ const args = process.argv.slice(2);
 const piArgs = ['-e', extensionPath, ...args];
 
 const child = spawn(piBin, piArgs, {
-  stdio: 'inherit',
-  shell: false,
-  cwd: process.cwd()
+    stdio: 'inherit',
+    shell: false,
+    cwd: process.cwd()
 });
 
 child.on('close', (code) => {
-  process.exit(code || 0);
+    process.exit(code || 0);
 });
 
 child.on('error', (err) => {
-  console.error('Failed to start Pi:', err.message);
-  process.exit(1);
+    console.error('Failed to start Pi:', err.message);
+    process.exit(1);
 });
