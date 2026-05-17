@@ -20,7 +20,7 @@ pub fn handler_body() -> String {
     "      // Inject into session and force immediate new turn\n",
     "      pi.sendMessage({\n",
     "        customType: 'autonomic-error',\n",
-    "        content: [{ type: 'text', text: '[Monitor] Tool error: ' + (event.toolName || 'unknown') + ' — ' + errorMsg.substring(0, 200) }],\n",
+    "        content: [{ type: 'text', text: '[from A-worker:] Tool error: ' + (event.toolName || 'unknown') + ' — ' + errorMsg.substring(0, 200) }],\n",
     "        display: 'persistent',\n",
     "        details: { source: 'tool_result', toolName: event.toolName }\n",
     "      }, { triggerTurn: true });\n",

@@ -22,6 +22,9 @@ node_modules/
 .tmp/
 .trae/
 
+# Skills (managed globally at ~/.agents/skills/, project copy in .pi/project-skills/)
+.pi/skills/
+
 # OS
 .DS_Store
 

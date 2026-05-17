@@ -13,7 +13,7 @@ const projectDir = resolve(__dirname, '..');
 
 // Import the compiled Gleam generator from the project's build directory
 const { generate } = await import(
-    join(projectDir, 'build/dev/javascript/psypi/extension_generator.mjs')
+  join(projectDir, 'build/dev/javascript/psypi/extension_generator.mjs')
 );
 
 // Path to extension.js (in the project directory)
@@ -25,20 +25,59 @@ writeFileSync(extensionPath, content, 'utf8');
 
 // Step 2: Spawn Pi with the generated extension
 const piBin = 'pi';
-const args = process.argv.slice(2);
+let args = process.argv.slice(2);
+let minimal = false;
+if (args.includes('--minimal')) {
+  minimal = true;
+  args = args.filter((a) => a !== '--minimal');
+  // Persist minimal mode in user settings
+  const { homedir } = await import('os');
+  const { join, dirname } = await import('path');
+  const { readFileSync, writeFileSync, mkdirSync } = await import('fs');
+  const settingsDir = join(homedir(), '.pi', 'agent');
+  const settingsPath = join(settingsDir, 'settings.json');
+  try { mkdirSync(settingsDir, { recursive: true }); } catch (_) { }
+  let settings = {};
+  try { settings = JSON.parse(readFileSync(settingsPath, 'utf8')); } catch (_) { }
+  settings.psypiMode = 'minimal';
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+} else {
+  // Ensure normal mode is set when not minimal
+  const { homedir } = await import('os');
+  const { join, dirname } = await import('path');
+  const { readFileSync, writeFileSync, mkdirSync } = await import('fs');
+  const settingsPath = join(homedir(), '.pi', 'agent', 'settings.json');
+  try { mkdirSync(dirname(settingsPath), { recursive: true }); } catch (_) { }
+  let settings = {};
+  try { settings = JSON.parse(readFileSync(settingsPath, 'utf8')); } catch (_) { }
+  settings.psypiMode = 'normal';
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+}
+
+// Step 3: Build pi arguments
 const piArgs = ['-e', extensionPath, ...args];
 
+// Step 4: Handle minimal mode - optimized flags for low-context models
+if (minimal) {
+  // --no-skills: skip loading skills from ~/.agents/skills/ and .pi/skills/
+  // --no-session: ephemeral session, no history loaded (prevents n_keep overflow)
+  // --no-context-files: skip loading AGENTS.md, CLAUDE.md (reduces prompt size)
+  // --tools read,bash: minimal toolset (reduces tool descriptions in prompt)
+  piArgs.unshift('--no-session', '--no-skills', '--no-context-files', '--tools', 'read,bash,psypi-somatic-id,psypi-autonomic-id');
+  console.error('[psypi] Minimal mode: skills=off, context-files=off, tools=read,bash, ephemeral session');
+}
+
 const child = spawn(piBin, piArgs, {
-    stdio: 'inherit',
-    shell: false,
-    cwd: process.cwd()
+  stdio: 'inherit',
+  shell: false,
+  cwd: process.cwd()
 });
 
 child.on('close', (code) => {
-    process.exit(code || 0);
+  process.exit(code || 0);
 });
 
 child.on('error', (err) => {
-    console.error('Failed to start Pi:', err.message);
-    process.exit(1);
+  console.error('Failed to start Pi:', err.message);
+  process.exit(1);
 });

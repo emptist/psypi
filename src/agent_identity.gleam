@@ -70,10 +70,10 @@ fn ctx_model_id() -> String {
   "(ctx.model?.id || '')"
 }
 
-/// Extract provider from ctx.model.id (e.g., "openrouter" from "openrouter/owl-alpha").
+/// Extract provider from ctx.model.provider (e.g., "openrouter" from ctx).
 /// Falls back to 'unknown' if model is unavailable.
 fn ctx_provider() -> String {
-  "(function(){ var m = ctx.model?.id || ''; var i = m.indexOf('/'); return i >= 0 ? m.substring(0, i) : 'unknown'; }())"
+  "(ctx.model?.provider || '')"
 }
 
 /// Extract model short name from ctx.model.id (e.g., "owl-alpha" from "openrouter/owl-alpha").
