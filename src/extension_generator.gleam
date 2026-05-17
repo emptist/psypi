@@ -213,12 +213,31 @@ pub fn generate() -> String {
   imports_text(tools)
   <> "\nexport default function(pi) {\n"
   <> helpers_text()
+  <> message_renderer_text()
   <> event_hooks_text(hooks)
   <> tools_text(tools)
   <> commands_text(commands)
   <> monitor_consult_tool()
   <> psypi_commit_tool()
   <> "}\n"
+}
+
+fn message_renderer_text() -> String {
+  [
+    "  // Register custom renderer for A-worker (autonomic) wake-up messages\n",
+    "  pi.registerMessageRenderer('autonomic-wakeup', (message, options, theme) => {\n",
+    "    const { expanded } = options;\n",
+    "    let text = theme.fg('accent', '[A-worker] ');\n",
+    "    text += theme.fg('warning', message.content);\n",
+    "    if (expanded && message.details) {\n",
+    "      text += '\\n' + theme.fg('dim', JSON.stringify(message.details, null, 2));\n",
+    "    }\n",
+    "    return new Text(text, 0, 0);\n",
+    "  });\n",
+    "\n",
+  ]
+  |> list.map(fn(s) { s })
+  |> string.concat
 }
 
 fn monitor_consult_tool() -> String {
