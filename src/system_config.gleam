@@ -79,5 +79,5 @@ pub fn get_int_with_default(
 }
 
 pub fn get_debounce_ms() -> promise.Promise(Result(Int, ConfigError)) {
-  get_int_with_default("monitor_debounce_ms", 15_000)
+  get_int_with_default("monitor_debounce_ms", 5_000)
 }
