@@ -23,24 +23,12 @@ pub fn on_agent_end(
         }
         False -> {
           let entries_json = ctx_get_entries_json(ctx)
-          case has_recent_wakeup(entries_json) {
-            True -> {
-              notify_info(ctx, "[AUTONOMIC] Recent autonomic-wakeup already in context, skipping repeat")
-              promise.resolve(Ok(Nil))
-            }
-            False -> {
-              notify_info(ctx, "[AUTONOMIC] ctx.isIdle() = true, no recent wake-up, proceeding")
-              coordinate_with_s_worker(ctx, pi, entries_json)
-            }
-          }
+          notify_info(ctx, "[AUTONOMIC] ctx.isIdle() = true, proceeding with wake-up")
+          coordinate_with_s_worker(ctx, pi, entries_json)
         }
       }
     }
   }
-}
-
-fn has_recent_wakeup(entries_json: String) -> Bool {
-  string.contains(entries_json, "autonomic-wakeup")
 }
 
 fn coordinate_with_s_worker(

@@ -77,3 +77,4 @@ All functionality is exposed as Pi tools — use them inside the TUI, never from
 - `docs/ARCHITECTURE.md` — core architecture
 - `AGENTS.md` — quick guide for AI agents
 test change
+test auto-backup fix
