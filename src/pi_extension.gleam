@@ -49,3 +49,6 @@ pub fn call_monitor(ctx: a, user_prompt: String, system_prompt: String) -> promi
 
 @external(javascript, "./pi_extension_ffi.mjs", "ctx_reload")
 pub fn ctx_reload(ctx: a) -> promise.Promise(Nil)
+
+@external(javascript, "./pi_extension_ffi.mjs", "exec_sync")
+pub fn exec_sync(command: String) -> Result(String, String)

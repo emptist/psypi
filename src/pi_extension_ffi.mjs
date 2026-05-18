@@ -86,3 +86,13 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
 export async function ctx_reload(ctx) {
   await ctx.reload();
 }
+
+export function exec_sync(command) {
+  try {
+    const { execSync } = require('child_process');
+    const output = execSync(String(command), { encoding: 'utf-8', maxBuffer: 10*1024*1024 });
+    return { ok: true, value: output };
+  } catch (e) {
+    return { ok: false, value: e.message || 'exec_sync failed' };
+  }
+}

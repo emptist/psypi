@@ -29,11 +29,11 @@ import monitor_ai.{
   monitor_health_tool, monitor_stats_tool, monitor_status_tool,
   monitor_suggest_tool,
 }
-
 import pi_tool_call.{
-  type PiCommandReg, type PiEventHook, type PiToolCall, IgnoreError,
-  SilentSuccess, command_to_js, debounced_hook, event_hook, event_hook_to_js, from_param, lit,
-  raw_event_hook, to_import_line, to_js_text,
+  type PiToolCall, type PiEventHook, type PiCommandReg, PiToolCall, PiParam,
+  SilentSuccess, IgnoreError,
+  command_to_js, debounced_hook, event_hook, event_hook_to_js,
+  to_import_line, to_js_text, from_param, lit, raw_event_hook, raw_json,
 }
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import stats.{stats_show_tool}
@@ -97,6 +97,9 @@ pub fn all_tools() -> List(PiToolCall) {
     // Directives (Autonomic → Somatic communication)
     direct_agentbot_tool(),
     clear_directives_tool(),
+    // Consult & Commit (structured PiToolCall)
+    consult_tool(),
+    commit_tool(),
   ]
 }
 
@@ -214,32 +217,6 @@ fn helpers_text() -> String {
     "    return { ok: true, value: result };",
     "  }",
     "",
-    "  // Session ID — obtained once at session start, never exposed again",
-    "  let _sessionId = null;",
-    "  pi.on('session_start', async (_event, ctx) => {",
-    "    _sessionId = ctx.sessionManager.getSessionId() || '';",
-    "  });",
-    "",
-    "  // Monitor LLM call helper",
-    "  async function callMonitor(ctx, messages, systemPrompt) {",
-    "    if (!ctx.model) throw new Error('No model available');",
-    "    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);",
-    "    if (!auth.ok || !auth.apiKey) throw new Error(auth.error || 'No API key');",
-    "    const availableTools = pi.getActiveTools().join(', ');",
-    "    const fullPrompt = systemPrompt + '\\n\\nAVAILABLE TOOLS: ' + availableTools + '\\nYou have full access to these tools.';",
-    "    const response = await complete(",
-    "      ctx.model,",
-    "      { systemPrompt: fullPrompt, messages },",
-    "      { apiKey: auth.apiKey, headers: auth.headers }",
-    "    );",
-    "    const textContent = response.content",
-    "      .filter(c => c.type === 'text')",
-    "      .map(c => c.text)",
-    "      .join('\\n');\n",
-    "    if (!textContent) throw new Error('LLM returned no text content');\n",
-    "    return textContent;",
-    "  }",
-    "",
   ]
   |> list.map(fn(s) { s <> "\n" })
   |> string.concat
@@ -278,9 +255,36 @@ pub fn generate() -> String {
   <> event_hooks_text(hooks)
   <> tools_text(tools)
   <> commands_text(commands)
-  <> monitor_consult_tool()
-  <> psypi_commit_tool()
   <> "}\n"
+}
+
+fn consult_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-consult-autonomic",
+    description: "Consult the Autonomic Worker for difficult decisions. Only the Somatic Worker should use this.",
+    params: [
+      PiParam(name: "question", param_type: "string", required: True),
+    ],
+    module: "tool_consult",
+    fn_name: "on_consult",
+    args: [from_param("params.question || ''"), lit("ctx")],
+    result_format: raw_json(),
+  )
+}
+
+fn commit_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-commit",
+    description: "Commit with Monitor inter-review.",
+    params: [
+      PiParam(name: "message", param_type: "string", required: True),
+      PiParam(name: "review_id", param_type: "string", required: False),
+    ],
+    module: "tool_commit",
+    fn_name: "on_commit",
+    args: [from_param("params.message || ''"), from_param("params.review_id || ''"), lit("ctx")],
+    result_format: raw_json(),
+  )
 }
 
 fn message_renderer_text() -> String {
@@ -298,90 +302,6 @@ fn message_renderer_text() -> String {
     "\n",
   ]
   |> list.map(fn(s) { s })
-  |> string.concat
-}
-
-fn monitor_consult_tool() -> String {
-  [
-    "  // psypi-consult-autonomic - S-agentbot consults A-agentbot for advice\n",
-    "  pi.registerTool({\n",
-    "    name: 'psypi-consult-autonomic',\n",
-    "    description: 'Consult the Autonomic Agentbot for difficult decisions. Only the Somatic Agentbot should use this.',\n",
-    "    parameters: { \"type\": \"object\",\n    \"properties\": {\n      \"question\": { \"type\": \"string\" }\n    },\n    \"required\": [\"question\"]\n  },\n",
-    "    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {\n",
-    "      try {\n",
-    "        const question = params.question || 'What should I consider?';\n",
-    "        const systemPrompt = `You are Monitor, a senior technical advisor. Provide concise, actionable advice. Consider: safety, quality, architecture, trade-offs.`;\n",
-    "        const messages = [{ role: 'user', content: [{ type: 'text', text: question }], timestamp: Date.now() }];\n",
-    "        const response = await callMonitor(ctx, messages, systemPrompt);\n",
-    "        const marked = '[Autonomic] ' + response;\n",
-    "        ctx.ui.notify(marked, 'info');\n",
-    "        return { content: [{ type: 'text', text: marked }] };\n",
-    "      } catch(e) { return { content: [{ type: 'text', text: 'Autonomic error: ' + (e.message || 'unknown') }] }; }\n",
-    "    }\n",
-    "  });\n",
-    "\n",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat
-}
-
-fn psypi_commit_tool() -> String {
-  [
-    "  // psypi-commit - Inter-review with Monitor",
-    "  pi.registerTool({",
-    "    name: 'psypi-commit',",
-    "    description: 'Commit with Monitor inter-review.',",
-    "    parameters: { \"type\": \"object\",\n    \"properties\": {\n      \"message\": { \"type\": \"string\" },\n      \"review_id\": { \"type\": \"string\" }\n    },\n    \"required\": [\"message\"]\n  },",
-    "    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {",
-    "      try {",
-    "        const { execSync } = await import('child_process');",
-    "        const message = params.message || 'No commit message';",
-    "        const reviewId = params.review_id || '';",
-    "",
-    "        if (reviewId) {",
-    "          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
-    "          if (!uuidRegex.test(reviewId)) { return { content: [{ type: 'text', text: 'Invalid review_id format.' }] }; }",
-    "          try { execSync('git add -A && git commit -m \"' + message.replace(/\"/g, '\\\\\"') + '\"', { encoding: 'utf8' }); }",
-    "          catch(e) { return { content: [{ type: 'text', text: 'Commit failed: ' + e.message }] }; }",
-    "          return { content: [{ type: 'text', text: '✅ Committed: ' + message }] };",
-    "        }",
-    "",
-    "        let changedFiles = '';",
-    "        let diff = '';",
-    "        try {",
-    "          changedFiles = execSync('git diff --name-only', { encoding: 'utf8' });",
-    "          diff = execSync('git diff', { encoding: 'utf8', maxBuffer: 10*1024*1024 });",
-    "        } catch(e) { return { content: [{ type: 'text', text: 'Error getting git diff: ' + e.message }] }; }",
-    "",
-    "        const context = `CHANGES:\\nFiles: ${changedFiles}\\n---\\nDIFF:\\n${diff.substring(0, 8000)}\\n---\\nCOMMIT MESSAGE: ${message}\\n---\\nREVIEW: Assess code quality, safety, and fit. Respond: PASS or FAIL, SCORE/100, FEEDBACK.`;",
-    "",
-    "        const systemPrompt = 'You are Monitor. Review code. Be thorough but fair.';",
-    "        const messages = [{ role: 'user', content: [{ type: 'text', text: context }], timestamp: Date.now() }];",
-    "        const response = await callMonitor(ctx, messages, systemPrompt);",
-    "",
-    "        const passMatch = response.match(/PASS/i);",
-    "        const scoreMatch = response.match(/SCORE.?(\\d+)/i);",
-    "        const score = scoreMatch ? parseInt(scoreMatch[1]) : 0;",
-    "        const isPass = passMatch && score >= 70;",
-    "",
-    "        if (!isPass) {",
-    "          return { content: [{ type: 'text', text: 'Review: ' + response + '\\n\\n❌ Score ' + score + '/100 - Need improvements. Fix and run psypi-commit again.' }] };",
-    "        }",
-    "",
-    "        const newReviewId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
-    "          const r = Math.random() * 16 | 0;",
-    "          const v = c === 'x' ? r : (r & 0x3 | 0x8);",
-    "          return v.toString(16);",
-    "        });",
-    "",
-    "        return { content: [{ type: 'text', text: '✅ Review PASSED (' + score + '/100)\\n📋 review_id: ' + newReviewId + '\\n\\nTo commit: psypi-commit --review-id=' + newReviewId + ' \"' + message + '\"' }] };",
-    "      } catch(e) { return { content: [{ type: 'text', text: 'Error: ' + e.message }] }; }",
-    "    }",
-    "  });",
-    "",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
   |> string.concat
 }
 
