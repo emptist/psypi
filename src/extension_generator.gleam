@@ -30,7 +30,7 @@ import hook_before_agent_start
 import hook_session_start
 import hook_model_select
 import hook_tool_result
-import generator/agent_lifecycle
+import hook_agent_lifecycle
 
 // ---------------------------------------------------------------------------
 // Tool registry
@@ -101,8 +101,8 @@ pub fn all_event_hooks() -> List(PiEventHook) {
     event_hook("session_start", hook_session_start.handler_body()),
     event_hook("model_select", hook_model_select.handler_body()),
     event_hook("before_agent_start", hook_before_agent_start.handler_body()),
-    event_hook("agent_start", agent_lifecycle.start_body()),
-    event_hook("agent_end", agent_lifecycle.end_body()),
+    event_hook("agent_start", hook_agent_lifecycle.start_body()),
+    event_hook("agent_end", hook_agent_lifecycle.end_body()),
     event_hook("tool_result", hook_tool_result.handler_body()),
   ]
 }
