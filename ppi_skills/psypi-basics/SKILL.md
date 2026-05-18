@@ -42,6 +42,18 @@ description: Quick cheat‑sheet for using Psypi from the TUI (Atonomic vs Somat
     # Get your ID first: /psypi-somatic-id
     # The ID prefix is S- for Somatic, A- for Autonomic.
 ```
+### Meetings (discussion between Somatic and Autonomic workers)
+```
+/psypi-meeting-add topic="Discussion topic" created_by="S-..."
+    → creates a new meeting, returns meeting ID.
+/psypi-meeting-say meeting_id="<id>" message="Your opinion"
+    → adds your opinion to a meeting.
+/psypi-meeting-opinions meeting_id="<id>"
+    → lists all opinions for a meeting.
+/psypi-meetings          # list all meetings
+/psypi-meeting-get id="<id>"
+```
+
 ### Hooks & monitor status
 ```
 /psypi‑hooks‑list      # all event hooks

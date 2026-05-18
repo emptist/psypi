@@ -21,7 +21,7 @@ import issue_tools.{
 import learning.{learn_save_tool}
 import meeting.{
   meeting_create_tool, meeting_get_tool, meeting_list_tool,
-  meeting_opinions_tool,
+  meeting_opinions_tool, meeting_say_tool,
 }
 import memory.{memory_search_tool}
 import monitor_ai.{
@@ -74,6 +74,7 @@ pub fn all_tools() -> List(PiToolCall) {
     meeting_get_tool(),
     meeting_opinions_tool(),
     meeting_create_tool(),
+    meeting_say_tool(),
     // Learning
     learn_save_tool(),
     // Memory
