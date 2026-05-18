@@ -135,3 +135,55 @@ After each replacement:
 2. The generated `extension.js` must have the same structure
 3. Event hook handlers must correctly call Gleam-compiled functions
 4. All Gleam Result types must be unwrapped properly
+
+---
+
+## Execution Summary (Completed 2026-05-18)
+
+### Files Created (under `src/`)
+
+| New Real Module                     | Replaces Fake                            | Key Fix                                                                        |
+| ----------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
+| `hook_before_agent_start.gleam`     | `generator/before_agent_start.gleam`     | Clean no-op structure                                                          |
+| `hook_session_start.gleam`          | `generator/session_start.gleam`          | Uses `unwrapGleamResult` — fake silently swallowed Ok/Error                    |
+| `hook_model_select.gleam`           | `generator/model_select.gleam`           | Uses `unwrapGleamResult` — fake silently swallowed Ok/Error                    |
+| `hook_tool_call.gleam`              | `generator/tool_call.gleam`              | Uses `unwrapGleamResult` — fake always showed "Auto-backed up" even on failure |
+| `hook_tool_result.gleam`            | `generator/tool_result.gleam`            | Clean error variable naming, consistent patterns                               |
+| `hook_agent_lifecycle.gleam`        | `generator/agent_lifecycle.gleam`        | Delegates to `hook_agent_end_coordination`                                     |
+| `hook_agent_end_coordination.gleam` | `generator/agent_end_coordination.gleam` | CRITICAL: Uses `db_query.execute()` — fake called non-existent `db.query()`    |
+
+### Critical Bug Fixed
+
+The most important fix was in **`agent_end_coordination`**: the fake version
+called `db.query(sql, params)` which **does not exist** in the Gleam-compiled
+output. The `db_query` module exports `execute()`, not `query()`, and the `db`
+module's `query()` requires a `Connection` object. This would have **crashed
+at runtime** every time the agent_end hook fired. The real version uses
+`db_query.execute()` with `unwrapGleamResult` to properly handle the Gleam
+Result type.
+
+### Commits (6 total on `defake` branch)
+
+1. `before_agent_start` — simplest, no-op
+2. `session_start` — unwrapGleamResult for record_current_model
+3. `model_select` — unwrapGleamResult for record_current_model
+4. `tool_call` — unwrapGleamResult for save_version
+5. `tool_result` — clean error handling
+6. `agent_lifecycle + agent_end_coordination` — critical db_query.execute() fix
+
+### Verification Results
+
+- `gleam build` passes with zero errors after each replacement
+- `gleam run -m extension_generator` produces valid `extension.js`
+- All 7 event hooks (`tool_call`, `session_start`, `model_select`,
+  `before_agent_start`, `agent_start`, `agent_end`, `tool_result`) are
+  correctly generated in `extension.js`
+- All Gleam-compiled function calls use `unwrapGleamResult` pattern
+- All fake files renamed with `.fake` suffix in `src/generator/`
+
+### Remaining Cleanup (Optional)
+
+- Delete `.fake` files from `src/generator/` when no longer needed
+- Delete `src/generator/GENERATOR_DOCS.md` when no longer needed
+- Remove empty `src/generator/` directory
+- Delete this plan file when no longer needed
