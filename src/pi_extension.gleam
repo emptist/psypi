@@ -46,3 +46,6 @@ pub fn read_file_sync(path: String) -> Result(String, String)
 
 @external(javascript, "./pi_extension_ffi.mjs", "call_monitor")
 pub fn call_monitor(ctx: a, user_prompt: String, system_prompt: String) -> promise.Promise(Result(String, String))
+
+@external(javascript, "./pi_extension_ffi.mjs", "ctx_reload")
+pub fn ctx_reload(ctx: a) -> promise.Promise(Nil)

@@ -6,8 +6,8 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import pi_tool_call.{
-  type PiCommandReg, type PiToolCall, PiToolCall, raw_command, raw_json,
-  template,
+  type PiCommandReg, type PiToolCall, PiToolCall, command, raw_json,
+  template, from_param, lit,
 }
 
 pub type MonitorError {
@@ -472,51 +472,24 @@ pub fn monitor_suggest_tool() -> PiToolCall {
 
 /// /autonomic-listen command - Human tells Monitor what to do, Monitor replies in chat
 pub fn autonomic_listen_command() -> PiCommandReg {
-  raw_command(
+  command(
     "autonomic-listen",
     "Talk to Monitor AI directly - human and Monitor exchange in chat",
-    "
-      // If no arguments, show help
-      if (!args || args.trim() === '') {
-        ctx.ui.notify('Usage: /autonomic-listen <message>\\nExample: /autonomic-listen What should I work on?', 'info');
-        return;
-      }
-      
-      // Use the existing callMonitor helper
-      const systemPrompt = 'You are Monitor, a senior technical advisor. The human is communicating with you directly. Be concise and helpful.';
-      const messages = [{ role: 'user', content: [{ type: 'text', text: args }], timestamp: Date.now() }];
-      
-      try {
-        const reply = await callMonitor(ctx, messages, systemPrompt);
-        // Inject Monitor's reply directly into session chat
-        pi.sendMessage({
-          customType: 'autonomic-reply',
-          content: [{ type: 'text', text: 'Monitor: ' + reply }],
-          display: 'monitor',
-          details: { tool: 'autonomic-listen' }
-        }, { triggerTurn: false });
-      } catch(e) {
-        pi.sendMessage({
-          customType: 'autonomic-reply',
-          content: [{ type: 'text', text: 'Monitor error: ' + e.message }],
-          display: 'error',
-          details: { tool: 'autonomic-listen', error: e.message }
-        }, { triggerTurn: false });
-      }
-    ",
+    "command_listen",
+    "on_autonomic_listen",
+    [from_param("args || ''"), lit("ctx"), lit("pi")],
+    raw_json(),
   )
 }
 
-/// /autonomic-reload command - Reload Pi extensions (for Monitor's self-improvement)
 pub fn autonomic_reload_command() -> PiCommandReg {
-  raw_command(
+  command(
     "autonomic-reload",
     "Reload Pi extensions - used after Monitor modifies its own Gleam code",
-    "
-      ctx.ui.notify('Reloading extensions...', 'info');
-      await ctx.reload();
-      ctx.ui.notify('Extensions reloaded. Monitor updated.', 'info');
-    ",
+    "command_reload",
+    "on_autonomic_reload",
+    [lit("ctx")],
+    raw_json(),
   )
 }
 

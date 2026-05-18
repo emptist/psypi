@@ -82,3 +82,7 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
     return { ok: false, value: e.message || 'callMonitor failed' };
   }
 }
+
+export async function ctx_reload(ctx) {
+  await ctx.reload();
+}
