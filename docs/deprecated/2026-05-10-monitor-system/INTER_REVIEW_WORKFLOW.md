@@ -2,7 +2,7 @@
 
 ## Current (Broken)
 ```
-Worker → psypi-commit → inter_review → external LLM (P-tencent/hy3-preview)
+Agentbot → psypi-commit → inter_review → external LLM (P-tencent/hy3-preview)
                                       ↓
                               different system from Monitor
 ```
@@ -27,7 +27,7 @@ Worker → psypi-commit → inter_review → external LLM (P-tencent/hy3-preview
          │     - Recent activity                        │
          │                                              │
          │  2. Send to Monitor LLM                     │
-         │     (same model as worker)                  │
+         │     (same model as agentbot)                  │
          │                                              │
          │  3. Receive response:                        │
          │     - Score (0-100)                          │
@@ -43,9 +43,9 @@ Worker → psypi-commit → inter_review → external LLM (P-tencent/hy3-preview
                     ↓                       ↓
             ┌───────────────┐      ┌─────────────────┐
             │ git commit    │      │ ❌ REJECTED     │
-            │ ✅ SUCCESS    │      │ Worker sees     │
+            │ ✅ SUCCESS    │      │ Agentbot sees     │
             │               │      │ score + feedback│
-            └───────────────┘      │ Worker fixes    │
+            └───────────────┘      │ Agentbot fixes    │
                                    │ Then retry      │
                                    └─────────────────┘
 ```
@@ -58,10 +58,10 @@ Worker → psypi-commit → inter_review → external LLM (P-tencent/hy3-preview
 - Commit message
 
 ### 2. Context (THE WHY)
-- **How** worker approached the changes
+- **How** agentbot approached the changes
 - **Why** certain decisions were made
 - What was the original problem being solved?
-- What constraints was worker under?
+- What constraints was agentbot under?
 - This gives info about limitations to quality
 
 ### 3. Project Context
@@ -74,30 +74,30 @@ Worker → psypi-commit → inter_review → external LLM (P-tencent/hy3-preview
 - Any dangerous operations blocked this session?
 
 ### 5. Activity Summary
-- What did worker do this session?
+- What did agentbot do this session?
 - Patterns to watch for?
 
 ---
 
 **Core insight**: Changes tell Monitor WHAT, context tells WHY.
-Without context, Monitor judges code in isolation - unfair to worker.
+Without context, Monitor judges code in isolation - unfair to agentbot.
 With context, Monitor understands limitations and quality constraints.
 
 ## Key Points
 
-1. **Trigger**: `psypi-commit` - worker ready to commit
+1. **Trigger**: `psypi-commit` - agentbot ready to commit
 2. **Gather context**: all of above (1-5)
-3. **LLM**: Monitor (not external service) - uses same model as worker
+3. **LLM**: Monitor (not external service) - uses same model as agentbot
 4. **Output**: Score + PASS/FAIL + detailed feedback
 5. **Decision**: 
    - Pass (≥70) → git commit
-   - Fail → show feedback, worker fixes, retry
+   - Fail → show feedback, agentbot fixes, retry
 
 ## What's Different from Current
 
-| Aspect | Current | New Design |
-|--------|---------|------------|
-| LLM | External (P-tencent/hy3-preview) | Monitor (same as worker) |
-| Context | limited | full (git diff + activity) |
-| Decision | stored in DB, async | immediate sync |
-| Loop | external polling | direct |
+| Aspect   | Current                          | New Design                 |
+| -------- | -------------------------------- | -------------------------- |
+| LLM      | External (P-tencent/hy3-preview) | Monitor (same as agentbot) |
+| Context  | limited                          | full (git diff + activity) |
+| Decision | stored in DB, async              | immediate sync             |
+| Loop     | external polling                 | direct                     |

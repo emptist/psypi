@@ -6,15 +6,15 @@ This folder contains Gleam code that generates JavaScript hook handlers for the 
 
 ## File Overview
 
-| File | Event Hook | Purpose |
-|------|------------|---------|
-| `agent_lifecycle.gleam` | `agent_start`, `agent_end` | Orchestrates A-worker lifecycle hooks |
-| `agent_end_coordination.gleam` | `agent_end` (handler) | Idle detection + wake-up coordination |
-| `before_agent_start.gleam` | `before_agent_start` | (DEPRECATED - no-op) |
-| `session_start.gleam` | `session_start` | Session initialization, records model |
-| `model_select.gleam` | `model_select` | Records model changes |
-| `tool_call.gleam` | `tool_call` | Auto-backup for edit operations |
-| `tool_result.gleam` | `tool_result` | Error detection + injection |
+| File                           | Event Hook                 | Purpose                                 |
+| ------------------------------ | -------------------------- | --------------------------------------- |
+| `agent_lifecycle.gleam`        | `agent_start`, `agent_end` | Orchestrates A-agentbot lifecycle hooks |
+| `agent_end_coordination.gleam` | `agent_end` (handler)      | Idle detection + wake-up coordination   |
+| `before_agent_start.gleam`     | `before_agent_start`       | (DEPRECATED - no-op)                    |
+| `session_start.gleam`          | `session_start`            | Session initialization, records model   |
+| `model_select.gleam`           | `model_select`             | Records model changes                   |
+| `tool_call.gleam`              | `tool_call`                | Auto-backup for edit operations         |
+| `tool_result.gleam`            | `tool_result`              | Error detection + injection             |
 
 ---
 
@@ -22,35 +22,35 @@ This folder contains Gleam code that generates JavaScript hook handlers for the 
 
 ### 1. `agent_lifecycle.gleam`
 
-**Purpose:** Defines the A-worker (Autonomic Worker) lifecycle hooks for `agent_start` and `agent_end` events.
+**Purpose:** Defines the A-agentbot (Autonomic Agentbot) lifecycle hooks for `agent_start` and `agent_end` events.
 
 **Behavior:**
-- `agent_start`: Currently a no-op. The S-worker is starting, so A-worker stays silent.
+- `agent_start`: Currently a no-op. The S-agentbot is starting, so A-agentbot stays silent.
 - `agent_end`: Delegates to `agent_end_coordination.handler_body()` for idle detection and wake-up coordination.
 
 **Key Concept:** This coordinates the dual identity system where:
-- **S-worker (Somatic)**: Does the actual coding work
-- **A-worker (Autonomic)**: Monitors and coordinates in background
+- **S-agentbot (Somatic)**: Does the actual coding work
+- **A-agentbot (Autonomic)**: Monitors and coordinates in background
 
 ---
 
 ### 2. `agent_end_coordination.gleam`
 
-**Purpose:** Handles the `agent_end` event to detect idle state and coordinate A-worker wake-up of S-worker.
+**Purpose:** Handles the `agent_end` event to detect idle state and coordinate A-agentbot wake-up of S-agentbot.
 
 **Behavior:**
 1. When `agent_end` fires, logs a notification
 2. Reads debounce duration from `system_config` table (key: `monitor_debounce_ms`)
 3. Waits for the configured debounce period (default ~15s)
-4. Checks `ctx.isIdle()` to see if S-worker is still idle
+4. Checks `ctx.isIdle()` to see if S-agentbot is still idle
 5. If still idle:
    - Reads `docs/MONITOR-BRIEF.md` (hard-to-find knowledge, <200 words)
    - Gets context usage info
    - Calls `callMonitor()` to compose a wake-up message
-   - Sends message to S-worker via `pi.sendMessage()` with `triggerTurn: true`
-6. If not idle, skips wake-up (S-worker is already working)
+   - Sends message to S-agentbot via `pi.sendMessage()` with `triggerTurn: true`
+6. If not idle, skips wake-up (S-agentbot is already working)
 
-**Key Feature:** The debounce prevents premature wake-ups - if S-worker resumes within the debounce period, no wake-up message is sent.
+**Key Feature:** The debounce prevents premature wake-ups - if S-agentbot resumes within the debounce period, no wake-up message is sent.
 
 ---
 
@@ -122,9 +122,9 @@ This folder contains Gleam code that generates JavaScript hook handlers for the 
    - Extracts error message (tries multiple fields)
    - Logs error notification to UI
    - Injects error message into session via `pi.sendMessage()` with `customType: 'autonomic-error'`
-   - Uses `triggerTurn: true` to force immediate S-worker attention
+   - Uses `triggerTurn: true` to force immediate S-agentbot attention
 
-**Key Feature:** Ensures the S-worker is immediately aware of tool failures and can respond/fix them.
+**Key Feature:** Ensures the S-agentbot is immediately aware of tool failures and can respond/fix them.
 
 ---
 
@@ -136,12 +136,12 @@ These generators create JavaScript that runs in the Pi platform's hook system:
 Pi Event → Hook Handler (generated JS) → Action
 ```
 
-The A-worker (Autonomic) uses these hooks to:
+The A-agentbot (Autonomic) uses these hooks to:
 - Monitor session state (session_start, model_select)
-- Detect idle periods and wake up the S-worker (agent_end)
+- Detect idle periods and wake up the S-agentbot (agent_end)
 - Provide safety nets (tool_call auto-backup)
 - Ensure error awareness (tool_result error injection)
 
-This enables the dual-worker architecture where:
-- S-worker does the work
-- A-worker watches, coordinates, and intervenes when needed
+This enables the dual-agentbot architecture where:
+- S-agentbot does the work
+- A-agentbot watches, coordinates, and intervenes when needed

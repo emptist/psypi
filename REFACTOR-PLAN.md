@@ -3,7 +3,7 @@
 ## Core Principle
 **"Any efforts to remove intelligence from psypi system are just wrong!"**
 
-Hooks should be THIN — no pattern matching, no blocking logic. The Atonomic Worker (LLM) handles all intelligent decisions.
+Hooks should be THIN — no pattern matching, no blocking logic. The Atonomic Agentbot (LLM) handles all intelligent decisions.
 
 ## Changes Needed
 
@@ -13,7 +13,7 @@ The hook should just let tools run. No pattern matching.
 ```javascript
 pi.on('tool_call', async (event, ctx) => {
   // Thin hook — no blocking decisions
-  // Atonomic Worker reviews tool usage via directives
+  // Atonomic Agentbot reviews tool usage via directives
 });
 ```
 
@@ -28,10 +28,10 @@ Keep only:
 - Auto-backup for 'edit' tool
 - try/catch with ctx.ui.notify for errors
 
-### 3. Atonomic Worker Directives
-The Atonomic Worker should have system prompt directives like:
+### 3. Atonomic Agentbot Directives
+The Atonomic Agentbot should have system prompt directives like:
 - "Review tool calls for dangerous operations"
-- "Before destructive actions, consult with Somatic Worker"
+- "Before destructive actions, consult with Somatic Agentbot"
 - "Set directives when problems are detected"
 
 ### 4. Split extension_generator.gleam into small modules

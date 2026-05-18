@@ -22,9 +22,9 @@ This contains ONLY user prompts, NOT AI responses. Incomplete record.
 14. "what is the Core loop?"
 15. "user prompt should be only an option, they could have no time to standby"
 16. "no timer is actually needed. there so many events in pi, what you need to do is to list them out and then you will see the truth"
-17. "what the initial version needs to do is to list all the events, and add tasks for worker and monitor to pickup to finaly hook every event to monitors different works if possible"
-18. "monitor will not only do checking and reviews, most important, it will use systemprompt to keep the worker working after monitor has done its piece of job, then the it's a cycle"
-19. "worker -> monitor -> worker -> monitor --> (user) --> cycling on"
+17. "what the initial version needs to do is to list all the events, and add tasks for agentbot and monitor to pickup to finaly hook every event to monitors different works if possible"
+18. "monitor will not only do checking and reviews, most important, it will use systemprompt to keep the agentbot working after monitor has done its piece of job, then the it's a cycle"
+19. "agentbot -> monitor -> agentbot -> monitor --> (user) --> cycling on"
 20. "I find you are falling back to questions already have solved. you need to read the docs you have written."
 21. "since you have forgotten many things"
 22. "and you have an analysis doc too"
@@ -60,13 +60,13 @@ This contains ONLY user prompts, NOT AI responses. Incomplete record.
 ## Key Insights from History
 
 ### From Line 17: Event Hooking
-"what the initial version needs to do is to list all the events, and add tasks for worker and monitor to pickup to finaly hook every event to monitors different works if possible"
+"what the initial version needs to do is to list all the events, and add tasks for agentbot and monitor to pickup to finaly hook every event to monitors different works if possible"
 
 ### From Line 18: Monitor's Job
-"monitor will not only do checking and reviews, most important, it will use systemprompt to keep the worker working after monitor has done its piece of job"
+"monitor will not only do checking and reviews, most important, it will use systemprompt to keep the agentbot working after monitor has done its piece of job"
 
 ### From Line 19: The Cycle
-"worker -> monitor -> worker -> monitor --> (user) --> cycling on"
+"agentbot -> monitor -> agentbot -> monitor --> (user) --> cycling on"
 
 ### From Line 40: Problem Discovered
 "the monitor still don't have access to tools or bash, at least itself think so"

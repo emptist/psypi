@@ -28,12 +28,12 @@ Implement Monitor for psypi - local LLM consultant + silent safety hooks.
 - [ ] Track agent decisions for post-session review
 
 ### Phase 5: Documentation
-- [ ] Document how worker uses Monitor
+- [ ] Document how agentbot uses Monitor
 - [ ] List all Monitor tools
 - [ ] Explain event hooks integration
 
 ## Key Decisions
-- Monitor uses worker's model via ctx.model
+- Monitor uses agentbot's model via ctx.model
 - LLM call in JS wrapper (ctx available only in execute)
 - Two modes: Silent (safety) + Communication (tool + skill)
 - Event-driven, NOT periodic

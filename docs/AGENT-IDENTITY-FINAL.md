@@ -26,17 +26,17 @@ pub type Context {
 
 ```gleam
 pub fn get_resolved_identity(ctx: Context) -> Result(AgentIdentity, IdentityError) {
-  let autonomous = ctx.is_idle  // idle → A-worker, busy → S-worker
+  let autonomous = ctx.is_idle  // idle → A-agentbot, busy → S-agentbot
   // ... build ID from ctx fields
 }
 ```
 
 ## Call Sites
 
-### S-worker tool (always autonomous=false)
+### S-agentbot tool (always autonomous=false)
 ```javascript
 agent_identity_get_resolved_identity({
-    is_idle: false,           // S-worker is never "idle" when it's working
+    is_idle: false,           // S-agentbot is never "idle" when it's working
     model_id: ctx.model?.id,
     provider: ctx.model?.provider,
     thinking_level: ctx.model?.thinkingLevel,
@@ -44,10 +44,10 @@ agent_identity_get_resolved_identity({
 })
 ```
 
-### A-worker tool (always autonomous=true)
+### A-agentbot tool (always autonomous=true)
 ```javascript
 agent_identity_get_resolved_identity({
-    is_idle: true,            // A-worker is always "idle" (event-driven)
+    is_idle: true,            // A-agentbot is always "idle" (event-driven)
     model_id: ctx.model?.id,
     provider: ctx.model?.provider,
     thinking_level: ctx.model?.thinkingLevel,
@@ -58,7 +58,7 @@ agent_identity_get_resolved_identity({
 ### agent_end coordination (dynamic)
 ```javascript
 agent_identity_get_resolved_identity({
-    is_idle: ctx.isIdle(),    // DYNAMIC — depends on S-worker state
+    is_idle: ctx.isIdle(),    // DYNAMIC — depends on S-agentbot state
     model_id: ctx.model?.id,
     provider: ctx.model?.provider,
     thinking_level: ctx.model?.thinkingLevel,
@@ -69,9 +69,9 @@ agent_identity_get_resolved_identity({
 ## Key Insight
 
 The `is_idle` field means different things in different contexts:
-- **S-worker tool**: always `false` (S-worker is working when it calls this)
-- **A-worker tool**: always `true` (A-worker is always idle/event-driven)
-- **agent_end**: `ctx.isIdle()` (dynamic — is S-worker still idle?)
+- **S-agentbot tool**: always `false` (S-agentbot is working when it calls this)
+- **A-agentbot tool**: always `true` (A-agentbot is always idle/event-driven)
+- **agent_end**: `ctx.isIdle()` (dynamic — is S-agentbot still idle?)
 
 The function doesn't care WHAT `is_idle` means. It just builds the ID. The caller decides.
 

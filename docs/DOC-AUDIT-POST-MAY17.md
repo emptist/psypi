@@ -1,24 +1,24 @@
 # Doc Audit: Post-May 17 Documentation vs. Codebase Reality
 
 **Date:** 2026-05-18
-**Auditor:** OWL (S-worker)
+**Auditor:** OWL (S-agentbot)
 **Scope:** All docs created/modified after 2026-05-17
 
 ---
 
 ## Documents Reviewed
 
-| # | File | Type |
-|---|------|------|
-| 1 | `docs/ARCHITECTURE.md` | Design vision |
-| 2 | `docs/AGENT-IDENTITY-FINAL.md` | Design proposal |
-| 3 | `docs/AS-COMMUNICATION.md` | Architecture doc |
-| 4 | `docs/AGENT-END-PLAN.md` | Implementation plan |
-| 5 | `docs/GENERATOR-AUDIT.md` | Audit + plan |
-| 6 | `docs/MONITOR-DEBOUNCE.md` | Config doc |
-| 7 | `docs/TOOL-TEST-RESULTS.md` | Test results |
-| 8 | `docs/TOOL-TEST-PLAN.md` | Test plan |
-| 9 | `PLAN-PSYPI-MODE.md` | Feature plan |
+| #   | File                           | Type                |
+| --- | ------------------------------ | ------------------- |
+| 1   | `docs/ARCHITECTURE.md`         | Design vision       |
+| 2   | `docs/AGENT-IDENTITY-FINAL.md` | Design proposal     |
+| 3   | `docs/AS-COMMUNICATION.md`     | Architecture doc    |
+| 4   | `docs/AGENT-END-PLAN.md`       | Implementation plan |
+| 5   | `docs/GENERATOR-AUDIT.md`      | Audit + plan        |
+| 6   | `docs/MONITOR-DEBOUNCE.md`     | Config doc          |
+| 7   | `docs/TOOL-TEST-RESULTS.md`    | Test results        |
+| 8   | `docs/TOOL-TEST-PLAN.md`       | Test plan           |
+| 9   | `PLAN-PSYPI-MODE.md`           | Feature plan        |
 
 ---
 
@@ -64,7 +64,7 @@
 ### 3. `docs/AS-COMMUNICATION.md` — ⚠️ Conceptually correct, file references wrong
 
 **Claims:**
-- A/S dual-worker model with `get_resolved_identity` as single source of truth
+- A/S dual-agentbot model with `get_resolved_identity` as single source of truth
 - `agent_end.gleam` implements the coordination
 - `autonomic_hooks.gleam` contains simple hooks
 - Each file under 100 lines
@@ -144,16 +144,16 @@
 - 6/35 partially working
 
 **Verified bugs match code reality:**
-| Tool | Reported Error | Code Evidence |
-|------|---------------|---------------|
-| `psypi-issues` | "there is no parameter $0" | SQL binding issue in issue module |
-| `psypi-clear-directives` | "column 'active' does not exist" | Code references `active` but table has `is_active` |
-| `psypi-memory-search` | Returns literal `{count}` | Template `"Count: {count}"` not interpolated |
-| `psypi-issue-count` | Returns "Count: 0" | Issue counting logic flawed |
-| `psypi-learn-save` | "Cannot read properties of undefined" | Missing/null function crash |
-| `psypi-skill-search` | Returns empty `{}` | Search not working |
-| `psypi-commit` | Scores 0/100 | Score parsing regex issue |
-| `psypi-consult-autonomic` | Minimal output | Monitor LLM responds but output thin |
+| Tool                      | Reported Error                        | Code Evidence                                      |
+| ------------------------- | ------------------------------------- | -------------------------------------------------- |
+| `psypi-issues`            | "there is no parameter $0"            | SQL binding issue in issue module                  |
+| `psypi-clear-directives`  | "column 'active' does not exist"      | Code references `active` but table has `is_active` |
+| `psypi-memory-search`     | Returns literal `{count}`             | Template `"Count: {count}"` not interpolated       |
+| `psypi-issue-count`       | Returns "Count: 0"                    | Issue counting logic flawed                        |
+| `psypi-learn-save`        | "Cannot read properties of undefined" | Missing/null function crash                        |
+| `psypi-skill-search`      | Returns empty `{}`                    | Search not working                                 |
+| `psypi-commit`            | Scores 0/100                          | Score parsing regex issue                          |
+| `psypi-consult-autonomic` | Minimal output                        | Monitor LLM responds but output thin               |
 
 **Root causes identified match code:**
 1. Raw JSON output — most tools use `result_format: raw_json()` returning unformatted DB records
@@ -195,17 +195,17 @@ Lists 35 tools across 18 categories. Matches `all_tools()` in `extension_generat
 
 ## Summary Table
 
-| Doc | Accuracy | Status |
-|-----|----------|--------|
-| `ARCHITECTURE.md` | ❌ Future state, not current | Aspirational |
-| `AGENT-IDENTITY-FINAL.md` | ❌ Not implemented | Proposal |
-| `AS-COMMUNICATION.md` | ⚠️ Right idea, wrong paths | Outdated refs |
-| `AGENT-END-PLAN.md` | ✅ Accurate analysis | Not executed |
-| `GENERATOR-AUDIT.md` | ✅ Accurate analysis | Not executed |
-| `MONITOR-DEBOUNCE.md` | ⚠️ Misleading "default" | Minor issue |
-| `TOOL-TEST-RESULTS.md` | ✅ Accurate | Real bugs |
-| `TOOL-TEST-PLAN.md` | ✅ Accurate | Complete |
-| `PLAN-PSYPI-MODE.md` | ❌ Incomplete | Not started |
+| Doc                       | Accuracy                    | Status        |
+| ------------------------- | --------------------------- | ------------- |
+| `ARCHITECTURE.md`         | ❌ Future state, not current | Aspirational  |
+| `AGENT-IDENTITY-FINAL.md` | ❌ Not implemented           | Proposal      |
+| `AS-COMMUNICATION.md`     | ⚠️ Right idea, wrong paths   | Outdated refs |
+| `AGENT-END-PLAN.md`       | ✅ Accurate analysis         | Not executed  |
+| `GENERATOR-AUDIT.md`      | ✅ Accurate analysis         | Not executed  |
+| `MONITOR-DEBOUNCE.md`     | ⚠️ Misleading "default"      | Minor issue   |
+| `TOOL-TEST-RESULTS.md`    | ✅ Accurate                  | Real bugs     |
+| `TOOL-TEST-PLAN.md`       | ✅ Accurate                  | Complete      |
+| `PLAN-PSYPI-MODE.md`      | ❌ Incomplete                | Not started   |
 
 ---
 

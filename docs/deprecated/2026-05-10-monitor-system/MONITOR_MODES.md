@@ -25,8 +25,8 @@
          ┌──────────────────────────────┴────────────┐
          │ 2. MIDDLE OF WORKFLOW (proactive)        │
          │                                          │
-         │ Worker: "Should I use array or dict?"   │
-         │ Worker: "What do you think?"            │
+         │ Agentbot: "Should I use array or dict?"   │
+         │ Agentbot: "What do you think?"            │
          │ psypi-autonomic-consult → Monitor          │
          └──────────────────────────────────────────┘
 ```
@@ -37,12 +37,12 @@ Monitor watches and maintains the system:
 - Skill discovery and loading for current project
 - Database cleanup (old sessions, stale data)
 - Auto-update documentation
-- Learning from worker actions
+- Learning from agentbot actions
 - Git operation tracing (detect odd patterns)
 - Memory tracking on bash events
 
 ## Mode 2: Middle of Workflow (proactive)
-Worker proactively consults Monitor:
+Agentbot proactively consults Monitor:
 - "Should I use array or dict?"
 - "What do you think about this approach?"
 - Tool: `psypi-autonomic-consult`

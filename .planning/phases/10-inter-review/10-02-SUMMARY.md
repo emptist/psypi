@@ -4,7 +4,7 @@
 
 ## Accomplishments
 - Added psypi-commit tool in extension_generator.gleam that calls callMonitor()
-- Uses ctx.model (same as worker) - NOT external P-tencent service
+- Uses ctx.model (same as agentbot) - NOT external P-tencent service
 - Gathers git diff (WHAT) + formats context (WHY)
 - Returns PASS/FAIL + score, commits if pass
 - Removed old commit_tool from inter_review.gleam
@@ -19,11 +19,11 @@
 - gleam build passes ✅
 
 ## Key Change
-| Before | After |
-|--------|-------|
+| Before                               | After                         |
+| ------------------------------------ | ----------------------------- |
 | External LLM (P-tencent/hy3-preview) | Monitor LLM via callMonitor() |
-| Async via DB | Synchronous in same session |
-| Limited context | Full git diff + context |
+| Async via DB                         | Synchronous in same session   |
+| Limited context                      | Full git diff + context       |
 
 ## Next Step
 Ready for expanded Monitor roles in inter-review (instructions, stats, self-design)

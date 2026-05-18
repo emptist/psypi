@@ -17,15 +17,15 @@ A-psypi-openrouter/owl-alpha-high
 ```
 
 The ID tells you:
-- **Who**: A-worker or S-worker
+- **Who**: A-agentbot or S-agentbot
 - **What**: which model is running
 - **Where**: which project
 - **How**: thinking level
 
-## Two Workers, One Function
+## Two Agentbots, One Function
 
 ```javascript
-// S-worker identity (autonomous=false)
+// S-agentbot identity (autonomous=false)
 const sId = await agent_identity_get_resolved_identity(
     false,                    // autonomous
     ctx.cwd,                  // project
@@ -35,7 +35,7 @@ const sId = await agent_identity_get_resolved_identity(
 );
 // Result: "S-psypi-openrouter/owl-alpha"
 
-// A-worker identity (autonomous=true)
+// A-agentbot identity (autonomous=true)
 const aId = await agent_identity_get_resolved_identity(
     true,                     // autonomous
     ctx.cwd,                  // project
@@ -50,44 +50,44 @@ The ONLY difference is the first argument: `true` or `false`. Everything else co
 
 ## How A-S Exchange Happens
 
-### S-worker side (normal operation)
+### S-agentbot side (normal operation)
 1. User sends prompt
-2. `before_agent_start` fires → S-worker reads notifications from DB
-3. S-worker processes prompt, calls tools, etc.
-4. `agent_end` fires → S-worker is done
+2. `before_agent_start` fires → S-agentbot reads notifications from DB
+3. S-agentbot processes prompt, calls tools, etc.
+4. `agent_end` fires → S-agentbot is done
 
-### A-worker side (agent_end coordination)
-1. `agent_end` fires → S-worker finished
+### A-agentbot side (agent_end coordination)
+1. `agent_end` fires → S-agentbot finished
 2. Wait 5 min (debounce)
-3. Check `ctx.isIdle()` → is S-worker still idle?
-4. If NO → S-worker got new work, skip
-5. If YES → call `get_resolved_identity(true, ...)` → get A-worker ID
+3. Check `ctx.isIdle()` → is S-agentbot still idle?
+4. If NO → S-agentbot got new work, skip
+5. If YES → call `get_resolved_identity(true, ...)` → get A-agentbot ID
 6. Read MONITOR-BRIEF.md
-7. Call Monitor LLM with A-worker ID in system prompt
-8. Send wake-up message to S-worker via `pi.sendMessage`
+7. Call Monitor LLM with A-agentbot ID in system prompt
+8. Send wake-up message to S-agentbot via `pi.sendMessage`
 
 ### The Exchange
-- A-worker sends: `pi.sendMessage({ customType: 'autonomic-wakeup', content: msg })`
-- S-worker receives: the message appears in session
-- S-worker sees: "[from A-worker:] You have 3 open issues..."
-- S-worker decides: what to do next
+- A-agentbot sends: `pi.sendMessage({ customType: 'autonomic-wakeup', content: msg })`
+- S-agentbot receives: the message appears in session
+- S-agentbot sees: "[from A-agentbot:] You have 3 open issues..."
+- S-agentbot decides: what to do next
 
 **No explicit handshake. No shared state. Just the ID and the message.**
 
 ## ctx.isIdle() — The Gate
 
 `ctx.isIdle()` is the ONLY check needed. It tells you:
-- `true` → S-worker is idle → A-worker can speak
-- `false` → S-worker is busy → A-worker stays silent
+- `true` → S-agentbot is idle → A-agentbot can speak
+- `false` → S-agentbot is busy → A-agentbot stays silent
 
-This is the gate that prevents A-worker from interrupting S-worker.
+This is the gate that prevents A-agentbot from interrupting S-agentbot.
 
 ## Debounce — Why 5 Minutes?
 
-After `agent_end` fires, S-worker might immediately get a new prompt. No need to wake it up if it's already busy.
+After `agent_end` fires, S-agentbot might immediately get a new prompt. No need to wake it up if it's already busy.
 
-- Old: 15 seconds (too short, S-worker could still be processing)
-- New: 5 minutes (300000ms) — enough time for S-worker to settle
+- Old: 15 seconds (too short, S-agentbot could still be processing)
+- New: 5 minutes (300000ms) — enough time for S-agentbot to settle
 
 Configurable via `psypi_config` table: `monitor_debounce_ms`
 
@@ -106,9 +106,9 @@ The handler body is JS text constructed by Gleam string functions. It:
 1. Reads debounce from DB (default 300000ms)
 2. setTimeout(debounceMs)
 3. Checks ctx.isIdle()
-4. Calls get_resolved_identity(true, ...) for A-worker ID
+4. Calls get_resolved_identity(true, ...) for A-agentbot ID
 5. Reads MONITOR-BRIEF.md
-6. Calls callMonitor with A-worker ID in prompt
+6. Calls callMonitor with A-agentbot ID in prompt
 7. Sends message via pi.sendMessage
 
 ## Key Design Decisions
@@ -122,8 +122,8 @@ The old fake generator files had hardcoded JS strings. If you wanted to change t
 ### Why call get_resolved_identity instead of building ID inline?
 `get_resolved_identity` is the single source of truth. If the ID format changes (e.g., add new segment), we change ONE function, not every place that builds IDs.
 
-### Why pass A-worker ID to callMonitor?
-The LLM needs to know who it is. The ID tells the LLM: "You are A-psypi-openrouter/owl-alpha-high" — the Autonomic Worker with this specific model and thinking level. The LLM can then compose a contextually appropriate message.
+### Why pass A-agentbot ID to callMonitor?
+The LLM needs to know who it is. The ID tells the LLM: "You are A-psypi-openrouter/owl-alpha-high" — the Autonomic Agentbot with this specific model and thinking level. The LLM can then compose a contextually appropriate message.
 
 ## File Structure
 

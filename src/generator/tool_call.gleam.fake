@@ -1,5 +1,5 @@
 // generator/tool_call.gleam — Thin tool_call hook
-// NO pattern matching, NO blocking — Atonomic Worker handles safety intelligently
+// NO pattern matching, NO blocking — Atonomic Agentbot handles safety intelligently
 
 import gleam/list
 import gleam/string

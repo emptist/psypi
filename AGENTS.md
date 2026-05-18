@@ -64,7 +64,7 @@ The A- or S- prefix is not a role assignment — it emerges from `ctx.isIdle()` 
 - `psypi-somatic-id` — calls `get_resolved_identity` with live `ctx.isIdle()`
 - `psypi-autonomic-id` — calls `get_resolved_identity` with live `ctx.isIdle()`
 
-**Example:** Ask "what is your id?" and the AI should call `psypi-somatic-id` (it IS the somatic worker).
+**Example:** Ask "what is your id?" and the AI should call `psypi-somatic-id` (it IS the somatic agentbot).
 
 ## Self-Loading Skills
 

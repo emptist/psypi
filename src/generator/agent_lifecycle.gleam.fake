@@ -1,4 +1,4 @@
-// generator/agent_lifecycle.gleam — A‑worker lifecycle hooks
+// generator/agent_lifecycle.gleam — A‑agentbot lifecycle hooks
 //
 // agent_end: S just finished working, A checks idle and sends wake-up
 // agent_start: S is starting, A stays silent

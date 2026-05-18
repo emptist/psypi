@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS psypi_event_hooks (
   event_name TEXT NOT NULL UNIQUE,
   hook_status TEXT DEFAULT 'active' CHECK (hook_status IN ('active', 'inactive', 'error', 'experimental')),
   monitor_action TEXT NOT NULL,
-  worker_action TEXT,
+  agentbot_action TEXT,
   injection_enabled BOOLEAN DEFAULT FALSE,
   description TEXT,
   last_triggered TIMESTAMP,
@@ -21,14 +21,14 @@ CREATE INDEX IF NOT EXISTS idx_event_hooks_status ON psypi_event_hooks(hook_stat
 CREATE INDEX IF NOT EXISTS idx_event_hooks_name ON psypi_event_hooks(event_name);
 
 -- Populate with all current hooks
-INSERT INTO psypi_event_hooks (event_name, hook_status, monitor_action, worker_action, injection_enabled, description)
+INSERT INTO psypi_event_hooks (event_name, hook_status, monitor_action, agentbot_action, injection_enabled, description)
 VALUES
   ('session_start', 'active', 'Initialize, record model, health check', NULL, TRUE, 'Session begins - record model, check health, set status'),
-  ('before_agent_start', 'active', 'Read DB notifications, inject into system prompt', 'Work on tasks', TRUE, 'Before agent loop - bridge Monitor to Worker via notifications'),
+  ('before_agent_start', 'active', 'Read DB notifications, inject into system prompt', 'Work on tasks', TRUE, 'Before agent loop - bridge Monitor to Agentbot via notifications'),
   ('agent_start', 'active', 'Track agent activity (silent)', NULL, FALSE, 'Agent loop starts - log start'),
   ('agent_end', 'active', 'Track session completion (silent)', NULL, FALSE, 'Agent loop ends - log end, analyze'),
   ('tool_call', 'active', 'Safety check, activity log, auto-backup', NULL, TRUE, 'Before tool - block dangerous ops, log, auto-backup'),
-  ('tool_result', 'active', 'Detect errors, create notification, auto-file issue', 'Get result', TRUE, 'After tool - detect errors, notify Worker, file issues'),
+  ('tool_result', 'active', 'Detect errors, create notification, auto-file issue', 'Get result', TRUE, 'After tool - detect errors, notify Agentbot, file issues'),
   ('model_select', 'active', 'Record model change to DB', 'Adapt to model', FALSE, 'Model changes - record for Monitor tracking'),
   ('tool_execution_start', 'inactive', 'Log tool start', NULL, FALSE, 'Tool execution begins - monitor progress'),
   ('tool_execution_update', 'inactive', 'Monitor progress', NULL, FALSE, 'Tool execution updates - track progress'),
@@ -55,7 +55,7 @@ VALUES
   ('renderResult', 'inactive', 'UI update (silent)', NULL, FALSE, 'Tool result render - UI')
 ON CONFLICT (event_name) DO UPDATE SET
   monitor_action = EXCLUDED.monitor_action,
-  worker_action = EXCLUDED.worker_action,
+  agentbot_action = EXCLUDED.agentbot_action,
   injection_enabled = EXCLUDED.injection_enabled,
   description = EXCLUDED.description,
   updated_at = NOW();

@@ -16,15 +16,15 @@
 
 ## The Continuous Cycle
 
-**User → Worker → Monitor → Worker → (User) → Cycling on**
+**User → Agentbot → Monitor → Agentbot → (User) → Cycling on**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                                                              │
-│                    USER (triggers Worker)                     │
+│                    USER (triggers Agentbot)                     │
 │                         │                                     │
 │                         ▼                                     │
-│                    Worker works                               │
+│                    Agentbot works                               │
 │                         │                                     │
 │                         ▼                                     │
 │                    Event fires                                │
@@ -36,20 +36,20 @@
 │              Monitor injects into system prompt                │
 │                         │                                     │
 │                         ▼                                     │
-│                    Worker continues                            │
+│                    Agentbot continues                            │
 │                         │                                     │
 │                         └────────────────────────────────────┐│
 │                                         (cycle continues)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Key insight**: User is part of the cycle. Worker is ALWAYS working, Monitor is ALWAYS directing through system prompt. No waiting, no waking up needed.
+**Key insight**: User is part of the cycle. Agentbot is ALWAYS working, Monitor is ALWAYS directing through system prompt. No waiting, no waking up needed.
 
 ---
 
 ## Phase 1: Connect Events to System Prompt Injection
 
-**Goal**: Every Monitor action → system prompt injection → Worker acts
+**Goal**: Every Monitor action → system prompt injection → Agentbot acts
 
 ### Tasks
 
@@ -75,17 +75,17 @@ mark_notifications_read(agent_id)
 
 ## Phase 2: Monitor Actions
 
-**Goal**: Monitor actively creates work for Worker
+**Goal**: Monitor actively creates work for Agentbot
 
 ### Monitor Actions → System Prompt
 
-| Action | Trigger | Injects into System Prompt |
-|--------|---------|--------------------------|
-| Error detected | tool_result | "Fix error in X before continuing" |
-| Issue created | auto_file_issue | "Issue X created, review it" |
-| Health check | session_start | "System status: X issues, Y tasks pending" |
-| Pattern detected | activity_log | "You're doing X repeatedly, consider Y" |
-| Skill gap | task failure | "Missing skill Z, learn it first" |
+| Action           | Trigger         | Injects into System Prompt                 |
+| ---------------- | --------------- | ------------------------------------------ |
+| Error detected   | tool_result     | "Fix error in X before continuing"         |
+| Issue created    | auto_file_issue | "Issue X created, review it"               |
+| Health check     | session_start   | "System status: X issues, Y tasks pending" |
+| Pattern detected | activity_log    | "You're doing X repeatedly, consider Y"    |
+| Skill gap        | task failure    | "Missing skill Z, learn it first"          |
 
 ### Future: Monitor Modifies Code
 
@@ -104,12 +104,12 @@ This requires Monitor to have full tool access.
 
 ### Self-Improvement Areas
 
-| Area | Current | Future |
-|------|---------|--------|
-| DB schema | Fixed | Monitor can add tables/columns |
-| Gleam code | Fixed | Monitor can modify/extend |
-| Skills | Fixed | Monitor can create new skills |
-| Monitor itself | Fixed | Monitor can improve Monitor |
+| Area           | Current | Future                         |
+| -------------- | ------- | ------------------------------ |
+| DB schema      | Fixed   | Monitor can add tables/columns |
+| Gleam code     | Fixed   | Monitor can modify/extend      |
+| Skills         | Fixed   | Monitor can create new skills  |
+| Monitor itself | Fixed   | Monitor can improve Monitor    |
 
 ### Key Principle
 
@@ -128,15 +128,15 @@ Monitor writes to DB → system evolves.
 
 ### Current
 
-| ID | Trigger | SOUL |
-|----|---------|------|
-| S-psypi-psypi-\<sid\> | User prompts | Worker traits |
-| A-psypi-psypi-\<sid\> | Events | Monitor traits |
+| ID                    | Trigger      | SOUL            |
+| --------------------- | ------------ | --------------- |
+| S-psypi-psypi-\<sid\> | User prompts | Agentbot traits |
+| A-psypi-psypi-\<sid\> | Events       | Monitor traits  |
 
-### Future: Multiple Workers/Monitors
+### Future: Multiple Agentbots/Monitors
 
 ```
-S-worker1-<sid> → S-worker-N-<sid>  (multiple workers)
+S-agentbot1-<sid> → S-agentbot-N-<sid>  (multiple agentbots)
 A-monitor1-<sid> → A-autonomic-N-<sid>  (multiple monitors)
 ```
 
@@ -151,7 +151,7 @@ Each has own SOUL, own responsibilities.
    - Monitor can only use DB + LLM, NOT read/bash/edit/write
    - Needs: read, bash, edit, write (via `pi.setActiveTools()`)
 
-2. **Monitor injects into same session as Worker**
+2. **Monitor injects into same session as Agentbot**
    - Current: Monitor runs in hooks
    - Future: Monitor has own session loop
    - Key: System prompt injection bridges both

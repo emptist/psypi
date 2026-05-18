@@ -1,7 +1,7 @@
 # 🔍 INVESTIGATION REPORT: Gleam Migration Backup Crisis
 
 **Date:** 2026-05-07  
-**Investigator:** Worker AI (S-psypi-psypi)  
+**Investigator:** Agentbot AI (S-psypi-psypi)  
 **Status:** COMPLETE (investigation only - NO fixes yet!)
 
 ---
@@ -28,11 +28,11 @@
 
 ### **1. Documentation Contradiction:**
 
-| Source | Instruction | Status |
-|--------|-------------|--------|
-| **BRIEF.md** | "Never delete - deprecate (use `.ts.deprecated`)" | ❌ WRONG? |
-| **AGENTS.md Rule 0** | "NEVER DELETE - DEPRECATE ONLY!" | ❌ WRONG? |
-| **User's Original Instruction** | "Remove them not deprecate them" | ✅ CORRECT! |
+| Source                          | Instruction                                       | Status     |
+| ------------------------------- | ------------------------------------------------- | ---------- |
+| **BRIEF.md**                    | "Never delete - deprecate (use `.ts.deprecated`)" | ❌ WRONG?   |
+| **AGENTS.md Rule 0**            | "NEVER DELETE - DEPRECATE ONLY!"                  | ❌ WRONG?   |
+| **User's Original Instruction** | "Remove them not deprecate them"                  | ✅ CORRECT! |
 
 **Conclusion:** The docs (BRIEF.md, AGENTS.md) were created with **WRONG instructions**!  
 **User's original instruction:** DELETE (because TS files are already in `code_versions` database!)
@@ -41,11 +41,11 @@
 
 ### **2. Backup Coverage Gap:**
 
-| What | Count |
-|------|-------|
+| What                             | Count  |
+| -------------------------------- | ------ |
 | TS files on disk (`src/**/*.ts`) | **39** |
-| TS files in `code_versions` DB | **10** |
-| **NOT backed up** | **29** |
+| TS files in `code_versions` DB   | **10** |
+| **NOT backed up**                | **29** |
 
 **CRITICAL:** 29 TS files are **NOT in database**! If deleted now, they'd be **LOST**!
 
@@ -145,14 +145,14 @@ pnpm build → COVERED AGAIN (NOT backed up!)
 
 ## 📊 **Current System State:**
 
-| Component | Status |
-|-----------|--------|
-| **Thin wrappers** | ✅ Exist (but may be covered by pnpm build) |
-| **Backup system** | ⚠️ MAY have stopped (last: 08:54) |
-| **TS files on disk** | 39 (30 NOT in database!) |
-| **Gleam modules** | ✅ Compiling (agent_identity, monitor_ai, etc.) |
-| **Extension.ts** | ⚠️ Needs verification (TS vs Gleam deps) |
-| **pnpm build** | ❌ DESTROYS wrappers (must STOP!) |
+| Component            | Status                                         |
+| -------------------- | ---------------------------------------------- |
+| **Thin wrappers**    | ✅ Exist (but may be covered by pnpm build)     |
+| **Backup system**    | ⚠️ MAY have stopped (last: 08:54)               |
+| **TS files on disk** | 39 (30 NOT in database!)                       |
+| **Gleam modules**    | ✅ Compiling (agent_identity, monitor_ai, etc.) |
+| **Extension.ts**     | ⚠️ Needs verification (TS vs Gleam deps)        |
+| **pnpm build**       | ❌ DESTROYS wrappers (must STOP!)               |
 
 ---
 

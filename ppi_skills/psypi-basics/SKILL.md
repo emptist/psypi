@@ -8,15 +8,15 @@ description: Quick cheat‑sheet for using Psypi from the TUI (Atonomic vs Somat
 > **Important:** All psypi tools are Pi agent tools. They are designed for AI agents, not human users. Humans interact with the system through the Pi TUI chat interface, not by invoking tools directly.
 
 ## Core concepts
-- **Atonomic Worker** (`A‑…`) – autonomous, event‑driven, monitors the system.
-- **Somatic Worker** (`S‑…`) – prompt‑driven, reacts to user or Monitor‑injected prompts.
+- **Atonomic Agentbot** (`A‑…`) – autonomous, event‑driven, monitors the system.
+- **Somatic Agentbot** (`S‑…`) – prompt‑driven, reacts to user or Monitor‑injected prompts.
 - They are the *same AI*; the only difference is the ID prefix.
 - The ID is always freshly computed (no cache) and bound to a `souls` row.
 
 ## Getting your identity
 ```
-/psypi‑my-id          # returns Somatic Worker ID (S‑…)
-/psypi‑autonomic-id     # returns Atonomic Worker ID (A‑…)
+/psypi‑my-id          # returns Somatic Agentbot ID (S‑…)
+/psypi‑autonomic-id     # returns Atonomic Agentbot ID (A‑…)
 ```
 
 ## Common Pi‑tools (use **inside the Psypi TUI**; just type a leading `/`)
@@ -38,7 +38,7 @@ description: Quick cheat‑sheet for using Psypi from the TUI (Atonomic vs Somat
 ```
 /psypi‑commit "Refactor ID handling [S-psypi-openrouter-owl-alpha]"
     # Runs a review, shows PASS/FAIL, then git‑commits.
-    # Format: "<message> [<Somatic Worker ID>]"
+    # Format: "<message> [<Somatic Agentbot ID>]"
     # Get your ID first: /psypi-somatic-id
     # The ID prefix is S- for Somatic, A- for Autonomic.
 ```

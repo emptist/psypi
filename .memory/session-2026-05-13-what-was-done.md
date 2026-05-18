@@ -39,9 +39,9 @@ User explicitly tested and confirmed: "the monitor still don't have access to to
 
 ## Key Design from User (2026-05-13)
 
-1. **The Cycle**: "worker -> monitor -> worker -> monitor --> (user) --> cycling on"
-2. **Monitor's job**: "not only do checking and reviews, most important, it will use systemprompt to keep the worker working"
-3. **Hook every event**: "list all the events, and add tasks for worker and monitor to pickup to finally hook every event to monitors different works"
+1. **The Cycle**: "agentbot -> monitor -> agentbot -> monitor --> (user) --> cycling on"
+2. **Monitor's job**: "not only do checking and reviews, most important, it will use systemprompt to keep the agentbot working"
+3. **Hook every event**: "list all the events, and add tasks for agentbot and monitor to pickup to finally hook every event to monitors different works"
 4. **Self-modifying**: "once they can work autonomously they will modify themselves"
 
 ## Session Lost Context

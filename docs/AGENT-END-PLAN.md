@@ -2,29 +2,29 @@
 
 ## Starting Point: ctx.isIdle()
 
-`ctx.isIdle()` is a Pi runtime API that returns whether the agent (S-worker) is currently processing anything. This is the foundation of the A-S communication mechanism.
+`ctx.isIdle()` is a Pi runtime API that returns whether the agent (S-agentbot) is currently processing anything. This is the foundation of the A-S communication mechanism.
 
 ## Business Logic Chain (from old fake Gleam)
 
 ### Trigger: agent_end event
-- Fires when S-worker finishes processing a user prompt
-- The S-worker has gone idle
+- Fires when S-agentbot finishes processing a user prompt
+- The S-agentbot has gone idle
 
 ### Step 1: Debounce (wait 5 minutes)
 - Read `monitor_debounce_ms` from `psypi_config` table (key: monitor_debounce_ms)
 - Default: 300000ms (5 minutes) — NOT 15000ms (15 seconds) which was too short
 - Use `setTimeout(debounceMs)` to wait
-- Rationale: S-worker might get a new prompt immediately after finishing. No need to wake it up if it's already busy.
+- Rationale: S-agentbot might get a new prompt immediately after finishing. No need to wake it up if it's already busy.
 
 ### Step 2: Check ctx.isIdle()
-- After debounce, check if S-worker is STILL idle
-- If `ctx.isIdle() === false` → S-worker is busy with new work, skip wake-up
-- If `ctx.isIdle() === true` → S-worker is idle, proceed to compose message
+- After debounce, check if S-agentbot is STILL idle
+- If `ctx.isIdle() === false` → S-agentbot is busy with new work, skip wake-up
+- If `ctx.isIdle() === true` → S-agentbot is idle, proceed to compose message
 
 ### Step 3: Read MONITOR-BRIEF.md
 - Read from `{ctx.cwd}/docs/MONITOR-BRIEF.md`
 - If file not found, continue with empty brief
-- Brief contains hard-to-find knowledge for the A-worker
+- Brief contains hard-to-find knowledge for the A-agentbot
 
 ### Step 4: Get context usage
 - Call `ctx.getContextUsage()` → returns {tokens, contextWindow}
@@ -32,26 +32,26 @@
 
 ### Step 5: Build system prompt for Monitor LLM
 ```
-You are the Autonomic Worker (Monitor). The Somatic Worker has gone idle.
+You are the Autonomic Agentbot (Monitor). The Somatic Agentbot has gone idle.
 
 Context: X% used.
 
 Monitor Brief:
 {brief content}
 
-Compose a brief, natural wake-up message (1-2 sentences). Mention what needs attention. The S-worker is smart — it will decide what to do. Prefix with [from A-worker:].
+Compose a brief, natural wake-up message (1-2 sentences). Mention what needs attention. The S-agentbot is smart — it will decide what to do. Prefix with [from A-agentbot:].
 ```
 
 ### Step 6: Call Monitor LLM
 - Use `callMonitor(ctx, messages, systemPrompt)` helper
-- Messages: [{role: 'user', content: [{type: 'text', text: 'Somatic worker is idle. Compose a wake-up message.'}]}]
+- Messages: [{role: 'user', content: [{type: 'text', text: 'Somatic agentbot is idle. Compose a wake-up message.'}]}]
 - Get composed message text
 
 ### Step 7: Handle errors
 - If callMonitor throws → msg = "Issue! LLM call failed: {error}"
 - If callMonitor returns empty/null → msg = "Issue! LLM returned empty"
 
-### Step 8: Send message to S-worker
+### Step 8: Send message to S-agentbot
 ```javascript
 pi.sendMessage({
   customType: 'autonomic-wakeup',
@@ -60,18 +60,18 @@ pi.sendMessage({
   details: { source: 'agent_end_coordination' }
 }, { triggerTurn: true })
 ```
-- `triggerTurn: true` → Immediately wakes up S-worker to process the message
-- S-worker sees the message and decides what to do
+- `triggerTurn: true` → Immediately wakes up S-agentbot to process the message
+- S-agentbot sees the message and decides what to do
 
 ## Two sendMessage Use Cases
 
 ### Use Case 1: callMonitor works (success)
 - customType: 'autonomic-wakeup'
 - content: composed message from Monitor LLM
-- Example: "[from A-worker:] You have 3 open issues. Consider reviewing them."
+- Example: "[from A-agentbot:] You have 3 open issues. Consider reviewing them."
 
 ### Use Case 2: Something went wrong (error)
-- customType: 'autonomic-wakeup' (same type, still wakes S-worker)
+- customType: 'autonomic-wakeup' (same type, still wakes S-agentbot)
 - content: error message
 - Example: "Issue! LLM call failed: connection timeout"
 
@@ -82,7 +82,7 @@ The agent_end coordination CANNOT be expressed as a single Gleam function call b
 2. `setTimeout()` — JS runtime
 3. `fs.readFileSync()` — Node.js file system
 4. `callMonitor()` — calls Monitor LLM
-5. `pi.sendMessage()` — sends message to S-worker
+5. `pi.sendMessage()` — sends message to S-agentbot
 
 These are all Pi/JS runtime APIs. The Gleam type system can't express this.
 

@@ -212,8 +212,8 @@ get_resolved_identity(IdentityContext(
 The old `autonomous: Bool` parameter was never truly independent. It maps
 directly to `ctx.isIdle()` in the Pi runtime:
 
-- `ctx.isIdle() = true` → A-worker (Autonomic, event-driven)
-- `ctx.isIdle() = false` → S-worker (Somatic, prompt-driven)
+- `ctx.isIdle() = true` → A-agentbot (Autonomic, event-driven)
+- `ctx.isIdle() = false` → S-agentbot (Somatic, prompt-driven)
 
 Renaming to `is_idle` makes this mapping explicit. The generated JS now passes
 `is_idle: ctx.isIdle()` dynamically instead of hardcoding `true`/`false`.
@@ -240,7 +240,7 @@ This opens up simplifications that weren't possible with 6 loose args:
 
 1. **`directive.gleam`** still manually extracts `provider` from `model_id`.
    But `IdentityContext` already has `source` (provider). If the Pi tool for
-   `psypi-direct-worker` constructed an `IdentityContext` and passed it to
+   `psypi-direct-agentbot` constructed an `IdentityContext` and passed it to
    `set_directive`, the function wouldn't need `model_id` and `thinking_level`
    as separate params — it would take `IdentityContext` directly. Two fewer args.
 
@@ -758,7 +758,7 @@ pub fn on_tool_result(
 
 #### hook_agent_end → PiDebouncedHook (complex)
 
-The A-worker coordination logic. The Gleam function receives extracted data
+The A-agentbot coordination logic. The Gleam function receives extracted data
 plus raw `ctx` for FFI side effects:
 
 ```gleam
@@ -776,7 +776,7 @@ pub fn on_agent_end(
         False -> {
           case has_recent_wakeup(recent_entries_json) {
             True -> Ok(Nil)
-            False -> coordinate_with_s_worker(ctx)
+            False -> coordinate_with_s_agentbot(ctx)
           }
         }
       }

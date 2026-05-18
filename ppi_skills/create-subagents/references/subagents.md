@@ -25,22 +25,22 @@ Step-by-step process for consistency.
 **Critical**: Use pure XML structure in the body. Remove ALL markdown headings (##, ###). Keep markdown formatting within content (bold, lists, code blocks).
 
 <configuration_fields>
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Unique identifier using lowercase letters and hyphens |
-| `description` | Yes | Natural language description of purpose. Include when Claude should invoke this. |
-| `tools` | No | Comma-separated list. If omitted, inherits all tools from main thread |
-| `model` | No | `sonnet`, `opus`, `haiku`, or `inherit`. If omitted, uses default subagent model |
+| Field         | Required | Description                                                                      |
+| ------------- | -------- | -------------------------------------------------------------------------------- |
+| `name`        | Yes      | Unique identifier using lowercase letters and hyphens                            |
+| `description` | Yes      | Natural language description of purpose. Include when Claude should invoke this. |
+| `tools`       | No       | Comma-separated list. If omitted, inherits all tools from main thread            |
+| `model`       | No       | `sonnet`, `opus`, `haiku`, or `inherit`. If omitted, uses default subagent model |
 </configuration_fields>
 </file_format>
 
 <storage_locations>
-| Type | Location | Scope | Priority |
-|------|----------|-------|----------|
-| **Project** | `.claude/agents/` | Current project only | Highest |
-| **User** | `~/.claude/agents/` | All projects | Lower |
-| **CLI** | `--agents` flag | Current session | Medium |
-| **Plugin** | Plugin's `agents/` dir | All projects | Lowest |
+| Type        | Location               | Scope                | Priority |
+| ----------- | ---------------------- | -------------------- | -------- |
+| **Project** | `.claude/agents/`      | Current project only | Highest  |
+| **User**    | `~/.claude/agents/`    | All projects         | Lower    |
+| **CLI**     | `--agents` flag        | Current session      | Medium   |
+| **Plugin**  | Plugin's `agents/` dir | All projects         | Lowest   |
 
 When subagent names conflict, higher priority takes precedence.
 </storage_locations>
@@ -153,7 +153,7 @@ Use `/agents` command to see full list of available tools.
    - Breaks task into subtasks
    - Identifies parallelizable work
 
-2. Multiple Haiku 4.5 instances (Workers):
+2. Multiple Haiku 4.5 instances (Agentbots):
    - Execute subtasks in parallel
    - Fast and cost-efficient
    - 90% of Sonnet's capability for execution
@@ -170,16 +170,16 @@ Use `/agents` command to see full list of available tools.
 <decision_framework>
 **When to use each model**:
 
-| Task Type | Recommended Model | Rationale |
-|-----------|------------------|-----------|
-| Simple validation | Haiku | Fast, cheap, sufficient capability |
-| Code execution | Haiku | 73.3% SWE-bench, very fast |
-| Complex analysis | Sonnet | Superior reasoning, worth the cost |
-| Multi-step planning | Sonnet | Best for breaking down complexity |
-| Quality validation | Sonnet | Critical checkpoint, needs intelligence |
-| Batch processing | Haiku | Cost efficiency for high volume |
-| Critical security | Sonnet | High stakes require best model |
-| Output synthesis | Sonnet | Ensuring coherence across inputs |
+| Task Type           | Recommended Model | Rationale                               |
+| ------------------- | ----------------- | --------------------------------------- |
+| Simple validation   | Haiku             | Fast, cheap, sufficient capability      |
+| Code execution      | Haiku             | 73.3% SWE-bench, very fast              |
+| Complex analysis    | Sonnet            | Superior reasoning, worth the cost      |
+| Multi-step planning | Sonnet            | Best for breaking down complexity       |
+| Quality validation  | Sonnet            | Critical checkpoint, needs intelligence |
+| Batch processing    | Haiku             | Cost efficiency for high volume         |
+| Critical security   | Sonnet            | High stakes require best model          |
+| Output synthesis    | Sonnet            | Ensuring coherence across inputs        |
 </decision_framework>
 </model_selection>
 

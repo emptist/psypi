@@ -4,8 +4,8 @@ All Pi tools are invoked from the **Psypi TUI prompt**. Just type a slash (`/`) 
 
 ## Identity
 ```
-/psypi‑my-id                     # → returns the Somatic Worker ID (S‑…)
-/psypi‑autonomic-id                # → returns the Atonomic Worker ID (A‑…)
+/psypi‑my-id                     # → returns the Somatic Agentbot ID (S‑…)
+/psypi‑autonomic-id                # → returns the Atonomic Agentbot ID (A‑…)
 ```
 
 ## Task management

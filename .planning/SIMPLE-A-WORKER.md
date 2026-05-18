@@ -1,4 +1,4 @@
-# Simple A-Worker: Ask S 2 Questions
+# Simple A-Agentbot: Ask S 2 Questions
 
 **Design:** At `before_agent_start`, A checks if S was idle. If yes, A asks S 2 questions.
 
@@ -49,14 +49,14 @@ User sends message
 
 A reads recent session entries to understand what S was doing, then picks 2 questions:
 
-| S's Recent Activity | Question 1 | Question 2 |
-|---------------------|------------|------------|
-| Code changes | What was the most important change? | Is there anything you'd change? |
-| Bug fix | What was the root cause? | What should I remember? |
-| Task completion | What did you accomplish? | What's next? |
-| Stuck/blocked | What's blocking you? | What do you need? |
-| Learning | What's the key insight? | How does this affect our approach? |
-| Nothing recent | What should I work on? | Any blockers? |
+| S's Recent Activity | Question 1                          | Question 2                         |
+| ------------------- | ----------------------------------- | ---------------------------------- |
+| Code changes        | What was the most important change? | Is there anything you'd change?    |
+| Bug fix             | What was the root cause?            | What should I remember?            |
+| Task completion     | What did you accomplish?            | What's next?                       |
+| Stuck/blocked       | What's blocking you?                | What do you need?                  |
+| Learning            | What's the key insight?             | How does this affect our approach? |
+| Nothing recent      | What should I work on?              | Any blockers?                      |
 
 ---
 

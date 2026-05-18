@@ -8,21 +8,21 @@
 - ✅ Build and regeneration — success
 
 ## What Needs Testing
-- ⏳ `psypi-consult-autonomic` — S-worker asks A-worker for advice (was ERROR, now fixed with better error handling)
-- ⏳ `psypi-direct-worker` — A-worker sets directives for S-worker
-- ⏳ `agent_end` hook — A-worker wakes up S-worker when issues found
+- ⏳ `psypi-consult-autonomic` — S-agentbot asks A-agentbot for advice (was ERROR, now fixed with better error handling)
+- ⏳ `psypi-direct-agentbot` — A-agentbot sets directives for S-agentbot
+- ⏳ `agent_end` hook — A-agentbot wakes up S-agentbot when issues found
 
 ## Key Changes Made
 1. Split extension_generator.gleam into small modules (< 40 lines each)
 2. Removed dangerous pattern matching from hooks
 3. Removed crashing identity/activity calls from hooks
-4. Added [Autonomic] prefix to A-worker messages
-5. agent_end hook: checks health, wakes up S-worker if issues found and no active directives
-6. Renamed tools: psypi-consult-autonomic, psypi-direct-worker
+4. Added [Autonomic] prefix to A-agentbot messages
+5. agent_end hook: checks health, wakes up S-agentbot if issues found and no active directives
+6. Renamed tools: psypi-consult-autonomic, psypi-direct-agentbot
 
 ## Architecture
-- A-worker: event-driven, reads hooks, writes DB/messages
-- S-worker: prompt-driven, reads system prompt, produces events
+- A-agentbot: event-driven, reads hooks, writes DB/messages
+- S-agentbot: prompt-driven, reads system prompt, produces events
 - Alternating current: each one's output = other's input
 
 ## Next Steps

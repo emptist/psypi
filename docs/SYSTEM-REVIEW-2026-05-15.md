@@ -1,6 +1,6 @@
 # psypi System Review — 2026-05-15
 
-**Agent:** OWL (S-worker)
+**Agent:** OWL (S-agentbot)
 **Agent ID:** `S-psypi-psypi-019e2b28-d3b0-737a-978f-0ad79b7fb161`
 **Model:** `openrouter/owl-alpha` (via OpenRouter, thinking level: medium)
 
@@ -8,10 +8,10 @@
 
 ## 1. What psypi Is
 
-**psypi = Psyche + Pi** — a Pi TUI extension written in Gleam that adds a dual-worker AI coordination system on top of the Pi coding agent. It turns Pi from a single-shot coding assistant (works when user is present, stops when user leaves) into a system with two identities:
+**psypi = Psyche + Pi** — a Pi TUI extension written in Gleam that adds a dual-agentbot AI coordination system on top of the Pi coding agent. It turns Pi from a single-shot coding assistant (works when user is present, stops when user leaves) into a system with two identities:
 
-- **S-worker (Somatic)** — the normal Pi agent. Does actual work: coding, file edits, tool calls. Prompt-driven.
-- **A-worker (Autonomic)** — a monitor/decider that acts when S is idle. Event-driven. Directs S via system prompt injection.
+- **S-agentbot (Somatic)** — the normal Pi agent. Does actual work: coding, file edits, tool calls. Prompt-driven.
+- **A-agentbot (Autonomic)** — a monitor/decider that acts when S is idle. Event-driven. Directs S via system prompt injection.
 
 ## 2. Architecture (Current State)
 
@@ -23,15 +23,15 @@ The Gleam code compiles to `.mjs` files in `build/dev/javascript/psypi/`. The `e
 
 ### Event Hooks (7 registered, all thin):
 
-| Hook | Current Behavior |
-|------|-----------------|
-| `session_start` | Records model, checks system health, sets status |
-| `before_agent_start` | **Empty** — no A-worker trigger |
-| `agent_start` | Silent (comment only) |
-| `agent_end` | Sets status: "A-worker: S finished, evaluating..." |
-| `tool_call` | Auto-backup before `edit` tool calls |
-| `tool_result` | Detects errors, logs via `ctx.ui.notify` (no A-worker trigger) |
-| `model_select` | Records model changes |
+| Hook                 | Current Behavior                                                 |
+| -------------------- | ---------------------------------------------------------------- |
+| `session_start`      | Records model, checks system health, sets status                 |
+| `before_agent_start` | **Empty** — no A-agentbot trigger                                |
+| `agent_start`        | Silent (comment only)                                            |
+| `agent_end`          | Sets status: "A-agentbot: S finished, evaluating..."             |
+| `tool_call`          | Auto-backup before `edit` tool calls                             |
+| `tool_result`        | Detects errors, logs via `ctx.ui.notify` (no A-agentbot trigger) |
+| `model_select`       | Records model changes                                            |
 
 ### 29+ Pi Tools across identity, tasks, issues, skills, meetings, memory, broadcast, reflection, monitor, event hooks, and directives.
 
@@ -46,13 +46,13 @@ The last 15 hours (35+ commits) show a **clear, focused trajectory** through thr
 - **RLS policy fix**: Set `app.current_project_id` on DB connection.
 - **tool_call hook fix**: Removed dangerous pattern matching that was blocking the `write` tool.
 
-### Phase 2: A-Worker Architecture Exploration
+### Phase 2: A-Agentbot Architecture Exploration
 Rapid iteration on how A should interact with S:
 
 1. **Initial idea**: A injects 2 questions into S's system prompt at `before_agent_start` when S is idle (`ctx.isIdle()`).
 2. **Pivot 1**: Realized `before_agent_start` fires when the **user** sends a message — not when A should act. Moved A's trigger to `agent_end`.
 3. **Pivot 2**: Tried making A decide what questions to ask (not hardcoded).
-4. **Final cleanup**: Removed A-worker trigger from `before_agent_start` entirely. A only acts at `agent_end` with a simple status message.
+4. **Final cleanup**: Removed A-agentbot trigger from `before_agent_start` entirely. A only acts at `agent_end` with a simple status message.
 
 ### Phase 3: Stabilization & Documentation
 - Added `pi_extension.gleam` + `pi_extension_ffi.mjs` — typed notification helpers.
@@ -73,7 +73,7 @@ Rapid iteration on how A should interact with S:
 
 ### What's Incomplete / Has Issues
 
-1. **A-worker is barely functional** — `agent_end` only sets a status message. No actual decision logic.
+1. **A-agentbot is barely functional** — `agent_end` only sets a status message. No actual decision logic.
 2. **`before_agent_start` is empty** — the primary mechanism for A to direct S (system prompt injection) is unused.
 3. **No `session_compact` hook** — compaction history is lost when context is exhausted.
 4. **No user presence detection** — A can't detect when the user has been absent for a while.
@@ -117,4 +117,4 @@ The trajectory is **correct but early**. The team has:
 
 ## 7. Summary
 
-**psypi is a well-architected foundation for autonomous AI operation that has completed Phase 1 (bug fixes, identity system, tool infrastructure) and is at the threshold of Phase 2 (A-worker intelligence).** The last 15 hours show rapid, disciplined iteration. The main gap is that A-worker is currently a "hello world" — it sets a status message but doesn't actually think, decide, or direct. The next step is implementing the context-aware decision logic at `agent_end` and the directive injection at `before_agent_start`.
+**psypi is a well-architected foundation for autonomous AI operation that has completed Phase 1 (bug fixes, identity system, tool infrastructure) and is at the threshold of Phase 2 (A-agentbot intelligence).** The last 15 hours show rapid, disciplined iteration. The main gap is that A-agentbot is currently a "hello world" — it sets a status message but doesn't actually think, decide, or direct. The next step is implementing the context-aware decision logic at `agent_end` and the directive injection at `before_agent_start`.

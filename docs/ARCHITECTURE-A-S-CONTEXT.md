@@ -1,4 +1,4 @@
-# A/S Worker Context Architecture
+# A/S Agentbot Context Architecture
 
 **Date:** 2026-05-15
 **Status:** Design notes from Pi SDK code analysis
@@ -54,14 +54,14 @@ session_start
 
 ## When A Can Act
 
-| Event               | S State | `isIdle()` | A Action          |
-| ------------------- | ------- | ---------- | ----------------- |
-| `tool_call`         | WORKING | false      | ❌ Silent          |
-| `tool_result`       | WORKING | false      | ❌ Silent          |
-| `agent_start`       | WORKING | false      | ❌ Silent          |
-| `agent_end`         | IDLE    | true       | ⏳ Evaluate        |
-| `before_agent_start`| IDLE    | true       | ✅ Inject directive|
-| `session_start`     | IDLE    | true       | ✅ Check health    |
+| Event                | S State | `isIdle()` | A Action           |
+| -------------------- | ------- | ---------- | ------------------ |
+| `tool_call`          | WORKING | false      | ❌ Silent           |
+| `tool_result`        | WORKING | false      | ❌ Silent           |
+| `agent_start`        | WORKING | false      | ❌ Silent           |
+| `agent_end`          | IDLE    | true       | ⏳ Evaluate         |
+| `before_agent_start` | IDLE    | true       | ✅ Inject directive |
+| `session_start`      | IDLE    | true       | ✅ Check health     |
 
 **Rule: A only acts when `ctx.isIdle() === true`.**
 
@@ -89,10 +89,10 @@ Even when tokens are exhausted, psypi preserves the most important key points.
 
 ### Compaction Events
 
-| Event | When | Data Available |
-|-------|------|----------------|
-| `session_before_compact` | Before compaction starts | `CompactionPreparation` — messages to summarize, file ops, token count |
-| `session_compact` | After compaction completes | `CompactionResult` — summary text, tokens before/after |
+| Event                    | When                       | Data Available                                                         |
+| ------------------------ | -------------------------- | ---------------------------------------------------------------------- |
+| `session_before_compact` | Before compaction starts   | `CompactionPreparation` — messages to summarize, file ops, token count |
+| `session_compact`        | After compaction completes | `CompactionResult` — summary text, tokens before/after                 |
 
 ### CompactionResult
 
@@ -122,12 +122,12 @@ interface ContextUsage {
 
 **A's decision logic:**
 
-| Context Remaining | A's Priority Action |
-|-------------------|-------------------|
-| < 10% (critical)  | **Preserve**: Update docs, code review, git commit — save what was done |
-| 10-30% (low)      | **Consolidate**: Summarize work, create compaction summary, commit |
+| Context Remaining | A's Priority Action                                                          |
+| ----------------- | ---------------------------------------------------------------------------- |
+| < 10% (critical)  | **Preserve**: Update docs, code review, git commit — save what was done      |
+| 10-30% (low)      | **Consolidate**: Summarize work, create compaction summary, commit           |
 | 30-70% (moderate) | **Collaborate**: Review with S, ask questions about next steps, suggest work |
-| > 70% (plenty)    | **Plan**: Evaluate tasks/issues, set directives for S, long-term planning |
+| > 70% (plenty)    | **Plan**: Evaluate tasks/issues, set directives for S, long-term planning    |
 
 ---
 

@@ -3,8 +3,8 @@
 ## Architecture: Alternating Current
 
 One AI, two SOULs, alternating current:
-- **A-worker** (Autonomic): Event-driven, reads hooks, writes DB/messages
-- **S-worker** (Somatic): Prompt-driven, reads system prompt, produces events
+- **A-agentbot** (Autonomic): Event-driven, reads hooks, writes DB/messages
+- **S-agentbot** (Somatic): Prompt-driven, reads system prompt, produces events
 
 They alternate — each one's output is the other's input.
 
@@ -17,7 +17,7 @@ They alternate — each one's output is the other's input.
 Write to `system_directives` table → `before_agent_start` injects into prompt
 
 ### S→A: Consultation
-`psypi-consult-autonomic` tool → A-worker responds with `[Autonomic]` advice
+`psypi-consult-autonomic` tool → A-agentbot responds with `[Autonomic]` advice
 
 ## Key Changes
 
@@ -38,12 +38,12 @@ No more blocking file writes based on content.
 - `log_activity`
 
 ### 4. Added [Autonomic] prefix
-A-worker messages display with `[Autonomic]` prefix on screen.
+A-agentbot messages display with `[Autonomic]` prefix on screen.
 
 ### 5. Renamed tools
 - `psypi-my-id` → `psypi-somatic-id`
 - `psypi-autonomic-id` → `psypi-autonomic-id`
-- `psypi-set-directive` → `psypi-direct-worker`
+- `psypi-set-directive` → `psypi-direct-agentbot`
 - `psypi-autonomic-consult` → `psypi-consult-autonomic`
 
 ### 6. Updated documentation
@@ -59,6 +59,6 @@ A-worker messages display with `[Autonomic]` prefix on screen.
 ## Next Steps
 1. Restart psypi and test all tools
 2. Test `psypi-consult-autonomic` (S→A communication)
-3. Test `psypi-direct-worker` (A→S communication)
+3. Test `psypi-direct-agentbot` (A→S communication)
 4. Verify `[Autonomic]` messages appear on screen
 5. End-to-end dream-team cycle test

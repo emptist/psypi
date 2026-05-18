@@ -42,7 +42,7 @@ All run under an **autonomous identity** (from `get_resolved_identity(autonomous
           ┌──────────────────────────────┴────────────┐
           │ 2. MIDDLE OF WORKFLOW (proactive)        │
           │                                          │
-          │ Worker: "Should I use array or dict?"   │
+          │ Agentbot: "Should I use array or dict?"   │
           │ psypi-autonomic-consult → Monitor          │
           └──────────────────────────────────────────┘
 ```
@@ -51,14 +51,14 @@ All run under an **autonomous identity** (from `get_resolved_identity(autonomous
 
 Monitor watches and maintains the system via event hooks:
 
-| Event | What Monitor Does |
-|-------|-------------------|
-| `tool_call` | Safety blocking, auto-backup, activity logging |
-| `session_start` | Initialize session |
-| `before_agent_start` | Inject context/memories |
-| `agent_start` | Log agent start |
-| `agent_end` | Summarize work done |
-| `tool_result` | Analyze results, error detection |
+| Event                | What Monitor Does                              |
+| -------------------- | ---------------------------------------------- |
+| `tool_call`          | Safety blocking, auto-backup, activity logging |
+| `session_start`      | Initialize session                             |
+| `before_agent_start` | Inject context/memories                        |
+| `agent_start`        | Log agent start                                |
+| `agent_end`          | Summarize work done                            |
+| `tool_result`        | Analyze results, error detection               |
 
 **Safety blocking:** Prevents dangerous operations:
 - Spawning Pi/psypi (infinite loop)
@@ -69,21 +69,21 @@ Monitor watches and maintains the system via event hooks:
 
 ### Mode 2: Middle of Workflow (Proactive)
 
-Worker proactively consults Monitor:
+Agentbot proactively consults Monitor:
 
 ```bash
 psypi-autonomic-consult "Should I use array or dict?"
 psypi-autonomic-consult "What do you think about this approach?"
 ```
 
-Returns LLM-generated advice using same model as worker.
+Returns LLM-generated advice using same model as agentbot.
 
 ### Mode 3: End of Workflow (Triggered)
 
 Inter-review before git commit:
 
 ```
-Worker writes code
+Agentbot writes code
         ↓
 psypi-commit "my commit message" (no ID yet)
         ↓
@@ -93,7 +93,7 @@ Monitor reviews → PASS/FAIL + score + UUID
    ↓         ↓
  FAIL       PASS + UUID
    ↓         ↓
-Worker      psypi-commit --review-id=<UUID> "message"
+Agentbot      psypi-commit --review-id=<UUID> "message"
 fixes            ↓
    ↓      Monitor verifies ID → git commit
 retry ──────────────────────────────→
@@ -103,16 +103,16 @@ retry ────────────────────────�
 
 ## Pi Tools
 
-| Tool | Description |
-|------|-------------|
-| `psypi-my-id` | Get current agent ID |
-| `psypi-autonomic-id` | Get monitor/partner permanent ID |
-| `psypi-autonomic-health` | Get system health metrics |
-| `psypi-autonomic-alerts` | Get active alerts (failed tasks, open issues) |
-| `psypi-autonomic-stats` | Get model quality (review scores, response times, failure rate) |
+| Tool                      | Description                                                     |
+| ------------------------- | --------------------------------------------------------------- |
+| `psypi-my-id`             | Get current agent ID                                            |
+| `psypi-autonomic-id`      | Get monitor/partner permanent ID                                |
+| `psypi-autonomic-health`  | Get system health metrics                                       |
+| `psypi-autonomic-alerts`  | Get active alerts (failed tasks, open issues)                   |
+| `psypi-autonomic-stats`   | Get model quality (review scores, response times, failure rate) |
 | `psypi-autonomic-suggest` | Get work suggestions (open issues, stale tasks, pending skills) |
-| `psypi-autonomic-consult` | Consult Monitor for difficult decisions (LLM) |
-| `psypi-commit` | Commit with inter-review (Mode 3) |
+| `psypi-autonomic-consult` | Consult Monitor for difficult decisions (LLM)                   |
+| `psypi-commit`            | Commit with inter-review (Mode 3)                               |
 
 ---
 
@@ -120,19 +120,19 @@ retry ────────────────────────�
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `src/monitor.gleam` | Model configuration (get/set) |
-| `src/monitor_ai.gleam` | Functions: health, stats, suggestions, alerts |
-| `src/extension_generator.gleam` | Generates extension.js with tools + hooks |
-| `extension.js` | Generated output (auto-regenerated) |
+| File                            | Purpose                                       |
+| ------------------------------- | --------------------------------------------- |
+| `src/monitor.gleam`             | Model configuration (get/set)                 |
+| `src/monitor_ai.gleam`          | Functions: health, stats, suggestions, alerts |
+| `src/extension_generator.gleam` | Generates extension.js with tools + hooks     |
+| `extension.js`                  | Generated output (auto-regenerated)           |
 
 ### How It Works
 
 1. **Event hooks** - Monitor watches all interactions via Pi event hooks
 2. **Safety** - Blocks dangerous operations before they execute
 3. **Auto-backup** - Saves file versions before edit/write
-4. **LLM consultation** - Uses `callMonitor()` which uses same model as worker
+4. **LLM consultation** - Uses `callMonitor()` which uses same model as agentbot
 5. **Inter-review** - Reviews code before commit with strict ID system
 
 ### callMonitor() Function
@@ -160,7 +160,7 @@ async function callMonitor(messages, systemPrompt) {
 > Pre-commit review is MORE IMPORTANT than the commit itself. It's not just a gate - it's a learning opportunity.
 
 Each commit is a "cell" being quality-checked. Monitor not only reviews code but:
-- Identifies patterns suggesting worker needs education
+- Identifies patterns suggesting agentbot needs education
 - Provides `EDUCATION_SUGGESTION` in feedback
 - Tracks learning patterns for improvement
 
@@ -173,7 +173,7 @@ Monitor IS the workflow. It's not a separate process - it's the permanent identi
 ### Event-Driven Only
 
 Monitor has no periodic polling. Everything is triggered by:
-- Worker actions (tool calls)
+- Agentbot actions (tool calls)
 - Workflow boundaries (commit)
 - Explicit requests (psypi-autonomic-consult)
 
@@ -181,23 +181,23 @@ Monitor has no periodic polling. Everything is triggered by:
 
 ## Future Improvements
 
-| Feature | Status |
-|---------|--------|
-| Statistics (model quality) | ✅ Done |
-| Self-design (find work) | ✅ Done |
+| Feature                           | Status   |
+| --------------------------------- | -------- |
+| Statistics (model quality)        | ✅ Done   |
+| Self-design (find work)           | ✅ Done   |
 | Instructions (teach tools/skills) | 🔲 Future |
-| Learn mistakes (track patterns) | 🔲 Future |
+| Learn mistakes (track patterns)   | 🔲 Future |
 | Proactive improvement suggestions | 🔲 Future |
 
 ## Future Improvements
 
-| Feature | Status |
-|---------|--------|
-| Statistics (model quality) | ✅ Done |
-| Self-design (find work) | ✅ Done |
+| Feature                                 | Status        |
+| --------------------------------------- | ------------- |
+| Statistics (model quality)              | ✅ Done        |
+| Self-design (find work)                 | ✅ Done        |
 | System prompt injection (notifications) | 🔲 In Progress |
-| Autonomous code modification | 🔲 Future |
-| Learn mistakes (track patterns) | 🔲 Future |
+| Autonomous code modification            | 🔲 Future      |
+| Learn mistakes (track patterns)         | 🔲 Future      |
 
 ---
 
@@ -228,7 +228,7 @@ Monitor has no periodic polling. Everything is triggered by:
 │  4. BEHAVIORS AND ACTIONS                                                     │
 │     • Event-driven (autonomous=true)                                         │
 │     • Detects tool errors, system health                                     │
-│     • Creates notifications for Worker                                       │
+│     • Creates notifications for Agentbot                                       │
 │     • Reviews code, consults on decisions                                    │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -236,13 +236,13 @@ Monitor has no periodic polling. Everything is triggered by:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  5. TIME PHASES (Sequential Execution)                                       │
 │                                                                              │
-│     Phase 1: Worker acts on user prompt (S-)                                 │
+│     Phase 1: Agentbot acts on user prompt (S-)                                 │
 │           ↓                                                                  │
-│     Phase 2: Monitor detects events (A-) while Worker rests                   │
+│     Phase 2: Monitor detects events (A-) while Agentbot rests                   │
 │           ↓                                                                  │
-│     Phase 3: before_agent_start injects notifications into Worker           │
+│     Phase 3: before_agent_start injects notifications into Agentbot           │
 │           ↓                                                                  │
-│     Loop: Worker → Monitor → Worker                                          │
+│     Loop: Agentbot → Monitor → Agentbot                                          │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -250,9 +250,9 @@ Monitor has no periodic polling. Everything is triggered by:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  6. EVENTS / PROMPTS                                                         │
 │                                                                              │
-│     Prompt path: User → Worker (S-) → Tool execution                        │
+│     Prompt path: User → Agentbot (S-) → Tool execution                        │
 │     Event path:  Hook fires → Monitor (A-) → writes notification            │
-│                  ↓ before_agent_start → Worker receives (S-)                │
+│                  ↓ before_agent_start → Agentbot receives (S-)                │
 │                                                                              │
 │     Key: autonomous=true for hooks, autonomous=false for tools              │
 │                                                                              │

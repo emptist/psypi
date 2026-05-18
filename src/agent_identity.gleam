@@ -2,7 +2,7 @@ import agent_identity_types.{
   type AgentIdentity, type IdentityContext, type IdentityError,
   resolved_identity,
 }
-import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, lit}
+import pi_tool_call.{type PiToolCall, PiToolCall, lit, raw_json}
 
 pub fn get_resolved_identity(
   ctx: IdentityContext,
@@ -37,12 +37,26 @@ fn ctx_is_idle() -> String {
 pub fn somatic_id_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-somatic-id",
-    description: "Get Somatic Worker ID (S- prefix, prompt-driven). ID includes model and thinking level from live ctx.",
+    description: "Get Somatic Agentbot ID (S- prefix, prompt-driven). ID includes model and thinking level from live ctx.",
     params: [],
     module: "agent_identity",
     fn_name: "get_resolved_identity",
     args: [
-      lit("({ is_idle: " <> ctx_is_idle() <> ", project: " <> ctx_project_name() <> ", source: " <> ctx_provider() <> ", model: " <> ctx_model_id() <> ", thinking_level: " <> ctx_model_thinking() <> ", global: " <> ctx_is_global() <> " })"),
+      lit(
+        "({ is_idle: "
+        <> ctx_is_idle()
+        <> ", project: "
+        <> ctx_project_name()
+        <> ", source: "
+        <> ctx_provider()
+        <> ", model: "
+        <> ctx_model_id()
+        <> ", thinking_level: "
+        <> ctx_model_thinking()
+        <> ", global: "
+        <> ctx_is_global()
+        <> " })",
+      ),
     ],
     result_format: raw_json(),
   )
@@ -51,12 +65,26 @@ pub fn somatic_id_tool() -> PiToolCall {
 pub fn autonomic_id_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-autonomic-id",
-    description: "Get Autonomic Worker ID (A- prefix, event-driven). ID includes model and thinking level from live ctx.",
+    description: "Get Autonomic Agentbot ID (A- prefix, event-driven). ID includes model and thinking level from live ctx.",
     params: [],
     module: "agent_identity",
     fn_name: "get_resolved_identity",
     args: [
-      lit("({ is_idle: " <> ctx_is_idle() <> ", project: " <> ctx_project_name() <> ", source: " <> ctx_provider() <> ", model: " <> ctx_model_id() <> ", thinking_level: " <> ctx_model_thinking() <> ", global: " <> ctx_is_global() <> " })"),
+      lit(
+        "({ is_idle: "
+        <> ctx_is_idle()
+        <> ", project: "
+        <> ctx_project_name()
+        <> ", source: "
+        <> ctx_provider()
+        <> ", model: "
+        <> ctx_model_id()
+        <> ", thinking_level: "
+        <> ctx_model_thinking()
+        <> ", global: "
+        <> ctx_is_global()
+        <> " })",
+      ),
     ],
     result_format: raw_json(),
   )

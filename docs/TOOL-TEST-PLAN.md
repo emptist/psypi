@@ -62,7 +62,7 @@
 - [ ] psypi-hooks-active
 
 ## Directive Tools
-- [ ] psypi-direct-worker
+- [ ] psypi-direct-agentbot
 - [ ] psypi-clear-directives
 
 ## Consult Tools

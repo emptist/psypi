@@ -50,23 +50,23 @@ psypi = Pi + Gleam extension + Identity + SOUL + Monitor
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  4. BEHAVIORS AND ACTIONS                                                    │
-│     Worker: waits for prompts, executes tasks, uses tools                    │
+│     Agentbot: waits for prompts, executes tasks, uses tools                    │
 │     Monitor: watches events, detects problems, creates notifications         │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  5. TIME PHASES (Sequential Execution)                                       │
-│     Phase 1: Worker acts on prompt                                           │
+│     Phase 1: Agentbot acts on prompt                                           │
 │     Phase 2: Monitor detects events                                          │
-│     Phase 3: Worker receives Monitor's notifications                         │
+│     Phase 3: Agentbot receives Monitor's notifications                         │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  6. EVENTS / PROMPTS                                                         │
-│     Prompt path: User → Worker (S-)                                        │
-│     Event path: Hook → Monitor (A-) → notification → Worker (S-)            │
+│     Prompt path: User → Agentbot (S-)                                        │
+│     Event path: Hook → Monitor (A-) → notification → Agentbot (S-)            │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -82,10 +82,10 @@ psypi = Pi + Gleam extension + Identity + SOUL + Monitor
 
 ### ID Format
 
-| Prefix | Trigger | Example |
-|--------|---------|---------|
-| `S-` | User prompts | `S-psypi-psypi-<session_id>` |
-| `A-` | Events/Hooks | `A-psypi-psypi-<session_id>` |
+| Prefix | Trigger      | Example                      |
+| ------ | ------------ | ---------------------------- |
+| `S-`   | User prompts | `S-psypi-psypi-<session_id>` |
+| `A-`   | Events/Hooks | `A-psypi-psypi-<session_id>` |
 
 ### No Fallbacks Rule
 
@@ -101,17 +101,17 @@ generate_semantic_id(autonomous, source, project, session_id, model)
 
 From `souls` table:
 
-| agent_id | name | traits |
-|----------|------|--------|
-| `S-psypi-psypi-<sid>` | Worker | speed=9, focus=task-completion |
-| `A-psypi-psypi-<sid>` | Monitor | quality=10, focus=system-health |
+| agent_id              | name     | traits                          |
+| --------------------- | -------- | ------------------------------- |
+| `S-psypi-psypi-<sid>` | Agentbot | speed=9, focus=task-completion  |
+| `A-psypi-psypi-<sid>` | Monitor  | quality=10, focus=system-health |
 
 ### SOUL Modification Rules
 
-| Type | Example | How to modify |
-|------|---------|---------------|
-| **Personal identity** | Name, meaning, traits | **Free to edit** |
-| **Shared responsibilities** | "Monitor owns X" | **Requires meeting discussion** |
+| Type                        | Example               | How to modify                   |
+| --------------------------- | --------------------- | ------------------------------- |
+| **Personal identity**       | Name, meaning, traits | **Free to edit**                |
+| **Shared responsibilities** | "Monitor owns X"      | **Requires meeting discussion** |
 
 ---
 
@@ -157,16 +157,16 @@ All run under **autonomous identity** (`A-psypi-psypi-<sid>`).
 
 Via event hooks:
 
-| Event | Action |
-|-------|--------|
-| `tool_call` | Safety blocking, auto-backup |
-| `session_start` | Initialize, health check |
-| `before_agent_start` | Inject notifications |
-| `tool_result` | Error detection |
+| Event                | Action                       |
+| -------------------- | ---------------------------- |
+| `tool_call`          | Safety blocking, auto-backup |
+| `session_start`      | Initialize, health check     |
+| `before_agent_start` | Inject notifications         |
+| `tool_result`        | Error detection              |
 
 ### Mode 2: Middle of Workflow (Proactive)
 
-Worker calls `psypi-autonomic-consult` for advice.
+Agentbot calls `psypi-autonomic-consult` for advice.
 
 ### Mode 3: End of Workflow (Inter-review)
 
@@ -179,7 +179,7 @@ Worker calls `psypi-autonomic-consult` for advice.
 ### The Gap
 
 ```
-Monitor detects issue → writes to DB → Worker sleeps...
+Monitor detects issue → writes to DB → Agentbot sleeps...
 ```
 
 ### The Solution
@@ -188,7 +188,7 @@ Monitor detects issue → writes to DB → Worker sleeps...
 
 ```javascript
 pi.on('before_agent_start', async (event, ctx) => {
-  const notifs = await get_pending_notifications(workerId);
+  const notifs = await get_pending_notifications(agentbotId);
   if (notifs.length > 0) {
     return {
       systemPrompt: event.systemPrompt + '\n\n' + formatAlerts(notifs)
@@ -202,7 +202,7 @@ pi.on('before_agent_start', async (event, ctx) => {
 ```sql
 CREATE TABLE notifications (
   id UUID PRIMARY KEY,
-  agent_id TEXT NOT NULL,       -- Target worker
+  agent_id TEXT NOT NULL,       -- Target agentbot
   priority TEXT DEFAULT 'medium',
   title TEXT NOT NULL,
   body TEXT NOT NULL,
@@ -284,12 +284,12 @@ psypi/
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `src/agent_identity_logic.gleam` | Pure ID generation |
-| `src/extension_generator.gleam` | Generates extension.js |
-| `src/monitor.gleam` | Notification functions |
-| `extension.js` | Generated output |
+| File                             | Purpose                |
+| -------------------------------- | ---------------------- |
+| `src/agent_identity_logic.gleam` | Pure ID generation     |
+| `src/extension_generator.gleam`  | Generates extension.js |
+| `src/monitor.gleam`              | Notification functions |
+| `extension.js`                   | Generated output       |
 
 ---
 
@@ -314,6 +314,6 @@ psypi
 ## Next Phase
 
 1. **Test** system prompt injection experiments
-2. **Implement** Monitor → Worker notification round-trip
+2. **Implement** Monitor → Agentbot notification round-trip
 3. **Extend** Monitor to modify Gleam code (Phase 2)
 4. **Evolve** system autonomously (Phase 3)

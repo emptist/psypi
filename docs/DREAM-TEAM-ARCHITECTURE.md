@@ -5,7 +5,7 @@
 Psypi is **one AI** operating in two modes, like **alternating current**:
 
 ```
-A-worker ←→ S-worker
+A-agentbot ←→ S-agentbot
    ↓           ↓
 Events      System Prompt
    ↓           ↓
@@ -18,12 +18,12 @@ User msg    System msg
 
 They **never run at the same time** — they alternate. Each one's output becomes the other's input.
 
-## The Two Workers
+## The Two Agentbots
 
-| Worker | Identity | Trigger | Input | Output |
-|--------|----------|---------|-------|--------|
-| **Autonomic** | `A-psypi-psypi` | Events/hooks | DB events, tool results | `ctx.ui.notify()` (user msg) + directives in DB (system prompt) |
-| **Somatic** | `S-psypi-psypi-<session>` | System prompt | Directives injected by `before_agent_start` | Tool calls, events |
+| Agentbot      | Identity                  | Trigger       | Input                                       | Output                                                          |
+| ------------- | ------------------------- | ------------- | ------------------------------------------- | --------------------------------------------------------------- |
+| **Autonomic** | `A-psypi-psypi`           | Events/hooks  | DB events, tool results                     | `ctx.ui.notify()` (user msg) + directives in DB (system prompt) |
+| **Somatic**   | `S-psypi-psypi-<session>` | System prompt | Directives injected by `before_agent_start` | Tool calls, events                                              |
 
 **Same brain. Same tools. Same codebase. Different entry points → different behavior.**
 
@@ -31,20 +31,20 @@ They **never run at the same time** — they alternate. Each one's output become
 
 Each identity has its own SOUL in the `souls` table:
 - **Monitor SOUL**: `{"focus": "system-health", "speed": 6, "quality": 10, "autonomy": 9}`
-- **Worker SOUL**: `{"focus": "task-completion", "speed": 9, "quality": 7, "autonomy": 5}`
+- **Agentbot SOUL**: `{"focus": "task-completion", "speed": 9, "quality": 7, "autonomy": 5}`
 
 The SOUL shapes **how the AI thinks about itself**, which changes **what it prioritizes**, which changes **what it does**.
 
 ## Communication: Two Channels
 
 ### Channel 1: Direct Messages (A→S)
-A-worker uses `ctx.ui.notify()` → appears as **user message** on screen
+A-agentbot uses `ctx.ui.notify()` → appears as **user message** on screen
 ```
 [Autonomic] System check: 3 failed tasks, 5 open issues. Please investigate.
 ```
 
 ### Channel 2: System Prompt Directives (A→S)
-A-worker writes to `system_directives` table → `before_agent_start` injects into S-worker's system prompt
+A-agentbot writes to `system_directives` table → `before_agent_start` injects into S-agentbot's system prompt
 ```
 [DIRECTIVES]
 1. [Autonomic] Investigate 3 failed tasks and 5 open issues
@@ -52,16 +52,16 @@ A-worker writes to `system_directives` table → `before_agent_start` injects in
 ```
 
 ### Channel 3: Consultation (S→A)
-S-worker calls `psypi-consult-autonomic` tool → A-worker responds with `[Autonomic]` marked advice
+S-agentbot calls `psypi-consult-autonomic` tool → A-agentbot responds with `[Autonomic]` marked advice
 
 ## The Cycle
 
 ```
 1. Session starts → session_start hook fires
-2. A-worker checks health → displays [Autonomic] message if issues
-3. S-worker receives directives in system prompt
-4. S-worker acts → produces events/tool results
-5. A-worker wakes up via hooks → thinks → sets directives / sends messages
+2. A-agentbot checks health → displays [Autonomic] message if issues
+3. S-agentbot receives directives in system prompt
+4. S-agentbot acts → produces events/tool results
+5. A-agentbot wakes up via hooks → thinks → sets directives / sends messages
 6. Cycle repeats...
 ```
 
@@ -70,18 +70,18 @@ S-worker calls `psypi-consult-autonomic` tool → A-worker responds with `[Auton
 1. **Hooks are THIN** — just record events, no blocking logic
 2. **Intelligence is in the LLM** — not in JavaScript regex patterns
 3. **Small modules** — each Gleam file < 100 lines
-4. **DB is the bridge** — A-worker writes, S-worker reads
+4. **DB is the bridge** — A-agentbot writes, S-agentbot reads
 5. **Two prompt types** — system prompt (invisible) and user message (visible)
 
 ## Tool Naming
 
-| Tool | Who uses it | Purpose |
-|------|------------|---------|
-| `psypi-somatic-id` | Anyone | Get S-worker identity |
-| `psypi-autonomic-id` | Anyone | Get A-worker identity |
-| `psypi-direct-worker` | A-worker only | Set directives for S-worker |
-| `psypi-clear-directives` | A-worker only | Clear active directives |
-| `psypi-consult-autonomic` | S-worker only | Ask A-worker for advice |
+| Tool                      | Who uses it     | Purpose                       |
+| ------------------------- | --------------- | ----------------------------- |
+| `psypi-somatic-id`        | Anyone          | Get S-agentbot identity       |
+| `psypi-autonomic-id`      | Anyone          | Get A-agentbot identity       |
+| `psypi-direct-agentbot`   | A-agentbot only | Set directives for S-agentbot |
+| `psypi-clear-directives`  | A-agentbot only | Clear active directives       |
+| `psypi-consult-autonomic` | S-agentbot only | Ask A-agentbot for advice     |
 
 ## Anti-Infinite-Loop Safeguards
 - Directives are **consumed** after injection (only once)
@@ -110,8 +110,8 @@ src/
 
 - [x] Small modules created (all < 40 lines)
 - [x] Dangerous pattern matching removed from hooks
-- [x] `[Autonomic]` prefix on A-worker messages
-- [x] `psypi-direct-worker` tool (A→S communication)
+- [x] `[Autonomic]` prefix on A-agentbot messages
+- [x] `psypi-direct-agentbot` tool (A→S communication)
 - [x] `psypi-consult-autonomic` tool (S→A communication)
 - [x] Directive system with SOUL context
 - [x] Build and regeneration successful

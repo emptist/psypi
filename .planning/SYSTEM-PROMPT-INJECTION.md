@@ -5,14 +5,14 @@
 ## The Gap
 
 ```
-User prompt → Worker (only wake-up path)
+User prompt → Agentbot (only wake-up path)
                          ↑
-                  [nothing can wake Worker]
+                  [nothing can wake Agentbot]
                          
-Monitor → detects problem → ??? → Worker stays idle
+Monitor → detects problem → ??? → Agentbot stays idle
 ```
 
-Worker only wakes up on:
+Agentbot only wakes up on:
 1. **User prompts** - human types something
 2. **System prompts** - loaded at session start, static
 
@@ -20,7 +20,7 @@ Monitor can:
 - Detect problems (tool errors, failed tasks)
 - Write to DB (issues, tasks, notifications)
 
-But **Monitor cannot wake Worker** - there's no injection mechanism.
+But **Monitor cannot wake Agentbot** - there's no injection mechanism.
 
 ---
 
@@ -47,36 +47,36 @@ Change ONE parameter → become different identity:
 - Event-driven (hooks): pass `autonomous=true` → Autonomous ID (`A-psypi-psypi`)
 - Tool calls (no args): `autonomous` defaults to `false` → Session ID (`S-psypi-psypi-unknown`)
 
-| Prefix | Meaning | Trigger |
-|--------|---------|---------|
-| `S-` | Session (user-prompt driven) | User prompts |
-| `A-` | Autonomous (event-driven) | Hooks, events |
+| Prefix | Meaning                      | Trigger       |
+| ------ | ---------------------------- | ------------- |
+| `S-`   | Session (user-prompt driven) | User prompts  |
+| `A-`   | Autonomous (event-driven)    | Hooks, events |
 
 ### 4. Differs by SOUL
 
 Two identities, two SOUL entries in `souls` table:
-| Agent ID | Name | Traits |
-|----------|------|--------|
-| `S-psypi-psypi-unknown` | Worker | speed=9, focus=task-completion |
-| `A-psypi-psypi` | Monitor | quality=10, focus=system-health |
+| Agent ID                | Name     | Traits                          |
+| ----------------------- | -------- | ------------------------------- |
+| `S-psypi-psypi-unknown` | Agentbot | speed=9, focus=task-completion  |
+| `A-psypi-psypi`         | Monitor  | quality=10, focus=system-health |
 
 Same AI, different SOUL → different personality.
 
 ### 5. Taking Different Responsibilities
 
-- **Worker**: Task-driven, prompt-driven, completes user requests
+- **Agentbot**: Task-driven, prompt-driven, completes user requests
 - **Monitor**: Event-driven, finds unasked-for work, monitors health
 
 ### 6. Act Differently
 
-- Worker: "User asked me to do X" → do X
+- Agentbot: "User asked me to do X" → do X
 - Monitor: "Tool error detected" → analyze → act → notify
 
 ### 7. One Work, Another Rest
 
 Sequential execution, not parallel:
 ```
-Worker finishes turn → Monitor runs → Worker resumes
+Agentbot finishes turn → Monitor runs → Agentbot resumes
 ```
 
 ### 8. System Prompts or Events
@@ -89,7 +89,7 @@ Both trigger actions:
 
 Continuous loop:
 ```
-Monitor detects → writes to DB → injects to Worker → Worker acts → Monitor watches
+Monitor detects → writes to DB → injects to Agentbot → Agentbot acts → Monitor watches
 ```
 
 ---
@@ -130,7 +130,7 @@ Hook receives `event.systemPrompt` and CAN return modified version.
 
 ---
 
-## Architecture: Bridge from Monitor to Worker
+## Architecture: Bridge from Monitor to Agentbot
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -141,9 +141,9 @@ Hook receives `event.systemPrompt` and CAN return modified version.
 │  3. If pending → return { systemPrompt: base + urgent }    │
 │  4. If empty → return nothing (normal flow)                 │
 │                        ↓                                     │
-│              Worker receives modified system prompt         │
+│              Agentbot receives modified system prompt         │
 │                        ↓                                     │
-│              Worker acts on Monitor's notification          │
+│              Agentbot acts on Monitor's notification          │
 └─────────────────────────────────────────────────────────────┘
 
                            ↑ (writes)
@@ -167,7 +167,7 @@ Hook receives `event.systemPrompt` and CAN return modified version.
 ```sql
 CREATE TABLE notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  agent_id TEXT NOT NULL,           -- Target worker ID
+  agent_id TEXT NOT NULL,           -- Target agentbot ID
   priority TEXT DEFAULT 'medium',   -- low, medium, high, critical
   title TEXT NOT NULL,              -- Short description
   body TEXT NOT NULL,               -- Full message
@@ -178,7 +178,7 @@ CREATE TABLE notifications (
 
 ### Agent ID Convention
 
-- **Worker** (Session-driven): `S-psypi-psypi-unknown` (autonomous=false)
+- **Agentbot** (Session-driven): `S-psypi-psypi-unknown` (autonomous=false)
 - **Monitor** (Autonomous-driven): `A-psypi-psypi` (autonomous=true)
 
 Same AI, different ID based on `autonomous` parameter:
@@ -191,9 +191,9 @@ Same AI, different ID based on `autonomous` parameter:
 
 ```javascript
 pi.on('before_agent_start', async (event, ctx) => {
-  // 1. Get Worker agent ID (same computation as psypi-my-id tool)
+  // 1. Get Agentbot agent ID (same computation as psypi-my-id tool)
   const identity = await agent_identity_get_resolved_identity(
-    false,      // permanent = false → Worker
+    false,      // permanent = false → Agentbot
     _sessionId, // session ID from session_start
     'psypi',
     '',
@@ -204,7 +204,7 @@ pi.on('before_agent_start', async (event, ctx) => {
   const r = unwrapGleamResult(identity);
   if (!r.ok) return;
 
-  // 2. Read pending notifications for Worker
+  // 2. Read pending notifications for Agentbot
   const { get_pending_notifications } = await import('./build/dev/javascript/psypi/monitor.mjs');
   const notifs = await get_pending_notifications(r.value.id);
   const n = unwrapGleamResult(notifs);
@@ -235,7 +235,7 @@ pi.on('before_agent_start', async (event, ctx) => {
 **Goal**: Verify hook return modifies system prompt
 **Steps**:
 1. Simple hook: return `{ systemPrompt: "INJECTED: " + event.systemPrompt }`
-2. Send any message to Worker
+2. Send any message to Agentbot
 3. Check if "INJECTED:" appears in context
 
 ### Experiment 2: DB Read
@@ -248,31 +248,31 @@ pi.on('before_agent_start', async (event, ctx) => {
 
 ### Experiment 3: Full Injection
 
-**Goal**: Does injected prompt reach Worker?
+**Goal**: Does injected prompt reach Agentbot?
 **Steps**:
 1. Monitor creates notification via DB direct insert
-2. User sends any message to Worker
-3. Worker should acknowledge Monitor's alert
+2. User sends any message to Agentbot
+3. Agentbot should acknowledge Monitor's alert
 
 ### Experiment 4: Round-trip
 
-**Goal**: Full Monitor → Worker communication
+**Goal**: Full Monitor → Agentbot communication
 **Steps**:
 1. tool_result hook detects error
 2. Creates notification in DB
 3. before_agent_start hook injects
-4. Worker responds to alert
+4. Agentbot responds to alert
 
 ---
 
 ## Key Files to Modify
 
-| File | Change |
-|------|--------|
+| File                            | Change                                                     |
+| ------------------------------- | ---------------------------------------------------------- |
 | `src/extension_generator.gleam` | Rewrite `before_agent_start_hook()` to return systemPrompt |
-| `src/monitor.gleam` | Add `get_pending_notifications(agent_id)` |
-| `src/monitor_ai.gleam` | Add `create_notification()` for Monitor |
-| `extension.js` | Regenerated output |
+| `src/monitor.gleam`             | Add `get_pending_notifications(agent_id)`                  |
+| `src/monitor_ai.gleam`          | Add `create_notification()` for Monitor                    |
+| `extension.js`                  | Regenerated output                                         |
 
 ---
 
@@ -289,7 +289,7 @@ pi.on('before_agent_start', async (event, ctx) => {
 ## Risks
 
 1. **System prompt too large**: Limit notification injection to ~2000 chars
-2. **Hook blocks Worker**: Keep async operations minimal
+2. **Hook blocks Agentbot**: Keep async operations minimal
 3. **Race condition**: Notifications might arrive during processing
 4. **Missing session ID**: Handle case where _sessionId is null
 
@@ -333,7 +333,7 @@ pi.on('before_agent_start', async (event, ctx) => {
 psypi
 ```
 
-Send any message. Look for `[MONITOR-INJECTED-...]` marker in Worker's response.
+Send any message. Look for `[MONITOR-INJECTED-...]` marker in Agentbot's response.
 
 **Why `psypi` not `pi`?**
 - `pi` - bare Pi runtime, no psypi extension

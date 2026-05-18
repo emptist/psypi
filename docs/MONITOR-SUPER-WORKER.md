@@ -1,11 +1,11 @@
-# Monitor Super Worker Architecture
+# Monitor Super Agentbot Architecture
 
 ## Problem
-Monitor is currently just a "speaker/talker" — it only has read-only tools (health, alerts, stats) and exists for human consultation. It has **no tools for writing, reading files, using bash, or doing anything autonomous**. It's basically useless as a worker.
+Monitor is currently just a "speaker/talker" — it only has read-only tools (health, alerts, stats) and exists for human consultation. It has **no tools for writing, reading files, using bash, or doing anything autonomous**. It's basically useless as a agentbot.
 
 ## Vision
-Monitor should be a **super worker** that:
-- Gets ALL worker tools (read, edit, write, bash, glob, grep, task, issue, etc.)
+Monitor should be a **super agentbot** that:
+- Gets ALL agentbot tools (read, edit, write, bash, glob, grep, task, issue, etc.)
 - Triggers autonomously on events (not user commands)
 - Can grow by modifying its own Gleam module definition
 - Manages the system (tasks, issues, skills, meetings, docs, DB)
@@ -13,7 +13,7 @@ Monitor should be a **super worker** that:
 ## Key Pi API Discovery
 From `dist/core/extensions/types.d.ts` (Pi ExtensionAPI):
 ```typescript
-pi.setActiveTools(toolNames: string[]);  // Enable ALL worker tools
+pi.setActiveTools(toolNames: string[]);  // Enable ALL agentbot tools
 pi.getActiveTools(): string[];
 pi.exec(command, args, options);          // Bash from extension
 pi.sendUserMessage(content);              // Trigger agent turns
@@ -32,9 +32,9 @@ pi.sendMessage(message);                 // Inject custom messages
 - `psypi-commit` — review only
 - `/autonomic-listen` — slash command
 
-### Target Monitor Toolset (super worker):
+### Target Monitor Toolset (super agentbot):
 
-**Phase 1: All Worker Tools**
+**Phase 1: All Agentbot Tools**
 - `read`, `bash`, `edit`, `write`, `glob`, `grep` (via `pi.setActiveTools`)
 - `psypi-task-*`, `psypi-issue-*`, `psypi-skill-*`, `psypi-meeting-*`
 - Database tools via Gleam
@@ -53,11 +53,11 @@ pi.sendMessage(message);                 // Inject custom messages
 
 ## Gleam Implementation (Pure Gleam!)
 
-### extension_generator.gleam — Add super worker mode
+### extension_generator.gleam — Add super agentbot mode
 ```gleam
 pub fn before_agent_start_hook() -> PiEventHook {
   event_hook("before_agent_start", [
-    "    // Monitor Super Worker: Enable ALL tools",
+    "    // Monitor Super Agentbot: Enable ALL tools",
     "    pi.setActiveTools(['read', 'bash', 'edit', 'write', 'glob', 'grep', 'find', 'ls']);",
     "    // Monitor autonomous analysis on session start",
     "    const { analyze_and_act } = await import('./build/dev/javascript/psypi/monitor_ai.mjs');",
@@ -102,7 +102,7 @@ Monitor edits `src/monitor_ai.gleam` to add new behaviors.
 - Monitor has no independent turns
 - On `agent_end`, Monitor analyzes and may `sendUserMessage` to itself
 - Pro: Simple, no extra LLM calls
-- Con: Monitor only acts when worker acts
+- Con: Monitor only acts when agentbot acts
 
 ### Approach B: Scheduled/Idle Check (Monitor proactively checks)
 - On `session_start` and periodically, Monitor does health check
@@ -117,7 +117,7 @@ Monitor edits `src/monitor_ai.gleam` to add new behaviors.
 
 ## Gleam Files to Modify/Create
 
-1. **`src/extension_generator.gleam`** — Add super worker hooks
+1. **`src/extension_generator.gleam`** — Add super agentbot hooks
 2. **`src/monitor_ai.gleam`** — Add autonomous action functions  
 3. **`src/pi_tool_call.gleam`** — Update PiEventHook type if needed
 4. **`extension.js`** — Regenerated output (auto-generated from Gleam)
@@ -132,7 +132,7 @@ Monitor edits `src/monitor_ai.gleam` to add new behaviors.
 ## Changes Made (2026-05-12)
 
 ### `src/extension_generator.gleam`
-- `before_agent_start_hook()` now enables ALL worker tools via `pi.setActiveTools()`
+- `before_agent_start_hook()` now enables ALL agentbot tools via `pi.setActiveTools()`
 - Calls `analyze_and_act()` from Gleam on session start
 - Shows Monitor notification via `ctx.ui.notify()`
 

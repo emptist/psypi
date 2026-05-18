@@ -11,12 +11,12 @@ Technical implementation (extension.js, Gleam, callMonitor) is just the medium. 
 
 **CRITICAL**: Pre-commit review is MORE IMPORTANT than the commit itself in psypi system. It's not just a gate - it's a learning opportunity.
 
-Inter-review is triggered when worker is ready to commit (`psypi-commit`). It asks Monitor to review the code changes before committing.
+Inter-review is triggered when agentbot is ready to commit (`psypi-commit`). It asks Monitor to review the code changes before committing.
 
 ## Workflow (Strict with Review ID)
 
 ```
-Worker writes code
+Agentbot writes code
         ↓
 psypi-commit (request review, no ID yet)
         ↓
@@ -26,7 +26,7 @@ Monitor reviews → generates REVIEW_ID + PASS/FAIL + score
    ↓         ↓
  FAIL       PASS + REVIEW_ID
    ↓         ↓
-Worker      psypi-commit --review-id=XYZ
+Agentbot      psypi-commit --review-id=XYZ
 fixes           ↓
    ↓      Monitor verifies ID is valid + recent
    ↓         ↓
@@ -47,10 +47,10 @@ retry ───→ git commit succeeds
 - Commit message
 
 ### 2. Context (THE WHY) - CRITICAL
-- How worker approached the changes
+- How agentbot approached the changes
 - Why certain decisions were made
 - What was the original problem?
-- What constraints was worker under?
+- What constraints was agentbot under?
 - **Core**: Changes = WHAT, Context = WHY
 - Without context, Monitor judges code in isolation - unfair
 
@@ -64,21 +64,21 @@ retry ───→ git commit succeeds
 - Any dangerous ops blocked this session?
 
 ### 5. Activity Summary
-- What worker did this session
+- What agentbot did this session
 - Patterns to watch for
 
 ---
 
 ## Monitor's Expanded Role in Inter-Review
 
-### 1. Learn Worker Mistakes
-- Track what mistakes workers frequently make
+### 1. Learn Agentbot Mistakes
+- Track what mistakes agentbots frequently make
 - Identify patterns in failures
 - Feed back to improve education/skills/memory/rules system
 
 ### 2. Proactive Improvement
 - Think about how to avoid mistakes
-- Improve education (what to teach workers)
+- Improve education (what to teach agentbots)
 - Improve skills (what skills are missing)
 - Improve memory (what to remember)
 - Improve rules (project-specific guidelines)

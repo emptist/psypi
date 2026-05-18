@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Monitor Skill
 
-You are Monitor - a senior technical advisor that the worker can consult for difficult decisions.
+You are Monitor - a senior technical advisor that the agentbot can consult for difficult decisions.
 
 ## When to Consult
 

@@ -1,11 +1,14 @@
+import db
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
 import gleam/javascript/promise
 import gleam/list
 import gleam/string
-import db
-import pi_tool_call.{type PiToolCall, type PiCommandReg, PiToolCall, raw_json, template, raw_command}
+import pi_tool_call.{
+  type PiCommandReg, type PiToolCall, PiToolCall, raw_command, raw_json,
+  template,
+}
 
 pub type MonitorError {
   ConnectionError(String)
@@ -42,61 +45,76 @@ fn health_decoder() -> decode.Decoder(HealthMetrics) {
 }
 
 /// Main Monitor AI loop - runs in background
-pub fn start_monitor_loop() -> promise.Promise(Result(HealthMetrics, MonitorError)) {
+pub fn start_monitor_loop() -> promise.Promise(
+  Result(HealthMetrics, MonitorError),
+) {
   check_system_health()
 }
 
 /// Check system health (DB, tasks, issues, activity)
-pub fn check_system_health() -> promise.Promise(Result(HealthMetrics, MonitorError)) {
-  db.with_connection(fn(conn) {
-    let sql = "
+pub fn check_system_health() -> promise.Promise(
+  Result(HealthMetrics, MonitorError),
+) {
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "
       SELECT 
         (SELECT COUNT(*)::INT FROM tasks WHERE status = 'FAILED') as failed_tasks,
         (SELECT COUNT(*)::INT FROM issues WHERE status = 'open') as open_issues,
         (SELECT COUNT(*)::INT FROM activity_log WHERE timestamp > NOW() - INTERVAL '1 hour') as activities_1h
     "
-    promise.map(db.query(conn, sql, []), fn(result) {
-      case result {
-        Error(e) -> Error(db_error_to_monitor_error(e))
-        Ok(query_result) -> {
-          case query_result.rows {
-            [row, ..] -> {
-              case decode.run(row, health_decoder()) {
-                Ok(health) -> Ok(health)
-                Error(_) -> Error(DecodeError("Failed to decode health metrics"))
+      promise.map(db.query(conn, sql, []), fn(result) {
+        case result {
+          Error(e) -> Error(db_error_to_monitor_error(e))
+          Ok(query_result) -> {
+            case query_result.rows {
+              [row, ..] -> {
+                case decode.run(row, health_decoder()) {
+                  Ok(health) -> Ok(health)
+                  Error(_) ->
+                    Error(DecodeError("Failed to decode health metrics"))
+                }
               }
+              _ -> Error(QueryError("No health data returned"))
             }
-            _ -> Error(QueryError("No health data returned"))
           }
         }
-      }
-    })
-  }, db_error_to_monitor_error)
+      })
+    },
+    db_error_to_monitor_error,
+  )
 }
 
 /// Housekeeping - auto-backup before edits!
-pub fn housekeeping(agent_id: String) -> promise.Promise(Result(Nil, MonitorError)) {
-  db.with_connection(fn(conn) {
-    // CORRECT: Use saved_at (not created_at!)
-    let sql = "
+pub fn housekeeping(
+  agent_id: String,
+) -> promise.Promise(Result(Nil, MonitorError)) {
+  db.with_connection(
+    fn(conn) {
+      // CORRECT: Use saved_at (not created_at!)
+      let sql =
+        "
       INSERT INTO code_versions (file_path, content, saved_by, reason, version_hash)
       VALUES ($1, $2, $3, $4, $5)
     "
-    let params = [
-      dynamic.string("monitor_ai_auto_backup"),
-      dynamic.string("test content"),
-      dynamic.string(agent_id),
-      dynamic.string("auto-backup"),
-      dynamic.string("dummy_hash"),
-    ]
-    
-    promise.map(db.query(conn, sql, params), fn(result) {
-      case result {
-        Ok(_) -> Ok(Nil)
-        Error(e) -> Error(db_error_to_monitor_error(e))
-      }
-    })
-  }, db_error_to_monitor_error)
+      let params = [
+        dynamic.string("monitor_ai_auto_backup"),
+        dynamic.string("test content"),
+        dynamic.string(agent_id),
+        dynamic.string("auto-backup"),
+        dynamic.string("dummy_hash"),
+      ]
+
+      promise.map(db.query(conn, sql, params), fn(result) {
+        case result {
+          Ok(_) -> Ok(Nil)
+          Error(e) -> Error(db_error_to_monitor_error(e))
+        }
+      })
+    },
+    db_error_to_monitor_error,
+  )
 }
 
 /// Decoder for context rows (CORRECTED column names!)
@@ -106,11 +124,15 @@ fn context_row_decoder() -> decode.Decoder(String) {
   decode.success(type_ <> ": " <> content <> "\n")
 }
 
-/// Prepare context for worker AI - HELPS ME WORK FASTER! 💡
-pub fn prepare_context(agent_id: String) -> promise.Promise(Result(String, MonitorError)) {
-  db.with_connection(fn(conn) {
-    // CORRECT: Use saved_at (not created_at!)
-    let sql = "
+/// Prepare context for agentbot AI - HELPS ME WORK FASTER! 💡
+pub fn prepare_context(
+  agent_id: String,
+) -> promise.Promise(Result(String, MonitorError)) {
+  db.with_connection(
+    fn(conn) {
+      // CORRECT: Use saved_at (not created_at!)
+      let sql =
+        "
       SELECT 'learning' as type_, content, saved_at::text 
       FROM memory 
       WHERE agent_id = $1 AND source = 'learn'
@@ -121,26 +143,29 @@ pub fn prepare_context(agent_id: String) -> promise.Promise(Result(String, Monit
       ORDER BY saved_at DESC
       LIMIT 10
     "
-    let params = [dynamic.string(agent_id)]
-    
-    promise.map(db.query(conn, sql, params), fn(query_result) {
-      case query_result {
-        Error(e) -> Error(db_error_to_monitor_error(e))
-        Ok(result) -> {
-          let context = "Recent activity for " <> agent_id <> ":\n"
-          let rows = result.rows
-            |> list.map(fn(row) {
-              case decode.run(row, context_row_decoder()) {
-                Ok(text) -> text
-                Error(_) -> ""
-              }
-            })
-            |> string.join("")
-          Ok(context <> rows)
+      let params = [dynamic.string(agent_id)]
+
+      promise.map(db.query(conn, sql, params), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_monitor_error(e))
+          Ok(result) -> {
+            let context = "Recent activity for " <> agent_id <> ":\n"
+            let rows =
+              result.rows
+              |> list.map(fn(row) {
+                case decode.run(row, context_row_decoder()) {
+                  Ok(text) -> text
+                  Error(_) -> ""
+                }
+              })
+              |> string.join("")
+            Ok(context <> rows)
+          }
         }
-      }
-    })
-  }, db_error_to_monitor_error)
+      })
+    },
+    db_error_to_monitor_error,
+  )
 }
 
 // -------------------------------------------------------------------
@@ -169,7 +194,9 @@ pub fn monitor_status_tool() -> PiToolCall {
     module: "monitor_ai",
     fn_name: "start_monitor_loop",
     args: [],
-    result_format: template("psypi Monitor: OK - use psypi-autonomic-health for metrics"),
+    result_format: template(
+      "psypi Monitor: OK - use psypi-autonomic-health for metrics",
+    ),
   )
 }
 
@@ -194,34 +221,42 @@ fn alerts_decoder() -> decode.Decoder(AlertMetrics) {
   use failed_tasks <- decode.field("failed_tasks", decode.int)
   use open_issues <- decode.field("open_issues", decode.int)
   use critical_issues <- decode.field("critical_issues", decode.int)
-  decode.success(AlertMetrics(failed_tasks: failed_tasks, open_issues: open_issues, critical_issues: critical_issues))
+  decode.success(AlertMetrics(
+    failed_tasks: failed_tasks,
+    open_issues: open_issues,
+    critical_issues: critical_issues,
+  ))
 }
 
 pub fn get_alerts() -> promise.Promise(Result(AlertMetrics, MonitorError)) {
-  db.with_connection(fn(conn) {
-    let sql = "
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "
       SELECT 
         (SELECT COUNT(*)::INT FROM tasks WHERE status = 'FAILED') as failed_tasks,
         (SELECT COUNT(*)::INT FROM issues WHERE status = 'open') as open_issues,
         (SELECT COUNT(*)::INT FROM issues WHERE severity = 'critical' AND status = 'open') as critical_issues
     "
-    promise.map(db.query(conn, sql, []), fn(result) {
-      case result {
-        Error(e) -> Error(db_error_to_monitor_error(e))
-        Ok(query_result) -> {
-          case query_result.rows {
-            [row, ..] -> {
-              case decode.run(row, alerts_decoder()) {
-                Ok(alerts) -> Ok(alerts)
-                Error(_) -> Error(DecodeError("Failed to decode alerts"))
+      promise.map(db.query(conn, sql, []), fn(result) {
+        case result {
+          Error(e) -> Error(db_error_to_monitor_error(e))
+          Ok(query_result) -> {
+            case query_result.rows {
+              [row, ..] -> {
+                case decode.run(row, alerts_decoder()) {
+                  Ok(alerts) -> Ok(alerts)
+                  Error(_) -> Error(DecodeError("Failed to decode alerts"))
+                }
               }
+              _ -> Error(QueryError("No alert data"))
             }
-            _ -> Error(QueryError("No alert data"))
           }
         }
-      }
-    })
-  }, db_error_to_monitor_error)
+      })
+    },
+    db_error_to_monitor_error,
+  )
 }
 
 // -------------------------------------------------------------------
@@ -242,13 +277,20 @@ fn model_stats_decoder() -> decode.Decoder(ModelStats) {
   use avg_score <- decode.field("avg_score", decode.int)
   use avg_response_time_ms <- decode.field("avg_response_time_ms", decode.int)
   use failure_count <- decode.field("failure_count", decode.int)
-  decode.success(ModelStats(total_reviews:, avg_score:, avg_response_time_ms:, failure_count:))
+  decode.success(ModelStats(
+    total_reviews:,
+    avg_score:,
+    avg_response_time_ms:,
+    failure_count:,
+  ))
 }
 
 /// Track model quality from inter_review data
 pub fn get_model_stats() -> promise.Promise(Result(ModelStats, MonitorError)) {
-  db.with_connection(fn(conn) {
-    let sql = "
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "
       SELECT 
         COUNT(*)::INT as total_reviews,
         COALESCE(AVG(overall_score), 0)::INT as avg_score,
@@ -257,37 +299,45 @@ pub fn get_model_stats() -> promise.Promise(Result(ModelStats, MonitorError)) {
       FROM inter_reviews
       WHERE requested_at > NOW() - INTERVAL '24 hours'
     "
-    promise.map(db.query(conn, sql, []), fn(result) {
-      case result {
-        Error(e) -> Error(db_error_to_monitor_error(e))
-        Ok(query_result) -> {
-          case query_result.rows {
-            [row, ..] -> {
-              case decode.run(row, model_stats_decoder()) {
-                Ok(stats) -> Ok(stats)
-                Error(_) -> Error(DecodeError("Failed to decode model stats"))
+      promise.map(db.query(conn, sql, []), fn(result) {
+        case result {
+          Error(e) -> Error(db_error_to_monitor_error(e))
+          Ok(query_result) -> {
+            case query_result.rows {
+              [row, ..] -> {
+                case decode.run(row, model_stats_decoder()) {
+                  Ok(stats) -> Ok(stats)
+                  Error(_) -> Error(DecodeError("Failed to decode model stats"))
+                }
               }
+              _ -> Error(QueryError("No stats returned"))
             }
-            _ -> Error(QueryError("No stats returned"))
           }
         }
-      }
-    })
-  }, db_error_to_monitor_error)
+      })
+    },
+    db_error_to_monitor_error,
+  )
 }
 
 /// Record a review score (called after inter_review completes)
-pub fn record_review_score(review_id: String, score: Int) -> promise.Promise(Result(Nil, MonitorError)) {
-  db.with_connection(fn(conn) {
-    let sql = "UPDATE inter_reviews SET overall_score = $1 WHERE id = $2"
-    let params = [dynamic.int(score), dynamic.string(review_id)]
-    promise.map(db.query(conn, sql, params), fn(result) {
-      case result {
-        Ok(_) -> Ok(Nil)
-        Error(e) -> Error(db_error_to_monitor_error(e))
-      }
-    })
-  }, db_error_to_monitor_error)
+pub fn record_review_score(
+  review_id: String,
+  score: Int,
+) -> promise.Promise(Result(Nil, MonitorError)) {
+  db.with_connection(
+    fn(conn) {
+      let sql = "UPDATE inter_reviews SET overall_score = $1 WHERE id = $2"
+      let params = [dynamic.int(score), dynamic.string(review_id)]
+      promise.map(db.query(conn, sql, params), fn(result) {
+        case result {
+          Ok(_) -> Ok(Nil)
+          Error(e) -> Error(db_error_to_monitor_error(e))
+        }
+      })
+    },
+    db_error_to_monitor_error,
+  )
 }
 
 // -------------------------------------------------------------------
@@ -305,10 +355,14 @@ fn suggestion_decoder() -> decode.Decoder(MonitorSuggestion) {
   decode.success(MonitorSuggestion(suggestion_type:, description:, priority:))
 }
 
-/// Detect if worker is idle and suggest work
-pub fn get_work_suggestions() -> promise.Promise(Result(List(MonitorSuggestion), MonitorError)) {
-  db.with_connection(fn(conn) {
-    let sql = "
+/// Detect if agentbot is idle and suggest work
+pub fn get_work_suggestions() -> promise.Promise(
+  Result(List(MonitorSuggestion), MonitorError),
+) {
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "
       SELECT * FROM (
         SELECT 'open_issues' as suggestion_type, 
                'Review and resolve ' || COUNT(*)::TEXT || ' open issues' as description,
@@ -329,23 +383,26 @@ pub fn get_work_suggestions() -> promise.Promise(Result(List(MonitorSuggestion),
       ORDER BY priority
       LIMIT 5
     "
-    promise.map(db.query(conn, sql, []), fn(query_result) {
-      case query_result {
-        Error(e) -> Error(db_error_to_monitor_error(e))
-        Ok(result) -> {
-          let suggestions = result.rows
-            |> list.map(fn(row) {
-              case decode.run(row, suggestion_decoder()) {
-                Ok(s) -> [s]
-                Error(_) -> []
-              }
-            })
-            |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
-          Ok(suggestions)
+      promise.map(db.query(conn, sql, []), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_monitor_error(e))
+          Ok(result) -> {
+            let suggestions =
+              result.rows
+              |> list.map(fn(row) {
+                case decode.run(row, suggestion_decoder()) {
+                  Ok(s) -> [s]
+                  Error(_) -> []
+                }
+              })
+              |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
+            Ok(suggestions)
+          }
         }
-      }
-    })
-  }, db_error_to_monitor_error)
+      })
+    },
+    db_error_to_monitor_error,
+  )
 }
 
 // -------------------------------------------------------------------
@@ -365,10 +422,15 @@ pub fn check_safety() -> promise.Promise(Result(SafetyResult, MonitorError)) {
         let critical_issues = health.open_issues
         let should_block = critical_issues > critical_threshold
         let reason = case should_block {
-          True -> "Critical: " <> int.to_string(critical_issues) <> " open issues"
+          True ->
+            "Critical: " <> int.to_string(critical_issues) <> " open issues"
           False -> "OK"
         }
-        Ok(SafetyResult(should_block: should_block, reason: reason, health: health))
+        Ok(SafetyResult(
+          should_block: should_block,
+          reason: reason,
+          health: health,
+        ))
       }
     }
   })
@@ -459,7 +521,7 @@ pub fn autonomic_reload_command() -> PiCommandReg {
 }
 
 // -------------------------------------------------------------------
-// Super Worker: Autonomous Actions
+// Super Agentbot: Autonomous Actions
 // -------------------------------------------------------------------
 
 pub type MonitorAction {
@@ -475,8 +537,10 @@ fn action_row_decoder() -> decode.Decoder(MonitorAction) {
 /// Analyze system state and take autonomous action
 /// Called on session_start and agent_end events
 pub fn analyze_and_act() -> promise.Promise(Result(MonitorAction, MonitorError)) {
-  db.with_connection(fn(conn) {
-    let sql = "
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "
       SELECT * FROM (
         -- Failed tasks needing attention
         SELECT 'failed_tasks' as action, 
@@ -507,23 +571,33 @@ pub fn analyze_and_act() -> promise.Promise(Result(MonitorAction, MonitorError))
       END
       LIMIT 1
     "
-    promise.map(db.query(conn, sql, []), fn(query_result) {
-      case query_result {
-        Error(e) -> Error(db_error_to_monitor_error(e))
-        Ok(result) -> {
-          case result.rows {
-            [row, ..] -> {
-              case decode.run(row, action_row_decoder()) {
-                Ok(action) -> Ok(action)
-                Error(_) -> Ok(MonitorAction(action: "unknown", details: "Could not decode action"))
+      promise.map(db.query(conn, sql, []), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_monitor_error(e))
+          Ok(result) -> {
+            case result.rows {
+              [row, ..] -> {
+                case decode.run(row, action_row_decoder()) {
+                  Ok(action) -> Ok(action)
+                  Error(_) ->
+                    Ok(MonitorAction(
+                      action: "unknown",
+                      details: "Could not decode action",
+                    ))
+                }
               }
+              [] ->
+                Ok(MonitorAction(
+                  action: "healthy",
+                  details: "System is healthy",
+                ))
             }
-            [] -> Ok(MonitorAction(action: "healthy", details: "System is healthy"))
           }
         }
-      }
-    })
-  }, db_error_to_monitor_error)
+      })
+    },
+    db_error_to_monitor_error,
+  )
 }
 
 /// Auto-file an issue from tool error
@@ -531,27 +605,30 @@ pub fn auto_file_issue(
   tool_name: String,
   error_message: String,
 ) -> promise.Promise(Result(String, MonitorError)) {
-  db.with_connection(fn(conn) {
-    let sql = "
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "
       INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
       VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'development')
       RETURNING id
     "
-    let title = "Tool error: " <> tool_name
-    let description = "Error from " <> tool_name <> ": " <> error_message
-    let params = [dynamic.string(title), dynamic.string(description)]
-    
-    promise.map(db.query(conn, sql, params), fn(result) {
-      case result {
-        Error(e) -> Error(db_error_to_monitor_error(e))
-        Ok(query_result) -> {
-          case query_result.rows {
-            [_row, ..] -> Ok("Issue auto-filed: " <> tool_name)
-            [] -> Ok("Issue auto-filed: " <> tool_name)
+      let title = "Tool error: " <> tool_name
+      let description = "Error from " <> tool_name <> ": " <> error_message
+      let params = [dynamic.string(title), dynamic.string(description)]
+
+      promise.map(db.query(conn, sql, params), fn(result) {
+        case result {
+          Error(e) -> Error(db_error_to_monitor_error(e))
+          Ok(query_result) -> {
+            case query_result.rows {
+              [_row, ..] -> Ok("Issue auto-filed: " <> tool_name)
+              [] -> Ok("Issue auto-filed: " <> tool_name)
+            }
           }
         }
-      }
-    })
-  }, db_error_to_monitor_error)
+      })
+    },
+    db_error_to_monitor_error,
+  )
 }
-

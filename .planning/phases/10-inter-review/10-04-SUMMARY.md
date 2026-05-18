@@ -15,7 +15,7 @@
 ## What's Working
 - Monitor detects patterns needing education
 - Includes EDUCATION_SUGGESTION in response
-- Worker sees what to learn in review feedback
+- Agentbot sees what to learn in review feedback
 
 ## What's Next (v2)
 - Apply migration to create table

@@ -29,18 +29,18 @@ psypi-commit → request_review() → SQL: request_inter_review()
   - `context.gleam:9` - monitor_id() returns this ID
 
 ## Compare with Monitor
-- **callMonitor** in extension_generator.gleam - uses `ctx.model` (worker's model)
+- **callMonitor** in extension_generator.gleam - uses `ctx.model` (agentbot's model)
 - Real-time, synchronous
 - Can access git, project context via JS
 
 ## Key Differences
 
-| Aspect | Current inter_review | Monitor callMonitor |
-|--------|---------------------|---------------------|
-| LLM | External (P-tencent) | Same as worker (ctx.model) |
-| Flow | Async (DB + separate process) | Synchronous (in same session) |
-| Context | Limited (passed string) | Full (can query git, DB, etc) |
-| Response time | Not real-time | Immediate |
+| Aspect        | Current inter_review          | Monitor callMonitor           |
+| ------------- | ----------------------------- | ----------------------------- |
+| LLM           | External (P-tencent)          | Same as agentbot (ctx.model)  |
+| Flow          | Async (DB + separate process) | Synchronous (in same session) |
+| Context       | Limited (passed string)       | Full (can query git, DB, etc) |
+| Response time | Not real-time                 | Immediate                     |
 
 ## What's in DB
 - inter_reviews table: id, task_id, status, summary, overall_score, requested_at

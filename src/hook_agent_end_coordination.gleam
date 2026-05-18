@@ -1,4 +1,4 @@
-// Agent end coordination hook — A-worker wake-up logic.
+// Agent end coordination hook — A-agentbot wake-up logic.
 // The JS handler body is stored as a separate asset for maintainability.
 // See: js_assets/agent_end_coordination.js
 

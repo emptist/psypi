@@ -69,13 +69,13 @@ return { systemPrompt: '...', block: true };
 
 ## Conditions That Cause Blocking
 
-| Condition | Cause | Prevention |
-|-----------|-------|------------|
-| Dangerous pattern match | tool_call returns `{ block: true }` | Intentional safety |
-| Undefined function | Missing import or build error | Always rebuild after Gleam changes |
-| DB schema mismatch | Missing column/table | Use migrations |
-| Hook throws | Uncaught exception in hook | Wrap in try/catch |
-| Wrong return type | Returning block when not intended | Test hooks before deploy |
+| Condition               | Cause                               | Prevention                         |
+| ----------------------- | ----------------------------------- | ---------------------------------- |
+| Dangerous pattern match | tool_call returns `{ block: true }` | Intentional safety                 |
+| Undefined function      | Missing import or build error       | Always rebuild after Gleam changes |
+| DB schema mismatch      | Missing column/table                | Use migrations                     |
+| Hook throws             | Uncaught exception in hook          | Wrap in try/catch                  |
+| Wrong return type       | Returning block when not intended   | Test hooks before deploy           |
 
 ## Safe Hook Pattern
 
@@ -90,7 +90,7 @@ pi.on('before_agent_start', async (event, ctx) => {
       };
     }
   } catch (e) {
-    // Log but don't block - let Worker continue
+    // Log but don't block - let Agentbot continue
     console.error('before_agent_start error:', e.message);
   }
   // Return nothing = normal flow
@@ -101,14 +101,14 @@ pi.on('before_agent_start', async (event, ctx) => {
 
 Our hooks in `extension_generator.gleam` are designed to never accidentally block:
 
-| Hook | Return | Safe? |
-|------|--------|-------|
-| `tool_call` | `{ block: true }` only for dangerous patterns | ✅ Only intentional blocks |
-| `session_start` | Nothing (async fire-and-forget) | ✅ |
-| `before_agent_start` | `{ systemPrompt: ... }` or nothing | ✅ |
-| `agent_start` | Nothing | ✅ |
-| `agent_end` | Nothing | ✅ |
-| `tool_result` | Nothing | ✅ |
+| Hook                 | Return                                        | Safe?                     |
+| -------------------- | --------------------------------------------- | ------------------------- |
+| `tool_call`          | `{ block: true }` only for dangerous patterns | ✅ Only intentional blocks |
+| `session_start`      | Nothing (async fire-and-forget)               | ✅                         |
+| `before_agent_start` | `{ systemPrompt: ... }` or nothing            | ✅                         |
+| `agent_start`        | Nothing                                       | ✅                         |
+| `agent_end`          | Nothing                                       | ✅                         |
+| `tool_result`        | Nothing                                       | ✅                         |
 
 ## When Modifying Hooks
 

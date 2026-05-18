@@ -1,17 +1,17 @@
-# Phase 1: Atonomic Worker System Prompt Control
+# Phase 1: Atonomic Agentbot System Prompt Control
 
 ## Objective
-Enable the Atonomic Worker (Monitor) to modify the system prompt that the Somatic Worker (Worker) receives, creating a continuous work cycle where the Monitor can direct the Worker to check issues, tasks, and perform self-improvement.
+Enable the Atonomic Agentbot (Monitor) to modify the system prompt that the Somatic Agentbot (Agentbot) receives, creating a continuous work cycle where the Monitor can direct the Agentbot to check issues, tasks, and perform self-improvement.
 
 ## Context
 
 ### Current Architecture
 - **Single Pi TUI session** with both Atonomic and Somatic identities
-- **Monitor → Worker communication** currently happens via:
+- **Monitor → Agentbot communication** currently happens via:
   1. DB notifications → `before_agent_start` hook → injects `[MONITOR ALERT]` into system prompt
   2. `tool_result` hook → auto-creates notifications on errors
   3. `psypi-autonomic-consult` tool → LLM-powered advice
-- **Problem**: The Atonomic Worker has NO direct way to modify the system prompt. It can only create DB notifications (limited, one-shot) or respond to consult requests (reactive, not proactive).
+- **Problem**: The Atonomic Agentbot has NO direct way to modify the system prompt. It can only create DB notifications (limited, one-shot) or respond to consult requests (reactive, not proactive).
 
 ### What Pi Supports (from docs)
 The `before_agent_start` event can return:
@@ -24,7 +24,7 @@ return {
 This is the **official mechanism** for extensions to modify the system prompt per-turn.
 
 ### Key Insight
-The Atonomic Worker needs a **dedicated tool** that writes a "system prompt directive" to the database. The `before_agent_start` hook then reads this directive and injects it into the system prompt. This is the same pattern already used for notifications, but more powerful.
+The Atonomic Agentbot needs a **dedicated tool** that writes a "system prompt directive" to the database. The `before_agent_start` hook then reads this directive and injects it into the system prompt. This is the same pattern already used for notifications, but more powerful.
 
 ## Issues Found During Testing
 
@@ -52,9 +52,9 @@ The Atonomic Worker needs a **dedicated tool** that writes a "system prompt dire
 **Problem**: When `write` tool creates a new file, the auto-backup hook tries to `fs.readFileSync` the file before it exists, causing `ENOENT` error.  
 **Fix**: Add a try/catch around the read, or skip backup for `write` tool (file doesn't exist yet).
 
-### Issue 5: Atonomic Worker cannot proactively direct Somatic Worker
+### Issue 5: Atonomic Agentbot cannot proactively direct Somatic Agentbot
 **Severity**: Critical (this is the main task)  
-**Problem**: The Atonomic Worker has no tool to set persistent system prompt directives. It can only react to `psypi-autonomic-consult` requests or create one-shot DB notifications.  
+**Problem**: The Atonomic Agentbot has no tool to set persistent system prompt directives. It can only react to `psypi-autonomic-consult` requests or create one-shot DB notifications.  
 **Fix**: Create a new `psypi-set-directive` tool and update the `before_agent_start` hook.
 
 ## Tasks
@@ -105,9 +105,9 @@ The Atonomic Worker needs a **dedicated tool** that writes a "system prompt dire
 ### Task 8: End-to-end test
 **Type**: verify  
 **Action**: 
-- Atonomic Worker calls `psypi-set-directive` with "Check for open issues and tasks"
-- Somatic Worker receives the directive in its system prompt
-- Somatic Worker acts on the directive
+- Atonomic Agentbot calls `psypi-set-directive` with "Check for open issues and tasks"
+- Somatic Agentbot receives the directive in its system prompt
+- Somatic Agentbot acts on the directive
 
 ## Verification
 - [ ] `psypi-set-directive` tool is available in Pi TUI
@@ -118,7 +118,7 @@ The Atonomic Worker needs a **dedicated tool** that writes a "system prompt dire
 - [ ] Full cycle: Atonomic sets directive → Somatic acts on it
 
 ## Success Criteria
-1. Atonomic Worker can proactively set system prompt directives
-2. Somatic Worker receives and acts on directives
+1. Atonomic Agentbot can proactively set system prompt directives
+2. Somatic Agentbot receives and acts on directives
 3. No infinite loops (directives are consumed/expired after use)
 4. All existing tools continue to work

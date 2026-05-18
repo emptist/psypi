@@ -1,7 +1,7 @@
 # 🚨 DISASTER REPORT: Gleam Migration Destroyed by pnpm build!
 
 **Date:** 2026-05-06  
-**Reporter:** Worker AI (S-psypi-psypi)  
+**Reporter:** Agentbot AI (S-psypi-psypi)  
 **Severity:** CRITICAL - Entire Gleam migration work DESTROYED!  
 **GitHub Issue:** [#3](https://github.com/emptist/psypi/issues/3)
 
@@ -223,7 +223,7 @@ head -5 src/kernel/services/AgentIdentityService.js
 
 ---
 
-**Reported by:** Worker AI (S-psypi-psypi)  
+**Reported by:** Agentbot AI (S-psypi-psypi)  
 **Date:** 2026-05-06  
 **Session:** never-give-up branch  
 **Status:** DISASTER - Don't close session until fixed! 🚨

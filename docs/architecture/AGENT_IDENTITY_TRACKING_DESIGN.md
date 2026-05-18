@@ -46,7 +46,7 @@
 │  From souls table:                                                          │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │ agent_id: S-psypi-psypi-unknown                                       │   │
-│  │ name: Worker                                                          │   │
+│  │ name: Agentbot                                                          │   │
 │  │ traits: { speed: 9, quality: 7, autonomy: 5, focus: "task-completion" }│   │
 │  │ content: "I am the prompt-driven task executor..."                    │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
@@ -66,7 +66,7 @@
                     ▼                               ▼
         ┌───────────────────────┐       ┌───────────────────────┐
         │    BEHAVIORS &        │       │    BEHAVIORS &        │
-        │    ACTIONS (Worker)   │       │    ACTIONS (Monitor)  │
+        │    ACTIONS (Agentbot)   │       │    ACTIONS (Monitor)  │
         │                       │       │                       │
         │  • Waits for prompts  │       │  • Watches for events │
         │  • Executes tasks     │       │  • Detects problems  │
@@ -87,7 +87,7 @@
 │  │                                                                     │   │
 │  │    ┌─────────┐     ┌─────────┐     ┌─────────────┐                │   │
 │  │    │ Phase 1 │ ──► │ Phase 2 │ ──► │ Phase 3     │                │   │
-│  │    │ Worker  │     │ Monitor │     │ Worker      │                │   │
+│  │    │ Agentbot  │     │ Monitor │     │ Agentbot      │                │   │
 │  │    │ Works   │     │ Detects │     │ Receives    │                │   │
 │  │    └─────────┘     └─────────┘     └─────────────┘                │   │
 │  │         │               │                  │                      │   │
@@ -96,9 +96,9 @@
 │  │                                                                     │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
-│  Phase 1: Worker acts on user prompt                                        │
-│  Phase 2: Monitor detects events while Worker rests                         │
-│  Phase 3: Worker receives Monitor's notifications before next task          │
+│  Phase 1: Agentbot acts on user prompt                                        │
+│  Phase 2: Monitor detects events while Agentbot rests                         │
+│  Phase 3: Agentbot receives Monitor's notifications before next task          │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -114,15 +114,15 @@
 │  │  Type: User input               │   │  Type: Pi hooks firing           │  │
 │  │  Trigger: Human types           │   │  Trigger: System conditions     │  │
 │  │  ID: S- (autonomous=false)      │   │  ID: A- (autonomous=true)      │  │
-│  │  Flow: Prompt → Worker → Act    │   │  Flow: Event → Monitor → Detect │  │
+│  │  Flow: Prompt → Agentbot → Act    │   │  Flow: Event → Monitor → Detect │  │
 │  │                                 │   │                                 │  │
 │  │  Example:                       │   │  Example:                       │  │
 │  │  "Fix the bug in file.ts"       │   │  tool_result with isError=true  │  │
 │  │                                 │   │                                 │  │
 │  └─────────────────────────────────┘   └─────────────────────────────────┘  │
 │                                                                              │
-│  Prompt path: User → Worker (S-)                                           │
-│  Event path: Hook → Monitor (A-) → notification → Worker (S-)              │
+│  Prompt path: User → Agentbot (S-)                                           │
+│  Event path: Hook → Monitor (A-) → notification → Agentbot (S-)              │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -167,14 +167,14 @@
 
 Same AI, different trigger → different ID → different SOUL → different behavior
 
-| Parameter | Worker (S-) | Monitor (A-) |
-|-----------|-------------|--------------|
-| `autonomous` | `false` | `true` |
-| Trigger | User prompts | Events/Hooks |
-| Prefix | `S-` (Session) | `A-` (Autonomous) |
-| ID Example | `S-psypi-psypi-unknown` | `A-psypi-psypi` |
-| SOUL Traits | speed=9, focus=task-completion | quality=10, focus=system-health |
-| Behavior | "User asked me to do X" | "Tool error detected → analyze → notify" |
+| Parameter    | Agentbot (S-)                  | Monitor (A-)                             |
+| ------------ | ------------------------------ | ---------------------------------------- |
+| `autonomous` | `false`                        | `true`                                   |
+| Trigger      | User prompts                   | Events/Hooks                             |
+| Prefix       | `S-` (Session)                 | `A-` (Autonomous)                        |
+| ID Example   | `S-psypi-psypi-unknown`        | `A-psypi-psypi`                          |
+| SOUL Traits  | speed=9, focus=task-completion | quality=10, focus=system-health          |
+| Behavior     | "User asked me to do X"        | "Tool error detected → analyze → notify" |
 
 ---
 
@@ -191,12 +191,12 @@ generate_semantic_id(autonomous: Bool, source, project, session_id, model)
 
 ### Convention: How to Get ID
 
-| Context | How to Get ID |
-|---------|---------------|
-| Tool calls (Worker) | `get_resolved_identity(false, sessionId, ...)` → S- |
-| Hooks/Events (Monitor) | `get_resolved_identity(true, ...)` → A- |
-| No parameters needed | `psypi-my-id` tool → S- |
-| Monitor/Partner ID | `psypi-autonomic-id` tool → A- |
+| Context                | How to Get ID                                       |
+| ---------------------- | --------------------------------------------------- |
+| Tool calls (Agentbot)  | `get_resolved_identity(false, sessionId, ...)` → S- |
+| Hooks/Events (Monitor) | `get_resolved_identity(true, ...)` → A-             |
+| No parameters needed   | `psypi-my-id` tool → S-                             |
+| Monitor/Partner ID     | `psypi-autonomic-id` tool → A-                      |
 
 ---
 
@@ -206,19 +206,19 @@ From `souls` table in psypi database:
 
 ```sql
 souls table:
-  agent_id   → "S-psypi-psypi-unknown" (Worker)
+  agent_id   → "S-psypi-psypi-unknown" (Agentbot)
              → "A-psypi-psypi" (Monitor)
-  name       → "Worker" / "Monitor"
+  name       → "Agentbot" / "Monitor"
   content    → Markdown describing WHO this identity is
   traits     → { speed: 9, quality: 7, autonomy: 5 }
 ```
 
 ### SOUL Modification Rules
 
-| Type | Example | How to modify |
-|------|---------|---------------|
-| **Personal identity** | Name ("Worker"), meaning, traits | **Free to edit anytime** |
-| **Shared responsibilities** | "Monitor owns skill_indexing" | **Requires discussion in meetings** |
+| Type                        | Example                            | How to modify                       |
+| --------------------------- | ---------------------------------- | ----------------------------------- |
+| **Personal identity**       | Name ("Agentbot"), meaning, traits | **Free to edit anytime**            |
+| **Shared responsibilities** | "Monitor owns skill_indexing"      | **Requires discussion in meetings** |
 
 ---
 
@@ -230,7 +230,7 @@ souls table:
 │                                                             │
 │  ┌─────────┐     ┌─────────┐     ┌─────────────┐          │
 │  │ Phase 1 │ ──► │ Phase 2 │ ──► │ Phase 3     │          │
-│  │ Worker  │     │ Monitor │     │ Worker      │          │
+│  │ Agentbot  │     │ Monitor │     │ Agentbot      │          │
 │  │ acts    │     │ detects │     │ receives    │          │
 │  └─────────┘     └─────────┘     └─────────────┘          │
 │       │               │                  │                 │
@@ -240,11 +240,11 @@ souls table:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Phase 1: Worker Acts
+### Phase 1: Agentbot Acts
 - User prompt arrives
 - `before_agent_start` hook reads notifications from DB
-- Worker receives system prompt with pending alerts
-- Worker executes task
+- Agentbot receives system prompt with pending alerts
+- Agentbot executes task
 
 ### Phase 2: Monitor Detects
 - Events fire (tool_result, session_start, etc.)
@@ -252,20 +252,20 @@ souls table:
 - Monitor analyzes system state
 - Monitor writes to `notifications` table
 
-### Phase 3: Worker Receives
+### Phase 3: Agentbot Receives
 - Next user prompt triggers `before_agent_start`
-- Hook reads pending notifications for Worker
+- Hook reads pending notifications for Agentbot
 - Notifications injected into system prompt
-- Worker acknowledges and acts
+- Agentbot acknowledges and acts
 
 ---
 
 ## Events vs Prompts: Two Wake-up Paths
 
-| Path | Trigger | ID Used | Example |
-|------|---------|---------|--------|
-| **Prompts** | User input | `S-` | "Do X task" |
-| **Events** | Hook execution | `A-` | tool_error detected |
+| Path        | Trigger        | ID Used | Example             |
+| ----------- | -------------- | ------- | ------------------- |
+| **Prompts** | User input     | `S-`    | "Do X task"         |
+| **Events**  | Hook execution | `A-`    | tool_error detected |
 
 ---
 
@@ -304,7 +304,7 @@ AgentIdentity { id: "S-" or "A-", session_id, project, source, ... }
         └──► Returns to JS, subsequent operations use this ID
              │
              ├──► activity_log (Event Trigger: "tool_call")
-             └──► notifications table (Monitor → Worker)
+             └──► notifications table (Monitor → Agentbot)
 ```
 
 ---
@@ -340,7 +340,7 @@ pub fn generate_semantic_id(autonomous, source, project, session_id, model) -> S
 ### 3. Generated Code: extension.js
 
 ```javascript
-// Worker ID (autonomous defaults to false)
+// Agentbot ID (autonomous defaults to false)
 agent_identity_get_resolved_identity(false, _sessionId, 'psypi', '', '', 'psypi', '')
 
 // Monitor ID (autonomous = true)
@@ -352,7 +352,7 @@ agent_identity_get_resolved_identity(true, '', 'psypi', '', '', 'psypi', '')
 ## Database Records
 
 ```sql
--- Prompt Trigger (Worker/S-)
+-- Prompt Trigger (Agentbot/S-)
 agent_id: S-psypi-psypi-unknown
 activity: get_resolved_identity
 context: {"autonomous": false, "source": "psypi", "project": "psypi", "session_id": "..."}
@@ -381,5 +381,5 @@ This is why Gleam was chosen:
 - [x] `A-` prefix for Autonomous (replaces `P-`)
 - [x] `S-` prefix for Session (unchanged)
 - [x] Two SOUL entries in database
-- [x] Sequential execution: Worker → Monitor → Worker
+- [x] Sequential execution: Agentbot → Monitor → Agentbot
 - [ ] System prompt injection (experiments pending)

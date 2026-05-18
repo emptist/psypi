@@ -39,7 +39,7 @@ Real Pi Agent (Background)
 
 **Architecture:**
 ```
-Me (Worker AI) ← Collaborates with → Real Monitor Partner AI
+Me (Agentbot AI) ← Collaborates with → Real Monitor Partner AI
     ↓                                    ↓
 Execute plans                      Background support
 Gleam migration                    Housekeeping + Prep

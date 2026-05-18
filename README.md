@@ -43,17 +43,17 @@ gleam run -m extension_generator # regenerate extension.js
 
 All functionality is exposed as Pi tools — use them inside the TUI, never from shell.
 
-| Tool | Description |
-|------|-------------|
-| `psypi-somatic-id` | Get Somatic Worker ID |
-| `psypi-autonomic-id` | Get Autonomic Worker ID |
-| `psypi-task-add` | Add a task |
-| `psypi-task-list` | List tasks |
-| `psypi-task-complete` | Complete a task |
-| `psypi-doc-save` | Save file version |
-| `psypi-doc-list` | List file versions |
-| `psypi-direct-worker` | Direct the Somatic Worker |
-| `psypi-issue-add` | Report an issue |
+| Tool                    | Description                 |
+| ----------------------- | --------------------------- |
+| `psypi-somatic-id`      | Get Somatic Agentbot ID     |
+| `psypi-autonomic-id`    | Get Autonomic Agentbot ID   |
+| `psypi-task-add`        | Add a task                  |
+| `psypi-task-list`       | List tasks                  |
+| `psypi-task-complete`   | Complete a task             |
+| `psypi-doc-save`        | Save file version           |
+| `psypi-doc-list`        | List file versions          |
+| `psypi-direct-agentbot` | Direct the Somatic Agentbot |
+| `psypi-issue-add`       | Report an issue             |
 
 ## Adding a Pi Tool
 

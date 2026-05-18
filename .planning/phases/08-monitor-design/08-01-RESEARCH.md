@@ -2,7 +2,7 @@
 
 ## Objective
 
-Research and prove how Monitor works in psypi - an LLM-powered consultant worker can call for difficult decisions.
+Research and prove how Monitor works in psypi - an LLM-powered consultant agentbot can call for difficult decisions.
 
 ## Key Findings from Pi SDK Research
 
@@ -11,7 +11,7 @@ Research and prove how Monitor works in psypi - an LLM-powered consultant worker
 ```typescript
 import { complete, getModel } from "@mariozechner/pi-ai";
 
-// Use same model as worker
+// Use same model as agentbot
 const model = ctx.model;
 const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 
@@ -26,7 +26,7 @@ const response = await complete(model, { messages: [...] }, { apiKey, ... });
 
 ### Key Properties
 - No spawn() - just a function call
-- Uses worker's model via ctx.model
+- Uses agentbot's model via ctx.model
 - API key from ctx.modelRegistry
 - Returns response - done (no loop!)
 
@@ -34,11 +34,11 @@ const response = await complete(model, { messages: [...] }, { apiKey, ... });
 
 ```
 psypi instance
-├── Worker LLM (ctx.model)
+├── Agentbot LLM (ctx.model)
 │
 ├── Monitor Tool
 │   └── complete(ctx.model, {...}, {apiKey, headers})
-│       ↑ uses SAME model as worker!
+│       ↑ uses SAME model as agentbot!
 │
 └── Result returned - done (no loop!)
 ```
@@ -58,7 +58,7 @@ psypi instance
 - [ ] Test: Import @mariozechner/pi-ai in generated JS
 
 ### Round 3: Monitor Tool Design
-- [ ] Define tool parameters (what worker asks Monitor)
+- [ ] Define tool parameters (what agentbot asks Monitor)
 - [ ] Design system prompt for Monitor
 - [ ] Implement: psypi-autonomic-consult tool in Gleam
 
@@ -68,7 +68,7 @@ psypi instance
 - [ ] Implement: Safety check in hook
 
 ### Round 5: Polish
-- [ ] Test: Worker calling Monitor for difficult choice
+- [ ] Test: Agentbot calling Monitor for difficult choice
 - [ ] Verify: Response returned correctly
 - [ ] Document: How to use
 
@@ -88,7 +88,7 @@ const response = await complete(model, { messages: [...] }, { apiKey, headers })
 - Added `@mariozechner/pi-ai` import to extension.js
 - Added `callMonitor` helper function in helpers_text()
 - Added `psypi-autonomic-consult` tool that calls LLM
-- Uses SAME model as worker (ctx.model)
+- Uses SAME model as agentbot (ctx.model)
 - No spawn, no external service, no loop!
 
 ### Code Added in extension_generator.gleam:
@@ -116,7 +116,7 @@ async function callMonitor(messages, systemPrompt) {
 - extension.js regenerated with new tool
 - Tool name: psypi-autonomic-consult
 - Parameter: question (string)
-- Uses worker's model via ctx.model
+- Uses agentbot's model via ctx.model
 
 ---
 
@@ -128,7 +128,7 @@ async function callMonitor(messages, systemPrompt) {
 
 ## Verification Criteria
 
-- [ ] Worker can call psypi-autonomic-consult
+- [ ] Agentbot can call psypi-autonomic-consult
 - [ ] Monitor returns LLM-generated response
 - [ ] No spawn, no external service, no loop
 - [ ] Safety block works for dangerous operations

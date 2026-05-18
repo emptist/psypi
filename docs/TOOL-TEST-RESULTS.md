@@ -9,7 +9,7 @@
 6. ✅ psypi-meeting-add — Returns meeting ID
 7. ✅ psypi-broadcast-send — Returns broadcast ID
 8. ✅ psypi-areflect — Returns summary JSON
-9. ✅ psypi-direct-worker — Returns confirmation
+9. ✅ psypi-direct-agentbot — Returns confirmation
 
 ## Working but output is unusable (raw JSON, wastes context)
 10. ⚠️ psypi-tasks — Massive nested JSON

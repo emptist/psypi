@@ -15,7 +15,7 @@ The Monitor should move from a "Chatty Assistant" to a "Silent Guardian."
 
 ### Communication Hierarchy:
 - **Sillent Mode (Default)**: Background operations (heartbeats, lifecycle events) should be invisible to the human user.
-- **Worker-to-Worker (Internal)**: The Monitor communicates with the Worker AI (via system prompts/context injection) to guide the process without bothering the user.
+- **Agentbot-to-Agentbot (Internal)**: The Monitor communicates with the Agentbot AI (via system prompts/context injection) to guide the process without bothering the user.
 - **Emergency Channel (Human-Facing)**: The Monitor only speaks to the user when:
     - **System is in Danger**: (e.g., Infinite loop, recursive delete, critical crash).
     - **Explicit Request**: The user calls a monitor tool (e.g., `psypi-autonomic-health`).
@@ -32,4 +32,4 @@ The "repeated started" messages reveal that the Monitor is currently implemented
 1. **Cull the Noise**: Remove all non-essential lifecycle logs (`Session started`, `Agent started`, etc.) from `extension_generator.gleam`.
 2. **Refactor Safety Messages**: Replace "BLOCKED" with helpful, guidance-based language.
 3. **Dynamic Status**: Replace "Monitor ready" with a dynamic signal tied to actual system health metrics.
-4. **Context Injection**: Implement the logic to inject critical issues/memories directly into the agent's prompt, making the Monitor's value felt through the Worker's improved behavior rather than through logs.
+4. **Context Injection**: Implement the logic to inject critical issues/memories directly into the agent's prompt, making the Monitor's value felt through the Agentbot's improved behavior rather than through logs.

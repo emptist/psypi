@@ -6,13 +6,13 @@
 (A|S)-source-project-model[-thinking_level]
 ```
 
-| Segment | Description | Example |
-|---------|-------------|---------|
-| `A\|S` | Worker type: Autonomic or Somatic | `A` or `S` |
-| `source` | Origin system | `psypi` |
-| `project` | Project name | `psypi` |
-| `model` | Model ID from `ctx.model.id` | `openrouter/owl-alpha` |
-| `thinking_level` | *(optional)* Active thinking level | `medium`, `high` |
+| Segment          | Description                         | Example                |
+| ---------------- | ----------------------------------- | ---------------------- |
+| `A\|S`           | Agentbot type: Autonomic or Somatic | `A` or `S`             |
+| `source`         | Origin system                       | `psypi`                |
+| `project`        | Project name                        | `psypi`                |
+| `model`          | Model ID from `ctx.model.id`        | `openrouter/owl-alpha` |
+| `thinking_level` | *(optional)* Active thinking level  | `medium`, `high`       |
 
 ### Examples
 
@@ -70,16 +70,16 @@ async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 
 From the Pi SDK `Model<TApi>` interface:
 
-| Field | Type | Example |
-|-------|------|---------|
-| `id` | `string` | `openrouter/owl-alpha` |
-| `name` | `string` | `Owl Alpha` |
-| `provider` | `Provider` | `openrouter` |
-| `api` | `Api` | `openai-completions` |
-| `reasoning` | `boolean` | `true` |
+| Field              | Type               | Example                           |
+| ------------------ | ------------------ | --------------------------------- |
+| `id`               | `string`           | `openrouter/owl-alpha`            |
+| `name`             | `string`           | `Owl Alpha`                       |
+| `provider`         | `Provider`         | `openrouter`                      |
+| `api`              | `Api`              | `openai-completions`              |
+| `reasoning`        | `boolean`          | `true`                            |
 | `thinkingLevelMap` | `ThinkingLevelMap` | maps pi levels to provider values |
-| `contextWindow` | `number` | `128000` |
-| `maxTokens` | `number` | `8192` |
+| `contextWindow`    | `number`           | `128000`                          |
+| `maxTokens`        | `number`           | `8192`                            |
 
 ### Thinking Level: `ctx.model.thinkingLevel`
 
@@ -175,26 +175,26 @@ moment. On conflict (same ID), the model and thinking level are updated.
 
 ### What's Available on `ctx` (ExtensionContext)
 
-| Property/Method | Type | Live? | Description |
-|-----------------|------|-------|-------------|
-| `ctx.model` | `Model<any> \| undefined` | ✅ Yes | Current model object |
-| `ctx.model.id` | `string` | ✅ Yes | Model ID like `openrouter/owl-alpha` |
-| `ctx.model.thinkingLevel` | `string` | ✅ Yes | Active thinking level |
-| `ctx.model.provider` | `Provider` | ✅ Yes | Provider name |
-| `ctx.model.contextWindow` | `number` | ✅ Yes | Context window size |
-| `ctx.isIdle()` | `boolean` | ✅ Yes | Agent not streaming |
-| `ctx.getContextUsage()` | `ContextUsage` | ✅ Yes | Token usage stats |
-| `ctx.sessionManager` | `ReadonlySessionManager` | ✅ Yes | Session state |
+| Property/Method           | Type                      | Live? | Description                          |
+| ------------------------- | ------------------------- | ----- | ------------------------------------ |
+| `ctx.model`               | `Model<any> \| undefined` | ✅ Yes | Current model object                 |
+| `ctx.model.id`            | `string`                  | ✅ Yes | Model ID like `openrouter/owl-alpha` |
+| `ctx.model.thinkingLevel` | `string`                  | ✅ Yes | Active thinking level                |
+| `ctx.model.provider`      | `Provider`                | ✅ Yes | Provider name                        |
+| `ctx.model.contextWindow` | `number`                  | ✅ Yes | Context window size                  |
+| `ctx.isIdle()`            | `boolean`                 | ✅ Yes | Agent not streaming                  |
+| `ctx.getContextUsage()`   | `ContextUsage`            | ✅ Yes | Token usage stats                    |
+| `ctx.sessionManager`      | `ReadonlySessionManager`  | ✅ Yes | Session state                        |
 
 ### What's on `pi` (ExtensionAPI) but NOT on `ctx`
 
-| Method | Description |
-|--------|-------------|
-| `pi.setModel(model)` | Change the current model |
-| `pi.getThinkingLevel()` | Get thinking level (also on ctx.model) |
-| `pi.setThinkingLevel(level)` | Set thinking level |
-| `pi.sendMessage()` | Inject custom message into session |
-| `pi.sendUserMessage()` | Send user message to agent |
+| Method                       | Description                            |
+| ---------------------------- | -------------------------------------- |
+| `pi.setModel(model)`         | Change the current model               |
+| `pi.getThinkingLevel()`      | Get thinking level (also on ctx.model) |
+| `pi.setThinkingLevel(level)` | Set thinking level                     |
+| `pi.sendMessage()`           | Inject custom message into session     |
+| `pi.sendUserMessage()`       | Send user message to agent             |
 
 ### What's NOT Available Anywhere
 

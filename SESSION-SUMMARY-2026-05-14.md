@@ -23,12 +23,12 @@ Additionally, `agent_identity_get_resolved_identity` and `log_activity` calls cr
 ## Tool Renaming
 - `psypi-my-id` → `psypi-somatic-id` (S- prefix, prompt-driven)
 - `psypi-autonomic-id` → `psypi-autonomic-id` (A- prefix, event-driven)
-- `psypi-set-directive` → `psypi-direct-worker` (better English, only A-worker uses this)
+- `psypi-set-directive` → `psypi-direct-agentbot` (better English, only A-agentbot uses this)
 
 ## Key Architectural Insight
 **"Any efforts to remove intelligence from psypi system are just wrong!"**
 
-Hooks should be THIN — no pattern matching, no blocking logic. The Autonomic Worker (LLM-powered thinking) handles all intelligent decisions. Scripts are just scaffolding for DB reads/writes and prompt injection.
+Hooks should be THIN — no pattern matching, no blocking logic. The Autonomic Agentbot (LLM-powered thinking) handles all intelligent decisions. Scripts are just scaffolding for DB reads/writes and prompt injection.
 
 ## Build Status
 - ✅ `gleam build` — success
@@ -45,11 +45,11 @@ Hooks should be THIN — no pattern matching, no blocking logic. The Autonomic W
 - `src/generator/model_select.gleam` — New (19 lines)
 - `src/generator/tool_result.gleam` — New (34 lines)
 - `src/generator/agent_lifecycle.gleam` — New (20 lines)
-- `src/directive.gleam` — Renamed tool to `direct_worker_tool`
+- `src/directive.gleam` — Renamed tool to `direct_agentbot_tool`
 - `src/agent_identity.gleam` — Renamed to `somatic_id_tool` and `autonomic_id_tool`
 - `AGENTS.md` — Updated documentation
 
 ## Next Steps
 1. Test all tools after restart
 2. Continue splitting large Gleam files (< 100 lines target)
-3. Let Autonomic Worker use `psypi-direct-worker` to set directives
+3. Let Autonomic Agentbot use `psypi-direct-agentbot` to set directives

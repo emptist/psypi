@@ -1,6 +1,6 @@
 # Monitor Debounce Time
 
-The Autonomic Worker (Monitor) waits after the Somatic Worker goes idle before sending a wake-up message.
+The Autonomic Agentbot (Monitor) waits after the Somatic Agentbot goes idle before sending a wake-up message.
 
 ## Configuration
 
@@ -21,7 +21,7 @@ Values (in milliseconds):
 
 ## How It Works
 
-1. When `agent_end` fires (S-worker finishes)
+1. When `agent_end` fires (S-agentbot finishes)
 2. Monitor waits `debounceMs` milliseconds
 3. Checks `ctx.isIdle()` - if still idle, sends wake-up message
 4. If `callMonitor()` fails, shows error for debugging
@@ -33,4 +33,4 @@ If you see `[Monitor] Wake up. (callMonitor failed: <error>)`, the LLM call fail
 - Missing API key
 - Network error
 
-The error message helps S-worker debug the issue.
+The error message helps S-agentbot debug the issue.

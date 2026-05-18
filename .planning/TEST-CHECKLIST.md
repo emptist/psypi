@@ -8,7 +8,7 @@
 
 ## 2. SOUL Lookup
 
-- [ ] Worker SOUL loads: `S-psypi-psypi-unknown` → name="Worker", traits
+- [ ] Agentbot SOUL loads: `S-psypi-psypi-unknown` → name="Agentbot", traits
 - [ ] Monitor SOUL loads: `A-psypi-psypi` → name="Monitor", traits
 - [ ] Different SOULs → different behaviors
 
@@ -24,7 +24,7 @@
 
 - [ ] Run `psypi`
 - [ ] Send any message
-- [ ] Look for `[MONITOR-INJECTED-...]` in Worker's response
+- [ ] Look for `[MONITOR-INJECTED-...]` in Agentbot's response
 - [ ] If visible → injection works
 
 ## 4. Notification Round-trip (Experiment 2)
@@ -34,8 +34,8 @@ INSERT INTO notifications (agent_id, priority, title, body)
 VALUES ('S-psypi-psypi-unknown', 'high', 'Test', 'Check this!');
 ```
 - [ ] Send message in psypi
-- [ ] Worker sees notification in system prompt
-- [ ] Worker acknowledges
+- [ ] Agentbot sees notification in system prompt
+- [ ] Agentbot acknowledges
 
 ## 5. Tool Blocked Protection
 
@@ -73,8 +73,8 @@ psypi
 
 ## Expected Outputs
 
-| Command | Expected |
-|---------|----------|
-| `/psypi-my-id` | `{"id":"S-psypi-psypi-unknown",...}` |
-| `/psypi-autonomic-id` | `{"id":"A-psypi-psypi",...}` |
+| Command                  | Expected                                |
+| ------------------------ | --------------------------------------- |
+| `/psypi-my-id`           | `{"id":"S-psypi-psypi-unknown",...}`    |
+| `/psypi-autonomic-id`    | `{"id":"A-psypi-psypi",...}`            |
 | `[MONITOR-INJECTED-...]` | Visible in response after running psypi |

@@ -1,15 +1,15 @@
-# A-worker → S-worker Communication via pi.sendMessage
+# A-agentbot → S-agentbot Communication via pi.sendMessage
 
 ## Problem
 
-The Autonomic Worker (A-worker) was sending messages via `ctx.ui.notify()`. These are **fire-and-forget UI-only notifications** — the S-worker (LLM) never sees them in its conversation context.
+The Autonomic Agentbot (A-agentbot) was sending messages via `ctx.ui.notify()`. These are **fire-and-forget UI-only notifications** — the S-agentbot (LLM) never sees them in its conversation context.
 
 ```
 agent_end hook:
-  ctx.ui.notify("What should we do next?", "info")  ← S-worker never sees this
+  ctx.ui.notify("What should we do next?", "info")  ← S-agentbot never sees this
 
 tool_result hook:
-  ctx.ui.notify("Tool error: ...", "error")          ← S-worker never sees this
+  ctx.ui.notify("Tool error: ...", "error")          ← S-agentbot never sees this
 ```
 
 ## Solution
@@ -36,21 +36,21 @@ Options for `deliverAs`:
 
 ### What Changed
 
-| Hook | Before | After |
-|------|--------|-------|
-| `agent_end` | `ctx.ui.notify(msg, 'info')` only | `ctx.ui.notify(msg, 'info')` (debug) + `pi.sendMessage(...)` (visible to S-worker) |
-| `tool_result` | `ctx.ui.notify('Tool error: ...')` only | `ctx.ui.notify(...)` (debug) + `pi.sendMessage(...)` (visible to S-worker) |
+| Hook          | Before                                  | After                                                                                |
+| ------------- | --------------------------------------- | ------------------------------------------------------------------------------------ |
+| `agent_end`   | `ctx.ui.notify(msg, 'info')` only       | `ctx.ui.notify(msg, 'info')` (debug) + `pi.sendMessage(...)` (visible to S-agentbot) |
+| `tool_result` | `ctx.ui.notify('Tool error: ...')` only | `ctx.ui.notify(...)` (debug) + `pi.sendMessage(...)` (visible to S-agentbot)         |
 
 ### Flow
 
 ```
-A-worker (agent_end)
+A-agentbot (agent_end)
   ├── ctx.ui.notify(msg, 'info')     ← UI debug message (unchanged)
   └── pi.sendMessage({...}, {deliverAs: 'nextTurn'})
         ↓
       CustomMessage queued in session
         ↓
-      S-worker sees it on next turn
+      S-agentbot sees it on next turn
 ```
 
 ### Custom Message Types
@@ -60,10 +60,10 @@ A-worker (agent_end)
 
 ### Files Changed
 
-| File | Change |
-|------|--------|
+| File                                  | Change                                                             |
+| ------------------------------------- | ------------------------------------------------------------------ |
 | `src/generator/agent_lifecycle.gleam` | Added `pi.sendMessage()` call alongside existing `ctx.ui.notify()` |
-| `src/generator/tool_result.gleam` | Added `pi.sendMessage()` call alongside existing `ctx.ui.notify()` |
+| `src/generator/tool_result.gleam`     | Added `pi.sendMessage()` call alongside existing `ctx.ui.notify()` |
 
 ### Why Not DB (system_directives table)?
 

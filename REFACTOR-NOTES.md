@@ -11,22 +11,22 @@
 ### Solution
 Split into small, focused modules (< 100 lines each):
 
-| Module | Lines | Purpose |
-|--------|-------|---------|
-| `generator/tool_call.gleam` | 31 | Thin hook — auto-backup only, no blocking |
-| `generator/before_agent_start.gleam` | 36 | Read directives from DB, inject into system prompt |
-| `generator/session_start.gleam` | 20 | Session init — record model, check health |
-| `generator/model_select.gleam` | 19 | Record model changes |
-| `generator/tool_result.gleam` | 34 | Detect errors, create directives |
-| `generator/agent_lifecycle.gleam` | 20 | Agent start/end silent logging |
-| `extension_generator.gleam` | 318 | Composes all modules |
+| Module                               | Lines | Purpose                                            |
+| ------------------------------------ | ----- | -------------------------------------------------- |
+| `generator/tool_call.gleam`          | 31    | Thin hook — auto-backup only, no blocking          |
+| `generator/before_agent_start.gleam` | 36    | Read directives from DB, inject into system prompt |
+| `generator/session_start.gleam`      | 20    | Session init — record model, check health          |
+| `generator/model_select.gleam`       | 19    | Record model changes                               |
+| `generator/tool_result.gleam`        | 34    | Detect errors, create directives                   |
+| `generator/agent_lifecycle.gleam`    | 20    | Agent start/end silent logging                     |
+| `extension_generator.gleam`          | 318   | Composes all modules                               |
 
 ### Key Changes
 1. **Removed dangerous pattern matching** — no more blocking file writes based on content
 2. **Removed identity resolution from hook** — was crashing silently
 3. **Removed activity logging from hook** — was crashing silently
 4. **Hook is now thin** — just auto-backup for 'edit' tool
-5. **Atonomic Worker handles safety intelligently** — via directives, not scripts
+5. **Atonomic Agentbot handles safety intelligently** — via directives, not scripts
 
 ### Build Status
 - ✅ `gleam build` — success

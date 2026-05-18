@@ -1,5 +1,5 @@
 -- Migration 005: System Directives table
--- Atonomic Worker writes directives here → before_agent_start reads → injects into system prompt
+-- Atonomic Agentbot writes directives here → before_agent_start reads → injects into system prompt
 
 CREATE TABLE IF NOT EXISTS system_directives (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

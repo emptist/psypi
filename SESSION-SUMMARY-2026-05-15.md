@@ -21,15 +21,15 @@
 - **A should never interrupt S** — Only act when S is idle.
 - **Context-aware behavior** — A adapts based on remaining context (<10% preserve, 10-30% consolidate, 30-70% collaborate, >70% plan).
 
-### 4. Simple A-Worker Implementation
+### 4. Simple A-Agentbot Implementation
 - Created `agent_lifecycle.gleam` with `agent_end` handler
-- When S finishes, A sets status: "A-worker: S finished, evaluating..."
+- When S finishes, A sets status: "A-agentbot: S finished, evaluating..."
 - This is the simplest possible version — just a signal that A is aware.
 
 ### 5. Documentation
 - `docs/ARCHITECTURE-A-S-CONTEXT.md` — Full architecture notes
 - `.planning/NEW-WORLD-PLAN.md` — Implementation plan
-- `.planning/SIMPLE-A-WORKER.md` — Simple A-worker design
+- `.planning/SIMPLE-A-WORKER.md` — Simple A-agentbot design
 - Updated `README.md` and `AGENTS.md`
 
 ## What We Learned
@@ -49,19 +49,19 @@
 
 ## Files Changed
 
-| File | Change |
-|------|--------|
-| `src/generator/before_agent_start.gleam` | Rewrote: A evaluates when idle |
-| `src/generator/agent_lifecycle.gleam` | New: agent_end handler |
-| `src/pi_extension.gleam` | New: typed notification functions |
-| `src/pi_extension_ffi.mjs` | New: JS implementation |
-| `src/pi_tool_call.gleam` | Updated: use pi_extension in generated JS |
-| `src/extension_generator.gleam` | Updated: import pi_extension |
-| `src/issue.gleam` | Fixed: string_to_* returns Result |
-| `src/generator/tool_call.gleam` | Fixed: autobackup notification message |
-| `bin/psypi.mjs` | Fixed: symlink path resolution |
-| `README.md` | Updated: Monitor → Autonomic/Somatic Worker |
-| `AGENTS.md` | Updated: Gleam type system best practices |
-| `docs/ARCHITECTURE-A-S-CONTEXT.md` | New: architecture documentation |
-| `.planning/NEW-WORLD-PLAN.md` | New: implementation plan |
-| `.planning/SIMPLE-A-WORKER.md` | New: simple A-worker design |
+| File                                     | Change                                        |
+| ---------------------------------------- | --------------------------------------------- |
+| `src/generator/before_agent_start.gleam` | Rewrote: A evaluates when idle                |
+| `src/generator/agent_lifecycle.gleam`    | New: agent_end handler                        |
+| `src/pi_extension.gleam`                 | New: typed notification functions             |
+| `src/pi_extension_ffi.mjs`               | New: JS implementation                        |
+| `src/pi_tool_call.gleam`                 | Updated: use pi_extension in generated JS     |
+| `src/extension_generator.gleam`          | Updated: import pi_extension                  |
+| `src/issue.gleam`                        | Fixed: string_to_* returns Result             |
+| `src/generator/tool_call.gleam`          | Fixed: autobackup notification message        |
+| `bin/psypi.mjs`                          | Fixed: symlink path resolution                |
+| `README.md`                              | Updated: Monitor → Autonomic/Somatic Agentbot |
+| `AGENTS.md`                              | Updated: Gleam type system best practices     |
+| `docs/ARCHITECTURE-A-S-CONTEXT.md`       | New: architecture documentation               |
+| `.planning/NEW-WORLD-PLAN.md`            | New: implementation plan                      |
+| `.planning/SIMPLE-A-WORKER.md`           | New: simple A-agentbot design                 |

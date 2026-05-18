@@ -146,23 +146,23 @@ pi.on('tool_call', async (event, ctx) => {
 
 **Intelligence should live in the LLM, not in JavaScript regex patterns.**
 
-## 9. Pattern: Alternating Current (A-worker ↔ S-worker)
+## 9. Pattern: Alternating Current (A-agentbot ↔ S-agentbot)
 
 ```
-A-worker (events) → DB/hooks → S-worker (prompts)
+A-agentbot (events) → DB/hooks → S-agentbot (prompts)
      ↑                                    ↓
      └──────────── directives ←───────────┘
 ```
 
-- **A-worker output** (events, DB writes) = **S-worker input**
-- **S-worker output** (directives in system prompt) = **A-worker input**
+- **A-agentbot output** (events, DB writes) = **S-agentbot input**
+- **S-agentbot output** (directives in system prompt) = **A-agentbot input**
 - They alternate — never run at the same time
 
 ## 10. Communication: Two Prompt Types
 
-| Type | Channel | Visibility |
-|------|---------|------------|
+| Type          | Channel                   | Visibility        |
+| ------------- | ------------------------- | ----------------- |
 | System prompt | `before_agent_start` hook | Invisible to user |
-| User message | `ctx.ui.notify()` | Visible on screen |
+| User message  | `ctx.ui.notify()`         | Visible on screen |
 
-Both are just "prompts" to the S-worker — one is system-level, one is user-level.
+Both are just "prompts" to the S-agentbot — one is system-level, one is user-level.

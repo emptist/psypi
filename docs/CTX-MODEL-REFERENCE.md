@@ -74,20 +74,20 @@ cat ~/.pi/agent/settings.json | grep defaultModel
 
 From the Pi SDK `Model<TApi>` interface (`packages/ai/src/types.ts`):
 
-| Property | Type | Example | Description |
-|----------|------|---------|-------------|
-| `id` | `string` | `openrouter/owl-alpha` | Full model ID |
-| `name` | `string` | `Owl Alpha` | Display name |
-| `provider` | `Provider` | `openrouter` | Provider name |
-| `api` | `Api` | `openai-completions` | API type |
-| `baseUrl` | `string` | `https://openrouter.ai/api/v1` | API endpoint |
-| `reasoning` | `boolean` | `true` | Supports reasoning/thinking |
-| `thinkingLevelMap` | `ThinkingLevelMap` | — | Maps pi levels to provider values |
-| `input` | `("text"\|"image")[]` | `["text", "image"]` | Supported input types |
-| `cost` | `{input, output, cacheRead, cacheWrite}` | — | Cost per million tokens |
-| `contextWindow` | `number` | `128000` | Max context tokens |
-| `maxTokens` | `number` | `8192` | Max output tokens |
-| `thinkingLevel` | `string` | `medium` | **Current active thinking level** |
+| Property           | Type                                     | Example                        | Description                       |
+| ------------------ | ---------------------------------------- | ------------------------------ | --------------------------------- |
+| `id`               | `string`                                 | `openrouter/owl-alpha`         | Full model ID                     |
+| `name`             | `string`                                 | `Owl Alpha`                    | Display name                      |
+| `provider`         | `Provider`                               | `openrouter`                   | Provider name                     |
+| `api`              | `Api`                                    | `openai-completions`           | API type                          |
+| `baseUrl`          | `string`                                 | `https://openrouter.ai/api/v1` | API endpoint                      |
+| `reasoning`        | `boolean`                                | `true`                         | Supports reasoning/thinking       |
+| `thinkingLevelMap` | `ThinkingLevelMap`                       | —                              | Maps pi levels to provider values |
+| `input`            | `("text"\|"image")[]`                    | `["text", "image"]`            | Supported input types             |
+| `cost`             | `{input, output, cacheRead, cacheWrite}` | —                              | Cost per million tokens           |
+| `contextWindow`    | `number`                                 | `128000`                       | Max context tokens                |
+| `maxTokens`        | `number`                                 | `8192`                         | Max output tokens                 |
+| `thinkingLevel`    | `string`                                 | `medium`                       | **Current active thinking level** |
 
 ### Thinking Level Values
 
@@ -103,16 +103,16 @@ is off, it returns `""` (empty string).
 
 ### What's on pi (ExtensionAPI) but NOT on ctx
 
-| Method | Description |
-|--------|-------------|
-| `pi.setModel(model)` | Change the current model |
-| `pi.getThinkingLevel()` | Get thinking level (also on `ctx.model.thinkingLevel`) |
-| `pi.setThinkingLevel(level)` | Set thinking level |
-| `pi.sendMessage(msg, opts)` | Inject custom message into session |
-| `pi.sendUserMessage(content, opts)` | Send user message to agent |
-| `pi.getActiveTools()` | Get currently active tool names |
-| `pi.getAllTools()` | Get all configured tools |
-| `pi.setActiveTools(names)` | Enable/disable tools at runtime |
+| Method                              | Description                                            |
+| ----------------------------------- | ------------------------------------------------------ |
+| `pi.setModel(model)`                | Change the current model                               |
+| `pi.getThinkingLevel()`             | Get thinking level (also on `ctx.model.thinkingLevel`) |
+| `pi.setThinkingLevel(level)`        | Set thinking level                                     |
+| `pi.sendMessage(msg, opts)`         | Inject custom message into session                     |
+| `pi.sendUserMessage(content, opts)` | Send user message to agent                             |
+| `pi.getActiveTools()`               | Get currently active tool names                        |
+| `pi.getAllTools()`                  | Get all configured tools                               |
+| `pi.setActiveTools(names)`          | Enable/disable tools at runtime                        |
 
 ### What's NOT Available Anywhere
 
@@ -153,7 +153,7 @@ interface ContextUsage {
 }
 ```
 
-Usage in A-worker decision logic:
+Usage in A-agentbot decision logic:
 
 ```javascript
 const usage = ctx.getContextUsage();
@@ -179,7 +179,7 @@ call time to build model-aware IDs:
 // Generated extension.js
 async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
     const result = await agent_identity_get_resolved_identity(
-        false,                              // autonomous = false (S-worker)
+        false,                              // autonomous = false (S-agentbot)
         "psypi",                            // project
         "psypi",                            // source
         (ctx.model?.id || ''),             // model — LIVE, always current

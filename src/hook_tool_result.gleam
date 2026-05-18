@@ -3,7 +3,7 @@ import gleam/string
 
 pub fn handler_body() -> String {
   [
-    "    // Detect errors in tool results → notify + inject into session for S-worker\n",
+    "    // Detect errors in tool results → notify + inject into session for S-agentbot\n",
     "    try {\n",
     "      const resultStr = JSON.stringify(event.result || '');\n",
     "      const isError = resultStr.includes('\"error\"') || resultStr.includes('Error:') || resultStr.includes('execution error') || resultStr.includes('tool_execution_blocked') || resultStr.includes('\"is_error\":true');\n",
@@ -16,7 +16,7 @@ pub fn handler_body() -> String {
     "      ctx.ui.notify('Tool error: ' + (event.toolName || 'unknown') + ' — ' + errorMsg.substring(0, 200), 'error');\n",
     "      pi.sendMessage({\n",
     "        customType: 'autonomic-error',\n",
-    "        content: [{ type: 'text', text: '[from A-worker:] Tool error: ' + (event.toolName || 'unknown') + ' — ' + errorMsg.substring(0, 200) }],\n",
+    "        content: [{ type: 'text', text: '[from A-agentbot:] Tool error: ' + (event.toolName || 'unknown') + ' — ' + errorMsg.substring(0, 200) }],\n",
     "        display: 'persistent',\n",
     "        details: { source: 'tool_result', toolName: event.toolName }\n",
     "      }, { triggerTurn: true });\n",

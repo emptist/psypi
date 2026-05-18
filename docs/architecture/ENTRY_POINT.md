@@ -11,7 +11,7 @@
 psypi is NOT dependent on Pi — it IS a Pi extension written in Gleam:
 - **Pi**: The coding agent runtime (from `refers/pi/`)
 - **psypi**: A Pi extension that adds:
-  - Identity system (Worker/Monitor via `A-`/`S-` IDs)
+  - Identity system (Agentbot/Monitor via `A-`/`S-` IDs)
   - SOUL-based personality storage in database
   - Monitor functionality (event-driven, autonomous)
 

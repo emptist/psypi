@@ -46,30 +46,30 @@ export ANTHROPIC_API_KEY=sk-ant-...
 pi
 ```
 
-| Provider | Environment Variable | `auth.json` key |
-|----------|----------------------|------------------|
-| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
-| Azure OpenAI Responses | `AZURE_OPENAI_API_KEY` | `azure-openai-responses` |
-| OpenAI | `OPENAI_API_KEY` | `openai` |
-| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek` |
-| Google Gemini | `GEMINI_API_KEY` | `google` |
-| Mistral | `MISTRAL_API_KEY` | `mistral` |
-| Groq | `GROQ_API_KEY` | `groq` |
-| Cerebras | `CEREBRAS_API_KEY` | `cerebras` |
-| Cloudflare AI Gateway | `CLOUDFLARE_API_KEY` (+ `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_GATEWAY_ID`) | `cloudflare-ai-gateway` |
-| Cloudflare Workers AI | `CLOUDFLARE_API_KEY` (+ `CLOUDFLARE_ACCOUNT_ID`) | `cloudflare-workers-ai` |
-| xAI | `XAI_API_KEY` | `xai` |
-| OpenRouter | `OPENROUTER_API_KEY` | `openrouter` |
-| Vercel AI Gateway | `AI_GATEWAY_API_KEY` | `vercel-ai-gateway` |
-| ZAI | `ZAI_API_KEY` | `zai` |
-| OpenCode Zen | `OPENCODE_API_KEY` | `opencode` |
-| OpenCode Go | `OPENCODE_API_KEY` | `opencode-go` |
-| Hugging Face | `HF_TOKEN` | `huggingface` |
-| Fireworks | `FIREWORKS_API_KEY` | `fireworks` |
-| Kimi For Coding | `KIMI_API_KEY` | `kimi-coding` |
-| MiniMax | `MINIMAX_API_KEY` | `minimax` |
-| MiniMax (China) | `MINIMAX_CN_API_KEY` | `minimax-cn` |
-| Xiaomi MiMo Token Plan | `XIAOMI_API_KEY` | `xiaomi` |
+| Provider                | Environment Variable                                                      | `auth.json` key           |
+| ----------------------- | ------------------------------------------------------------------------- | ------------------------- |
+| Anthropic               | `ANTHROPIC_API_KEY`                                                       | `anthropic`               |
+| Azure OpenAI Responses  | `AZURE_OPENAI_API_KEY`                                                    | `azure-openai-responses`  |
+| OpenAI                  | `OPENAI_API_KEY`                                                          | `openai`                  |
+| DeepSeek                | `DEEPSEEK_API_KEY`                                                        | `deepseek`                |
+| Google Gemini           | `GEMINI_API_KEY`                                                          | `google`                  |
+| Mistral                 | `MISTRAL_API_KEY`                                                         | `mistral`                 |
+| Groq                    | `GROQ_API_KEY`                                                            | `groq`                    |
+| Cerebras                | `CEREBRAS_API_KEY`                                                        | `cerebras`                |
+| Cloudflare AI Gateway   | `CLOUDFLARE_API_KEY` (+ `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_GATEWAY_ID`) | `cloudflare-ai-gateway`   |
+| Cloudflare Agentbots AI | `CLOUDFLARE_API_KEY` (+ `CLOUDFLARE_ACCOUNT_ID`)                          | `cloudflare-agentbots-ai` |
+| xAI                     | `XAI_API_KEY`                                                             | `xai`                     |
+| OpenRouter              | `OPENROUTER_API_KEY`                                                      | `openrouter`              |
+| Vercel AI Gateway       | `AI_GATEWAY_API_KEY`                                                      | `vercel-ai-gateway`       |
+| ZAI                     | `ZAI_API_KEY`                                                             | `zai`                     |
+| OpenCode Zen            | `OPENCODE_API_KEY`                                                        | `opencode`                |
+| OpenCode Go             | `OPENCODE_API_KEY`                                                        | `opencode-go`             |
+| Hugging Face            | `HF_TOKEN`                                                                | `huggingface`             |
+| Fireworks               | `FIREWORKS_API_KEY`                                                       | `fireworks`               |
+| Kimi For Coding         | `KIMI_API_KEY`                                                            | `kimi-coding`             |
+| MiniMax                 | `MINIMAX_API_KEY`                                                         | `minimax`                 |
+| MiniMax (China)         | `MINIMAX_CN_API_KEY`                                                      | `minimax-cn`              |
+| Xiaomi MiMo Token Plan  | `XIAOMI_API_KEY`                                                          | `xiaomi`                  |
 
 The Xiaomi MiMo provider targets the Xiaomi MiMo Token Plan Anthropic-compatible endpoint.
 
@@ -184,30 +184,30 @@ export CLOUDFLARE_GATEWAY_ID=...        # create at dash.cloudflare.com â†’ AI â
 pi --provider cloudflare-ai-gateway --model "claude-sonnet-4-5"
 ```
 
-Routes to OpenAI, Anthropic, and Workers AI through Cloudflare AI Gateway. Workers AI uses the Unified API (`/compat`) and prefixed model IDs (`workers-ai/@cf/...`). OpenAI uses the OpenAI passthrough route (`/openai`) with native OpenAI model IDs such as `gpt-5.1`. Anthropic uses the Anthropic passthrough route (`/anthropic`) with native Anthropic model IDs such as `claude-sonnet-4-5`.
+Routes to OpenAI, Anthropic, and Agentbots AI through Cloudflare AI Gateway. Agentbots AI uses the Unified API (`/compat`) and prefixed model IDs (`agentbots-ai/@cf/...`). OpenAI uses the OpenAI passthrough route (`/openai`) with native OpenAI model IDs such as `gpt-5.1`. Anthropic uses the Anthropic passthrough route (`/anthropic`) with native Anthropic model IDs such as `claude-sonnet-4-5`.
 
 AI Gateway authentication uses `CLOUDFLARE_API_KEY` as `cf-aig-authorization`. Upstream authentication can be one of:
 
-| Mode | Request auth | Upstream auth |
-|------|--------------|---------------|
-| Workers AI | Cloudflare token only | Cloudflare-native |
-| Unified billing | Cloudflare token only | Cloudflare handles upstream auth and deducts credits |
-| Stored BYOK | Cloudflare token only | Cloudflare injects provider keys stored in the AI Gateway dashboard |
-| Inline BYOK | Cloudflare token plus upstream `Authorization` header | The request supplies the upstream provider key |
+| Mode            | Request auth                                          | Upstream auth                                                       |
+| --------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
+| Agentbots AI    | Cloudflare token only                                 | Cloudflare-native                                                   |
+| Unified billing | Cloudflare token only                                 | Cloudflare handles upstream auth and deducts credits                |
+| Stored BYOK     | Cloudflare token only                                 | Cloudflare injects provider keys stored in the AI Gateway dashboard |
+| Inline BYOK     | Cloudflare token plus upstream `Authorization` header | The request supplies the upstream provider key                      |
 
 For normal pi usage, prefer unified billing or stored BYOK. Inline BYOK requires configuring an additional upstream `Authorization` header for the Cloudflare AI Gateway provider, for example via a `models.json` provider/model override.
 
-### Cloudflare Workers AI
+### Cloudflare Agentbots AI
 
 `CLOUDFLARE_API_KEY` can be set via `/login`. `CLOUDFLARE_ACCOUNT_ID` must be set as an environment variable.
 
 ```bash
 export CLOUDFLARE_API_KEY=...           # or use /login
 export CLOUDFLARE_ACCOUNT_ID=...
-pi --provider cloudflare-workers-ai --model "@cf/moonshotai/kimi-k2.6"
+pi --provider cloudflare-agentbots-ai --model "@cf/moonshotai/kimi-k2.6"
 ```
 
-Pi automatically sets `x-session-affinity` for [prefix caching](https://developers.cloudflare.com/workers-ai/features/prompt-caching/) discounts.
+Pi automatically sets `x-session-affinity` for [prefix caching](https://developers.cloudflare.com/agentbots-ai/features/prompt-caching/) discounts.
 
 ### Google Vertex AI
 

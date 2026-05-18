@@ -120,7 +120,7 @@ Synchronization challenges:
 - Tree-like structure with delegation
 - Higher-level agents break down tasks
 - Lower-level agents execute specific subtasks
-- Master-worker relationships
+- Master-agentbot relationships
 </characteristics>
 
 <when_to_use>
@@ -241,21 +241,21 @@ You are an orchestration coordinator. Route tasks to specialized agents based on
 </implementation>
 </coordinator>
 
-<orchestrator_worker>
-**Orchestrator-Worker pattern**: Central orchestrator assigns tasks, manages execution.
+<orchestrator_agentbot>
+**Orchestrator-Agentbot pattern**: Central orchestrator assigns tasks, manages execution.
 
 <characteristics>
 - Centralized coordination with distributed execution
-- Workers focus on specific, independent tasks
-- Similar to distributed computing master-worker pattern
-- Clear separation of planning (orchestrator) and execution (workers)
+- Agentbots focus on specific, independent tasks
+- Similar to distributed computing master-agentbot pattern
+- Clear separation of planning (orchestrator) and execution (agentbots)
 </characteristics>
 
 <when_to_use>
 **Ideal for**:
 - Batch processing (process 100 files)
 - Independent tasks that can be distributed (analyze multiple API endpoints)
-- Load balancing across workers
+- Load balancing across agentbots
 
 **Example**:
 ```markdown
@@ -264,14 +264,14 @@ Task: Security review of 50 microservices
 Orchestrator:
 1. Identifies all 50 services
 2. Breaks into batches of 5
-3. Assigns batches to worker agents
+3. Assigns batches to agentbot agents
 4. Monitors progress
 5. Aggregates results
 
-Workers (5 concurrent instances of security-reviewer):
+Agentbots (5 concurrent instances of security-reviewer):
 - Each reviews assigned services
 - Reports findings to orchestrator
-- Independent execution (no inter-worker communication)
+- Independent execution (no inter-agentbot communication)
 ```
 </when_to_use>
 
@@ -290,13 +290,13 @@ Research findings:
    - Breaks into subtasks
    - Identifies what can be parallelized
 
-2. Multiple Haiku 4.5 instances (Workers):
+2. Multiple Haiku 4.5 instances (Agentbots):
    - Each completes assigned subtask
    - Executes in parallel for speed
    - Returns results to orchestrator
 
 3. Sonnet 4.5 (Orchestrator):
-   - Integrates results from all workers
+   - Integrates results from all agentbots
    - Validates output quality
    - Ensures coherence
    - Delivers final output
@@ -304,7 +304,7 @@ Research findings:
 
 **Cost/performance optimization**: Expensive Sonnet only for planning/validation, cheap Haiku for execution.
 </sonnet_haiku_orchestration>
-</orchestrator_worker>
+</orchestrator_agentbot>
 </pattern_catalog>
 
 <hybrid_approaches>
@@ -349,15 +349,15 @@ Coordinator creates hierarchical teams:
 
 Team 1 (Backend):
 - Lead: backend-architect
-  - Workers: api-developer, database-designer, integration-specialist
+  - Agentbots: api-developer, database-designer, integration-specialist
 
 Team 2 (Frontend):
 - Lead: frontend-architect
-  - Workers: ui-developer, state-management-specialist
+  - Agentbots: ui-developer, state-management-specialist
 
 Team 3 (DevOps):
 - Lead: infra-architect
-  - Workers: deployment-specialist, monitoring-specialist
+  - Agentbots: deployment-specialist, monitoring-specialist
 
 Coordinator:
 - Manages team coordination

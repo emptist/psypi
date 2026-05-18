@@ -1,4 +1,4 @@
-# New World Plan: A/S Dual-Worker Architecture
+# New World Plan: A/S Dual-Agentbot Architecture
 
 **Date:** 2026-05-15
 **Status:** Planning
@@ -8,8 +8,8 @@
 ## Vision
 
 psypi becomes a truly autonomous AI system:
-- **S-worker** (Somatic): Does the actual work — coding, file edits, tool calls
-- **A-worker** (Autonomic): Monitors, decides, preserves knowledge, directs S when idle
+- **S-agentbot** (Somatic): Does the actual work — coding, file edits, tool calls
+- **A-agentbot** (Autonomic): Monitors, decides, preserves knowledge, directs S when idle
 - They share the same session, same context, same database
 - A adapts behavior based on context pressure
 
@@ -47,12 +47,12 @@ pub fn handler_body() -> String {
 
 **A's decision based on context remaining:**
 
-| Context Left | A's Action |
-|--------------|------------|
-| < 10% | PRESERVE: update docs, code review, git commit |
-| 10-30% | CONSOLIDATE: summarize work, create directive, commit |
-| 30-70% | COLLABORATE: review with S, ask questions, suggest work |
-| > 70% | PLAN: evaluate tasks/issues, set directives |
+| Context Left | A's Action                                              |
+| ------------ | ------------------------------------------------------- |
+| < 10%        | PRESERVE: update docs, code review, git commit          |
+| 10-30%       | CONSOLIDATE: summarize work, create directive, commit   |
+| 30-70%       | COLLABORATE: review with S, ask questions, suggest work |
+| > 70%        | PLAN: evaluate tasks/issues, set directives             |
 
 ### 2. Compaction History (HIGH PRIORITY)
 
@@ -70,7 +70,7 @@ CREATE TABLE compaction_history (
 );
 ```
 
-### 3. A-Worker SOUL (MEDIUM PRIORITY)
+### 3. A-Agentbot SOUL (MEDIUM PRIORITY)
 
 Define A's personality and decision-making framework in the `souls` table.
 
@@ -127,12 +127,12 @@ Simple timeout-based detection:
 
 ## Files to Create/Modify
 
-| File | Action |
-|------|--------|
+| File                                     | Action                                      |
+| ---------------------------------------- | ------------------------------------------- |
 | `src/generator/before_agent_start.gleam` | Rewrite: inject directives based on context |
-| `src/generator/session_compact.gleam` | New: save compaction summary to DB |
-| `src/compaction_history.gleam` | New: DB operations for compaction history |
-| `src/directive.gleam` | Enhance: add priority, expiration, context |
-| `src/soul.gleam` | Enhance: add A's SOUL definition |
-| `src/migrations/*.sql` | New: compaction_history table |
-| `AGENTS.md` | Update: document new architecture |
+| `src/generator/session_compact.gleam`    | New: save compaction summary to DB          |
+| `src/compaction_history.gleam`           | New: DB operations for compaction history   |
+| `src/directive.gleam`                    | Enhance: add priority, expiration, context  |
+| `src/soul.gleam`                         | Enhance: add A's SOUL definition            |
+| `src/migrations/*.sql`                   | New: compaction_history table               |
+| `AGENTS.md`                              | Update: document new architecture           |

@@ -14,7 +14,7 @@ This review analyzes psypi using three approaches:
 2. **Git log analysis** — Development trajectory and concept evolution
 3. **Understanding the core insight** — Why psypi exists
 
-**Key Finding:** Pi implements one half of a circle (execution), psypi implements the other half (autonomous continuation). The A-worker/S-worker architecture is not over-engineering — it's the core mechanism for achieving 24/7 autonomous AI operation.
+**Key Finding:** Pi implements one half of a circle (execution), psypi implements the other half (autonomous continuation). The A-agentbot/S-agentbot architecture is not over-engineering — it's the core mechanism for achieving 24/7 autonomous AI operation.
 
 ---
 
@@ -60,7 +60,7 @@ Pi is a coding agent that **requires continuous user input**. When the user is p
                     └─────────────────┘
 ```
 
-**A-worker's role:** When the user is absent, A-worker takes over the responsibility of "deciding what to do next", allowing the AI to continue working autonomously.
+**A-agentbot's role:** When the user is absent, A-agentbot takes over the responsibility of "deciding what to do next", allowing the AI to continue working autonomously.
 
 ---
 
@@ -76,7 +76,7 @@ The A/S architecture is not unnecessary complexity. It's the mechanism that enab
 
 ### A vs S: Roles and Timing
 
-| Worker             | Identity      | Role                  | Timing       |
+| Agentbot           | Identity      | Role                  | Timing       |
 | ------------------ | ------------- | --------------------- | ------------ |
 | **S-** (Somatic)   | Task executor | Execute user commands | User present |
 | **A-** (Autonomic) | Task decider  | Decide next steps     | User absent  |
@@ -117,7 +117,7 @@ A decides what to do next
 ### Why It Was Wrong
 
 ```
-S-worker: "I'm working on this bug fix..."
+S-agentbot: "I'm working on this bug fix..."
     │
     │ ← A detects an error
     │ ← A creates directive
@@ -131,7 +131,7 @@ S-worker: "I'm working on this bug fix..."
 ### What Should Happen
 
 ```
-S-worker: "Done! What should I do next?"
+S-agentbot: "Done! What should I do next?"
     │
     │ ← S is now IDLE
     │
@@ -153,7 +153,7 @@ S-worker: "Done! What should I do next?"
 | --------------------- | ------------- | ----------------------- |
 | S-/A- Identity System | ✅ Implemented | Computed, not cached    |
 | Directive System      | ✅ Defined     | But not auto-triggered  |
-| A-worker triggers     | ❌ Removed     | Was causing "夺权"      |
+| A-agentbot triggers   | ❌ Removed     | Was causing "夺权"      |
 | Auto injection        | ❌ Disabled    | Only for explicit calls |
 
 ### What Works
@@ -166,7 +166,7 @@ S-worker: "Done! What should I do next?"
 
 ### What's Not Working
 
-- A-worker autonomous takeover — **The core feature is not implemented**
+- A-agentbot autonomous takeover — **The core feature is not implemented**
 - Automatic decision injection when user is absent
 - 24/7 autonomous operation
 
@@ -257,10 +257,10 @@ async function checkIfAAct(sState) {
   }
 
   // A acts!
-  await aWorkerTakesOver();
+  await aAgentbotTakesOver();
 }
 
-async function aWorkerTakesOver() {
+async function aAgentbotTakesOver() {
   // 1. Get A's identity
   const { get_autonomic_identity } = await import('./build/dev/javascript/psypi/agent_identity.mjs');
   const aId = await get_autonomic_identity();
@@ -352,7 +352,7 @@ pub fn should_auto_act(level: AutonomyLevel, action: Action) -> Bool {
 }
 
 // Usage in checkIfAAct:
-async function aWorkerTakesOver(sState, autonomyLevel) {
+async function aAgentbotTakesOver(sState, autonomyLevel) {
   const actions = await aPlanNextSteps();
 
   for (const action of actions) {
@@ -422,7 +422,7 @@ pi.on('user_input', async (_event, ctx) => {
 });
 
 // ============================================
-// A-Worker Decision Point
+// A-Agentbot Decision Point
 // ============================================
 
 function scheduleACheck() {
@@ -460,7 +460,7 @@ pi.on('before_agent_start', async (event, ctx) => {
 });
 
 // ============================================
-// A-Worker Logic
+// A-Agentbot Logic
 // ============================================
 
 async function aDecideNextSteps() {
@@ -791,7 +791,7 @@ Describes Phase 1 as complete:
 ### Git Log Shows Why
 
 ```
-1447fc1 fix: remove A-worker trigger from before_agent_start
+1447fc1 fix: remove A-agentbot trigger from before_agent_start
 d1a631d fix: simplify tool_result hook — log errors only
 a2ee529 fix: simplify agent_end and session_start hooks
 ```
@@ -889,4 +889,4 @@ psypi = Other half (autonomous)
 Complete = 24/7 AI operation
 ```
 
-**A-worker's role is not to interrupt S, but to keep the system running when the user is absent.**
+**A-agentbot's role is not to interrupt S, but to keep the system running when the user is absent.**

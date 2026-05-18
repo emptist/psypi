@@ -3,12 +3,12 @@
 ## Context: What We Discussed
 
 ### Original Premise (Paradox Found)
-> "Build a Monitor AI with the same power as the Worker AI"
+> "Build a Monitor AI with the same power as the Agentbot AI"
 
-**Problem discovered:** "Monitor" was being built as a SEPARATE AI with `complete()` (text-only) → `psypi-autonomic-exec` bridge. This is WEAKER than Worker, not equal.
+**Problem discovered:** "Monitor" was being built as a SEPARATE AI with `complete()` (text-only) → `psypi-autonomic-exec` bridge. This is WEAKER than Agentbot, not equal.
 
 ### Corrected Understanding
-- **Worker (no prefix)**: Triggered by user/system prompts
+- **Agentbot (no prefix)**: Triggered by user/system prompts
 - **Monitor (P- prefix)**: Triggered by EVENTS (hooks), has FULL tool access, finds work nobody asked for
 
 Monitor is the SAME Pi agent, just with a different trigger mechanism + identity.
@@ -85,9 +85,9 @@ await session.sendCustomMessage({ customType: 'monitor', content: [...] }, { tri
 ### 2. Puter.js - Architecture Patterns
 
 **Observations:**
-- Worker-based architecture with sandbox isolation
+- Agentbot-based architecture with sandbox isolation
 - Extension system for adding capabilities
-- Focus on UI (gui/), services (worker/), and dev-center
+- Focus on UI (gui/), services (agentbot/), and dev-center
 
 **Relevance:** The extension pattern in puter could inspire how psypi extends Pi.
 
@@ -95,7 +95,7 @@ await session.sendCustomMessage({ customType: 'monitor', content: [...] }, { tri
 
 **Observations:**
 - Self-modifying browser environment
-- Web Worker system for background processing
+- Web Agentbot system for background processing
 - Component-based architecture with event propagation
 
 **Key insight from Lively4:**
@@ -110,24 +110,24 @@ This suggests the Monitor needs to PROACTIVELY communicate state changes, not ju
 
 ### What Exists
 
-| Component | Location | Status |
-|-----------|----------|--------|
-| Extension generator | `src/extension_generator.gleam` (476 lines) | Works - generates extension.js |
-| Pi tools | 27 tools in extension.js (752 lines) | Working |
-| Session hooks | 6 hooks registered | Partially working |
-| Monitor LLM | `callMonitor()` in extension.js | Broken - uses `complete()` text-only |
-| `createAgentSession` | `session_start_hook` | Exists but incomplete |
+| Component            | Location                                    | Status                               |
+| -------------------- | ------------------------------------------- | ------------------------------------ |
+| Extension generator  | `src/extension_generator.gleam` (476 lines) | Works - generates extension.js       |
+| Pi tools             | 27 tools in extension.js (752 lines)        | Working                              |
+| Session hooks        | 6 hooks registered                          | Partially working                    |
+| Monitor LLM          | `callMonitor()` in extension.js             | Broken - uses `complete()` text-only |
+| `createAgentSession` | `session_start_hook`                        | Exists but incomplete                |
 
 ### Hooks Inventory
 
-| Hook | Purpose | Status |
-|------|---------|--------|
-| `tool_call` | Safety check, activity log, auto-backup | ✅ Working |
-| `session_start` | Spawn Monitor via `createAgentSession` | ⚠️ Incomplete - wrong import path |
-| `before_agent_start` | Enable all tools + analyze | ❌ DEAD - wrong import path |
-| `agent_start` | Track agent activity | ✅ Empty (silent) |
-| `agent_end` | No auto-spawning per turn | ✅ Correct |
-| `tool_result` | Auto-file issues for errors | ✅ Working |
+| Hook                 | Purpose                                 | Status                           |
+| -------------------- | --------------------------------------- | -------------------------------- |
+| `tool_call`          | Safety check, activity log, auto-backup | ✅ Working                        |
+| `session_start`      | Spawn Monitor via `createAgentSession`  | ⚠️ Incomplete - wrong import path |
+| `before_agent_start` | Enable all tools + analyze              | ❌ DEAD - wrong import path       |
+| `agent_start`        | Track agent activity                    | ✅ Empty (silent)                 |
+| `agent_end`          | No auto-spawning per turn               | ✅ Correct                        |
+| `tool_result`        | Auto-file issues for errors             | ✅ Working                        |
 
 ### Dead Code Found
 
@@ -165,7 +165,7 @@ Event → Hook → P-Monitor (real Pi agent with tools) → DB
 Architecture A adds unnecessary complexity:
 - LLM adds latency and cost for things that are just DB queries
 - The `psypi-autonomic-exec` bridge is a workaround for the LLM not having tools
-- Monitor is WEAKER than Worker because it can't use tools directly
+- Monitor is WEAKER than Agentbot because it can't use tools directly
 
 ---
 
@@ -177,16 +177,16 @@ Currently: `session_start_hook` tries to spawn a new `createAgentSession` Monito
 
 **Questions:**
 - Is the Monitor a SEPARATE Pi session, or a mode within the SAME session?
-- If separate: how does it communicate with Worker?
-- If same: how does it run "in background" without blocking Worker?
+- If separate: how does it communicate with Agentbot?
+- If same: how does it run "in background" without blocking Agentbot?
 - What events should trigger Monitor actions?
 
-### Q2: What is the communication pattern between Worker and P-Monitor?
+### Q2: What is the communication pattern between Agentbot and P-Monitor?
 
 **Options:**
 1. **Shared state**: Both read/write DB, no direct communication
-2. **Event bus**: Worker emits events, Monitor subscribes
-3. **Tool calls**: Worker calls Monitor tools, Monitor calls Worker tools
+2. **Event bus**: Agentbot emits events, Monitor subscribes
+3. **Tool calls**: Agentbot calls Monitor tools, Monitor calls Agentbot tools
 4. **One agent**: Same agent handles both, mode is just context
 
 ### Q3: How does P-Monitor find its own work?
@@ -198,15 +198,15 @@ Current: Generic prompt "Investigate and take action" on session_start.
 - No trigger conditions (e.g., "if failed_tasks > 0, create follow-up task")
 - No work queue or priority system
 
-### Q4: What's the difference between Worker and P-Monitor identity?
+### Q4: What's the difference between Agentbot and P-Monitor identity?
 
-| Aspect | Worker | P-Monitor |
-|--------|--------|-----------|
-| ID prefix | None | P- |
-| Trigger | User/system prompts | Events |
-| Purpose | Complete requested tasks | Find unasked-for work |
-| Tools | read, bash, edit, etc. | Same tools |
-| Context | Current task | System-wide health |
+| Aspect    | Agentbot                 | P-Monitor             |
+| --------- | ------------------------ | --------------------- |
+| ID prefix | None                     | P-                    |
+| Trigger   | User/system prompts      | Events                |
+| Purpose   | Complete requested tasks | Find unasked-for work |
+| Tools     | read, bash, edit, etc.   | Same tools            |
+| Context   | Current task             | System-wide health    |
 
 ### Q5: How do we avoid "600+ sessions/hour" problem?
 
@@ -226,7 +226,7 @@ Problem: If Monitor acts on every `agent_end`, we spawn too many sessions.
 │                    Pi Session                            │
 │                                                          │
 │  ┌─────────────┐        ┌──────────────────────────┐  │
-│  │   Worker     │        │   P-Monitor (same agent)   │  │
+│  │   Agentbot     │        │   P-Monitor (same agent)   │  │
 │  │  (default)   │        │    (event-triggered)       │  │
 │  │              │        │                            │  │
 │  │  User prompts│        │  Events:                   │  │
@@ -253,7 +253,7 @@ Problem: If Monitor acts on every `agent_end`, we spawn too many sessions.
 │  │  - tool_call: safety, auto-backup, activity log   │  │
 │  │  - tool_result: error → auto-file-issue         │  │
 │  │  - session_start: health check, suggest work    │  │
-│  │  - agent_idle: find open issues, prompt worker  │  │
+│  │  - agent_idle: find open issues, prompt agentbot  │  │
 │  └──────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -274,7 +274,7 @@ Problem: If Monitor acts on every `agent_end`, we spawn too many sessions.
 
 4. **Tool access for Monitor**
    - Current: `psypi-autonomic-exec` (roundabout)
-   - Better: Direct tool calls (same as Worker)
+   - Better: Direct tool calls (same as Agentbot)
 
 ---
 
@@ -286,7 +286,7 @@ Problem: If Monitor acts on every `agent_end`, we spawn too many sessions.
 // From agent_identity_logic.gleam
 generate_semantic_id(autonomous, source, project, session_id, model)
   → "A-psypi-psypi"    // autonomous=true (Monitor)
-  → "S-psypi-psypi-unknown"  // autonomous=false (Worker)
+  → "S-psypi-psypi-unknown"  // autonomous=false (Agentbot)
 ```
 
 **Key properties:**
@@ -317,10 +317,10 @@ souls table:
 ┌─────────────────────────────────────────────────────┐
 │                    souls table                         │
 │                                                       │
-│   Worker SOUL:                                        │
+│   Agentbot SOUL:                                        │
 │   agent_id: "S-psypi-psypi-..."                       │
-│   name: "Worker" (or chosen name)                    │
-│   content: "I am the task-driven worker..."          │
+│   name: "Agentbot" (or chosen name)                    │
+│   content: "I am the task-driven agentbot..."          │
 │   traits: { speed: 9, quality: 7, autonomy: 5 }     │
 │                                                       │
 │   Monitor SOUL:                                       │
@@ -334,10 +334,10 @@ souls table:
 
 ### SOUL Modification Rules
 
-| Type | Example | How to modify |
-|------|---------|---------------|
-| **Personal identity** | Name ("赤羽"), meaning, traits | **Free to edit anytime** |
-| **Shared responsibilities** | "Monitor owns skill_indexing" | **Requires discussion in meetings** |
+| Type                        | Example                        | How to modify                       |
+| --------------------------- | ------------------------------ | ----------------------------------- |
+| **Personal identity**       | Name ("赤羽"), meaning, traits | **Free to edit anytime**            |
+| **Shared responsibilities** | "Monitor owns skill_indexing"  | **Requires discussion in meetings** |
 
 Example from nezha: An AI freely chose the name "赤羽" (Chi Yu) with its own meaning — nobody asked it to, it just **decided its own identity**.
 
@@ -346,7 +346,7 @@ Example from nezha: An AI freely chose the name "赤羽" (Chi Yu) with its own m
 The user designed the function-call-based ID system from the beginning. TypeScript AIs kept caching IDs everywhere, breaking the single source of truth. Gleam enforces purity: every call is fresh.
 
 The two SOULs allow:
-1. **Different personalities** (Worker vs Monitor)
+1. **Different personalities** (Agentbot vs Monitor)
 2. **Different responsibilities** (task-driven vs event-driven)
 3. **Self-evolution** (each can improve its own SOUL)
 4. **Discussion-based coordination** (meetings to divide work)
@@ -373,7 +373,7 @@ The two SOULs allow:
 │  - DB schema (add tables, columns)                    │
 │  - Gleam code (fix bugs, add features)               │
 │  - Monitor itself (improve its own logic)             │
-│  - Worker itself (improve task handling)             │
+│  - Agentbot itself (improve task handling)             │
 │  - SOUL (evolve own identity)                        │
 │                                                       │
 │  No human intervention needed                          │
@@ -399,13 +399,13 @@ Gleam's solution:
 
 ## Summary
 
-| Aspect | Old Design | Current Status | Target |
-|--------|-----------|----------------|--------|
-| Monitor trigger | LLM generic prompt | Event-driven rules | ✅ Done |
-| Monitor power | Text-only (complete) | ⚠️ Partial - DB + LLM, no direct tools | Full tools (like Worker) |
-| Architecture | Separate LLM + bridge | ✅ Same agent, hooks | ✅ Done |
-| Work discovery | "Decide what to do" | ✅ Event → Condition → Action | ✅ Done |
-| System prompt injection | Not implemented | ✅ Before_agent_start reads DB → injects | ✅ Done |
+| Aspect                  | Old Design            | Current Status                          | Target                     |
+| ----------------------- | --------------------- | --------------------------------------- | -------------------------- |
+| Monitor trigger         | LLM generic prompt    | Event-driven rules                      | ✅ Done                     |
+| Monitor power           | Text-only (complete)  | ⚠️ Partial - DB + LLM, no direct tools   | Full tools (like Agentbot) |
+| Architecture            | Separate LLM + bridge | ✅ Same agent, hooks                     | ✅ Done                     |
+| Work discovery          | "Decide what to do"   | ✅ Event → Condition → Action            | ✅ Done                     |
+| System prompt injection | Not implemented       | ✅ Before_agent_start reads DB → injects | ✅ Done                     |
 
 **Status (2026-05-13):**
 - Phase 1 mostly done: events connected, injection works
@@ -427,7 +427,7 @@ Gleam's solution:
 - `psypi-hooks-list` + `psypi-hooks-active` tools
 
 ### ⚠️ Not Yet Implemented
-- **Monitor full tool access** — `before_agent_start` should call `pi.setActiveTools([...])` to enable Worker tools for Monitor
+- **Monitor full tool access** — `before_agent_start` should call `pi.setActiveTools([...])` to enable Agentbot tools for Monitor
 - `callMonitor()` currently does LLM consultation only (text, no tool execution)
 - Phase 2-3 (Monitor writes code, modifies schema) not started
 
