@@ -10,7 +10,7 @@ Agentbot → psypi-commit → inter_review → external LLM (P-tencent/hy3-previ
 ## Design
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        WORKER                                  │
+│                        AGENTBOT                                  │
 │                         writes code                             │
 └───────────────────────────┬─────────────────────────────────────┘
                             ↓

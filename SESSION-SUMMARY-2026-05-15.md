@@ -29,7 +29,7 @@
 ### 5. Documentation
 - `docs/ARCHITECTURE-A-S-CONTEXT.md` — Full architecture notes
 - `.planning/NEW-WORLD-PLAN.md` — Implementation plan
-- `.planning/SIMPLE-A-WORKER.md` — Simple A-agentbot design
+- `.planning/SIMPLE-A-AGENTBOT.md` — Simple A-agentbot design
 - Updated `README.md` and `AGENTS.md`
 
 ## What We Learned
@@ -64,4 +64,4 @@
 | `AGENTS.md`                              | Updated: Gleam type system best practices     |
 | `docs/ARCHITECTURE-A-S-CONTEXT.md`       | New: architecture documentation               |
 | `.planning/NEW-WORLD-PLAN.md`            | New: implementation plan                      |
-| `.planning/SIMPLE-A-WORKER.md`           | New: simple A-agentbot design                 |
+| `.planning/SIMPLE-A-AGENTBOT.md`         | New: simple A-agentbot design                 |
