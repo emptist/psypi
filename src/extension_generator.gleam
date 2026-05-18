@@ -25,7 +25,7 @@ import stats.{stats_show_tool}
 import task.{task_add_tool, task_complete_tool, task_list_tool}
 
 // Generator modules
-import generator/tool_call
+import hook_tool_call
 import hook_before_agent_start
 import hook_session_start
 import hook_model_select
@@ -97,7 +97,7 @@ pub fn all_tools() -> List(PiToolCall) {
 
 pub fn all_event_hooks() -> List(PiEventHook) {
   [
-    event_hook("tool_call", tool_call.handler_body()),
+    event_hook("tool_call", hook_tool_call.handler_body()),
     event_hook("session_start", hook_session_start.handler_body()),
     event_hook("model_select", hook_model_select.handler_body()),
     event_hook("before_agent_start", hook_before_agent_start.handler_body()),
