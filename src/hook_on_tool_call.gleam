@@ -17,12 +17,13 @@ pub fn on_tool_call(
   file_path: String,
   ctx: a,
 ) -> promise.Promise(Result(Nil, String)) {
+  set_status(ctx, "psypi-autobackup", "[DEBUG] tool=" <> tool_name <> " path=" <> file_path)
   case tool_name == "edit" {
     False -> promise.resolve(Ok(Nil))
     True -> {
-      case file_path == "" {
+      case file_path == "" || string.length(file_path) < 2 {
         True -> {
-          set_status(ctx, "psypi-autobackup", "[SKIP] edit tool: empty file_path")
+          set_status(ctx, "psypi-autobackup", "[SKIP] edit tool: invalid file_path")
           promise.resolve(Ok(Nil))
         }
         False -> {
