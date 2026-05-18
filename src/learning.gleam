@@ -1,7 +1,5 @@
 import gleam/dynamic
 import gleam/javascript/promise
-import gleam/list
-import gleam/string
 import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
 
@@ -14,19 +12,6 @@ fn db_error_to_learning_error(e: db.DbError) -> LearningError {
   case e {
     db.ConnectionError(msg) -> ConnectionError(msg)
     db.QueryError(msg) -> QueryError(msg)
-  }
-}
-
-fn tags_to_array_literal(tags: String) -> String {
-  let trimmed = string.trim(tags)
-  case trimmed {
-    "" -> "{}"
-    _ ->
-      trimmed
-      |> string.split(",")
-      |> list.map(fn(t) { string.trim(t) })
-      |> string.join(",")
-      |> fn(s) { "{" <> s <> "}" }
   }
 }
 
@@ -43,7 +28,7 @@ fn save_learning(
   "
   let params = [
     dynamic.string(content),
-    dynamic.string(tags_to_array_literal(tags)),
+    dynamic.string(tags),
     dynamic.int(importance),
     dynamic.string(agent_id),
   ]
@@ -81,7 +66,7 @@ pub fn learn_save_tool() -> PiToolCall {
     fn_name: "save",
     args: [
       from_param("params.content || \"\""),
-      from_param("params.tags || \"\""),
+      from_param("(() => { const t = (params.tags || '').trim(); if (!t) return '{}'; if (t.startsWith('[')) { try { const arr = JSON.parse(t); return '{' + arr.map(s => String(s).trim()).join(',') + '}'; } catch(e) { return '{' + t + '}'; } } return '{' + t.split(',').map(s => s.trim()).join(',') + '}'; })()"),
       from_param("parseInt(params.importance || '5')"),
       from_param("'psypi'"),
     ],
