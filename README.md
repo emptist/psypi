@@ -16,18 +16,20 @@ Pi runtime (tools, hooks, commands)
 
 ## Core Principle: ID is Everything
 
-Every agent has an identity derived from `get_resolved_identity(ctx: IdentityContext)` — a pure function, single argument, no DB, no side effects.
+Every agent has an identity derived from `get_resolved_identity(ctx: IdentityContext)` — a pure function, one argument, no DB, no side effects. Gleam's type system guarantees this purity at compile time.
+
+There is no "dual role system." The A- or S- prefix emerges from `ctx.isIdle()` at the moment of the call. The same agent can be S- now and A- a millisecond later. The ID is a snapshot of reality, not a label you stick on something.
 
 ```
 IdentityContext:
-  is_idle ← ctx.isIdle()        → A (autonomic) or S (somatic)
+  is_idle ← ctx.isIdle()        → A or S (THIS IS THE ONLY DIFFERENCE)
   model   ← ctx.model.id        → which intelligence is operating
   source  ← ctx.model.provider   → where it comes from
   project ← ctx.cwd              → which project context
   global  ← no .git found        → G- prefix for non-project dirs
 ```
 
-**Never cache the ID.** Call the function when needed. Same context → same ID, always.
+**NEVER CACHE THE ID.** No variable, no database column, no session state, no "for convenience." The ID must be computed fresh every time because `ctx.isIdle()` is live — it changes moment to moment. A cached ID is a lie about who is acting.
 
 ## Build
 

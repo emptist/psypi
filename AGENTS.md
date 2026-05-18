@@ -19,7 +19,7 @@
 - `bin/psypi.mjs` → generates `extension.js` from Gleam → spawns Pi
 - `extension.js` is AUTO-GENERATED — never hand-edit it
 - Gleam `PiToolCall` values define all Pi tools
-- Dual identity: Worker (S-) and Monitor (A-)
+- Identity: one pure function `get_resolved_identity(ctx)` — A/S prefix emerges from `ctx.isIdle()`
 
 ## Adding a Pi Tool
 
@@ -46,25 +46,23 @@ gleam run -m extension_generator
 
 ## Identity System
 
-psypi has a dual identity system:
-- **Somatic Worker (S-)** — Prompt-driven, responds to user requests. `ctx.isIdle() = false`
-- **Autonomic Worker (A-)** — Event-driven, monitors and coordinates. `ctx.isIdle() = true`
+There is no "dual role system." There is one function: `get_resolved_identity(ctx: IdentityContext)`.
 
-**Single source of truth:** `get_resolved_identity(ctx: IdentityContext)` — one function, one argument.
+The A- or S- prefix is not a role assignment — it emerges from `ctx.isIdle()` at the moment of the call. The same agent can be S- now and A- a millisecond later. The ID is a snapshot of reality, not a label you stick on something.
+
+**NEVER CACHE THE ID.** No variable, no database column, no session state, no "for convenience." The ID must be computed fresh every time because `ctx.isIdle()` is live — it changes moment to moment. A cached ID is a lie about who is acting.
 
 `IdentityContext` fields all come from the live Pi runtime (`ctx`):
-- `is_idle` ← `ctx.isIdle()` — determines A/S prefix
+- `is_idle` ← `ctx.isIdle()` — determines A/S prefix (THIS IS THE ONLY DIFFERENCE)
 - `model` ← `ctx.model.id`
 - `source` ← `ctx.model.provider`
 - `thinking_level` ← `ctx.model.thinkingLevel`
 - `project` ← `ctx.cwd` (directory name when .git exists)
 - `global` ← whether no .git found (prepends G- to ID)
 
-**Never cache the ID.** Call `get_resolved_identity` when needed — it's pure, no DB, no side effects.
-
 **To find your identity, use the identity tools:**
-- `psypi-somatic-id` — Get Somatic Worker ID
-- `psypi-autonomic-id` — Get Autonomic Worker ID
+- `psypi-somatic-id` — calls `get_resolved_identity` with live `ctx.isIdle()`
+- `psypi-autonomic-id` — calls `get_resolved_identity` with live `ctx.isIdle()`
 
 **Example:** Ask "what is your id?" and the AI should call `psypi-somatic-id` (it IS the somatic worker).
 
