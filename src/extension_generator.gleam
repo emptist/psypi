@@ -116,7 +116,7 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       "on_tool_call",
       [
         from_param("event.toolName || ''"),
-        from_param("event.input?.path || event.input?.filePath || ''"),
+        from_param("event.input ? (event.input.path || event.input.filePath || '') : ''"),
         lit("ctx"),
       ],
       option.None,

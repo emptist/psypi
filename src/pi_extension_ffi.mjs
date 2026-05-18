@@ -54,10 +54,12 @@ export function pi_send_message(pi, customType, content, display) {
 
 export function read_file_sync(path) {
   try {
+    if (!path) return { ok: false, value: 'empty path' };
     const content = readFileSync(String(path), 'utf-8');
     return { ok: true, value: content };
   } catch (e) {
-    return { ok: false, value: e.message || 'Read failed' };
+    const msg = (e && e.message) ? String(e.message) : 'Read failed';
+    return { ok: false, value: msg };
   }
 }
 
