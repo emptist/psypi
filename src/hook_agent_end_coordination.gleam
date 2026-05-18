@@ -44,7 +44,7 @@ pub fn handler_body() -> String {
     "              ctx.ui.notify('[AUTONOMIC] callMonitor failed: ' + e, 'error');\n",
     "              msg = `Issue! LLM call failed: ${e.message || e}`;\n",
     "            }\n",
-    "            if (!msg || !msg.trim()) { msg = `No response from Monitor`; }\n",
+    "            if (!msg || !msg.trim()) { msg = `Issue found! callMonitor returned empty — LLM produced no output`; }\n",
     "            ctx.ui.notify('[AUTONOMIC] Sending wake-up message to S-worker...', 'info');\n",
     "            pi.sendMessage({\n",
     "              customType: 'autonomic-wakeup',\n",
