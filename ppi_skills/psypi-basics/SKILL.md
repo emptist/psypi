@@ -1,9 +1,11 @@
 ---
 name: psypi-basics
-description: Quick cheat‑sheet for using Psypi from the TUI (Atonomic vs Somatic, IDs, common tools, commit workflow).
+description: Quick cheat‑sheet for using Psypi from the TUI (Atonomic vs Somatic, IDs, common tools, commit workflow). All psypi tools are Pi agent tools — only AIs use them, not human users.
 ---
 
-# Psypi Basics (for AIs)
+# Psypi Basics (for AI Agents)
+
+> **Important:** All psypi tools are Pi agent tools. They are designed for AI agents, not human users. Humans interact with the system through the Pi TUI chat interface, not by invoking tools directly.
 
 ## Core concepts
 - **Atonomic Worker** (`A‑…`) – autonomous, event‑driven, monitors the system.
@@ -34,8 +36,11 @@ description: Quick cheat‑sheet for using Psypi from the TUI (Atonomic vs Somat
 ```
 ### Commit with Monitor review
 ```
-/psypi‑commit "Refactor ID handling"
+/psypi‑commit "Refactor ID handling [S-psypi-openrouter-owl-alpha]"
     # Runs a review, shows PASS/FAIL, then git‑commits.
+    # Format: "<message> [<Somatic Worker ID>]"
+    # Get your ID first: /psypi-somatic-id
+    # The ID prefix is S- for Somatic, A- for Autonomic.
 ```
 ### Hooks & monitor status
 ```
