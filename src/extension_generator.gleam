@@ -26,7 +26,7 @@ import task.{task_add_tool, task_complete_tool, task_list_tool}
 
 // Generator modules
 import generator/tool_call
-import generator/before_agent_start
+import hook_before_agent_start
 import generator/session_start
 import generator/model_select
 import generator/tool_result
@@ -100,7 +100,7 @@ pub fn all_event_hooks() -> List(PiEventHook) {
     event_hook("tool_call", tool_call.handler_body()),
     event_hook("session_start", session_start.handler_body()),
     event_hook("model_select", model_select.handler_body()),
-    event_hook("before_agent_start", before_agent_start.handler_body()),
+    event_hook("before_agent_start", hook_before_agent_start.handler_body()),
     event_hook("agent_start", agent_lifecycle.start_body()),
     event_hook("agent_end", agent_lifecycle.end_body()),
     event_hook("tool_result", tool_result.handler_body()),
