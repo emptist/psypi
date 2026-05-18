@@ -23,36 +23,10 @@ const extensionPath = join(projectDir, 'extension.js');
 const content = generate();
 writeFileSync(extensionPath, content, 'utf8');
 
-// Step 2: Handle special CLI commands before spawning Pi
+// Step 2: Spawn Pi with the generated extension
 const piBin = 'pi';
 let args = process.argv.slice(2);
 let minimal = false;
-
-// Special case: `psypi commit <message>` — direct commit with review, no TUI
-if (args[0] === 'commit') {
-  const commitMessage = args.slice(1).join(' ');
-  if (!commitMessage.trim()) {
-    console.error('Usage: psypi commit <message>');
-    process.exit(1);
-  }
-  const { execSync } = await import('child_process');
-  try {
-    // Check for uncommitted changes
-    const status = execSync('git status --porcelain', { encoding: 'utf8' });
-    if (!status.trim()) {
-      console.log('Nothing to commit.');
-      process.exit(0);
-    }
-    // Stage and commit
-    execSync('git add -A', { encoding: 'utf8' });
-    execSync('git commit -m ' + JSON.stringify(commitMessage), { encoding: 'utf8' });
-    console.log('✅ Committed: ' + commitMessage);
-    process.exit(0);
-  } catch (e) {
-    console.error('Commit failed: ' + e.message);
-    process.exit(1);
-  }
-}
 if (args.includes('--minimal')) {
   minimal = true;
   args = args.filter((a) => a !== '--minimal');
