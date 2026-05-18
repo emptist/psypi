@@ -19,7 +19,7 @@ import meeting.{meeting_create_tool, meeting_get_tool, meeting_list_tool, meetin
 import memory.{memory_search_tool}
 import monitor_ai.{monitor_alerts_tool, monitor_health_tool, monitor_stats_tool, monitor_status_tool, monitor_suggest_tool, autonomic_listen_command, autonomic_reload_command}
 
-import pi_tool_call.{type PiToolCall, type PiEventHook, type PiCommandReg, command_to_js, event_hook, event_hook_to_js, to_import_line, to_js_text}
+import pi_tool_call.{type PiToolCall, type PiEventHook, type PiCommandReg, command_to_js, raw_event_hook, event_hook_to_js, to_import_line, to_js_text}
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import stats.{stats_show_tool}
 import task.{task_add_tool, task_complete_tool, task_list_tool}
@@ -97,13 +97,13 @@ pub fn all_tools() -> List(PiToolCall) {
 
 pub fn all_event_hooks() -> List(PiEventHook) {
   [
-    event_hook("tool_call", hook_tool_call.handler_body()),
-    event_hook("session_start", hook_session_start.handler_body()),
-    event_hook("model_select", hook_model_select.handler_body()),
-    event_hook("before_agent_start", hook_before_agent_start.handler_body()),
-    event_hook("agent_start", hook_agent_lifecycle.start_body()),
-    event_hook("agent_end", hook_agent_lifecycle.end_body()),
-    event_hook("tool_result", hook_tool_result.handler_body()),
+    raw_event_hook("tool_call", hook_tool_call.handler_body()),
+    raw_event_hook("session_start", hook_session_start.handler_body()),
+    raw_event_hook("model_select", hook_model_select.handler_body()),
+    raw_event_hook("before_agent_start", hook_before_agent_start.handler_body()),
+    raw_event_hook("agent_start", hook_agent_lifecycle.start_body()),
+    raw_event_hook("agent_end", hook_agent_lifecycle.end_body()),
+    raw_event_hook("tool_result", hook_tool_result.handler_body()),
   ]
 }
 
