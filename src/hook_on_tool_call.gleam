@@ -20,9 +20,12 @@ pub fn on_tool_call(
   case tool_name == "edit" {
     False -> promise.resolve(Ok(Nil))
     True -> {
-      case file_path {
-        "" -> promise.resolve(Ok(Nil))
-        _ -> {
+      case file_path == "" {
+        True -> {
+          set_status(ctx, "psypi-autobackup", "[SKIP] edit tool: empty file_path")
+          promise.resolve(Ok(Nil))
+        }
+        False -> {
           case read_file_sync(file_path) {
             Error(e) -> {
               set_status(ctx, "psypi-autobackup", "[FAIL] read: " <> e)
