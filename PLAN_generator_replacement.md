@@ -187,3 +187,88 @@ Result type.
 - Delete `src/generator/GENERATOR_DOCS.md` when no longer needed
 - Remove empty `src/generator/` directory
 - Delete this plan file when no longer needed
+
+---
+
+## IdentityContext Refactoring (2026-05-18)
+
+### What Changed
+
+`get_resolved_identity` went from 6 positional args to 1 `IdentityContext`:
+
+```gleam
+// Before: 6 positional args — fragile, order matters, "autonomous" was misleading
+get_resolved_identity(True, "psypi", provider, model_id, thinking_level, False)
+
+// After: 1 value type — named fields, self-documenting, order doesn't matter
+get_resolved_identity(IdentityContext(
+  is_idle: True, project: "psypi", source: provider,
+  model: model_id, thinking_level: thinking_level, global: False,
+))
+```
+
+### Key Insight: `autonomous` = `ctx.is_idle`
+
+The old `autonomous: Bool` parameter was never truly independent. It maps
+directly to `ctx.isIdle()` in the Pi runtime:
+
+- `ctx.isIdle() = true` → A-worker (Autonomic, event-driven)
+- `ctx.isIdle() = false` → S-worker (Somatic, prompt-driven)
+
+Renaming to `is_idle` makes this mapping explicit. The generated JS now passes
+`is_idle: ctx.isIdle()` dynamically instead of hardcoding `true`/`false`.
+
+### What Simplified
+
+1. **`directive.gleam`** — No longer needs to remember arg order. Named fields
+   are self-documenting. `is_idle: True` is clearer than the old positional
+   `True` (which meant "autonomous").
+
+2. **Pi tool definitions** — `somatic_id_tool()` and `autonomic_id_tool()` had
+   6 separate `lit()` args that had to match the function signature position.
+   One wrong position = wrong identity silently. Now they construct one object
+   literal — field names are explicit, order doesn't matter.
+
+3. **Tests** — Each test case went from a positional arg list to a named record.
+   You can read the test and immediately know what `True` means (it's
+   `is_idle`, not `autonomous`).
+
+### What Could Simplify Further (YAGNI — Wait for It)
+
+The `IdentityContext` is now a **value type** that can flow through the system.
+This opens up simplifications that weren't possible with 6 loose args:
+
+1. **`directive.gleam`** still manually extracts `provider` from `model_id`.
+   But `IdentityContext` already has `source` (provider). If the Pi tool for
+   `psypi-direct-worker` constructed an `IdentityContext` and passed it to
+   `set_directive`, the function wouldn't need `model_id` and `thinking_level`
+   as separate params — it would take `IdentityContext` directly. Two fewer args.
+
+2. **`agent_identity_db.gleam`** — If it exists, it probably takes identity
+   fields separately. With `IdentityContext` as the input type, it could take
+   the whole context and derive everything from it.
+
+3. **Hooks that need identity** — `hook_agent_end_coordination` currently
+   doesn't call `get_resolved_identity` at all. But if it needed to log "who
+   acted", it could construct `IdentityContext` from `ctx` and call the one
+   function. No need to figure out which args to pass.
+
+4. **`inter_review.gleam`** — Line 182 has a comment about
+   `get_resolved_identity(permanent=true)`. That's the old signature. If it
+   ever gets implemented, it would naturally take `IdentityContext`.
+
+### The Cascade Pattern
+
+When you make the input a value type instead of loose args, every function that
+needs that data can accept the type instead of re-extracting the same fields.
+The `IdentityContext` becomes a **currency** that flows through the system —
+every module that deals with identity just takes the same coin.
+
+But don't chase these simplifications proactively. They'll happen naturally
+when each module needs to change for its own reasons. The refactoring already
+paid for itself by making the signature match the architecture.
+
+### Commits
+
+- `0df2dca` — refactor: get_resolved_identity(ctx: IdentityContext) — 6 args → 1
+- `124041a` — docs: update AGENTS.md, README.md, AGENT-IDENTITY.md for IdentityContext
