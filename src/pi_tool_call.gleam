@@ -281,7 +281,7 @@ fn error_action_to_js(action: HookErrorAction) -> String {
 fn hook_import_line(module: String, fn_name: String) -> String {
   let base = "./build/dev/javascript/psypi"
   let alias = module <> "_" <> fn_name
-  "const { " <> fn_name <> " as " <> alias <> " } = await import('" <> base <> "/" <> module <> ".mjs');"
+  "const " <> alias <> " = (await import('" <> base <> "/" <> module <> ".mjs'))." <> fn_name <> ";"
 }
 
 fn hook_call_expr(module: String, fn_name: String, args: List(FnArg)) -> String {
