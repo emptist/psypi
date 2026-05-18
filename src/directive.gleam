@@ -6,8 +6,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import db
 import pi_tool_call.{type PiToolCall, PiToolCall, template, string_param, opt_string_param, from_param}
-import agent_identity.{get_resolved_identity}
-import agent_identity_types.{IdentityContext}
+import agent_identity_types.{IdentityContext, resolved_identity}
 
 pub type DirectiveError {
   ConnectionError(String)
@@ -50,7 +49,7 @@ pub fn set_directive(
       [p, ..] -> p
       _ -> "unknown"
     }
-    let identity = get_resolved_identity(
+    let identity = resolved_identity(
       IdentityContext(
         is_idle: True,
         project: "psypi",

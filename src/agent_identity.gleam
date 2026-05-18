@@ -1,43 +1,14 @@
-import gleam/option
-import agent_identity_types.{type AgentId, type AgentIdentity, type IdentityContext, type IdentityError, AgentIdentity, agent_id}
-import agent_identity_logic.{generate_semantic_id}
+import agent_identity_types.{
+  type AgentIdentity, type IdentityContext, type IdentityError,
+  resolved_identity,
+}
+import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, lit}
 
 pub fn get_resolved_identity(
   ctx: IdentityContext,
 ) -> Result(AgentIdentity, IdentityError) {
-  case generate_semantic_id(ctx) {
-    Ok(id) -> Ok(AgentIdentity(
-      id: id,
-      project: option.Some(ctx.project),
-      git_hash: option.None,
-      machine_fingerprint: "",
-      session_id: "",
-      created_at: "",
-      display_name: option.None,
-      description: option.None,
-      source: option.Some(ctx.source),
-      model: option.Some(ctx.model),
-      thinking_level: case ctx.thinking_level {
-        "" -> option.None
-        tl -> option.Some(tl)
-      },
-    ))
-    Error(e) -> Error(e)
-  }
+  resolved_identity(ctx)
 }
-
-pub fn get_agent_id(
-  ctx: IdentityContext,
-) -> Result(AgentId, IdentityError) {
-  case generate_semantic_id(ctx) {
-    Ok(id) -> Ok(agent_id(id))
-    Error(e) -> Error(e)
-  }
-}
-
-// -------------------------------------------------------------------
-// Pi Tool Call definitions
-// -------------------------------------------------------------------
 
 fn ctx_model_id() -> String {
   "(ctx.model?.id || '')"
@@ -62,8 +33,6 @@ fn ctx_is_global() -> String {
 fn ctx_is_idle() -> String {
   "ctx.isIdle()"
 }
-
-import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, lit}
 
 pub fn somatic_id_tool() -> PiToolCall {
   PiToolCall(

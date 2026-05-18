@@ -381,3 +381,91 @@ which is fine since the function actually lives there now.
 7. Update `agent_identity_db.gleam` if it uses `agent_id` helper
 8. `gleam build` + `gleam test`
 9. Git commit
+
+---
+
+## The CoffeeScript Insight — Why PiExtensionContext as Opaque Type Is Wrong
+
+### The Question
+
+"If you were to write an 'equal-to' class in CoffeeScript, would it make you
+think differently about PiExtensionContext?"
+
+### The Answer
+
+Yes. An opaque `PiExtensionContext` type with `@external` methods wrapping
+the JS `ctx` object is **CoffeeScript** — JavaScript with nicer syntax. The
+Gleam compiler sees an opaque blob. It can't verify anything. We gain nothing
+over writing the JS directly.
+
+### What @external Actually Is
+
+Looking at the Gleam stdlib (`gleam/dynamic`), `@external` is a **typed
+extraction boundary** — like a special import. `Dynamic` is opaque; you use
+`@external` and `decode` to extract typed data from it. The stdlib pattern is:
+
+1. JS gives you `Dynamic` (untyped)
+2. You extract/decode into Gleam types
+3. All computation happens on the Gleam types
+
+This is NOT "wrapping a JS object in a Gleam class." It's **extracting data
+at the boundary, then computing purely.**
+
+### The Correct Architecture
+
+```
+JS Layer (impure, ctx lives here)     Gleam Layer (pure, no ctx)
+─────────────────────────────         ──────────────────────────
+ctx.model?.id  ──extract──┐
+ctx.isIdle()   ──extract──┼──→  IdentityContext (pure data record)
+ctx.cwd        ──extract──┘     ├── semantic_id() → Result(String, Error)
+                                  ├── resolved_identity() → Result(AgentIdentity, Error)
+                                  └── agent_id() → Result(AgentId, Error)
+```
+
+The JS `ctx` object is **impure** — `ctx.isIdle()` changes moment to moment.
+That's fine — it lives in JS, where impurity belongs. Gleam receives the
+extracted snapshot as `IdentityContext`, and from that point everything is
+pure, typed, and verifiable.
+
+The "6 helper functions" that generate JS strings? They're actually **correct**
+— they're the extraction layer. The bridge between impure JS `ctx` and pure
+Gleam `IdentityContext`. They don't need to be wrapped in an opaque type.
+
+### What About ctx.ui.notify, ctx.sessionManager, etc.?
+
+These are **side effects**. They belong in FFI (like `pi_extension.gleam`
+already does). They should NOT be methods on a Gleam type. Side effects
+happen at the boundary, not in the pure layer.
+
+### Revised Plan: IdentityContext Owns Its Behavior (No PiExtensionContext)
+
+Drop `PiExtensionContext` entirely. Keep the JS extraction helpers in
+`agent_identity.gleam` (they're the bridge). Move the pure computation
+into `agent_identity_types.gleam`:
+
+```
+agent_identity_types.gleam  — IdentityContext (data + behavior)
+                               IdentityContext.semantic_id()
+                               IdentityContext.resolved_identity()
+                               IdentityContext.agent_id()
+                               IdentityError, AgentId, AgentIdentity
+
+agent_identity.gleam        — JS extraction helpers (the bridge)
+                               somatic_id_tool()
+                               autonomic_id_tool()
+
+agent_identity_logic.gleam  — DELETE (absorbed into agent_identity_types)
+```
+
+### Execution Order
+
+1. Add `semantic_id()`, `resolved_identity()`, `agent_id()` to `agent_identity_types.gleam`
+2. Rename old `agent_id(s: String)` to `agent_id_from_string(s: String)`
+3. Update `agent_identity.gleam` — remove moved functions, update Pi tool `module` field
+4. Delete `agent_identity_logic.gleam`
+5. Update `directive.gleam` import
+6. Update `test/psypi_test.gleam` import
+7. Update `agent_identity_db.gleam` if it uses `agent_id` helper
+8. `gleam build` + `gleam test`
+9. Git commit

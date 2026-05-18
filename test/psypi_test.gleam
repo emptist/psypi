@@ -1,5 +1,4 @@
-import agent_identity_logic
-import agent_identity_types.{IdentityContext, MissingSessionId}
+import agent_identity_types.{IdentityContext, MissingSessionId, semantic_id}
 import gleeunit
 import gleeunit/should
 
@@ -8,7 +7,7 @@ pub fn main() {
 }
 
 pub fn generate_semantic_id_test() {
-  agent_identity_logic.generate_semantic_id(IdentityContext(
+  semantic_id(IdentityContext(
     is_idle: False,
     project: "tools_ai",
     source: "openrouter",
@@ -18,7 +17,7 @@ pub fn generate_semantic_id_test() {
   ))
   |> should.equal(Ok("S-tools_ai-openrouter-owl-alpha"))
 
-  agent_identity_logic.generate_semantic_id(IdentityContext(
+  semantic_id(IdentityContext(
     is_idle: True,
     project: "tools_ai",
     source: "openrouter",
@@ -28,7 +27,7 @@ pub fn generate_semantic_id_test() {
   ))
   |> should.equal(Ok("A-tools_ai-openrouter-owl-alpha"))
 
-  agent_identity_logic.generate_semantic_id(IdentityContext(
+  semantic_id(IdentityContext(
     is_idle: False,
     project: "non-project",
     source: "openrouter",
@@ -38,7 +37,7 @@ pub fn generate_semantic_id_test() {
   ))
   |> should.equal(Ok("G-S-non-project-openrouter-owl-alpha"))
 
-  agent_identity_logic.generate_semantic_id(IdentityContext(
+  semantic_id(IdentityContext(
     is_idle: True,
     project: "non-project",
     source: "openrouter",
@@ -48,7 +47,7 @@ pub fn generate_semantic_id_test() {
   ))
   |> should.equal(Ok("G-A-non-project-openrouter-owl-alpha"))
 
-  agent_identity_logic.generate_semantic_id(IdentityContext(
+  semantic_id(IdentityContext(
     is_idle: False,
     project: "tools_ai",
     source: "openrouter",
@@ -60,7 +59,7 @@ pub fn generate_semantic_id_test() {
 }
 
 pub fn generate_semantic_id_with_thinking_test() {
-  agent_identity_logic.generate_semantic_id(IdentityContext(
+  semantic_id(IdentityContext(
     is_idle: True,
     project: "tools_ai",
     source: "openrouter",
@@ -70,7 +69,7 @@ pub fn generate_semantic_id_with_thinking_test() {
   ))
   |> should.equal(Ok("A-tools_ai-openrouter-owl-alpha-high"))
 
-  agent_identity_logic.generate_semantic_id(IdentityContext(
+  semantic_id(IdentityContext(
     is_idle: False,
     project: "tools_ai",
     source: "openrouter",
@@ -80,7 +79,7 @@ pub fn generate_semantic_id_with_thinking_test() {
   ))
   |> should.equal(Ok("S-tools_ai-openrouter-owl-alpha-medium"))
 
-  agent_identity_logic.generate_semantic_id(IdentityContext(
+  semantic_id(IdentityContext(
     is_idle: True,
     project: "non-project",
     source: "openrouter",
@@ -92,7 +91,7 @@ pub fn generate_semantic_id_with_thinking_test() {
 }
 
 pub fn no_fallback_test() {
-  agent_identity_logic.generate_semantic_id(IdentityContext(
+  semantic_id(IdentityContext(
     is_idle: False,
     project: "tools_ai",
     source: "openrouter",
@@ -102,7 +101,7 @@ pub fn no_fallback_test() {
   ))
   |> should.equal(Error(MissingSessionId))
 
-  agent_identity_logic.generate_semantic_id(IdentityContext(
+  semantic_id(IdentityContext(
     is_idle: True,
     project: "non-project",
     source: "openrouter",

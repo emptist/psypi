@@ -18,17 +18,80 @@ pub type IdentityContext {
   )
 }
 
-/// Lightweight wrapper for agent ID - use this instead of String
+pub fn semantic_id(ctx: IdentityContext) -> Result(String, IdentityError) {
+  let prefix = case ctx.is_idle {
+    True -> "A"
+    False -> "S"
+  }
+
+  let global_prefix = case ctx.global {
+    True -> "G-"
+    False -> ""
+  }
+
+  case ctx.model {
+    "" -> Error(MissingSessionId)
+    _ -> {
+      let base =
+        global_prefix
+        <> prefix
+        <> "-"
+        <> ctx.project
+        <> "-"
+        <> ctx.source
+        <> "-"
+        <> ctx.model
+
+      case ctx.thinking_level {
+        "" -> Ok(base)
+        tl -> Ok(base <> "-" <> tl)
+      }
+    }
+  }
+}
+
+pub fn resolved_identity(
+  ctx: IdentityContext,
+) -> Result(AgentIdentity, IdentityError) {
+  case semantic_id(ctx) {
+    Ok(id) ->
+      Ok(
+        AgentIdentity(
+          id: id,
+          project: option.Some(ctx.project),
+          git_hash: option.None,
+          machine_fingerprint: "",
+          session_id: "",
+          created_at: "",
+          display_name: option.None,
+          description: option.None,
+          source: option.Some(ctx.source),
+          model: option.Some(ctx.model),
+          thinking_level: case ctx.thinking_level {
+            "" -> option.None
+            tl -> option.Some(tl)
+          },
+        ),
+      )
+    Error(e) -> Error(e)
+  }
+}
+
 pub type AgentId {
   AgentId(String)
 }
 
-/// Helper to create AgentId from String
-pub fn agent_id(s: String) -> AgentId {
+pub fn agent_id(ctx: IdentityContext) -> Result(AgentId, IdentityError) {
+  case semantic_id(ctx) {
+    Ok(id) -> Ok(AgentId(id))
+    Error(e) -> Error(e)
+  }
+}
+
+pub fn agent_id_from_string(s: String) -> AgentId {
   AgentId(s)
 }
 
-/// Extract String from AgentId
 pub fn agent_id_to_string(id: AgentId) -> String {
   case id {
     AgentId(s) -> s
