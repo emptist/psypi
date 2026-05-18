@@ -272,3 +272,112 @@ paid for itself by making the signature match the architecture.
 
 - `0df2dca` — refactor: get_resolved_identity(ctx: IdentityContext) — 6 args → 1
 - `124041a` — docs: update AGENTS.md, README.md, AGENT-IDENTITY.md for IdentityContext
+
+---
+
+## IdentityContext Owns Its Behavior (Planned)
+
+### Principle
+
+A type that only holds data is a DTO. A type that holds data AND knows how to
+compute from it is a **smart type**. `IdentityContext` should be smart — it
+should own `semantic_id()`, `resolved_identity()`, and `agent_id()`.
+
+In Gleam, "methods on a type" means: functions that take the type as first arg
+live in the same module as the type. When you import `IdentityContext`, you get
+its behavior too.
+
+### Current Structure (3 modules, behavior scattered)
+
+```
+agent_identity_types.gleam  — IdentityContext (data only), IdentityError, AgentId, AgentIdentity
+agent_identity_logic.gleam  — generate_semantic_id(ctx)        ← behavior, separate module
+agent_identity.gleam        — get_resolved_identity(ctx)        ← behavior, separate module
+                               get_agent_id(ctx)                ← behavior, separate module
+                               somatic_id_tool()                ← Pi integration
+                               autonomic_id_tool()              ← Pi integration
+```
+
+Problem: To use `IdentityContext`, you import the type from one module, then
+import the behavior from two other modules. The type and its behavior are
+artificially separated.
+
+### Proposed Structure (2 modules, behavior co-located)
+
+```
+agent_identity_types.gleam  — IdentityContext (data + behavior)
+                               IdentityContext.semantic_id()      ← was generate_semantic_id
+                               IdentityContext.resolved_identity() ← was get_resolved_identity
+                               IdentityContext.agent_id()         ← was get_agent_id
+                               IdentityError, AgentId, AgentIdentity (unchanged)
+
+agent_identity.gleam        — somatic_id_tool()                  ← Pi integration only
+                               autonomic_id_tool()                ← Pi integration only
+```
+
+`agent_identity_logic.gleam` is absorbed — its single function moves into
+`agent_identity_types.gleam` as `IdentityContext.semantic_id()`.
+
+### What Changes
+
+| File                         | Change                                                                            |
+| ---------------------------- | --------------------------------------------------------------------------------- |
+| `agent_identity_types.gleam` | Add `semantic_id()`, `resolved_identity()`, `agent_id()`                          |
+| `agent_identity_logic.gleam` | DELETE — absorbed into `agent_identity_types`                                     |
+| `agent_identity.gleam`       | Remove `get_resolved_identity`, `get_agent_id`; import from types                 |
+| `directive.gleam`            | `agent_identity.get_resolved_identity` → `agent_identity_types.resolved_identity` |
+| `test/psypi_test.gleam`      | `agent_identity_logic.generate_semantic_id` → `agent_identity_types.semantic_id`  |
+
+### What Does NOT Change
+
+- `AgentIdentity`, `AgentId`, `IdentityError` types — stay in `agent_identity_types`
+- `activity_log.gleam` — only uses `AgentId`, no change
+- `agent_identity_db.gleam` — only uses `AgentIdentity`, no change
+- `extension_generator.gleam` — only uses Pi tools from `agent_identity`, no change
+- Pi tool `module` field — still `"agent_identity"` because the Pi tool calls
+  the compiled JS function, and we'll re-export from `agent_identity.gleam`
+
+### Naming Convention
+
+Gleam convention: when a function lives in the same module as its first-arg type,
+the function name drops the type prefix. So:
+
+- `generate_semantic_id(ctx)` → `semantic_id(ctx)` (context is implied)
+- `get_resolved_identity(ctx)` → `resolved_identity(ctx)` (context is implied)
+- `get_agent_id(ctx)` → `agent_id(ctx)` (BUT: conflicts with existing `agent_id(s: String) -> AgentId`)
+
+The `agent_id` conflict: there's already `pub fn agent_id(s: String) -> AgentId`
+in `agent_identity_types.gleam` (the `AgentId` constructor helper). Options:
+
+1. Rename the new function to `to_agent_id(ctx)` — "convert context to agent ID"
+2. Rename the old helper to something else
+3. Keep different names: `agent_id_from_string()` vs `agent_id(ctx)`
+
+Best: rename old helper to `agent_id_from_string(s)` and use `agent_id(ctx)` for
+the context method. The string helper is rarely used externally.
+
+### Re-export for Pi Tools
+
+Pi tool definitions reference `module: "agent_identity"`, so the compiled JS
+calls `agent_identity_get_resolved_identity(...)`. After moving the function to
+`agent_identity_types`, we need either:
+
+1. Change `module` to `"agent_identity_types"` in Pi tool defs — changes the
+   import path in extension.js
+2. Re-export from `agent_identity.gleam` — `pub fn resolved_identity = agent_identity_types.resolved_identity`
+
+Option 1 is cleaner — change the module reference. The import line in
+extension.js will change from `agent_identity.mjs` to `agent_identity_types.mjs`,
+which is fine since the function actually lives there now.
+
+### Execution Order
+
+1. Add `semantic_id()`, `resolved_identity()`, `agent_id()` to `agent_identity_types.gleam`
+2. Rename old `agent_id(s: String)` to `agent_id_from_string(s: String)`
+3. Update `agent_identity.gleam` — remove the moved functions, update Pi tool `module` field
+4. Delete `agent_identity_logic.gleam`
+5. Update `directive.gleam` import
+6. Update `test/psypi_test.gleam` import
+7. Update `agent_identity_db.gleam` if it uses `agent_id` helper
+8. `gleam build` + `gleam test`
+9. Git commit
