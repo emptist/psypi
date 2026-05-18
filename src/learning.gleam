@@ -1,5 +1,6 @@
 import gleam/dynamic
 import gleam/javascript/promise
+import gleam/list
 import gleam/string
 import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
@@ -16,10 +17,23 @@ fn db_error_to_learning_error(e: db.DbError) -> LearningError {
   }
 }
 
+fn tags_to_array_literal(tags: String) -> String {
+  let trimmed = string.trim(tags)
+  case trimmed {
+    "" -> "{}"
+    _ ->
+      trimmed
+      |> string.split(",")
+      |> list.map(fn(t) { string.trim(t) })
+      |> string.join(",")
+      |> fn(s) { "{" <> s <> "}" }
+  }
+}
+
 fn save_learning(
   conn: db.Connection,
   content: String,
-  tags: List(String),
+  tags: String,
   importance: Int,
   agent_id: String,
 ) -> promise.Promise(Result(Nil, LearningError)) {
@@ -29,7 +43,7 @@ fn save_learning(
   "
   let params = [
     dynamic.string(content),
-    dynamic.string(string.join(tags, ",")),
+    dynamic.string(tags_to_array_literal(tags)),
     dynamic.int(importance),
     dynamic.string(agent_id),
   ]
@@ -44,7 +58,7 @@ fn save_learning(
 
 pub fn save(
   content: String,
-  tags: List(String),
+  tags: String,
   importance: Int,
   agent_id: String,
 ) -> promise.Promise(Result(Nil, LearningError)) {
@@ -67,7 +81,7 @@ pub fn learn_save_tool() -> PiToolCall {
     fn_name: "save",
     args: [
       from_param("params.content || \"\""),
-      from_param("params.tags ? params.tags.split(',').map(s => s.trim()) : []"),
+      from_param("params.tags || \"\""),
       from_param("parseInt(params.importance || '5')"),
       from_param("'psypi'"),
     ],
