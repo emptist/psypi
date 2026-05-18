@@ -5,7 +5,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import db
-import pi_tool_call.{type PiToolCall, type PiCommandReg, PiToolCall, raw_json, template, command}
+import pi_tool_call.{type PiToolCall, type PiCommandReg, PiToolCall, raw_json, template, raw_command}
 
 pub type MonitorError {
   ConnectionError(String)
@@ -410,7 +410,7 @@ pub fn monitor_suggest_tool() -> PiToolCall {
 
 /// /autonomic-listen command - Human tells Monitor what to do, Monitor replies in chat
 pub fn autonomic_listen_command() -> PiCommandReg {
-  command(
+  raw_command(
     "autonomic-listen",
     "Talk to Monitor AI directly - human and Monitor exchange in chat",
     "
@@ -447,7 +447,7 @@ pub fn autonomic_listen_command() -> PiCommandReg {
 
 /// /autonomic-reload command - Reload Pi extensions (for Monitor's self-improvement)
 pub fn autonomic_reload_command() -> PiCommandReg {
-  command(
+  raw_command(
     "autonomic-reload",
     "Reload Pi extensions - used after Monitor modifies its own Gleam code",
     "

@@ -100,13 +100,19 @@ pub type PiEventHook {
   )
 }
 
-/// A Pi slash command — human types /command in chat to invoke.
-/// The handler body is JS text that receives (args, ctx) like other extensions.
 pub type PiCommandReg {
   PiCommandReg(
-    name: String,         // e.g. "autonomic-listen"
-    description: String,  // shown when user types /commands
-    handler_body: String, // JS handler body: async (args, ctx) => { ... }
+    name: String,
+    description: String,
+    module: String,
+    fn_name: String,
+    args: List(FnArg),
+    result_format: ResultFormat,
+  )
+  PiRawCommand(
+    name: String,
+    description: String,
+    handler_body: String,
   )
 }
 
@@ -454,23 +460,61 @@ pub fn debounced_hook(
 // PiCommandReg → JS text
 // -------------------------------------------------------------------
 
-/// Helper to create a slash command
-pub fn command(name: String, description: String, handler_body: String) -> PiCommandReg {
-  PiCommandReg(name: name, description: description, handler_body: handler_body)
+pub fn raw_command(name: String, description: String, handler_body: String) -> PiCommandReg {
+  PiRawCommand(name: name, description: description, handler_body: handler_body)
 }
 
-/// Generate the pi.registerCommand({...}) block as JS text
+pub fn command(
+  name: String,
+  description: String,
+  module: String,
+  fn_name: String,
+  args: List(FnArg),
+  result_format: ResultFormat,
+) -> PiCommandReg {
+  PiCommandReg(name:, description:, module:, fn_name:, args:, result_format:)
+}
+
 pub fn command_to_js(cmd: PiCommandReg) -> String {
-  [
-    "  // " <> cmd.description,
-    "  pi.registerCommand(\"" <> cmd.name <> "\", {",
-    "    description: \"" <> cmd.description <> "\",",
-    "    handler: async (args, ctx) => {",
-    cmd.handler_body,
-    "    }",
-    "  });",
-    "",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat
+  case cmd {
+    PiRawCommand(name:, description:, handler_body:) -> {
+      [
+        "  // " <> description,
+        "  pi.registerCommand(\"" <> name <> "\", {",
+        "    description: \"" <> description <> "\",",
+        "    handler: async (args, ctx) => {",
+        handler_body,
+        "    }",
+        "  });",
+        "",
+      ]
+      |> list.map(fn(s) { s <> "\n" })
+      |> string.concat
+    }
+
+    PiCommandReg(name:, description:, module:, fn_name:, args:, result_format:) -> {
+      let import_line = hook_import_line(module, fn_name)
+      let call = hook_call_expr(module, fn_name, args)
+      let result_js = result_to_js(result_format)
+      [
+        "  // " <> description,
+        "  pi.registerCommand(\"" <> name <> "\", {",
+        "    description: \"" <> description <> "\",",
+        "    handler: async (args, ctx) => {",
+        "      try {",
+        "        " <> import_line,
+        "        const result = await " <> call <> ";",
+        "        const r = unwrapGleamResult(result);",
+        "        return r.ok ? { content: [{ type: \"text\", text: " <> result_js <> " }] } : { content: [{ type: \"text\", text: `Error: ${r.error}` }] };",
+        "      } catch(e) {",
+        "        return { content: [{ type: \"text\", text: `Error: ${e.message || String(e)}` }] };",
+        "      }",
+        "    }",
+        "  });",
+        "",
+      ]
+      |> list.map(fn(s) { s <> "\n" })
+      |> string.concat
+    }
+  }
 }
