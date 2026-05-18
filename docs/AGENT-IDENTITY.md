@@ -102,29 +102,38 @@ S-psypi-psypi
 
 ## Gleam Implementation
 
+### `IdentityContext` — Single Argument Type
+
+```gleam
+pub type IdentityContext {
+  IdentityContext(
+    is_idle: Bool,        // ctx.isIdle() — determines A/S prefix
+    project: String,      // from ctx.cwd
+    source: String,       // from ctx.model.provider
+    model: String,        // from ctx.model.id
+    thinking_level: String, // from ctx.model.thinkingLevel
+    global: Bool,         // whether no .git found in cwd
+  )
+}
+```
+
+All fields come from the live Pi runtime. No hidden state. No DB access.
+
 ### `agent_identity_logic.gleam` — ID Generation
 
 ```gleam
 pub fn generate_semantic_id(
-  autonomous: Bool,
-  source: String,
-  project: String,
-  model: String,
-  thinking_level: String,
+  ctx: IdentityContext,
 ) -> Result(String, IdentityError)
 ```
 
-Pure function. No DB access. Builds the ID string from parameters.
+Pure function. No DB access. Reads `ctx.is_idle` for A/S prefix, `ctx.model` for the ID body.
 
 ### `agent_identity.gleam` — Identity Resolution
 
 ```gleam
 pub fn get_resolved_identity(
-  autonomous: Bool,
-  project: String,
-  source: String,
-  model: String,
-  thinking_level: String,
+  ctx: IdentityContext,
 ) -> Result(AgentIdentity, IdentityError)
 ```
 
@@ -134,17 +143,18 @@ Calls `generate_semantic_id` and wraps the result in an `AgentIdentity` record.
 
 The `somatic_id_tool()` and `autonomic_id_tool()` Gleam functions define
 `PiToolCall` values that the generator turns into `pi.registerTool()` blocks.
-The generated JS passes `ctx.model?.id` and `ctx.model?.thinkingLevel` directly:
+The generated JS constructs an `IdentityContext` from live `ctx` fields:
 
 ```javascript
 // Generated in extension.js
-const result = await agent_identity_get_resolved_identity(
-    false,                              // autonomous (S-worker)
-    "psypi",                            // project
-    "psypi",                            // source
-    (ctx.model?.id || ''),             // model — LIVE from ctx
-    (ctx.model?.thinkingLevel || '')   // thinking_level — LIVE from ctx
-);
+const result = await agent_identity_get_resolved_identity({
+    is_idle: ctx.isIdle(),              // LIVE — A or S prefix
+    project: (function(){ ... }()),     // from ctx.cwd
+    source: (ctx.model?.provider || ''),
+    model: (ctx.model?.id || ''),       // LIVE — always current model
+    thinking_level: (ctx.model?.thinkingLevel || ''),
+    global: (function(){ ... }())       // from ctx.cwd
+});
 ```
 
 ## Database Storage

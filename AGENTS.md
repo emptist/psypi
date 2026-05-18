@@ -47,8 +47,20 @@ gleam run -m extension_generator
 ## Identity System
 
 psypi has a dual identity system:
-- **Somatic Worker (S-)** — Prompt-driven, responds to user requests. This is the default worker.
-- **Autonomic Worker (A-)** — Event-driven, monitors and coordinates in the background.
+- **Somatic Worker (S-)** — Prompt-driven, responds to user requests. `ctx.isIdle() = false`
+- **Autonomic Worker (A-)** — Event-driven, monitors and coordinates. `ctx.isIdle() = true`
+
+**Single source of truth:** `get_resolved_identity(ctx: IdentityContext)` — one function, one argument.
+
+`IdentityContext` fields all come from the live Pi runtime (`ctx`):
+- `is_idle` ← `ctx.isIdle()` — determines A/S prefix
+- `model` ← `ctx.model.id`
+- `source` ← `ctx.model.provider`
+- `thinking_level` ← `ctx.model.thinkingLevel`
+- `project` ← `ctx.cwd` (directory name when .git exists)
+- `global` ← whether no .git found (prepends G- to ID)
+
+**Never cache the ID.** Call `get_resolved_identity` when needed — it's pure, no DB, no side effects.
 
 **To find your identity, use the identity tools:**
 - `psypi-somatic-id` — Get Somatic Worker ID
