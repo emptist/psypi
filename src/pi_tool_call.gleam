@@ -313,13 +313,13 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
     ) -> {
       let import_line = hook_import_line(module, fn_name)
       let call = hook_call_expr(module, fn_name, args)
-      let guard_check = case guard {
+      let guard_prefix = case guard {
         Some(g) -> "    if (" <> g <> ") {\n"
-        None -> "    {\n"
+        None -> ""
       }
-      let guard_close = case guard {
+      let guard_suffix = case guard {
         Some(_) -> "    }\n"
-        None -> "    }\n"
+        None -> ""
       }
       let success_js = success_action_to_js(on_success)
       let _error_js = error_action_to_js(on_error)
@@ -331,13 +331,13 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "  // Event hook: " <> event_name,
         "  pi.on('" <> event_name <> "', async (event, ctx) => {",
         "    try {",
-        guard_check,
+        guard_prefix,
         "      " <> import_line,
         "      const result = await " <> call <> ";",
         "      const r = unwrapGleamResult(result);",
         "      if (r.ok) { " <> success_js <> " }",
         "      else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
-        guard_close,
+        guard_suffix,
         "    } catch(e) {",
         error_catch,
         "    }",

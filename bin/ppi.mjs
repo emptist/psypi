@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // ppi entry point: generate extension.js from Gleam, then spawn Pi
+// most of this should be generated using ppi_gen.gleam
 
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
