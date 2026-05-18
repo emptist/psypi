@@ -32,15 +32,14 @@ import monitor_ai.{
 
 import pi_tool_call.{
   type PiCommandReg, type PiEventHook, type PiToolCall, IgnoreError,
-  SilentSuccess, command_to_js, event_hook, event_hook_to_js, from_param, lit,
+  SilentSuccess, command_to_js, debounced_hook, event_hook, event_hook_to_js, from_param, lit,
   raw_event_hook, to_import_line, to_js_text,
 }
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import stats.{stats_show_tool}
 import task.{task_add_tool, task_complete_tool, task_list_tool}
 
-// Generator modules
-import hook_agent_lifecycle
+// Generator modules (none remaining — all migrated to structured hooks)
 
 // ---------------------------------------------------------------------------
 // Tool registry
@@ -139,8 +138,17 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       IgnoreError,
     ),
     raw_event_hook("before_agent_start", "    // no-op\n"),
-    raw_event_hook("agent_start", hook_agent_lifecycle.start_body()),
-    raw_event_hook("agent_end", hook_agent_lifecycle.end_body()),
+    raw_event_hook("agent_start", "    // agent_start: S is starting, A stays silent\n"),
+    debounced_hook(
+      "agent_end",
+      "hook_on_agent_end", "on_agent_end",
+      [lit("ctx"), lit("pi")],
+      "system_config", "get_debounce_ms",
+      15_000,
+      option.None,
+      SilentSuccess,
+      IgnoreError,
+    ),
     event_hook(
       "tool_result",
       "hook_on_tool_result",
