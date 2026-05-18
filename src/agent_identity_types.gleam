@@ -1,6 +1,5 @@
 import gleam/option
 
-/// Identity-related errors
 pub type IdentityError {
   MissingSessionId
   ConnectionError(String)
@@ -8,11 +7,26 @@ pub type IdentityError {
   NotFound(String)
 }
 
+pub type IdentityContext {
+  IdentityContext(
+    is_idle: Bool,
+    project: String,
+    source: String,
+    model: String,
+    thinking_level: String,
+    global: Bool,
+  )
+}
+
 /// Lightweight wrapper for agent ID - use this instead of String
-pub type AgentId { AgentId(String) }
+pub type AgentId {
+  AgentId(String)
+}
 
 /// Helper to create AgentId from String
-pub fn agent_id(s: String) -> AgentId { AgentId(s) }
+pub fn agent_id(s: String) -> AgentId {
+  AgentId(s)
+}
 
 /// Extract String from AgentId
 pub fn agent_id_to_string(id: AgentId) -> String {

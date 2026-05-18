@@ -7,6 +7,7 @@ import gleam/string
 import db
 import pi_tool_call.{type PiToolCall, PiToolCall, template, string_param, opt_string_param, from_param}
 import agent_identity.{get_resolved_identity}
+import agent_identity_types.{IdentityContext}
 
 pub type DirectiveError {
   ConnectionError(String)
@@ -50,9 +51,15 @@ pub fn set_directive(
       _ -> "unknown"
     }
     let identity = get_resolved_identity(
-      True, "psypi", provider, model_id, thinking_level, False
+      IdentityContext(
+        is_idle: True,
+        project: "psypi",
+        source: provider,
+        model: model_id,
+        thinking_level: thinking_level,
+        global: False,
+      ),
     )
-    // Args: autonomous, project, source, model, thinking_level, global
     case identity {
       Error(_) -> promise.resolve(Error(QueryError("Identity error")))
       Ok(id_val) -> {
