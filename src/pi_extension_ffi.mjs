@@ -60,24 +60,17 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
     if (!model) {
       return new Error('callMonitor: ctx.model is missing — cannot complete LLM call');
     }
+    const auth = await modelRegistry.getApiKeyAndHeaders(model);
+    if (!auth.ok || !auth.apiKey) {
+      return new Error('callMonitor: no API key for ' + (model.provider || 'unknown') + ': ' + (auth.error || 'auth failed'));
+    }
     const context = {
       systemPrompt: String(systemPrompt),
       messages: [
-        { role: 'user', content: String(userPrompt), timestamp: Date.now() },
+        { role: 'user', content: [{ type: 'text', text: String(userPrompt) }], timestamp: Date.now() },
       ],
     };
-    const result = await complete(model, context, { modelRegistry });
-    ctx.ui.notify('[DIAG] complete result type: ' + (typeof result) + ' keys: ' + (result ? Object.keys(result).join(',') : 'null'), 'info');
-    if (result) {
-      ctx.ui.notify('[DIAG] result.content type: ' + (typeof result.content) + ' isArray: ' + Array.isArray(result.content), 'info');
-      if (Array.isArray(result.content)) {
-        ctx.ui.notify('[DIAG] content items: ' + result.content.map(c => c.type || 'unknown').join(','), 'info');
-      }
-      ctx.ui.notify('[DIAG] stopReason: ' + result.stopReason, 'info');
-      if (result.errorMessage) {
-        ctx.ui.notify('[DIAG] errorMessage: ' + result.errorMessage, 'info');
-      }
-    }
+    const result = await complete(model, context, { apiKey: auth.apiKey, headers: auth.headers });
     let text = '';
     if (Array.isArray(result?.content)) {
       text = result.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
