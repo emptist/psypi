@@ -143,7 +143,10 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       SilentSuccess,
       NotifyError,
     ),
-    raw_event_hook("before_agent_start", "    // no-op\n"),
+    raw_event_hook(
+      "before_agent_start",
+      "    return { systemPrompt: '\\n[A-S Role Model] You are the Somatic Agentbot (S-agentbot). Your ID starts with S-. You are NOT the Autonomic Agentbot (A-agentbot). Messages prefixed with [A-agentbot] come from A — your coordinator. A directs you on what to work on. Follow A\\'s instructions as task assignments. The human user is the person operating the terminal.' };\n",
+    ),
     raw_event_hook("agent_start", "    // agent_start: S is starting, A stays silent\n"),
     debounced_hook(
       "agent_end",
