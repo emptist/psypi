@@ -5,7 +5,7 @@
 
 import { readFileSync } from 'fs';
 import { Ok, Error } from './gleam.mjs';
-import { complete, getModel } from '@earendil-works/pi-ai';
+import { completeSimple, getModel } from '@earendil-works/pi-ai';
 
 export function notify_error(ctx, message) {
   ctx.ui.notify(String(message), "error");
@@ -58,24 +58,21 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
     const model = ctx.model;
     const modelRegistry = ctx.modelRegistry;
     if (!model) {
-      return new Error('callMonitor v3: ctx.model is missing');
+      return new Error('callMonitor: ctx.model is missing');
     }
-    notify_info(ctx, '[AUTONOMIC] call_monitor v3: model=' + (model.id || model.provider || 'unknown'));
     const auth = await modelRegistry.getApiKeyAndHeaders(model);
     if (!auth.ok || !auth.apiKey) {
-      return new Error('callMonitor v3: no API key for ' + (model.provider || 'unknown') + ': ' + (auth.error || 'auth failed'));
+      return new Error('callMonitor: no API key for ' + (model.provider || 'unknown') + ': ' + (auth.error || 'auth failed'));
     }
-    notify_info(ctx, '[AUTONOMIC] call_monitor v3: auth ok, calling complete...');
     const context = {
       systemPrompt: String(systemPrompt),
       messages: [
         { role: 'user', content: [{ type: 'text', text: String(userPrompt) }], timestamp: Date.now() },
       ],
     };
-    const result = await complete(model, context, { apiKey: auth.apiKey, headers: auth.headers });
-    notify_info(ctx, '[AUTONOMIC] call_monitor v3: complete returned, stopReason=' + (result?.stopReason || 'none') + ' contentLen=' + (result?.content?.length || 0));
+    const result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'medium' });
     if (result?.errorMessage) {
-      return new Error('callMonitor v3: LLM error: ' + result.errorMessage);
+      return new Error('LLM error: ' + result.errorMessage);
     }
     let text = '';
     if (Array.isArray(result?.content)) {
@@ -85,7 +82,7 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
       text = result.text;
     }
     if (!text) {
-      return new Error('callMonitor v3: empty output, stopReason=' + (result?.stopReason || 'none'));
+      return new Error('empty output, stopReason=' + (result?.stopReason || 'none'));
     }
     return new Ok(text);
   } catch (e) {
