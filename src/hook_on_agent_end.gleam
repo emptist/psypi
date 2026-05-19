@@ -11,11 +11,18 @@ pub fn on_agent_end(
   pi: b,
 ) -> promise.Promise(Result(Nil, String)) {
   case ctx_is_idle(ctx) {
-    False -> promise.resolve(Ok(Nil))
+    False -> {
+      notify_info(ctx, "[AUTONOMIC] ctx.isIdle()=false, skipping")
+      promise.resolve(Ok(Nil))
+    }
     True -> {
       case ctx_has_pending_messages(ctx) {
-        True -> promise.resolve(Ok(Nil))
+        True -> {
+          notify_info(ctx, "[AUTONOMIC] pending messages, skipping")
+          promise.resolve(Ok(Nil))
+        }
         False -> {
+          notify_info(ctx, "[AUTONOMIC] idle + no pending, calling LLM...")
           let entries_json = ctx_get_entries_json(ctx)
           let usage_json = ctx_get_context_usage_json(ctx)
           compose_and_send(ctx, pi, entries_json, usage_json)
@@ -54,8 +61,9 @@ fn compose_and_send(
           Ok(Nil)
         }
         Ok(msg) -> {
-          notify_info(ctx, "[AUTONOMIC] LLM composed wake-up message")
+          notify_info(ctx, "[AUTONOMIC] sending wake-up to S-worker...")
           pi_send_message(pi, "autonomic-wakeup", msg, "persistent")
+          notify_info(ctx, "[AUTONOMIC] wake-up sent")
           Ok(Nil)
         }
         Error(e) -> {

@@ -49,9 +49,9 @@ export function ctx_get_cwd(ctx) {
 export function pi_send_message(pi, customType, content, display) {
   pi.sendMessage({
     customType: String(customType),
-    content: [{ type: 'text', text: String(content) }],
-    display: String(display),
-  }, { triggerTurn: true });
+    content: String(content),
+    display: true,
+  }, { triggerTurn: true, deliverAs: 'steer' });
 }
 
 export async function call_monitor(ctx, userPrompt, systemPrompt) {
@@ -65,15 +65,40 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
       { role: 'system', content: [{ type: 'text', text: String(systemPrompt) }] },
       { role: 'user', content: [{ type: 'text', text: String(userPrompt) }] },
     ];
-    const result = await complete(model, { systemPrompt, messages }, { modelRegistry });
-    // result is an AssistantMessage with content: (TextContent | ThinkingContent | ToolCall)[]
-    const text = result.content
-      ?.filter(c => c.type === 'text')
-      ?.map(c => c.text)
-      ?.join(' ') || '';
-    if (!text) {
-      return new Error('callMonitor returned empty — LLM produced no output');
+    const completionCtx = { systemPrompt, messages };
+    console.error('[DIAG:callMonitor] calling complete, model:', model?.id, 'api:', model?.api);
+    console.error('[DIAG:callMonitor] context keys:', Object.keys(completionCtx), 'messages count:', messages.length);
+    const result = await complete(model, completionCtx, { modelRegistry });
+    console.error('[DIAG:callMonitor] result type:', typeof result, 'constructor:', result?.constructor?.name);
+    console.error('[DIAG:callMonitor] result keys:', result ? Object.keys(result) : 'null');
+    console.error('[DIAG:callMonitor] result.content:', JSON.stringify(result?.content)?.substring(0, 200));
+    console.error('[DIAG:callMonitor] result.choices:', JSON.stringify(result?.choices)?.substring(0, 200));
+    // Try multiple response formats
+    let text = '';
+    // Format 1: result.content as array of {type, text} (AssistantMessage)
+    if (Array.isArray(result?.content)) {
+      text = result.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
+      console.error('[DIAG:callMonitor] format1 content array text:', text.substring(0, 100));
     }
+    // Format 2: result.choices[0].message.content (OpenAI-like)
+    if (!text && Array.isArray(result?.choices?.[0]?.message?.content)) {
+      text = result.choices[0].message.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
+      console.error('[DIAG:callMonitor] format2 choices text:', text.substring(0, 100));
+    }
+    // Format 3: result.choices[0].text
+    if (!text && typeof result?.choices?.[0]?.text === 'string') {
+      text = result.choices[0].text;
+      console.error('[DIAG:callMonitor] format3 choices[0].text:', text.substring(0, 100));
+    }
+    // Format 4: result.text directly
+    if (!text && typeof result?.text === 'string') {
+      text = result.text;
+      console.error('[DIAG:callMonitor] format4 result.text:', text.substring(0, 100));
+    }
+    if (!text) {
+      return new Error('callMonitor returned empty — LLM produced no output. Raw: ' + JSON.stringify(result)?.substring(0, 500));
+    }
+    console.error('[DIAG:callMonitor] final text:', text.substring(0, 100));
     return new Ok(text);
   } catch (e) {
     return new Error(e.message || 'callMonitor failed');
@@ -99,7 +124,7 @@ export async function ctx_reload(ctx) {
 export function exec_sync(command) {
   try {
     const { execSync } = require('child_process');
-    const output = execSync(String(command), { encoding: 'utf-8', maxBuffer: 10*1024*1024 });
+    const output = execSync(String(command), { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
     return new Ok(output);
   } catch (e) {
     const msg = (e && e.message) ? String(e.message) : (e ? String(e) : 'exec_sync: unknown error');
