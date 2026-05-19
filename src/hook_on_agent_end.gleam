@@ -2,8 +2,8 @@ import gleam/javascript/promise
 import gleam/string
 import pi_extension.{
   ctx_is_idle, ctx_has_pending_messages, ctx_get_entries_json,
-  ctx_get_context_usage_json, ctx_get_cwd, notify_info, notify_error,
-  pi_send_message, call_monitor, read_file_sync,
+  ctx_get_context_usage_json, ctx_get_cwd, notify_info,
+  pi_send_message, read_file_sync,
 }
 
 pub fn on_agent_end(
@@ -40,36 +40,11 @@ fn coordinate_with_s_worker(
   let usage_json = ctx_get_context_usage_json(ctx)
   let token_info = extract_token_info(usage_json)
   let recent_summary = extract_recent_summary(entries_json)
-  let system_prompt = build_system_prompt(token_info, brief, recent_summary)
-  let user_prompt = "Somatic worker is idle. Compose a wake-up message based on the recent context."
-
-  promise.map(
-    call_monitor(ctx, user_prompt, system_prompt),
-    fn(result) {
-      case result {
-        Ok(msg) -> {
-          case msg == "" {
-            True -> {
-              notify_error(ctx, "[AUTONOMIC] callMonitor returned empty — LLM produced no output")
-              pi_send_message(pi, "autonomic-wakeup", "[from A-worker:] Issue found! LLM produced no output", "persistent")
-              Ok(Nil)
-            }
-            False -> {
-              notify_info(ctx, "[AUTONOMIC] Sending wake-up message to S-worker...")
-              pi_send_message(pi, "autonomic-wakeup", msg, "persistent")
-              notify_info(ctx, "[AUTONOMIC] Wake-up message sent")
-              Ok(Nil)
-            }
-          }
-        }
-        Error(e) -> {
-          notify_error(ctx, "[AUTONOMIC] callMonitor failed: " <> e)
-          pi_send_message(pi, "autonomic-wakeup", "[from A-worker:] LLM call failed: " <> e, "persistent")
-          Ok(Nil)
-        }
-      }
-    },
-  )
+  let wakeup_msg = build_wakeup_message(token_info, brief, recent_summary)
+  notify_info(ctx, "[AUTONOMIC] Sending wake-up directive to S-worker...")
+  pi_send_message(pi, "autonomic-wakeup", wakeup_msg, "persistent")
+  notify_info(ctx, "[AUTONOMIC] Wake-up directive sent")
+  promise.resolve(Ok(Nil))
 }
 
 fn read_monitor_brief(ctx: a) -> String {
@@ -100,7 +75,7 @@ fn extract_recent_summary(entries_json: String) -> String {
   }
 }
 
-fn build_system_prompt(
+fn build_wakeup_message(
   token_info: String,
   brief: String,
   recent_summary: String,
@@ -113,10 +88,10 @@ fn build_system_prompt(
     True -> ""
     False -> token_info <> "\n\n"
   }
-  "You are the Autonomic Worker (Monitor). The Somatic Worker has gone idle.\n\n"
+  "[from A-worker:] Autonomic Worker wake-up.\n\n"
+  <> "The Somatic Worker has gone idle. Review the recent context below and decide what needs attention.\n\n"
   <> token_section
   <> brief_section
   <> "Recent conversation context:\n"
   <> recent_summary
-  <> "\n\nCompose a brief, natural wake-up message (1-2 sentences). Mention what needs attention based on the context. Do NOT repeat what was already said. The S-worker is smart — it will decide what to do. Prefix with [from A-worker:]."
 }
