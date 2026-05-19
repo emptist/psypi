@@ -78,11 +78,14 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
     if (Array.isArray(result?.content)) {
       text = result.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
     }
+    if (!text && Array.isArray(result?.content)) {
+      text = result.content.filter(c => c.type === 'thinking').map(c => c.thinking).join(' ');
+    }
     if (!text && typeof result?.text === 'string') {
       text = result.text;
     }
     if (!text) {
-      return new Error('empty output, stopReason=' + (result?.stopReason || 'none'));
+      return new Error('empty output, stopReason=' + (result?.stopReason || 'none') + ' contentTypes=' + (Array.isArray(result?.content) ? result.content.map(c => c.type).join(',') : 'none'));
     }
     return new Ok(text);
   } catch (e) {

@@ -27,7 +27,8 @@ pub fn on_autonomic_listen(
         fn(result) {
           case result {
             Ok(response) -> {
-              pi_send_message(pi, "autonomic-wakeup", response, "persistent")
+              let message = "[A-agentbot] " <> response
+              pi_send_message(pi, "autonomic-wakeup", message, "persistent")
               notify_info(ctx, "[AUTONOMIC] wake-up sent")
               promise.resolve(Ok("A processed the message and sent to S."))
             }

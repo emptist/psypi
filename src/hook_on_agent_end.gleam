@@ -7,8 +7,8 @@ import gleam/result
 import gleam/string
 import pi_extension.{
   call_monitor, ctx_get_context_usage_json, ctx_get_cwd, ctx_get_entries_json,
-  ctx_has_pending_messages, ctx_is_idle, notify_info, pi_send_message,
-  read_file_sync,
+  ctx_has_pending_messages, ctx_is_idle, notify_info, notify_warning,
+  pi_send_message, read_file_sync,
 }
 import system_prompt_types.{
   type PromptComposition, High, add_component, compose, directive_component,
@@ -21,7 +21,7 @@ pub fn on_agent_end(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
       promise.resolve(Ok(Nil))
     }
     True -> {
-      notify_info(ctx, "[AUTONOMIC] S is idle")
+      notify_warning(ctx, "[AUTONOMIC] S is idle")
       case ctx_has_pending_messages(ctx) {
         True -> {
           promise.resolve(Ok(Nil))
@@ -62,7 +62,8 @@ fn coordinate_with_s(
         fn(monitor_result) {
           case monitor_result {
             Ok(response) -> {
-              pi_send_message(pi, "autonomic-wakeup", response, "persistent")
+              let message = "[A-agentbot] " <> response
+              pi_send_message(pi, "autonomic-wakeup", message, "persistent")
               notify_info(ctx, "[AUTONOMIC] wake-up sent")
               promise.resolve(Ok(Nil))
             }
@@ -93,10 +94,12 @@ fn build_system_prompt(
       soul_component(
         "You are the Autonomic Agentbot (A-agentbot). Your ID starts with A-. "
         <> "You are NOT the Somatic Agentbot (S-agentbot). "
-        <> "You are the user's personal assistant. You observe, analyze, and direct S. "
-        <> "You compose messages to S telling it what to work on next. "
+        <> "You are NOT the human user. "
+        <> "Psypi is the personal assistant — you and S together form it. "
+        <> "You observe, analyze, and direct S on what to work on next. "
         <> "Never say SKIP or that there is nothing to do. "
-        <> "Be brief and specific. One task per message.",
+        <> "Be brief and specific. One task per message. "
+        <> "Always output a clear text instruction for S — do not only think.",
       ),
     )
   let soul_comp = case soul_content == "" {
