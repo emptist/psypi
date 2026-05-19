@@ -14,11 +14,11 @@ pub fn on_commit(
 }
 
 fn review_and_commit(message: String, ctx: a) -> promise.Promise(Result(String, String)) {
-  let changed_files = case exec_sync("git diff --name-only") {
+  let changed_files = case exec_sync("git diff --name-only && git diff --cached --name-only") {
     Ok(out) -> out
     Error(_) -> ""
   }
-  let diff = case exec_sync("git diff") {
+  let diff = case exec_sync("git diff && git diff --cached") {
     Ok(out) ->
       case string.length(out) > 8000 {
         True -> string.slice(out, 0, 8000)
