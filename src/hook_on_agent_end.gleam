@@ -36,21 +36,27 @@ fn coordinate_with_s(
   let cwd = ctx_get_cwd(ctx)
   case parse_context_window(usage_json) {
     Error(e) -> {
-      notify_info(ctx, "[AUTONOMIC] <ERROR> " <> e)
+      let msg = "[A-agentbot] <ERROR> " <> e
+      notify_info(ctx, "[AUTONOMIC] " <> msg)
+      pi_send_message(pi, "autonomic-error", msg, "persistent")
       promise.resolve(Ok(Nil))
     }
     Ok(context_window) ->
       promise.await(read_soul_from_db(), fn(soul_result) {
         case soul_result {
           Error(e) -> {
-            notify_info(ctx, "[AUTONOMIC] <ERROR> read_soul: " <> e)
+            let msg = "[A-agentbot] <ERROR> read_soul: " <> e
+            notify_info(ctx, "[AUTONOMIC] " <> msg)
+            pi_send_message(pi, "autonomic-error", msg, "persistent")
             promise.resolve(Ok(Nil))
           }
           Ok(soul_content) ->
             promise.await(read_directives_from_db(), fn(directives_result) {
               case directives_result {
                 Error(e) -> {
-                  notify_info(ctx, "[AUTONOMIC] <ERROR> read_directives: " <> e)
+                  let msg = "[A-agentbot] <ERROR> read_directives: " <> e
+                  notify_info(ctx, "[AUTONOMIC] " <> msg)
+                  pi_send_message(pi, "autonomic-error", msg, "persistent")
                   promise.resolve(Ok(Nil))
                 }
                 Ok(directives) -> {
@@ -79,9 +85,13 @@ fn coordinate_with_s(
                           promise.resolve(Ok(Nil))
                         }
                         Error(e) -> {
-                          notify_info(
-                            ctx,
-                            "[AUTONOMIC] <ERROR> call_monitor: " <> e,
+                          let msg = "[A-agentbot] <ERROR> call_monitor: " <> e
+                          notify_info(ctx, "[AUTONOMIC] " <> msg)
+                          pi_send_message(
+                            pi,
+                            "autonomic-error",
+                            msg,
+                            "persistent",
                           )
                           promise.resolve(Ok(Nil))
                         }
@@ -184,17 +194,17 @@ fn read_soul_from_db() -> promise.Promise(Result(String, String)) {
   db.with_connection(
     fn(conn) {
       let sql =
-        "SELECT role, responsibility, domain FROM soul WHERE is_active = true AND role = 'Monitor' ORDER BY priority"
+        "SELECT content FROM souls WHERE name = 'Monitor' AND agent_id LIKE 'A-%' LIMIT 1"
       promise.map(db.query(conn, sql, []), fn(query_result) {
         case query_result {
           Error(e) -> Error(db_error_to_string(e))
           Ok(result) ->
             result.rows
-            |> decode_rows(soul_entry_decoder())
+            |> decode_rows(soul_content_decoder())
             |> result.map(fn(entries) {
               case entries {
                 [] -> Error("No Monitor soul entries found")
-                _ -> Ok(string.join(entries, "\n"))
+                [content, ..] -> Ok(content)
               }
             })
             |> result.flatten
@@ -205,11 +215,9 @@ fn read_soul_from_db() -> promise.Promise(Result(String, String)) {
   )
 }
 
-fn soul_entry_decoder() -> decode.Decoder(String) {
-  use role <- decode.field("role", decode.string)
-  use responsibility <- decode.field("responsibility", decode.string)
-  use domain <- decode.field("domain", decode.string)
-  decode.success(role <> " | " <> domain <> ": " <> responsibility)
+fn soul_content_decoder() -> decode.Decoder(String) {
+  use content <- decode.field("content", decode.string)
+  decode.success(content)
 }
 
 fn read_directives_from_db() -> promise.Promise(Result(List(String), String)) {

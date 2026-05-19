@@ -371,7 +371,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      " <> debounce_import,
         "      const debounceResult = await " <> debounce_call <> ";",
         "      const dr = unwrapGleamResult(debounceResult);",
-        "      if (!dr.ok) { ctx.ui.notify('Hook " <> event_name <> " <ERROR> debounce config: ' + dr.error, 'error'); return; }",
+        "      if (!dr.ok) { ctx.ui.notify('Hook " <> event_name <> " <ERROR> debounce config: ' + dr.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " <ERROR> debounce config: ' + dr.error, 'error'); return; }",
         "      const debounceMs = dr.value;",
         "      setTimeout(async () => {",
         "        try {",
