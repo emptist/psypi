@@ -1,14 +1,15 @@
 <overview>
-Testing Gleam code with gleeunit (Erlang target) and gleam_stdlib (JavaScript target).
+Testing Gleam code with gleeunit (Erlang target) and built-in assertions (JavaScript target).
 Write tests in `test/` directory.
+Official reference: https://tour.gleam.run/
 </overview>
 
 <gleeunit_setup>
 ## Gleeunit (Erlang Target)
 
-Install gleeunit:
+Add gleeunit:
 ```bash
-gleam add gleeunit
+gleam add gleeunit --dev
 ```
 
 **Test file structure:**
@@ -36,10 +37,10 @@ gleam test
 ```
 </gleeunit_setup>
 
-<gleam_stdlib_testing>
-## Gleamstdlib (JavaScript Target)
+<js_target_testing>
+## JavaScript Target
 
-For JS target, use `gleam/should`:
+For JS target, use `gleam/should` directly (no gleeunit needed):
 
 ```gleam
 // test/my_module_test.gleam
@@ -54,9 +55,36 @@ pub fn do_something_test() {
   |> should.equal(Ok("Processed: hi"))
 }
 ```
+</js_target_testing>
 
-**No gleeunit needed for JS target!**
-</gleam_stdlib_testing>
+<should_assertions>
+## Should Assertions
+
+```gleam
+import gleam/should
+
+// Equality
+value |> should.equal(expected)
+
+// Inequality
+value |> should.not_equal(expected)
+
+// Booleans
+value |> should.be_true
+value |> should.be_false
+
+// Result
+result |> should.be_ok
+result |> should.be_error
+
+// Option
+option |> should.be_some
+option |> should.be_none
+
+// Containment (strings)
+string |> should.contain("substring")
+```
+</should_assertions>
 
 <test_patterns>
 ## Common Test Patterns
@@ -81,15 +109,24 @@ pub fn shape_test() {
 }
 ```
 
-### Testing with Mocks (use Result!)
+### Testing with Use in Tests
 ```gleam
-// No mocks in Gleam! Use Result to simulate failures:
 pub fn fetch_data_test() {
-  my_module.fetch_data(Ok("data"))
-  |> should.equal("Processed: data")
+  // Use result.try to test Result chains
+  let result = fetch_data("input")
+  use value <- result.try(result)
+  value |> should.equal("expected")
+}
+```
 
-  my_module.fetch_data(Error("Network error"))
-  |> should.equal("Failed: Network error")
+### Testing Error Cases
+```gleam
+pub fn divide_by_zero_test() {
+  divide(10.0, 0.0)
+  |> should.be_error
+
+  divide(10.0, 0.0)
+  |> should.equal(Error("Division by zero"))
 }
 ```
 </test_patterns>
@@ -98,51 +135,37 @@ pub fn fetch_data_test() {
 ## Test Workflow
 
 ```bash
-# 1. Write test in test/ directory
+# 1. Write test in test/ directory (must end with _test.gleam)
 vim test/my_module_test.gleam
 
-# 2. Run tests
+# 2. Run all tests
 gleam test
 
-# 3. If fails, check:
+# 3. Run tests for a specific module
+gleam test my_module
+
+# 4. If fails, check:
 #    - Function signature matches test
 #    - Types are correct
 #    - All patterns covered
-
-# 4. Repeat until ✅
 ```
 </test_workflow>
 
 <anti_patterns>
 ## What NOT to Do
 
-<anti_pattern name="Forgetting test file naming">
+<anti_pattern name="Wrong test file naming">
 Test files MUST end with `_test.gleam`!
 
-**Wrong:** `test/my_module_tests.gleam`  
+**Wrong:** `test/my_module_tests.gleam`
 **Right:** `test/my_module_test.gleam`
 </anti_pattern>
 
 <anti_pattern name="Testing private functions">
-Only test public functions!
-
-**Wrong:** Testing `my_private_func()` (not exported)  
-**Right:** Testing `pub fn do_something()` only
+Only test public (`pub`) functions!
 </anti_pattern>
 
-<anti_pattern name="Not running gleam test">
-Compiler catches type errors, NOT logic errors!
-
-**Wrong:** "It compiled, so it works!"  
-**Right:** Always run `gleam test`!
+<anti_pattern name="Trusting compilation alone">
+Compiler catches type errors, NOT logic errors. Always run `gleam test`!
 </anti_pattern>
 </anti_patterns>
-
-<exercises>
-## Practice Testing
-
-1. Write a test for a `Result` function
-2. Test a custom type with 2+ fields
-3. Test error cases (Error branch)
-4. Use `should.equal` for assertions
-</exercises>

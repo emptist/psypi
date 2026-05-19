@@ -3,8 +3,9 @@
 <required_reading>
 **Read these reference files NOW before migrating:**
 1. references/syntax-basics.md
-2. references/js-interop.md
-3. references/functional-patterns.md
+2. references/custom-types.md
+3. references/pattern-matching.md
+4. references/js-interop.md
 </required_reading>
 
 <intake>
@@ -33,21 +34,16 @@ Tell me your intent - for example:
 </routing>
 
 <process>
-## Step 1: Analyze TypeScript Module (if migrating entire file)
+## Step 1: Analyze TypeScript Module
 
 Read the TypeScript file completely. Identify:
 - Imports and dependencies
 - Functions and their signatures
-- Data types (interfaces, types)
+- Data types (interfaces, types, enums)
 - Side effects (DB calls, API calls, console.log)
-- Error handling patterns
+- Error handling patterns (try/catch, null checks)
 
-```bash
-# Read the TS file
-read /path/to/module.ts
-```
-
-## Step 2: Design Gleam Types (if migrating types)
+## Step 2: Design Gleam Types
 
 Convert TypeScript types to Gleam custom types:
 
@@ -68,23 +64,24 @@ pub type TaskStatus {
 }
 
 pub type Task {
-  Task(
-    id: String,
-    title: String,
-    status: TaskStatus,
-  )
+  Task(id: String, title: String, status: TaskStatus)
 }
 ```
 
-## Step 3: Rewrite Functions (if migrating functions)
+**Key conversions:**
+- `interface` → `type` (custom type with labelled fields)
+- `type Status = 'a' | 'b'` → `type Status { A B }` (custom type variants)
+- `string | null` → `Option(String)` or a custom type
+- `Promise<T>` → depends on target (use `@external` for JS interop)
 
-Convert each function to Gleam:
+## Step 3: Rewrite Functions
 
 **Rules:**
-- Pure functions only (no side effects)
+- Functions are private by default — use `pub fn` to export
 - Use `Result` type for errors (not throwing)
 - Use `Option` type (not null/undefined)
-- Pattern match with `case` (not if/else)
+- Pattern match with `case` (Gleam has no if/else)
+- Use `use` for chaining Result operations
 - Pipe operator `|>` for chaining
 
 **TypeScript:**
@@ -101,65 +98,56 @@ pub fn add(a: Int, b: Int) -> Int {
 }
 ```
 
-## Step 4: Handle Side Effects (if migrating side effects)
-
-For database calls, API calls, etc. - use JS interop or `gleam_javascript`:
-
-**Gleam with @external:**
-```gleam
-@external(javascript, "taskModule", "add")
-pub fn add(title: String, description: String) -> Promise(Result(String, TaskError))
-```
-
-**Or use gleam_javascript promise:**
-```gleam
-import gleam/javascript/promise
-
-pub fn add(title: String) -> promise.Promise(Result(String, TaskError)) {
-  // Call JS function via interop
+**TypeScript with error handling:**
+```typescript
+function parseAge(input: string): number {
+  const n = parseInt(input);
+  if (isNaN(n)) throw new Error("Invalid age");
+  return n;
 }
 ```
 
-## Step 5: Compile and Test (verify Gleam compiles)
+**Gleam:**
+```gleam
+pub fn parse_age(input: String) -> Result(Int, String) {
+  case int.parse(input) {
+    Ok(n) -> Ok(n)
+    Error(_) -> Error("Invalid age")
+  }
+}
+```
+
+## Step 4: Handle Side Effects
+
+For database calls, API calls, etc. — use `@external`:
+
+```gleam
+@external(javascript, "taskModule", "add")
+pub fn js_add(title: String) -> Promise(Result(String, TaskError))
+```
+
+Or wrap in a Gleam-friendly API:
+
+```gleam
+pub fn add(title: String) -> Result(Task, TaskError) {
+  // Call external, convert to Result
+}
+```
+
+## Step 5: Compile and Test
 
 ```bash
-# Compile Gleam to JS
-cd /Users/jk/gits/hub/tools_ai/psypi/gleam/psypi_core
-gleam build
-
-# Check output
-ls build/dev/javascript/psypi_core/psypi_cli/
+rm -rf build/ && gleam build
+gleam test
 ```
 
-## Step 6: Update TypeScript Import (connect TS to Gleam)
+## Step 6: Verify
 
-Update the TS file that imports this module:
-
-```typescript
-// Old TS import
-// import { add } from './task.js';
-
-// New Gleam import (compiled to JS)
-const { add } = await import("../../../gleam/psypi_core/build/dev/javascript/psypi_core/psypi_cli/task.mjs");
-```
-
-## Step 7: Deprecate Old TypeScript (use .ts.deprecated)
-
-```bash
-# Deprecate (don't delete!)
-mv /path/to/old-module.ts /path/to/old-module.ts.deprecated
-```
-
-## Step 8: Verify (test full functionality)
-
-```bash
-# Build entire project
-cd /Users/jk/gits/hub/tools_ai/psypi
-pnpm build
-
-# Test the functionality
-psypi task-add "Test task"
-```
+- [ ] Gleam module compiles without errors
+- [ ] All functions have proper Gleam types
+- [ ] Side effects handled via interop
+- [ ] Tests pass
+- [ ] No `panic` in library code
 </process>
 
 <anti_patterns>
@@ -167,17 +155,8 @@ Avoid:
 - Copying TS logic line-by-line (think functionally!)
 - Using classes in Gleam (Gleam has no classes)
 - Throwing errors (use Result type)
-- Using null/undefined (use Option)
+- Using null/undefined (use Option or custom types)
 - Mixing TS and Gleam in same module
+- Using `Dynamic` for FFI types (create specific external types)
+- Using `_` catch-all in case expressions (enumerate all variants)
 </anti_patterns>
-
-<success_criteria>
-Migration is complete when:
-- [ ] Gleam module compiles without errors
-- [ ] All functions have proper Gleam types
-- [ ] Side effects handled via interop
-- [ ] TypeScript imports the compiled .mjs file
-- [ ] Old TS file deprecated (.ts.deprecated)
-- [ ] `pnpm build` succeeds
-- [ ] Functionality works via psypi command
-</success_criteria>

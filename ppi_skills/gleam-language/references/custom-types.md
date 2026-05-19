@@ -1,34 +1,61 @@
 <overview>
-Gleam's custom types (also called "custom types" or "tagged unions").
+Gleam's custom types (tagged unions / algebraic data types).
 Define your own types with variants that can hold data.
+Official reference: https://tour.gleam.run/
 </overview>
 
 <basic_syntax>
 ## Defining Custom Types
 
 ```gleam
+// Variants without data (atoms)
 type Color {
   Red
   Green
   Blue
-  RGB(Int, Int, Int)
 }
 
+// Variants with positional fields
 type Status {
   Active
-  Inactive(String) // Reason
+  Inactive(String)  // reason
   Pending
+}
+
+// Variants with labelled fields (records)
+type User {
+  User(id: Int, name: String, email: String)
 }
 ```
 
 **Key points:**
-- Start with UPPERCASE letter
-- Variants can hold data (like RGB)
+- Type name starts with `PascalCase`
+- Variant names start with `PascalCase`
+- Fields can be positional or labelled
 - No null/undefined needed!
 </basic_syntax>
 
-<using_types>
-## Using Custom Types
+<record_access>
+## Record Field Access
+
+Variants with labelled fields get dot-accessor syntax:
+
+```gleam
+let user = User(id: 1, name: "Alice", email: "alice@example.com")
+user.id     // 1
+user.name   // "Alice"
+user.email  // "alice@example.com"
+```
+
+You can also use `..` spread syntax to update fields:
+
+```gleam
+let updated = User(..user, name: "Bob")
+```
+</record_access>
+
+<pattern_matching>
+## Pattern Matching (Exhaustive)
 
 ```gleam
 let my_color = RGB(255, 0, 128)
@@ -41,14 +68,11 @@ case my_color {
 }
 ```
 
-**Pattern matching is REQUIRED!**  
-Gleam compiler checks ALL variants are covered.
-</using_types>
+**The compiler REQUIRES all variants to be covered.** This is exhaustiveness checking — one of Gleam's most powerful features.
+</pattern_matching>
 
 <type_parameters>
 ## Type Parameters (Generics)
-
-Types can have parameters:
 
 ```gleam
 type Box(a) {
@@ -66,15 +90,13 @@ pub fn contents(box: Box(a)) -> a {
 ```
 
 **Common parameterized types:**
-- `Result(value, error)` - Success or failure
-- `Option(a)` - Some value or None
-- `List(a)` - List of any type
+- `Result(value, error)` — success or failure
+- `Option(a)` — some value or None
+- `List(a)` — homogeneous list
 </type_parameters>
 
 <nested_types>
 ## Nested Custom Types
-
-Types can contain other custom types:
 
 ```gleam
 type Point {
@@ -89,16 +111,70 @@ type Shape {
 let shape = Circle(Point(0.0, 0.0), 5.0)
 
 case shape {
-  Circle(p, r) -> "Circle at (" <> float.to_string(p.x) <> ",...)"
-  Rectangle(tl, br) -> "Rectangle from (" <> float.to_string(tl.x) <> ",...)"
+  Circle(center: p, radius: r) ->
+    "Circle at (" <> float.to_string(p.x) <> ", " <> float.to_string(p.y) <> ")"
+  Rectangle(top_left: tl, bottom_right: br) ->
+    "Rectangle"
 }
 ```
 </nested_types>
 
-<result_type>
-## Result Type (Special!)
+<type_aliases>
+## Type Aliases
 
-Gleam's `Result` type for error handling:
+Create a new name for an existing type:
+
+```gleam
+type UserName = String
+type UserAge = Int
+
+// With parameters:
+type MyResult(a) = Result(a, String)
+```
+
+Type aliases are fully interchangeable with the original type. They serve as documentation and can make refactoring easier.
+</type_aliases>
+
+<opaque_types>
+## Opaque Types
+
+Hide the internal representation of a type:
+
+```gleam
+pub opaque type UserId {
+  UserId(Int)
+}
+```
+
+With `opaque`, the constructor `UserId` is not exported. External code can only:
+- Create values through the module's public API functions
+- Pattern match through the module's public functions
+
+This enforces invariants — e.g., ensuring IDs are always positive:
+
+```gleam
+pub opaque type UserId {
+  UserId(Int)
+}
+
+pub fn new(id: Int) -> Result(UserId, String) {
+  case id > 0 {
+    True -> Ok(UserId(id))
+    False -> Error("ID must be positive")
+  }
+}
+
+pub fn to_string(id: UserId) -> String {
+  let UserId(value) = id
+  int.to_string(value)
+}
+```
+</opaque_types>
+
+<result_type>
+## Result Type (Built-in)
+
+Gleam's built-in `Result` type for error handling:
 
 ```gleam
 pub type Result(value, error) {
@@ -121,17 +197,19 @@ case divide(10.0, 2.0) {
 ```
 
 **Chain Result operations:**
+
 ```gleam
-let result = Ok(10)
-|> result.try(fn(x) { Ok(x * 2) })
-|> result.try(fn(x) { if x > 10 { Ok(x) } else { Error("Too small") } })
+// With result.try and use:
+use value <- result.try(parse_input(input))
+use validated <- result.try(validate(value))
+process(validated)
 ```
 </result_type>
 
 <option_type>
-## Option Type (For "Nullable" Values)
+## Option Type (Common Pattern)
 
-Gleam's `Option` type (instead of null/undefined):
+A typical optional value type (not built-in, but conventional):
 
 ```gleam
 pub type Option(a) {
@@ -141,7 +219,7 @@ pub type Option(a) {
 
 pub fn find_user(id: Int) -> Option(User) {
   case id {
-    1 -> Some(User("Alice"))
+    1 -> Some(User(id: 1, name: "Alice", email: "a@b.com"))
     _ -> None
   }
 }
@@ -151,19 +229,38 @@ case find_user(1) {
   Some(user) -> "Found: " <> user.name
   None -> "User not found"
 }
-
-// Use option functions:
-let maybe_name = Some("Bob")
-let name = option.unwrap(maybe_name, "Anonymous") // "Bob"
-let uppercase = option.map(maybe_name, string.uppercase) // Some("BOB")
 ```
 </option_type>
+
+<make_invalid_states_impossible>
+## Make Invalid States Impossible
+
+The most important pattern with custom types. Design types so invalid states cannot be constructed:
+
+```gleam
+// BAD: can construct invalid states
+pub type Visitor {
+  Visitor(id: Option(Int), email: Option(String))
+}
+// This is invalid but compiles:
+let invalid = Visitor(id: Some(123), email: None)
+
+// GOOD: invalid states are impossible
+pub type Visitor {
+  LoggedInUser(id: Int, email: String)
+  Guest
+}
+// Can't have an id without an email — the type system prevents it.
+```
+
+See Richard Feldman's talk: [Making Impossible States Impossible](https://www.youtube.com/watch?v=IcgmSRJHu_8)
+</make_invalid_states_impossible>
 
 <anti_patterns>
 ## What NOT to Do
 
 <anti_pattern name="Using null/undefined">
-Gleam has NO null or undefined! Use `Option`.
+Gleam has NO null or undefined! Use a custom type.
 
 **Wrong:**
 ```gleam
@@ -172,7 +269,7 @@ let x = null // ERROR!
 
 **Right:**
 ```gleam
-let x = None
+let x = None  // Using Option type
 let y = Some("value")
 ```
 </anti_pattern>
@@ -183,15 +280,15 @@ Compiler REQUIRES exhaustive patterns!
 **Wrong:**
 ```gleam
 case result {
-  Ok(v) -> ... // ERROR: Missing Error case!
+  Ok(v) -> process(v)  // ERROR: Missing Error case!
 }
 ```
 
 **Right:**
 ```gleam
 case result {
-  Ok(v) -> ...
-  Error(e) -> ... // Must handle ALL variants
+  Ok(v) -> process(v)
+  Error(e) -> handle_error(e)  // Must handle ALL variants
 }
 ```
 </anti_pattern>
@@ -202,22 +299,33 @@ Custom type instances are IMMUTABLE!
 **Wrong:**
 ```gleam
 let p = Point(1.0, 2.0)
-p.x = 3.0 // ERROR! Can't mutate
+p.x = 3.0  // ERROR! Can't mutate
 ```
 
 **Right:**
 ```gleam
 let p = Point(1.0, 2.0)
-let p2 = Point(3.0, p.y) // New instance
+let p2 = Point(3.0, p.y)  // New instance
+// Or with spread syntax:
+let p2 = Point(..p, x: 3.0)
+```
+</anti_pattern>
+
+<anti_pattern name="Using Dynamic for FFI types">
+Never use `Dynamic` to represent external types. Create a specific external type instead.
+
+**Wrong:**
+```gleam
+@external(javascript, "myLib", "open")
+pub fn open(path: String) -> Dynamic
+```
+
+**Right:**
+```gleam
+pub type FileHandle
+
+@external(javascript, "myLib", "open")
+pub fn open(path: String) -> FileHandle
 ```
 </anti_pattern>
 </anti_patterns>
-
-<exercises>
-## Practice Custom Types
-
-1. Define a `PaymentMethod` type (Card, Cash, Transfer)
-2. Create a `User` type with id, name, email (optional)
-3. Write a function that pattern matches on `Result` and returns default on Error
-4. Nest custom types (e.g., `Address` inside `User`)
-</exercises>

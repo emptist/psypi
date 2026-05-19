@@ -1,182 +1,256 @@
 <overview>
-Gleam's JavaScript interop using `@external` and `gleam_javascript` package.
-Call JavaScript functions from Gleam when you need browser/Node.js APIs.
+Gleam's interop with JavaScript (and Erlang) using `@external` and external types.
+Official reference: https://gleam.run/documentation/externals-guide/
 </overview>
 
-<external_annotation>
-## @external Attribute
+<when_to_use>
+## When to Use Externals
 
-Call JavaScript functions directly:
+**Always prefer pure Gleam solutions first.** Use externals only when:
+- You need a runtime API (e.g., getting memory usage from the VM)
+- There's existing code in another language you need to use
+- No suitable Gleam package exists
+
+**Disadvantages of externals:**
+- No type checking on the external code
+- Less editor assistance
+- May prevent cross-target compilation (Erlang + JS)
+</when_to_use>
+
+<external_functions>
+## External Functions
 
 ```gleam
-@external(javascript, "Date", "now")
-pub fn js_date_now() -> Float
-
-// Usage:
-let timestamp = js_date_now()
+@external(javascript, "./my_app/pokemon.mjs", "badge_count")
+pub fn pokemon_badge_count() -> Int
 ```
 
-**How it works:**
-- At compile time, Gleam replaces the function with JS call
-- For JavaScript target: calls `Date.now()`
-- For Erlang target: needs Erlang implementation too!
-</external_annotation>
+The `@external` attribute takes 3 arguments:
+1. **Target:** `javascript` or `erlang`
+2. **Module:** file path (JS) or module name (Erlang)
+3. **Function name:** the exported function name
 
-<gleam_javascript_package>
-## gleam_javascript Package
+**Type annotations are REQUIRED** for external functions. The Gleam compiler checks all uses but cannot verify the external implementation.
+</external_functions>
 
-Import functions from `gleam_javascript`:
+<multi_target>
+## Multi-Target Externals
+
+Provide implementations for both targets:
 
 ```gleam
-import gleam_javascript as js
+@external(javascript, "./my_app_ffi.mjs", "reverse_list")
+@external(erlang, "lists", "reverse")
+pub fn reverse_list(list: List(element)) -> List(element)
+```
 
-// Get global object (globalThis/window)
-let global = js.global()
+When compiling to JavaScript, the JS implementation is used. When compiling to Erlang, the Erlang implementation is used.
+</multi_target>
 
-// Check if value is undefined
-case js.is_undefined(some_value) {
-  True -> // Handle undefined
-  False -> // Value exists
+<gleam_fallback>
+## Gleam Fallback
+
+A function can have both a Gleam body and external implementations. The external is used when available; the Gleam body is the fallback:
+
+```gleam
+@external(erlang, "lists", "reverse")
+pub fn reverse_list(list: List(element)) -> List(element) {
+  // Gleam fallback for JS target
+  reverse_and_prepend(list, [])
 }
-
-// Throw/panic
-js.throw("Something went wrong")
 ```
+</gleam_fallback>
 
-**Common functions:**
-- `js.global()` - Get global object
-- `js.is_undefined(value)` - Check for undefined
-- `js.throw(message)` - Throw exception
-</gleam_javascript_package>
+<external_types>
+## External Types
 
-<calling_js_functions>
-## Calling JavaScript Functions
-
-Example: Call `console.log`:
+Define types that represent values from other languages:
 
 ```gleam
-@external(javascript, "console", "log")
-pub fn js_console_log(msg: String) -> Nil
-
-// Usage:
-js_console_log("Hello from Gleam!")
+pub type ErlangReference
+pub type JsPromise
 ```
 
-**For Node.js:**
+External types cannot be constructed or inspected directly in Gleam — you need external functions:
+
+```gleam
+pub type FileHandle
+
+@external(javascript, "fs", "createReadStream")
+pub fn open_file(path: String) -> FileHandle
+
+@external(javascript, "fs", "readFile")
+pub fn read_file(handle: FileHandle) -> BitArray
+```
+
+**Always create specific external types** rather than using `Dynamic`:
+
+```gleam
+// GOOD: specific type
+pub type Buffer
+pub fn byte_size(data: Buffer) -> Int
+
+// BAD: loses all type safety
+import gleam/dynamic.{type Dynamic}
+pub fn byte_size(data: Dynamic) -> Int
+```
+</external_types>
+
+<erlang_externals>
+## Erlang Externals
+
+Erlang module and function names are written as atoms:
+
+```gleam
+@external(erlang, "lists", "reverse")
+pub fn reverse_list(list: List(element)) -> List(element)
+
+@external(erlang, "erlang", "make_ref")
+pub fn make_reference() -> ErlangReference
+```
+
+**Gleam ↔ Erlang type mapping:**
+
+| Gleam | Erlang |
+|-------|--------|
+| `True`/`False` | `true`/`false` (atoms) |
+| `Int` | integer |
+| `Float` | float |
+| `String` | UTF-8 binary |
+| `Nil` | `nil` (atom) |
+| `BitArray` | bit string |
+| `List(a)` | list |
+| `#(a, b)` | tuple |
+| `Ok(v)` / `Error(e)` | `{ok, V}` / `{error, E}` |
+| Custom type (no fields) | atom (`snake_case`) |
+| Custom type (with fields) | tagged tuple (`{variant_name, ...}`) |
+
+Erlang character lists (`string()` type) are NOT Gleam strings. Use `gleam/erlang/charlist` to convert.
+</erlang_externals>
+
+<elixir_externals>
+## Elixir Externals
+
+Elixir uses the `erlang` target with the `Elixir.` prefix:
+
+```gleam
+@external(erlang, "Elixir.Phoenix", "config")
+pub fn phoenix_config(app: atom.Atom, key: String) -> Dynamic
+```
+
+Type mappings are the same as Erlang. Elixir macros cannot be used from Gleam.
+</elixir_externals>
+
+<javascript_externals>
+## JavaScript Externals
+
+For JavaScript, the module path is relative to the Gleam file:
+
+```gleam
+// In src/my_app.gleam
+@external(javascript, "./my_app/pokemon.mjs", "badge_count")
+pub fn pokemon_badge_count() -> Int
+```
+
+**Node.js modules** can be imported by name:
+
 ```gleam
 @external(javascript, "fs", "readFileSync")
-pub fn js_read_file(path: String) -> String
-
-let content = js_read_file("./data.txt")
+pub fn read_file(path: String) -> String
 ```
 
-**For Browser:**
+**Gleam ↔ JavaScript type mapping:**
+
+| Gleam | JavaScript |
+|-------|-----------|
+| `True`/`False` | `true`/`false` |
+| `Int` | number (whole) |
+| `Float` | number |
+| `String` | string |
+| `Nil` | `undefined` |
+| `BitArray` | `Uint8Array` (via `BitArray$BitArray`) |
+| `List(a)` | linked list (via `List$Empty`, `List$NonEmpty`) |
+| `#(a, b)` | array (immutable) |
+| `Ok(v)` / `Error(e)` | (via `Result$Ok`, `Result$Error`) |
+| Custom type | constructor functions |
+
+**Working with Gleam data in JavaScript:**
+
+Import from the Gleam prelude (auto-generated):
+```javascript
+import { BitArray$BitArray, List$Empty, List$NonEmpty, Result$Ok } from '../gleam.mjs';
+```
+
+Import custom types from their compiled modules:
+```javascript
+import { SchoolPerson$Teacher, SchoolPerson$isTeacher } from '../school.mjs';
+```
+</javascript_externals>
+
+<designing_apis>
+## Designing APIs with Externals
+
+**Don't mirror the external API.** Design idiomatic Gleam APIs that make invalid states impossible:
+
 ```gleam
-@external(javascript, "document", "getElementById")
-pub fn js_get_element(id: String) -> JsObject
+// BAD: exposes raw Erlang pid
+@external(erlang, "my_zip", "open")
+pub fn open(zip: BitString) -> Result(Pid, ZipError)
+
+// GOOD: wraps in a specific type
+pub type ZipHandle
+
+@external(erlang, "my_zip", "open")
+pub fn open(zip: BitString) -> Result(ZipHandle, ZipError)
+
+@external(erlang, "my_zip", "extract_file")
+pub fn extract(zip: ZipHandle, file: String) -> Result(BitArray, ZipError)
 ```
-</calling_js_functions>
-
-<handling_js_values>
-## Handling JavaScript Values
-
-JavaScript values aren't type-safe! Use careful patterns:
-
-```gleam
-@external(javascript, "someLib", "getValue")
-pub fn js_get_value() -> Dynamic
-
-// Safely decode JS value:
-let value = js_get_value()
-case dynamic.decode1(value, dynamic.string) {
-  Ok(s) -> "Got string: " <> s
-  Error(_) -> "Not a string!"
-}
-```
-
-**Use `gleam/dynamic` to decode JS values safely!**
-</handling_js_values>
-
-<erlang_target>
-## Erlang Target (Bonus)
-
-If targeting Erlang too, provide Erlang implementation:
-
-```gleam
-@external(javascript, "console", "log")
-@external(erlang, "io", "format")
-pub fn log(msg: String) -> Nil
-
-// Erlang implementation (pseudo):
-// io:format("~s~n", [Msg])
-```
-
-**For cross-platform:** Provide both JS and Erlang implementations!
-</erlang_target>
+</designing_apis>
 
 <anti_patterns>
 ## What NOT to Do
 
-<anti_pattern name="Forgetting Erlang">
-If targeting Erlang, you MUST provide Erlang implementation too!
+<anti_pattern name="Using Dynamic for external types">
+Never use `Dynamic` when you can define a specific external type.
 
 **Wrong:**
 ```gleam
-@external(javascript, "console", "log")
-pub fn log(msg: String) -> Nil // ERROR on Erlang!
+@external(javascript, "myLib", "open")
+pub fn open(path: String) -> Dynamic
 ```
 
 **Right:**
 ```gleam
-@external(javascript, "console", "log")
-@external(erlang, "io", "format")
-pub fn log(msg: String) -> Nil
+pub type FileHandle
+@external(javascript, "myLib", "open")
+pub fn open(path: String) -> FileHandle
 ```
 </anti_pattern>
 
-<anti_pattern name="Unsafe JS calls">
-JavaScript values aren't typed!
+<anti_pattern name="Panicking in libraries">
+Libraries must return `Result` for fallible operations, not panic.
 
 **Wrong:**
 ```gleam
-@external(javascript, "someFunc", "getValue")
-pub fn get_value() -> String // Might not be string!
+pub fn parse(input: String) -> Int {
+  let assert Ok(n) = int.parse(input)
+  n
+}
 ```
 
 **Right:**
 ```gleam
-pub fn get_value() -> Result(String, String) {
-  let dynamic_val = js_get_value()
-  case dynamic.decode1(dynamic_val, dynamic.string) {
-    Ok(s) -> Ok(s)
-    Error(_) -> Error("Not a string")
+pub fn parse(input: String) -> Result(Int, ParseError) {
+  case int.parse(input) {
+    Ok(n) -> Ok(n)
+    Error(e) -> Error(ParseError(e))
   }
 }
 ```
 </anti_pattern>
 
-<anti_pattern name="Directly using JS objects">
-Gleam can't directly use JS objects!
-
-**Wrong:**
-```gleam
-let obj = js_get_object()
-let x = obj.property // ERROR! Gleam doesn't know JS objects
-```
-
-**Right:**
-```gleam
-@external(javascript, "someObj", "getProperty")
-pub fn get_property(obj: JsObject, prop: String) -> Dynamic
-```
+<anti_pattern name="Vendoring npm packages">
+Don't copy-paste npm package code into your project. Use `npm install` and import by name.
 </anti_pattern>
 </anti_patterns>
-
-<exercises>
-## Practice JS Interop
-
-1. Call `Math.random()` from JavaScript
-2. Read a file using Node.js `fs.readFileSync`
-3. Safely decode a JS value using `gleam/dynamic`
-4. Write a cross-platform function (JS + Erlang)
-</exercises>
