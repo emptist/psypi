@@ -1,5 +1,6 @@
 // Node.js FFI - consolidated from main_ffi, execute_cmd_ffi, cmd_utils_ffi
 import { spawn, execSync } from 'child_process';
+import { Ok, Error } from './gleam.mjs';
 
 // Get project root (for extension_generator.gleam)
 export function get_project_root() {
@@ -27,9 +28,9 @@ export function execute(cmd, timeout = 30000) {
       timeout: timeout,
       stdio: ['pipe', 'pipe', 'pipe']
     });
-    return { ok: true, value: { stdout: output || '', stderr: '', status: 0 } };
+    return new Ok({ stdout: output || '', stderr: '', status: 0 });
   } catch (e) {
-    return { ok: false, value: { ExecutionError: e.message || 'Command failed' } };
+    return new Error({ ExecutionError: e.message || 'Command failed' });
   }
 }
 

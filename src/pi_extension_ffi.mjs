@@ -4,7 +4,8 @@
 // They wrap ctx.ui.notify and ctx.ui.setStatus with proper string handling.
 
 import { readFileSync } from 'fs';
-import { complete, getModel } from '@mariozechner/pi-ai';
+import { Ok, Error } from './gleam.mjs';
+console.error('[DIAG:pi_extension_ffi] MODULE LOADED');
 
 export function notify_error(ctx, message) {
   ctx.ui.notify(String(message), "error");
@@ -49,39 +50,18 @@ export function pi_send_message(pi, customType, content, display) {
     customType: String(customType),
     content: [{ type: 'text', text: String(content) }],
     display: String(display),
-  }, { triggerTurn: false });
+  }, { triggerTurn: true });
 }
 
 export function read_file_sync(path) {
   try {
-    if (!path) return { ok: false, value: 'empty path' };
+    if (path === undefined || path === null) return new Error('path is ' + String(path));
+    if (path === '') return new Error('path is empty string');
     const content = readFileSync(String(path), 'utf-8');
-    return { ok: true, value: content };
+    return new Ok(content);
   } catch (e) {
-    const msg = (e && e.message) ? String(e.message) : 'Read failed';
-    return { ok: false, value: msg };
-  }
-}
-
-export async function call_monitor(ctx, userPrompt, systemPrompt) {
-  try {
-    const model = ctx.model || getModel();
-    const modelRegistry = ctx.modelRegistry;
-    const messages = [
-      { role: 'system', content: [{ type: 'text', text: String(systemPrompt) }] },
-      { role: 'user', content: [{ type: 'text', text: String(userPrompt) }] },
-    ];
-    const result = await complete(model, messages, { modelRegistry });
-    const text = result.choices?.[0]?.message?.content
-      ?.filter(c => c.type === 'text')
-      ?.map(c => c.text)
-      ?.join(' ') || '';
-    if (!text) {
-      return { ok: false, value: 'callMonitor returned empty — LLM produced no output' };
-    }
-    return { ok: true, value: text };
-  } catch (e) {
-    return { ok: false, value: e.message || 'callMonitor failed' };
+    const msg = (e && e.message) ? String(e.message) : 'Read failed (no error message)';
+    return new Error(msg);
   }
 }
 
@@ -93,8 +73,9 @@ export function exec_sync(command) {
   try {
     const { execSync } = require('child_process');
     const output = execSync(String(command), { encoding: 'utf-8', maxBuffer: 10*1024*1024 });
-    return { ok: true, value: output };
+    return new Ok(output);
   } catch (e) {
-    return { ok: false, value: e.message || 'exec_sync failed' };
+    const msg = (e && e.message) ? String(e.message) : (e ? String(e) : 'exec_sync: unknown error');
+    return new Error(msg);
   }
 }
