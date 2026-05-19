@@ -64,20 +64,6 @@ pub fn get_int(
   })
 }
 
-pub fn get_int_with_default(
-  key: String,
-  default: Int,
-) -> promise.Promise(Result(Int, ConfigError)) {
-  let result = get_int(key)
-  promise.map(result, fn(r) {
-    case r {
-      Ok(val) -> Ok(val)
-      Error(NotFound(_)) -> Ok(default)
-      Error(e) -> Error(e)
-    }
-  })
-}
-
 pub fn get_debounce_ms() -> promise.Promise(Result(Int, ConfigError)) {
-  get_int_with_default("monitor_debounce_ms", 5_000)
+  get_int("monitor_debounce_ms")
 }
