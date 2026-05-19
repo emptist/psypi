@@ -11,7 +11,6 @@
 //   2. execute returns { content: [{ type: "text", text: "..." }] }
 //   3. Import the Gleam-compiled .mjs module
 
-import gleam/int
 import gleam/list
 import gleam/option.{type Option, Some, None}
 import gleam/string
@@ -69,7 +68,6 @@ pub type HookSuccessAction {
 
 pub type HookErrorAction {
   NotifyError
-  IgnoreError
 }
 
 pub type PiEventHook {
@@ -89,7 +87,6 @@ pub type PiEventHook {
     args: List(FnArg),
     debounce_ms_module: String,
     debounce_ms_fn: String,
-    debounce_default: Int,
     guard: Option(String),
     on_success: HookSuccessAction,
     on_error: HookErrorAction,
@@ -274,7 +271,6 @@ fn success_action_to_js(action: HookSuccessAction) -> String {
 fn error_action_to_js(action: HookErrorAction) -> String {
   case action {
     NotifyError -> "ctx.ui.notify('Hook error: ' + (e.message || String(e)), 'error');"
-    IgnoreError -> ""
   }
 }
 
@@ -324,8 +320,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let success_js = success_action_to_js(on_success)
       let _error_js = error_action_to_js(on_error)
       let error_catch = case on_error {
-        NotifyError -> "      ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
-        IgnoreError -> ""
+        NotifyError -> "      ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n      pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
       }
       [
         "  // Event hook: " <> event_name,
@@ -336,7 +331,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      const result = await " <> call <> ";",
         "      const r = unwrapGleamResult(result);",
         "      if (r.ok) { " <> success_js <> " }",
-        "      else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
+        "      else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
         guard_suffix,
         "    } catch(e) {",
         error_catch,
@@ -355,7 +350,6 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       args:,
       debounce_ms_module:,
       debounce_ms_fn:,
-      debounce_default:,
       guard: _,
       on_success:,
       on_error:,
@@ -367,35 +361,32 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let hook_import_line_ = hook_import_line(module, fn_name)
       let call = hook_call_expr(module, fn_name, args)
       let success_js = success_action_to_js(on_success)
-      let _error_js = error_action_to_js(on_error)
       let error_catch = case on_error {
-        NotifyError -> "        ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
-        IgnoreError -> ""
+        NotifyError -> "        ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n        pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
       }
       [
         "  // Event hook (debounced): " <> event_name,
         "  pi.on('" <> event_name <> "', async (event, ctx) => {",
         "    try {",
-        "      let debounceMs;",
-        "      {",
-        "        " <> debounce_import,
-        "        const result = await " <> debounce_call <> ";",
-        "        const r = unwrapGleamResult(result);",
-        "        debounceMs = r.ok ? r.value : " <> int.to_string(debounce_default) <> ";",
-        "      }",
+        "      " <> debounce_import,
+        "      const debounceResult = await " <> debounce_call <> ";",
+        "      const dr = unwrapGleamResult(debounceResult);",
+        "      if (!dr.ok) { ctx.ui.notify('Hook " <> event_name <> " debounce config error: ' + dr.error, 'error'); pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " debounce config error: ' + dr.error, 'error'); return; }",
+        "      const debounceMs = dr.value;",
         "      setTimeout(async () => {",
         "        try {",
         "          " <> hook_import_line_,
         "          const result = await " <> call <> ";",
         "          const r = unwrapGleamResult(result);",
         "          if (r.ok) { " <> success_js <> " }",
-        "          else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
+        "          else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
         "        } catch(e) {",
         error_catch,
         "        }",
         "      }, debounceMs);",
         "    } catch(e) {",
         "      ctx.ui.notify('Hook " <> event_name <> " debounce error: ' + (e.message || String(e)), 'error');",
+        "      pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " debounce error: ' + (e.message || String(e)), 'error');",
         "    }",
         "  });",
         "",
@@ -437,7 +428,6 @@ pub fn debounced_hook(
   args: List(FnArg),
   debounce_ms_module: String,
   debounce_ms_fn: String,
-  debounce_default: Int,
   guard: Option(String),
   on_success: HookSuccessAction,
   on_error: HookErrorAction,
@@ -449,7 +439,6 @@ pub fn debounced_hook(
     args:,
     debounce_ms_module:,
     debounce_ms_fn:,
-    debounce_default:,
     guard:,
     on_success:,
     on_error:,
