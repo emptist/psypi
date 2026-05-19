@@ -8,7 +8,6 @@ import gleam/string
 import pi_extension.{
   call_monitor, ctx_get_context_usage_json, ctx_get_cwd, ctx_get_entries_json,
   ctx_has_pending_messages, ctx_is_idle, notify_info, pi_send_message,
-  read_file_sync,
 }
 import system_prompt_types.{
   type PromptComposition, High, add_component, compose, directive_component,
@@ -42,43 +41,61 @@ fn coordinate_with_s(
 ) -> promise.Promise(Result(Nil, String)) {
   let usage_json = ctx_get_context_usage_json(ctx)
   let context_window = parse_context_window(usage_json)
-  promise.await(read_soul_from_db(), fn(soul_result) {
-    let soul_content = case soul_result {
-      Ok(content) -> content
-      Error(_) -> read_soul_from_file(ctx)
+  case context_window == 0 {
+    True -> {
+      notify_info(
+        ctx,
+        "[AUTONOMIC] <ERROR> context_window unavailable, cannot coordinate",
+      )
+      promise.resolve(Ok(Nil))
     }
-    promise.await(read_directives_from_db(), fn(directives_result) {
-      let directives = case directives_result {
-        Ok(dirs) -> dirs
-        Error(_) -> []
-      }
-      let composition =
-        build_system_prompt(soul_content, directives, context_window)
-      let system_prompt = compose(composition)
-      let user_prompt = build_user_prompt(usage_json, entries_json, ctx)
-      notify_info(ctx, "[AUTONOMIC] A thinking...")
-      promise.await(
-        call_monitor(ctx, user_prompt, system_prompt),
-        fn(monitor_result) {
-          case monitor_result {
-            Ok(response) -> {
-              let message = case string.starts_with(response, "[A-agentbot]") {
-                True -> response
-                False -> "[A-agentbot] " <> response
-              }
-              pi_send_message(pi, "autonomic-wakeup", message, "persistent")
-              notify_info(ctx, "[AUTONOMIC] wake-up sent")
-              promise.resolve(Ok(Nil))
-            }
+    False ->
+      promise.await(read_soul_from_db(), fn(soul_result) {
+        let soul_content = case soul_result {
+          Ok(content) -> content
+          Error(e) -> {
+            notify_info(ctx, "[AUTONOMIC] <ERROR> read_soul: " <> e)
+            ""
+          }
+        }
+        promise.await(read_directives_from_db(), fn(directives_result) {
+          let directives = case directives_result {
+            Ok(dirs) -> dirs
             Error(e) -> {
-              notify_info(ctx, "[AUTONOMIC] <ERROR> call_monitor: " <> e)
-              promise.resolve(Ok(Nil))
+              notify_info(ctx, "[AUTONOMIC] <ERROR> read_directives: " <> e)
+              []
             }
           }
-        },
-      )
-    })
-  })
+          let composition =
+            build_system_prompt(soul_content, directives, context_window)
+          let system_prompt = compose(composition)
+          let user_prompt = build_user_prompt(usage_json, entries_json, ctx)
+          notify_info(ctx, "[AUTONOMIC] A thinking...")
+          promise.await(
+            call_monitor(ctx, user_prompt, system_prompt),
+            fn(monitor_result) {
+              case monitor_result {
+                Ok(response) -> {
+                  let message = case
+                    string.starts_with(response, "[A-agentbot]")
+                  {
+                    True -> response
+                    False -> "[A-agentbot] " <> response
+                  }
+                  pi_send_message(pi, "autonomic-wakeup", message, "persistent")
+                  notify_info(ctx, "[AUTONOMIC] wake-up sent")
+                  promise.resolve(Ok(Nil))
+                }
+                Error(e) -> {
+                  notify_info(ctx, "[AUTONOMIC] <ERROR> call_monitor: " <> e)
+                  promise.resolve(Ok(Nil))
+                }
+              }
+            },
+          )
+        })
+      })
+  }
 }
 
 fn build_system_prompt(
@@ -86,10 +103,7 @@ fn build_system_prompt(
   directives: List(String),
   context_window: Int,
 ) -> PromptComposition {
-  let budget = case context_window > 0 {
-    True -> context_window / 4
-    False -> 8000
-  }
+  let budget = context_window / 4
   let comp = new_composition(budget)
   let identity_comp =
     add_component(
@@ -162,14 +176,24 @@ fn read_soul_from_db() -> promise.Promise(Result(String, String)) {
               result.rows
               |> list.map(fn(row) {
                 case decode.run(row, soul_entry_decoder()) {
-                  Ok(entry) -> [entry]
-                  Error(_) -> []
+                  Ok(entry) -> Ok([entry])
+                  Error(e) -> Error("soul decode: " <> string.inspect(e))
                 }
               })
-              |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
+              |> list.fold(Ok([]), fn(acc, lst) {
+                case acc, lst {
+                  Ok(a), Ok(b) -> Ok(list.append(a, b))
+                  Error(e), _ -> Error(e)
+                  _, Error(e) -> Error(e)
+                }
+              })
             case entries {
-              [] -> Error("No Monitor soul entries found")
-              _ -> Ok(string.join(entries, "\n"))
+              Ok(es) ->
+                case es {
+                  [] -> Error("No Monitor soul entries found")
+                  _ -> Ok(string.join(es, "\n"))
+                }
+              Error(e) -> Error(e)
             }
           }
         }
@@ -211,12 +235,21 @@ fn read_directives_from_db() -> promise.Promise(Result(List(String), String)) {
               result.rows
               |> list.map(fn(row) {
                 case decode.run(row, directive_text_decoder()) {
-                  Ok(text) -> [text]
-                  Error(_) -> []
+                  Ok(text) -> Ok([text])
+                  Error(e) -> Error("directive decode: " <> string.inspect(e))
                 }
               })
-              |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
-            Ok(directives)
+              |> list.fold(Ok([]), fn(acc, lst) {
+                case acc, lst {
+                  Ok(a), Ok(b) -> Ok(list.append(a, b))
+                  Error(e), _ -> Error(e)
+                  _, Error(e) -> Error(e)
+                }
+              })
+            case directives {
+              Ok(dirs) -> Ok(dirs)
+              Error(e) -> Error(e)
+            }
           }
         }
       })
@@ -228,20 +261,6 @@ fn read_directives_from_db() -> promise.Promise(Result(List(String), String)) {
 fn directive_text_decoder() -> decode.Decoder(String) {
   use text <- decode.field("directive_text", decode.string)
   decode.success(text)
-}
-
-fn read_soul_from_file(ctx: a) -> String {
-  let cwd = ctx_get_cwd(ctx)
-  case cwd == "" {
-    True -> ""
-    False -> {
-      let brief_path = cwd <> "/docs/MONITOR-BRIEF.md"
-      case read_file_sync(brief_path) {
-        Ok(content) -> content
-        Error(_) -> ""
-      }
-    }
-  }
 }
 
 fn parse_context_window(usage_json: String) -> Int {

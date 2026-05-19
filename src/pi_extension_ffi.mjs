@@ -42,7 +42,11 @@ export function ctx_get_context_usage_json(ctx) {
 }
 
 export function ctx_get_cwd(ctx) {
-  return ctx.cwd || '';
+  if (!ctx.cwd) {
+    ctx.ui.notify('[AUTONOMIC] <ERROR> ctx_get_cwd: ctx.cwd is missing', 'error');
+    return '';
+  }
+  return ctx.cwd;
 }
 
 export function pi_send_message(pi, customType, content, display) {
