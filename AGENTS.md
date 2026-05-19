@@ -70,3 +70,18 @@ The A- or S- prefix is not a role assignment — it emerges from `ctx.isIdle()` 
 
 If a task needs specialized expertise, load the skill yourself:
 `read path=".pi/skills/[skill-name]/SKILL.md"`
+
+## Restart Procedure
+
+After debug/build work, restart Pi with a self-test prompt so no human is needed:
+
+1. `rm -rf build/ && gleam build` — clean Gleam build
+2. Kill the running Pi process and relaunch with the identity check prompt:
+
+```bash
+pkill -f pi-coding-agent; cd /Users/jk/gits/hub/tools_ai/psypi && npx -y @earendil-works/pi-coding-agent --prompt "what is your id?"
+```
+
+This kills any running Pi TUI process, then starts a fresh one with the
+"what is your id?" prompt so the S-worker boots up and reports its identity
+without needing a human to type anything.
