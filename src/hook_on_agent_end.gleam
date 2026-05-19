@@ -7,8 +7,8 @@ import gleam/result
 import gleam/string
 import pi_extension.{
   call_monitor, ctx_get_context_usage_json, ctx_get_cwd, ctx_get_entries_json,
-  ctx_has_pending_messages, ctx_is_idle, notify_info, notify_warning,
-  pi_send_message, read_file_sync,
+  ctx_has_pending_messages, ctx_is_idle, notify_info, pi_send_message,
+  read_file_sync,
 }
 import system_prompt_types.{
   type PromptComposition, High, add_component, compose, directive_component,
@@ -21,7 +21,7 @@ pub fn on_agent_end(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
       promise.resolve(Ok(Nil))
     }
     True -> {
-      notify_warning(ctx, "[AUTONOMIC] S is idle")
+      notify_info(ctx, "[AUTONOMIC] S is idle")
       case ctx_has_pending_messages(ctx) {
         True -> {
           promise.resolve(Ok(Nil))
