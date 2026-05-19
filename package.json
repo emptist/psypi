@@ -1,9 +1,0 @@
-{
-  "name": "psypi",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@earendil-works/pi-ai": ">=0.75.0"
-  }
-}
