@@ -74,7 +74,7 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
         { role: 'user', content: [{ type: 'text', text: String(userPrompt) }], timestamp: Date.now() },
       ],
     };
-    const result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'medium' });
+    let result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'medium' });
     if (result?.errorMessage) {
       return new Error('LLM error: ' + result.errorMessage);
     }
@@ -86,6 +86,19 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
     }
     if (!text && typeof result?.text === 'string') {
       text = result.text;
+    }
+    if (!text && hasThinking) {
+      // Retry without reasoning if only thinking was returned
+      result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'none' });
+      if (result?.errorMessage) {
+        return new Error('LLM error (retry): ' + result.errorMessage);
+      }
+      if (Array.isArray(result?.content)) {
+        text = result.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
+      }
+      if (!text && typeof result?.text === 'string') {
+        text = result.text;
+      }
     }
     if (!text) {
       if (hasThinking) {
