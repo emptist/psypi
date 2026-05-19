@@ -58,12 +58,14 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
     const model = ctx.model;
     const modelRegistry = ctx.modelRegistry;
     if (!model) {
-      return new Error('callMonitor: ctx.model is missing — cannot complete LLM call');
+      return new Error('callMonitor v3: ctx.model is missing');
     }
+    notify_info(ctx, '[AUTONOMIC] call_monitor v3: model=' + (model.id || model.provider || 'unknown'));
     const auth = await modelRegistry.getApiKeyAndHeaders(model);
     if (!auth.ok || !auth.apiKey) {
-      return new Error('callMonitor: no API key for ' + (model.provider || 'unknown') + ': ' + (auth.error || 'auth failed'));
+      return new Error('callMonitor v3: no API key for ' + (model.provider || 'unknown') + ': ' + (auth.error || 'auth failed'));
     }
+    notify_info(ctx, '[AUTONOMIC] call_monitor v3: auth ok, calling complete...');
     const context = {
       systemPrompt: String(systemPrompt),
       messages: [
@@ -71,6 +73,10 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
       ],
     };
     const result = await complete(model, context, { apiKey: auth.apiKey, headers: auth.headers });
+    notify_info(ctx, '[AUTONOMIC] call_monitor v3: complete returned, stopReason=' + (result?.stopReason || 'none') + ' contentLen=' + (result?.content?.length || 0));
+    if (result?.errorMessage) {
+      return new Error('callMonitor v3: LLM error: ' + result.errorMessage);
+    }
     let text = '';
     if (Array.isArray(result?.content)) {
       text = result.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
@@ -79,7 +85,7 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
       text = result.text;
     }
     if (!text) {
-      return new Error('callMonitor returned empty — LLM produced no output');
+      return new Error('callMonitor v3: empty output, stopReason=' + (result?.stopReason || 'none'));
     }
     return new Ok(text);
   } catch (e) {
