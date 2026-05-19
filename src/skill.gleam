@@ -45,23 +45,25 @@ pub type SkillError {
   DecodeError(String)
 }
 
-fn string_to_source(s: String) -> SkillSource {
+fn string_to_source(s: String) -> Result(SkillSource, String) {
   case s {
-    "local" -> Local
-    "generated" -> Generated
-    "imported" -> Imported
-    _ -> Clawhub
+    "clawhub" -> Ok(Clawhub)
+    "local" -> Ok(Local)
+    "generated" -> Ok(Generated)
+    "imported" -> Ok(Imported)
+    _ -> Error("Unknown skill source: " <> s)
   }
 }
 
-fn string_to_status(s: String) -> SkillStatus {
+fn string_to_status(s: String) -> Result(SkillStatus, String) {
   case s {
-    "approved" -> Approved
-    "rejected" -> Rejected
-    "blocked" -> Blocked
-    "installed" -> Installed
-    "uninstalled" -> Uninstalled
-    _ -> Pending
+    "pending" -> Ok(Pending)
+    "approved" -> Ok(Approved)
+    "rejected" -> Ok(Rejected)
+    "blocked" -> Ok(Blocked)
+    "installed" -> Ok(Installed)
+    "uninstalled" -> Ok(Uninstalled)
+    _ -> Error("Unknown skill status: " <> s)
   }
 }
 
@@ -78,24 +80,45 @@ fn skill_decoder() -> decode.Decoder(Skill) {
   use content <- decode.field("content", decode.optional(decode.string))
   use reference_list <- decode.field("reference_list", decode.optional(decode.string))
 
-  decode.success(Skill(
-    id: id,
-    name: name,
-    description: description,
-    source: string_to_source(source_str),
-    status: string_to_status(status_str),
-    safety_score: safety_score,
-    version: version,
-    author: author,
-    created_at: created_at,
-    content: content,
-    reference_list: reference_list,
-  ))
+  case string_to_source(source_str) {
+    Error(_) -> decode.failure(Skill(id: id, name: name, description: description, source: Clawhub, status: Pending, safety_score: safety_score, version: version, author: author, created_at: created_at, content: content, reference_list: reference_list), "Unknown skill source: " <> source_str)
+    Ok(source) -> {
+      case string_to_status(status_str) {
+        Error(_) -> decode.failure(Skill(id: id, name: name, description: description, source: source, status: Pending, safety_score: safety_score, version: version, author: author, created_at: created_at, content: content, reference_list: reference_list), "Unknown skill status: " <> status_str)
+        Ok(status) -> decode.success(Skill(
+          id: id,
+          name: name,
+          description: description,
+          source: source,
+          status: status,
+          safety_score: safety_score,
+          version: version,
+          author: author,
+          created_at: created_at,
+          content: content,
+          reference_list: reference_list,
+        ))
+      }
+    }
+  }
 }
 
 fn id_decoder() -> decode.Decoder(String) {
   use id <- decode.field("id", decode.string)
   decode.success(id)
+}
+
+fn decode_all(results: List(Result(a, b))) -> Result(List(a), b) {
+  case results {
+    [] -> Ok([])
+    [Ok(v), ..rest] -> {
+      case decode_all(rest) {
+        Error(e) -> Error(e)
+        Ok(vs) -> Ok([v, ..vs])
+      }
+    }
+    [Error(e), .._] -> Error(e)
+  }
 }
 
 fn db_error_to_skill_error(e: db.DbError) -> SkillError {
@@ -141,11 +164,12 @@ pub fn list(
       case query_result {
         Error(e) -> Error(db_error_to_skill_error(e))
         Ok(result) -> {
-          let skills = result.rows
+          let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, skill_decoder()) })
-            |> list.filter_map(fn(r) { r })
-
-          Ok(skills)
+          case decode_all(decoded) {
+            Error(_) -> Error(DecodeError("Failed to decode skill row"))
+            Ok(skills) -> Ok(skills)
+          }
         }
       }
     })
@@ -199,11 +223,12 @@ pub fn search(
       case query_result {
         Error(e) -> Error(db_error_to_skill_error(e))
         Ok(result) -> {
-          let skills = result.rows
+          let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, skill_decoder()) })
-            |> list.filter_map(fn(r) { r })
-
-          Ok(skills)
+          case decode_all(decoded) {
+            Error(_) -> Error(DecodeError("Failed to decode skill row"))
+            Ok(skills) -> Ok(skills)
+          }
         }
       }
     })

@@ -32,14 +32,15 @@ pub type SkillSource {
   AiBuilt
 }
 
-/// Convert string to SkillSource (for DB decoding)
-pub fn string_to_source(s: String) -> SkillSource {
+/// Convert string to SkillSource (for DB decoding). No fallback — unknown values are errors.
+pub fn string_to_source(s: String) -> Result(SkillSource, String) {
   case s {
-    "clawhub" -> ClawHub
-    "local" -> Local
-    "generated" -> Generated
-    "imported" -> Imported
-    _ -> AiBuilt  // Default fallback
+    "clawhub" -> Ok(ClawHub)
+    "local" -> Ok(Local)
+    "generated" -> Ok(Generated)
+    "imported" -> Ok(Imported)
+    "ai-built" -> Ok(AiBuilt)
+    _ -> Error("Unknown skill source: " <> s)
   }
 }
 
@@ -54,15 +55,16 @@ pub type SkillStatus {
   Uninstalled
 }
 
-/// Convert string to SkillStatus (for DB decoding)
-pub fn string_to_skill_status(s: String) -> SkillStatus {
+/// Convert string to SkillStatus (for DB decoding). No fallback — unknown values are errors.
+pub fn string_to_skill_status(s: String) -> Result(SkillStatus, String) {
   case s {
-    "approved" -> Approved
-    "rejected" -> Rejected
-    "blocked" -> Blocked
-    "installed" -> Installed
-    "uninstalled" -> Uninstalled
-    _ -> SkillPending
+    "pending" -> Ok(SkillPending)
+    "approved" -> Ok(Approved)
+    "rejected" -> Ok(Rejected)
+    "blocked" -> Ok(Blocked)
+    "installed" -> Ok(Installed)
+    "uninstalled" -> Ok(Uninstalled)
+    _ -> Error("Unknown skill status: " <> s)
   }
 }
 
@@ -76,36 +78,99 @@ pub type ScanStatus {
   Reviewed
 }
 
-/// Convert string to ScanStatus (for DB decoding)
-pub fn string_to_scan_status(s: String) -> ScanStatus {
+/// Convert string to ScanStatus (for DB decoding). No fallback — unknown values are errors.
+pub fn string_to_scan_status(s: String) -> Result(ScanStatus, String) {
   case s {
-    "clean" -> Clean
-    "suspicious" -> Suspicious
-    "malicious" -> Malicious
-    "reviewed" -> Reviewed
-    _ -> ScanPending
+    "pending" -> Ok(ScanPending)
+    "clean" -> Ok(Clean)
+    "suspicious" -> Ok(Suspicious)
+    "malicious" -> Ok(Malicious)
+    "reviewed" -> Ok(Reviewed)
+    _ -> Error("Unknown scan status: " <> s)
   }
 }
 
-/// Decoder for SkillSource (converts string to SkillSource)
+/// Decoder for SkillSource — fails on unknown values
 pub fn skill_source_decoder() -> decode.Decoder(SkillSource) {
   decode.string
-  |> decode.map(string_to_source)
+  |> decode.then(fn(s) {
+    case string_to_source(s) {
+      Ok(source) -> decode.success(source)
+      Error(_) -> decode.failure(AiBuilt, "Unknown skill source: " <> s)
+    }
+  })
 }
 
-/// Decoder for SkillStatus (converts string to SkillStatus)
+/// Decoder for SkillStatus — fails on unknown values
 pub fn skill_status_decoder() -> decode.Decoder(SkillStatus) {
   decode.string
-  |> decode.map(string_to_skill_status)
+  |> decode.then(fn(s) {
+    case string_to_skill_status(s) {
+      Ok(status) -> decode.success(status)
+      Error(_) -> decode.failure(SkillPending, "Unknown skill status: " <> s)
+    }
+  })
 }
 
-/// Decoder for ScanStatus (converts string to ScanStatus)
+/// Decoder for ScanStatus — fails on unknown values
 pub fn scan_status_decoder() -> decode.Decoder(ScanStatus) {
   decode.string
-  |> decode.map(string_to_scan_status)
+  |> decode.then(fn(s) {
+    case string_to_scan_status(s) {
+      Ok(status) -> decode.success(status)
+      Error(_) -> decode.failure(ScanPending, "Unknown scan status: " <> s)
+    }
+  })
 }
 
-/// Full Skill decoder (for decoding DB rows into Skill type)\npub fn skill_decoder() -> decode.Decoder(Skill) {\n  use id <- decode.field("id", decode.string)\n  use project_id <- decode.field("project_id", decode.optional(decode.string))\n  use name <- decode.field("name", decode.string)\n  use description <- decode.field("description", decode.optional(decode.string))\n  use instructions <- decode.field("instructions", decode.optional(decode.string))\n  use manifest <- decode.field("manifest", decode.dynamic)\n  use source <- decode.field("source", skill_source_decoder())\n  use external_id <- decode.field("external_id", decode.optional(decode.string))\n  use version <- decode.field("version", decode.string)\n  use author <- decode.field("author", decode.optional(decode.string))\n  use tags <- decode.field("tags", decode.list(decode.string))\n  use trigger_phrases <- decode.field("trigger_phrases", decode.list(decode.string))\n  use anti_patterns <- decode.field("anti_patterns", decode.list(decode.string))\n  use quick_start <- decode.field("quick_start", decode.optional(decode.string))\n  use examples <- decode.field("examples", decode.list(decode.string))\n  use emoji <- decode.field("emoji", decode.optional(decode.string))\n  use category <- decode.field("category", decode.optional(decode.string))\n  use content <- decode.field("content", decode.dynamic)\n  use safety_score <- decode.field("safety_score", decode.int)\n  use scan_status <- decode.field("scan_status", scan_status_decoder())\n  use verified <- decode.field("verified", decode.bool)\n  use status <- decode.field("status", skill_status_decoder())\n  use permissions <- decode.field("permissions", decode.list(decode.string))\n  use is_enabled <- decode.field("is_enabled", decode.bool)\n  use use_count <- decode.field("use_count", decode.int)\n  use rating <- decode.field("rating", decode.float)\n  use downloads <- decode.field("downloads", decode.int)\n  use last_used_at <- decode.field("last_used_at", decode.optional(decode.string))\n  use installed_at <- decode.field("installed_at", decode.optional(decode.string))\n  use created_at <- decode.field("created_at", decode.string)\n  use updated_at <- decode.field("updated_at", decode.string)\n  use builder <- decode.field("builder", decode.optional(decode.string))\n  use maintainer <- decode.field("maintainer", decode.optional(decode.string))\n  use embedding <- decode.field("embedding", decode.optional(decode.list(decode.float)))\n\n  decode.success(Skill(\n    id:, project_id:, name:, description:, instructions:,\n    manifest:, source:, external_id:, version:, author:,\n    tags:, trigger_phrases:, anti_patterns:, quick_start:,\n    examples:, emoji:, category:, content:, safety_score:,\n    scan_status:, verified:, status:, permissions:,\n    is_enabled:, use_count:, rating:, downloads:,\n    last_used_at:, installed_at:, created_at:, updated_at:,\n    builder:, maintainer:, embedding:,\n  ))\n}
+/// Full Skill decoder (for decoding DB rows into Skill type)
+pub fn skill_decoder() -> decode.Decoder(Skill) {
+  use id <- decode.field("id", decode.string)
+  use project_id <- decode.field("project_id", decode.optional(decode.string))
+  use name <- decode.field("name", decode.string)
+  use description <- decode.field("description", decode.optional(decode.string))
+  use instructions <- decode.field("instructions", decode.optional(decode.string))
+  use manifest <- decode.field("manifest", decode.dynamic)
+  use source <- decode.field("source", skill_source_decoder())
+  use external_id <- decode.field("external_id", decode.optional(decode.string))
+  use version <- decode.field("version", decode.string)
+  use author <- decode.field("author", decode.optional(decode.string))
+  use tags <- decode.field("tags", decode.list(decode.string))
+  use trigger_phrases <- decode.field("trigger_phrases", decode.list(decode.string))
+  use anti_patterns <- decode.field("anti_patterns", decode.list(decode.string))
+  use quick_start <- decode.field("quick_start", decode.optional(decode.string))
+  use examples <- decode.field("examples", decode.list(decode.string))
+  use emoji <- decode.field("emoji", decode.optional(decode.string))
+  use category <- decode.field("category", decode.optional(decode.string))
+  use content <- decode.field("content", decode.dynamic)
+  use safety_score <- decode.field("safety_score", decode.int)
+  use scan_status <- decode.field("scan_status", scan_status_decoder())
+  use verified <- decode.field("verified", decode.bool)
+  use status <- decode.field("status", skill_status_decoder())
+  use permissions <- decode.field("permissions", decode.list(decode.string))
+  use is_enabled <- decode.field("is_enabled", decode.bool)
+  use use_count <- decode.field("use_count", decode.int)
+  use rating <- decode.field("rating", decode.float)
+  use downloads <- decode.field("downloads", decode.int)
+  use last_used_at <- decode.field("last_used_at", decode.optional(decode.string))
+  use installed_at <- decode.field("installed_at", decode.optional(decode.string))
+  use created_at <- decode.field("created_at", decode.string)
+  use updated_at <- decode.field("updated_at", decode.string)
+  use builder <- decode.field("builder", decode.optional(decode.string))
+  use maintainer <- decode.field("maintainer", decode.optional(decode.string))
+  use embedding <- decode.field("embedding", decode.optional(decode.list(decode.float)))
+
+  decode.success(Skill(
+    id:, project_id:, name:, description:, instructions:,
+    manifest:, source:, external_id:, version:, author:,
+    tags:, trigger_phrases:, anti_patterns:, quick_start:,
+    examples:, emoji:, category:, content:, safety_score:,
+    scan_status:, verified:, status:, permissions:,
+    is_enabled:, use_count:, rating:, downloads:,
+    last_used_at:, installed_at:, created_at:, updated_at:,
+    builder:, maintainer:, embedding:,
+  ))
+}
 
 /// Skill record type - MUST match TypeScript StoredSkill field names!
 /// But we CORRECT the mistake of using String for status/source/scan_status
@@ -231,8 +296,9 @@ pub fn sort_skills_by_safety_score(
 pub fn validate_skill(skill: Skill) -> Bool {
   case skill {
     Skill(name: "", ..) -> False  // Empty name invalid
-    Skill(safety_score: score, ..) if score < 0 || score > 100 -> False
-    Skill(status: s, ..) if s != Approved && s != SkillPending && s != Rejected -> False
+    Skill(safety_score: score, ..) if score < 0 -> False
+    Skill(safety_score: score, ..) if score > 100 -> False
+
     _ -> True  // Valid
   }
 }
