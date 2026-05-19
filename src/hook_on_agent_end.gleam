@@ -36,7 +36,11 @@ fn coordinate_with_s(
   let cwd = ctx_get_cwd(ctx)
   case parse_context_window(usage_json) {
     Error(e) -> {
-      let msg = "[A-agentbot] <ERROR> " <> e
+      let msg =
+        "[A-agentbot] <ERROR> parse_context_window failed: "
+        <> e
+        <> ". Fix parse_context_window in hook_on_agent_end.gleam. Raw JSON: "
+        <> string.slice(usage_json, 0, 300)
       notify_info(ctx, "[AUTONOMIC] " <> msg)
       pi_send_message(pi, "autonomic-error", msg, "persistent")
       promise.resolve(Ok(Nil))
@@ -45,7 +49,10 @@ fn coordinate_with_s(
       promise.await(read_soul_from_db(), fn(soul_result) {
         case soul_result {
           Error(e) -> {
-            let msg = "[A-agentbot] <ERROR> read_soul: " <> e
+            let msg =
+              "[A-agentbot] <ERROR> read_soul_from_db failed: "
+              <> e
+              <> ". Check souls table in psypi DB: SELECT * FROM souls WHERE name='Monitor'"
             notify_info(ctx, "[AUTONOMIC] " <> msg)
             pi_send_message(pi, "autonomic-error", msg, "persistent")
             promise.resolve(Ok(Nil))
@@ -54,7 +61,10 @@ fn coordinate_with_s(
             promise.await(read_directives_from_db(), fn(directives_result) {
               case directives_result {
                 Error(e) -> {
-                  let msg = "[A-agentbot] <ERROR> read_directives: " <> e
+                  let msg =
+                    "[A-agentbot] <ERROR> read_directives_from_db failed: "
+                    <> e
+                    <> ". Check system_directives table: SELECT * FROM system_directives WHERE is_active=true"
                   notify_info(ctx, "[AUTONOMIC] " <> msg)
                   pi_send_message(pi, "autonomic-error", msg, "persistent")
                   promise.resolve(Ok(Nil))
@@ -85,7 +95,10 @@ fn coordinate_with_s(
                           promise.resolve(Ok(Nil))
                         }
                         Error(e) -> {
-                          let msg = "[A-agentbot] <ERROR> call_monitor: " <> e
+                          let msg =
+                            "[A-agentbot] <ERROR> call_monitor failed: "
+                            <> e
+                            <> ". Check pi_extension_ffi.mjs call_monitor function and ctx.model/modelRegistry"
                           notify_info(ctx, "[AUTONOMIC] " <> msg)
                           pi_send_message(
                             pi,
@@ -266,33 +279,37 @@ fn decode_rows(
 }
 
 fn parse_context_window(usage_json: String) -> Result(Int, String) {
+  let key = "\"contextWindow\":"
   case string.contains(usage_json, "contextWindow") {
     False -> Error("contextWindow not found in usage JSON")
     True -> {
-      let parts = string.split(usage_json, "contextWindow")
+      let parts = string.split(usage_json, key)
       case parts {
         [_, rest, ..] -> {
-          let after = string.trim_start(rest)
-          case string.starts_with(after, ":") {
-            False -> Error("contextWindow: unexpected format after key")
-            True -> {
-              let num_str =
-                after
-                |> string.drop_start(1)
-                |> string.trim_start
-              let digits = extract_leading_digits(num_str)
-              case digits == "" {
-                True -> Error("contextWindow: no digits found after colon")
-                False ->
-                  case int.parse(digits) {
-                    Ok(n) -> Ok(n)
-                    Error(_) -> Error("contextWindow: failed to parse digits")
-                  }
+          let digits = rest |> string.trim_start |> extract_leading_digits
+          case digits == "" {
+            True ->
+              Error(
+                "contextWindow: no digits after "
+                <> key
+                <> " in "
+                <> string.slice(usage_json, 0, 200),
+              )
+            False ->
+              case int.parse(digits) {
+                Ok(n) -> Ok(n)
+                Error(_) ->
+                  Error("contextWindow: failed to parse digits: " <> digits)
               }
-            }
           }
         }
-        _ -> Error("contextWindow: split produced unexpected result")
+        _ ->
+          Error(
+            "contextWindow: split on "
+            <> key
+            <> " failed. JSON: "
+            <> string.slice(usage_json, 0, 200),
+          )
       }
     }
   }
