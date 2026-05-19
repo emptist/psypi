@@ -1,5 +1,7 @@
 import gleam/javascript/promise
-import pi_extension.{notify_info, pi_send_message}
+import pi_extension.{
+  call_monitor, notify_info, pi_send_message,
+}
 
 pub fn on_autonomic_listen(
   args: String,
@@ -12,12 +14,30 @@ pub fn on_autonomic_listen(
       promise.resolve(Ok("Usage: /autonomic-listen <message>"))
     }
     False -> {
-      let listen_msg = "[from A-worker:] DIRECT MESSAGE TO MONITOR\n\n"
-        <> "The human says: " <> args
-        <> "\n\nRespond as Monitor — a senior technical advisor. Be concise and helpful."
-      notify_info(ctx, "[AUTONOMIC] Forwarding human message to S-worker as Monitor directive")
-      pi_send_message(pi, "autonomic-wakeup", listen_msg, "persistent")
-      promise.resolve(Ok("Message forwarded to S-worker. The S-worker will respond as Monitor."))
+      let system_prompt =
+        "You are the Autonomic Agentbot (A-agentbot). Your ID starts with A-. "
+        <> "You are NOT the Somatic Agentbot (S-agentbot). "
+        <> "The human is sending you a direct message. "
+        <> "Think about what they need and compose a clear, specific message to S. "
+        <> "Be brief and actionable."
+      let user_prompt = "Human says: " <> args
+      notify_info(ctx, "[AUTONOMIC] A thinking about human message...")
+      promise.await(
+        call_monitor(ctx, user_prompt, system_prompt),
+        fn(result) {
+          case result {
+            Ok(response) -> {
+              pi_send_message(pi, "autonomic-wakeup", response, "persistent")
+              notify_info(ctx, "[AUTONOMIC] wake-up sent")
+              promise.resolve(Ok("A processed the message and sent to S."))
+            }
+            Error(e) -> {
+              notify_info(ctx, "[AUTONOMIC] <ERROR> call_monitor: " <> e)
+              promise.resolve(Error("A failed to process: " <> e))
+            }
+          }
+        },
+      )
     }
   }
 }

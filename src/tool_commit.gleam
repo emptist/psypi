@@ -6,14 +6,15 @@ pub fn on_commit(
   message: String,
   review_id: String,
   ctx: a,
+  pi: b,
 ) -> promise.Promise(Result(String, String)) {
   case review_id == "" {
-    True -> review_and_commit(message, ctx)
+    True -> review_and_commit(message, ctx, pi)
     False -> commit_with_review_id(message, review_id)
   }
 }
 
-fn review_and_commit(message: String, ctx: a) -> promise.Promise(Result(String, String)) {
+fn review_and_commit(message: String, ctx: a, pi: b) -> promise.Promise(Result(String, String)) {
   let changed_files = case exec_sync("git diff --name-only && git diff --cached --name-only") {
     Ok(out) -> out
     Error(_) -> ""
@@ -38,7 +39,7 @@ fn review_and_commit(message: String, ctx: a) -> promise.Promise(Result(String, 
         <> "Respond with: PASS or FAIL, SCORE/100, FEEDBACK.\n"
         <> "Format exactly: PASS SCORE:85 FEEDBACK:your feedback here"
       notify_info(ctx, "[AUTONOMIC] Sending code review request to S-worker")
-      pi_send_message(ctx, "autonomic-wakeup", review_request, "persistent")
+      pi_send_message(pi, "autonomic-wakeup", review_request, "persistent")
       promise.resolve(Ok("Code review request sent to S-worker. The S-worker will review and respond."))
     }
   }

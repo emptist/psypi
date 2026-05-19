@@ -320,7 +320,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let success_js = success_action_to_js(on_success)
       let _error_js = error_action_to_js(on_error)
       let error_catch = case on_error {
-        NotifyError -> "      ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n      pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
+        NotifyError -> "      ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n      pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
       }
       [
         "  // Event hook: " <> event_name,
@@ -331,7 +331,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      const result = await " <> call <> ";",
         "      const r = unwrapGleamResult(result);",
         "      if (r.ok) { " <> success_js <> " }",
-        "      else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
+        "      else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
         guard_suffix,
         "    } catch(e) {",
         error_catch,
@@ -362,7 +362,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let call = hook_call_expr(module, fn_name, args)
       let success_js = success_action_to_js(on_success)
       let error_catch = case on_error {
-        NotifyError -> "        ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n        pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
+        NotifyError -> "        ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n        pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
       }
       [
         "  // Event hook (debounced): " <> event_name,
@@ -371,7 +371,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      " <> debounce_import,
         "      const debounceResult = await " <> debounce_call <> ";",
         "      const dr = unwrapGleamResult(debounceResult);",
-        "      if (!dr.ok) { ctx.ui.notify('Hook " <> event_name <> " debounce config error: ' + dr.error, 'error'); pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " debounce config error: ' + dr.error, 'error'); return; }",
+        "      if (!dr.ok) { ctx.ui.notify('Hook " <> event_name <> " debounce config error: ' + dr.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " debounce config error: ' + dr.error, 'error'); return; }",
         "      const debounceMs = dr.value;",
         "      setTimeout(async () => {",
         "        try {",
@@ -379,14 +379,14 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "          const result = await " <> call <> ";",
         "          const r = unwrapGleamResult(result);",
         "          if (r.ok) { " <> success_js <> " }",
-        "          else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
+        "          else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
         "        } catch(e) {",
         error_catch,
         "        }",
         "      }, debounceMs);",
         "    } catch(e) {",
         "      ctx.ui.notify('Hook " <> event_name <> " debounce error: ' + (e.message || String(e)), 'error');",
-        "      pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " debounce error: ' + (e.message || String(e)), 'error');",
+        "      pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " debounce error: ' + (e.message || String(e)), 'error');",
         "    }",
         "  });",
         "",

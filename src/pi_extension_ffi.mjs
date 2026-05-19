@@ -6,7 +6,6 @@
 import { readFileSync } from 'fs';
 import { Ok, Error } from './gleam.mjs';
 import { complete, getModel } from '@earendil-works/pi-ai';
-console.error('[DIAG:pi_extension_ffi] MODULE LOADED');
 
 export function notify_error(ctx, message) {
   ctx.ui.notify(String(message), "error");
@@ -66,39 +65,23 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
       { role: 'user', content: [{ type: 'text', text: String(userPrompt) }] },
     ];
     const completionCtx = { systemPrompt, messages };
-    console.error('[DIAG:callMonitor] calling complete, model:', model?.id, 'api:', model?.api);
-    console.error('[DIAG:callMonitor] context keys:', Object.keys(completionCtx), 'messages count:', messages.length);
     const result = await complete(model, completionCtx, { modelRegistry });
-    console.error('[DIAG:callMonitor] result type:', typeof result, 'constructor:', result?.constructor?.name);
-    console.error('[DIAG:callMonitor] result keys:', result ? Object.keys(result) : 'null');
-    console.error('[DIAG:callMonitor] result.content:', JSON.stringify(result?.content)?.substring(0, 200));
-    console.error('[DIAG:callMonitor] result.choices:', JSON.stringify(result?.choices)?.substring(0, 200));
-    // Try multiple response formats
     let text = '';
-    // Format 1: result.content as array of {type, text} (AssistantMessage)
     if (Array.isArray(result?.content)) {
       text = result.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
-      console.error('[DIAG:callMonitor] format1 content array text:', text.substring(0, 100));
     }
-    // Format 2: result.choices[0].message.content (OpenAI-like)
     if (!text && Array.isArray(result?.choices?.[0]?.message?.content)) {
       text = result.choices[0].message.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
-      console.error('[DIAG:callMonitor] format2 choices text:', text.substring(0, 100));
     }
-    // Format 3: result.choices[0].text
     if (!text && typeof result?.choices?.[0]?.text === 'string') {
       text = result.choices[0].text;
-      console.error('[DIAG:callMonitor] format3 choices[0].text:', text.substring(0, 100));
     }
-    // Format 4: result.text directly
     if (!text && typeof result?.text === 'string') {
       text = result.text;
-      console.error('[DIAG:callMonitor] format4 result.text:', text.substring(0, 100));
     }
     if (!text) {
-      return new Error('callMonitor returned empty — LLM produced no output. Raw: ' + JSON.stringify(result)?.substring(0, 500));
+      return new Error('callMonitor returned empty — LLM produced no output');
     }
-    console.error('[DIAG:callMonitor] final text:', text.substring(0, 100));
     return new Ok(text);
   } catch (e) {
     return new Error(e.message || 'callMonitor failed');

@@ -193,7 +193,7 @@ fn imports_text(tools: List(PiToolCall)) -> String {
       "// DO NOT EDIT - Regenerate with: gleam run -m extension_generator",
       "",
       "import { Text } from \"@mariozechner/pi-tui\";",
-      "import { notify_error as pi_extension_notify_error } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
+      "import { notify_error as pi_extension_notify_error, pi_send_message as pi_extension_pi_send_message } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
       "",
     ]
     |> list.map(fn(s) { s <> "\n" })
@@ -284,7 +284,7 @@ fn commit_tool() -> PiToolCall {
     ],
     module: "tool_commit",
     fn_name: "on_commit",
-    args: [from_param("params.message || ''"), from_param("params.review_id || ''"), lit("ctx")],
+    args: [from_param("params.message || ''"), from_param("params.review_id || ''"), lit("ctx"), lit("pi")],
     result_format: raw_json(),
   )
 }

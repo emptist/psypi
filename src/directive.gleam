@@ -4,7 +4,6 @@ import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
-import gleam/option.{None, Some}
 import gleam/string
 import pi_tool_call.{
   type PiToolCall, PiToolCall, from_param, opt_string_param, string_param,
@@ -25,13 +24,9 @@ fn db_error_to_directive_error(e: db.DbError) -> DirectiveError {
 }
 
 fn soul_decoder() -> decode.Decoder(String) {
-  use name <- decode.field("name", decode.string)
-  use traits <- decode.field("traits", decode.optional(decode.string))
-  let quote = case traits {
-    Some(t) -> " — " <> string.slice(t, 0, 80)
-    None -> ""
-  }
-  decode.success(name <> quote)
+  use role <- decode.field("role", decode.string)
+  use domain <- decode.field("domain", decode.string)
+  decode.success(role <> " | " <> domain)
 }
 
 /// Set a system directive — Atonomic Agentbot uses this to direct Somatic Agentbot.
@@ -68,9 +63,9 @@ pub fn set_directive(
           let agent_id = id_val.id
           // 2. Query SOUL from database
           let soul_sql =
-            "SELECT name, traits FROM souls WHERE agent_id = $1 LIMIT 1"
+            "SELECT role, domain FROM soul WHERE is_active = true AND role = 'Monitor' LIMIT 1"
           promise.await(
-            db.query(conn, soul_sql, [dynamic.string(agent_id)]),
+            db.query(conn, soul_sql, []),
             fn(soul_result) {
               let soul_prefix = case soul_result {
                 Error(_) -> "[Atonomic] "
@@ -127,8 +122,7 @@ pub fn clear_directives() -> promise.Promise(Result(String, DirectiveError)) {
         "
       UPDATE system_directives 
       SET is_active = false, consumed_at = NOW()
-      WHERE agent_id IN (SELECT agent_id FROM souls WHERE active = true)
-        AND is_active = true
+      WHERE is_active = true
     "
       promise.map(db.query(conn, sql, []), fn(result) {
         case result {
@@ -172,9 +166,12 @@ pub fn get_active_directives(
             let directives =
               query_result.rows
               |> list.map(fn(row) {
-                let text = dynamic.classify(row)
-                text
+                case decode.run(row, directive_text_decoder()) {
+                  Ok(text) -> [text]
+                  Error(_) -> []
+                }
               })
+              |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
             Ok(directives)
           }
         }
@@ -210,6 +207,11 @@ pub fn mark_directives_consumed(
 // -------------------------------------------------------------------
 // Pi Tools
 // -------------------------------------------------------------------
+
+fn directive_text_decoder() -> decode.Decoder(String) {
+  use text <- decode.field("directive_text", decode.string)
+  decode.success(text)
+}
 
 pub fn direct_agentbot_tool() -> PiToolCall {
   PiToolCall(

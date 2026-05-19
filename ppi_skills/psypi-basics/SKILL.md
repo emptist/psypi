@@ -1,6 +1,6 @@
 ---
 name: psypi-basics
-description: Quick cheat‑sheet for using Psypi from the TUI (Autonomic vs Somatic, IDs, common tools, commit workflow). All psypi tools are Pi agent tools — only AIs use them, not human users.
+description: Quick cheat‑sheet for using Psypi from the TUI (Autonomic vs Somatic, IDs, common tools, commit workflow). All psypi tools are Pi agent tools — only AIs use them, not human users. Reference resources available at ../refers/pi/.
 ---
 
 # Psypi Basics (for AI Agents)
@@ -14,6 +14,7 @@ description: Quick cheat‑sheet for using Psypi from the TUI (Autonomic vs Soma
 - The ID is always freshly computed (no cache). Format: `(A|S)-<project>-<source>-<model>[-<thinking_level>]`
   - Example: `S-psypi-psypi-openrouter/owl-alpha` or `A-psypi-psypi-openrouter/owl-alpha-high`
   - When no `.git` found in cwd, prepends `G-` (e.g., `G-S-psypi-psypi-openrouter/owl-alpha`)
+- **Pi Reference Resources** – For advanced Pi patterns, see `/Users/jk/gits/hub/tools_ai/refers/pi/` with prompts like `cl.md` (changelog), `is.md` (issue analysis), `pr.md` (PR review), `wr.md` (work wrapup)
 
 ## Getting your identity
 ```
@@ -171,6 +172,15 @@ These are registered as Pi commands, not Pi tools:
 - **Never run Pi tools as shell commands** (e.g. `psypi-task-add`). They exist only inside the Pi runtime (`extension.js`). Attempting to call them from the OS will result in "command not found".
 - Always invoke them from the **Psypi TUI** prompt.
 - **Never cache the ID.** It must be computed fresh every time because `ctx.isIdle()` is live.
+
+## Pi Prompt Patterns (from refer resources)
+Reference Pi prompts available at `../refers/pi/.pi/prompts/`:
+- **`cl.md`** – Audit changelog entries before release
+- **`is.md`** – Analyze GitHub issues (bugs or feature requests)
+- **`pr.md`** – Review PRs from URLs with structured issue and code analysis
+- **`wr.md`** – Finish the current task end-to-end with changelog, commit, and push
+
+These can be used by both Autonomic and Somatic agents for standard Pi workflows.
 
 ## Quick tip
 - After any change, run `/psypi-commit` to let the Monitor review and approve the commit. This keeps the single-dreamer cycle safe and autonomous.
