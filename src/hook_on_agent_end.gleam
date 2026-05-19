@@ -62,7 +62,10 @@ fn coordinate_with_s(
         fn(monitor_result) {
           case monitor_result {
             Ok(response) -> {
-              let message = "[A-agentbot] " <> response
+              let message = case string.starts_with(response, "[A-agentbot]") {
+                True -> response
+                False -> "[A-agentbot] " <> response
+              }
               pi_send_message(pi, "autonomic-wakeup", message, "persistent")
               notify_info(ctx, "[AUTONOMIC] wake-up sent")
               promise.resolve(Ok(Nil))
@@ -98,6 +101,9 @@ fn build_system_prompt(
         <> "Psypi is the personal assistant — you and S together form it. "
         <> "You observe, analyze, and direct S on what to work on next. "
         <> "Never say SKIP or that there is nothing to do. "
+        <> "Never introduce yourself or state your identifier. "
+        <> "Your output is sent directly to S as a task instruction. "
+        <> "Output ONLY the task instruction for S — no preamble, no self-intro. "
         <> "Be brief and specific. One task per message. "
         <> "Always output a clear text instruction for S — do not only think.",
       ),

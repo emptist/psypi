@@ -1,4 +1,5 @@
 import gleam/javascript/promise
+import gleam/string
 import pi_extension.{
   call_monitor, notify_info, pi_send_message,
 }
@@ -27,7 +28,10 @@ pub fn on_autonomic_listen(
         fn(result) {
           case result {
             Ok(response) -> {
-              let message = "[A-agentbot] " <> response
+              let message = case string.starts_with(response, "[A-agentbot]") {
+                True -> response
+                False -> "[A-agentbot] " <> response
+              }
               pi_send_message(pi, "autonomic-wakeup", message, "persistent")
               notify_info(ctx, "[AUTONOMIC] wake-up sent")
               promise.resolve(Ok("A processed the message and sent to S."))
