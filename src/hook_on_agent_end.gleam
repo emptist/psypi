@@ -84,11 +84,10 @@ fn coordinate_with_s(
                     fn(monitor_result) {
                       case monitor_result {
                         Ok(response) -> {
-                          let message = prefix_a_agentbot(response)
                           pi_send_message(
                             pi,
                             "autonomic-wakeup",
-                            message,
+                            response,
                             "persistent",
                           )
                           notify_info(ctx, "[AUTONOMIC] wake-up sent")
@@ -116,13 +115,6 @@ fn coordinate_with_s(
             })
         }
       })
-  }
-}
-
-fn prefix_a_agentbot(text: String) -> String {
-  case string.starts_with(text, "[A-agentbot]") {
-    True -> text
-    False -> "[A-agentbot] " <> text
   }
 }
 
@@ -176,24 +168,20 @@ fn build_user_prompt(
   entries_json: String,
   cwd: String,
 ) -> String {
-  let parts =
-    [cwd_section(cwd), usage_section(usage_json), truncate(entries_json, 2000)]
-    |> list.filter(fn(s) { s != "" })
-  string.join(parts, "\n")
-}
-
-fn cwd_section(cwd: String) -> String {
-  case cwd == "" {
+  let context_section = case cwd == "" {
     True -> ""
-    False -> "Working directory: " <> cwd
+    False -> "Working directory: " <> cwd <> "\n"
   }
-}
-
-fn usage_section(usage_json: String) -> String {
-  case string.contains(usage_json, "tokens") {
-    True -> usage_json
+  let usage_section = case string.contains(usage_json, "tokens") {
+    True -> "Context usage: " <> usage_json <> "\n"
     False -> ""
   }
+  let recent_section =
+    "Below is S's recent conversation. You are A, not S. "
+    <> "Do NOT continue S's conversation. "
+    <> "Analyze what S just did and tell S what to do next.\n\n"
+    <> truncate(entries_json, 2000)
+  context_section <> usage_section <> recent_section
 }
 
 fn db_error_to_string(e: db.DbError) -> String {
