@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "gleam build && cp src/pi_extension_ffi.mjs build/dev/javascript/psypi/pi_extension_ffi.mjs"
+  },
   "dependencies": {
     "@earendil-works/pi-ai": ">=0.75.0"
   }
