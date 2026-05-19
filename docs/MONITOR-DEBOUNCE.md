@@ -5,7 +5,7 @@ The Autonomic Agentbot (Monitor) waits after the Somatic Agentbot goes idle befo
 ## Configuration
 
 - **Key:** `monitor_debounce_ms`
-- **Default:** 15000ms (15 seconds)
+- **Default:** 120000ms (2 minutes)
 - **Location:** `system_config` table
 
 ## Setting a Custom Value
@@ -15,9 +15,9 @@ UPDATE system_config SET value = '60000' WHERE key = 'monitor_debounce_ms';
 ```
 
 Values (in milliseconds):
-- 15000 = 15 seconds (default)
+- 120000 = 2 minutes (default)
 - 60000 = 60 seconds  
-- 120000 = 2 minutes (recommended for longer think time)
+- 60000 = 1 minute
 
 ## How It Works
 
