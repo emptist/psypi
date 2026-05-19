@@ -1,7 +1,6 @@
-import gleam/dynamic
+import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/javascript/promise
-import gleam/list
 import gleam/option.{type Option, None, Some}
 import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
@@ -48,25 +47,27 @@ pub fn priority_to_string(p: BroadcastPriority) -> String {
   }
 }
 
-pub fn string_to_priority(s: String) -> BroadcastPriority {
+pub fn string_to_priority(s: String) -> Result(BroadcastPriority, String) {
   case s {
-    "critical" -> Critical
-    "high" -> High
-    "normal" -> Normal
-    _ -> Low
+    "critical" -> Ok(Critical)
+    "high" -> Ok(High)
+    "normal" -> Ok(Normal)
+    "low" -> Ok(Low)
+    _ -> Error("Unknown priority: " <> s)
   }
 }
 
-fn string_to_status(s: String) -> BroadcastStatus {
+fn string_to_status(s: String) -> Result(BroadcastStatus, String) {
   case s {
-    "sent" -> Sent
-    "failed" -> Failed
-    "cancelled" -> Cancelled
-    _ -> Pending
+    "sent" -> Ok(Sent)
+    "failed" -> Ok(Failed)
+    "cancelled" -> Ok(Cancelled)
+    "pending" -> Ok(Pending)
+    _ -> Error("Unknown broadcast status: " <> s)
   }
 }
 
-fn broadcast_decoder() -> decode.Decoder(Broadcast) {
+fn broadcast_row_decoder() -> decode.Decoder(#(String, String, String, String, String, String, Option(String))) {
   use id <- decode.field("id", decode.string)
   use agent_id <- decode.field("agent_id", decode.string)
   use message <- decode.field("message", decode.string)
@@ -74,16 +75,31 @@ fn broadcast_decoder() -> decode.Decoder(Broadcast) {
   use status_str <- decode.field("status", decode.string)
   use created_at <- decode.field("created_at", decode.string)
   use sent_at <- decode.field("sent_at", decode.optional(decode.string))
+  decode.success(#(id, agent_id, message, priority_str, status_str, created_at, sent_at))
+}
 
-  decode.success(Broadcast(
-    id: id,
-    agent_id: agent_id,
-    message: message,
-    priority: string_to_priority(priority_str),
-    status: string_to_status(status_str),
-    created_at: created_at,
-    sent_at: sent_at,
-  ))
+fn broadcast_decoder() -> decode.Decoder(Broadcast) {
+  broadcast_row_decoder()
+  |> decode.then(fn(row) {
+    let #(id, agent_id, message, priority_str, status_str, created_at, sent_at) = row
+    case string_to_priority(priority_str) {
+      Error(_) -> decode.failure(Broadcast(id: id, agent_id: agent_id, message: message, priority: Low, status: Pending, created_at: created_at, sent_at: sent_at), "Unknown priority: " <> priority_str)
+      Ok(priority) -> {
+        case string_to_status(status_str) {
+          Error(_) -> decode.failure(Broadcast(id: id, agent_id: agent_id, message: message, priority: priority, status: Pending, created_at: created_at, sent_at: sent_at), "Unknown status: " <> status_str)
+          Ok(status) -> decode.success(Broadcast(
+            id: id,
+            agent_id: agent_id,
+            message: message,
+            priority: priority,
+            status: status,
+            created_at: created_at,
+            sent_at: sent_at,
+          ))
+        }
+      }
+    }
+  })
 }
 
 fn id_decoder() -> decode.Decoder(String) {
@@ -109,41 +125,65 @@ pub fn send(
   agent_id: String,
   message: String,
   priority_str: String,
+  project_id: String,
 ) -> promise.Promise(Result(String, BroadcastError)) {
-  let priority = string_to_priority(priority_str)
-  db.with_connection(fn(conn) {
-    let sql = "
-      INSERT INTO project_communications 
-      (project_id, from_ai, message_type, content, priority, metadata)
-      VALUES ($1, $2, 'broadcast', $3, $4, $5)
-      RETURNING id
-    "
-    let default_project_id = "00000000-0000-0000-0000-000000000001"
-    let params = [
-      dynamic.string(default_project_id),
-      dynamic.string(agent_id),
-      dynamic.string(message),
-      dynamic.string(priority_to_string(priority)),
-      dynamic.string("{\"sent_at\": \"now\"}"),
-    ]
+  case string_to_priority(priority_str) {
+    Error(e) -> promise.resolve(Error(DecodeError(e)))
+    Ok(priority) -> {
+      db.with_connection(fn(conn) {
+        let sql = "
+          INSERT INTO project_communications
+          (project_id, from_ai, message_type, content, priority, metadata)
+          VALUES ($1, $2, 'broadcast', $3, $4, $5)
+          RETURNING id
+        "
+        let params = [
+          dynamic.string(project_id),
+          dynamic.string(agent_id),
+          dynamic.string(message),
+          dynamic.string(priority_to_string(priority)),
+          dynamic.string("{\"sent_at\": \"now\"}"),
+        ]
 
-    promise.map(db.query(conn, sql, params), fn(query_result) {
-      case query_result {
-        Error(e) -> Error(db_error_to_broadcast_error(e))
-        Ok(result) -> {
-          case result.rows {
-            [row, ..] -> {
-              case decode.run(row, id_decoder()) {
-                Ok(id) -> Ok(id)
-                Error(_) -> Error(DecodeError("Failed to decode id"))
+        promise.map(db.query(conn, sql, params), fn(query_result) {
+          case query_result {
+            Error(e) -> Error(db_error_to_broadcast_error(e))
+            Ok(result) -> {
+              case result.rows {
+                [row, ..] -> {
+                  case decode.run(row, id_decoder()) {
+                    Ok(id) -> Ok(id)
+                    Error(_) -> Error(DecodeError("Failed to decode id"))
+                  }
+                }
+                _ -> Error(NotFound("No id returned"))
               }
             }
-            _ -> Error(NotFound("No id returned"))
+          }
+        })
+      }, db_error_to_broadcast_error)
+    }
+  }
+}
+
+fn decode_rows(
+  rows: List(Dynamic),
+  decoder: decode.Decoder(a),
+) -> Result(List(a), BroadcastError) {
+  case rows {
+    [] -> Ok([])
+    [row, ..rest] -> {
+      case decode.run(row, decoder) {
+        Error(_) -> Error(DecodeError("Failed to decode row"))
+        Ok(value) -> {
+          case decode_rows(rest, decoder) {
+            Error(e) -> Error(e)
+            Ok(rest_values) -> Ok([value, ..rest_values])
           }
         }
       }
-    })
-  }, db_error_to_broadcast_error)
+    }
+  }
 }
 
 pub fn list(
@@ -153,7 +193,7 @@ pub fn list(
   db.with_connection(fn(conn) {
     let sql = case agent_id {
       Some(_) -> "
-        SELECT id, from_ai as agent_id, content as message, priority, 
+        SELECT id, from_ai as agent_id, content as message, priority,
                'sent' as status, created_at::text, read_at::text as sent_at
         FROM project_communications
         WHERE from_ai = $1 AND message_type = 'broadcast'
@@ -178,13 +218,7 @@ pub fn list(
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
         Error(e) -> Error(db_error_to_broadcast_error(e))
-        Ok(result) -> {
-          let broadcasts = result.rows
-            |> list.map(fn(row) { decode.run(row, broadcast_decoder()) })
-            |> list.filter_map(fn(r) { r })
-
-          Ok(broadcasts)
-        }
+        Ok(result) -> decode_rows(result.rows, broadcast_decoder())
       }
     })
   }, db_error_to_broadcast_error)
@@ -208,13 +242,7 @@ pub fn get_recent(
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
         Error(e) -> Error(db_error_to_broadcast_error(e))
-        Ok(result) -> {
-          let broadcasts = result.rows
-            |> list.map(fn(row) { decode.run(row, broadcast_decoder()) })
-            |> list.filter_map(fn(r) { r })
-
-          Ok(broadcasts)
-        }
+        Ok(result) -> decode_rows(result.rows, broadcast_decoder())
       }
     })
   }, db_error_to_broadcast_error)
@@ -225,7 +253,7 @@ pub fn stats(
 ) -> promise.Promise(Result(#(Int, Int, Int), BroadcastError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT 
+      SELECT
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
         COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
@@ -262,13 +290,14 @@ pub fn broadcast_send_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-broadcast-send",
     description: "Send a broadcast message",
-    params: [string_param("message"), string_param("priority")],
+    params: [string_param("message"), string_param("priority"), string_param("project_id")],
     module: "broadcast",
     fn_name: "send",
     args: [
       from_param("'psypi'"),
       from_param("params.message || \"\""),
       from_param("params.priority || 'normal'"),
+      from_param("params.project_id || \"\""),
     ],
     result_format: template("Broadcast sent: ${r.value}"),
   )

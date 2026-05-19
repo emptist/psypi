@@ -33,35 +33,36 @@ fn issue_decoder() -> decode.Decoder(Issue) {
   use reported_by <- decode.field("reported_by", decode.optional(decode.string))
   use source <- decode.field("source", decode.optional(decode.string))
 
-  let severity = case string_to_severity(severity_str) {
-    Ok(s) -> s
-    Error(_) -> Medium
+  case string_to_severity(severity_str) {
+    Error(_) -> decode.failure(issue_types.Issue(id: id, title: title, description: description, severity: Medium, status: Open, issue_type: Bug, created_at: created_at, resolved_at: resolved_at, created_by: created_by, discovered_by: discovered_by, environment: environment, git_branch: git_branch, git_hash: git_hash, reported_by: reported_by, source: source), "Unknown severity: " <> severity_str)
+    Ok(severity) -> {
+      case string_to_status(status_str) {
+        Error(_) -> decode.failure(issue_types.Issue(id: id, title: title, description: description, severity: severity, status: Open, issue_type: Bug, created_at: created_at, resolved_at: resolved_at, created_by: created_by, discovered_by: discovered_by, environment: environment, git_branch: git_branch, git_hash: git_hash, reported_by: reported_by, source: source), "Unknown status: " <> status_str)
+        Ok(status) -> {
+          case string_to_type(issue_type_str) {
+            Error(_) -> decode.failure(issue_types.Issue(id: id, title: title, description: description, severity: severity, status: status, issue_type: Bug, created_at: created_at, resolved_at: resolved_at, created_by: created_by, discovered_by: discovered_by, environment: environment, git_branch: git_branch, git_hash: git_hash, reported_by: reported_by, source: source), "Unknown issue_type: " <> issue_type_str)
+            Ok(issue_type) -> decode.success(issue_types.Issue(
+              id: id,
+              title: title,
+              description: description,
+              severity: severity,
+              status: status,
+              issue_type: issue_type,
+              created_at: created_at,
+              resolved_at: resolved_at,
+              created_by: created_by,
+              discovered_by: discovered_by,
+              environment: environment,
+              git_branch: git_branch,
+              git_hash: git_hash,
+              reported_by: reported_by,
+              source: source,
+            ))
+          }
+        }
+      }
+    }
   }
-  let status = case string_to_status(status_str) {
-    Ok(s) -> s
-    Error(_) -> Open
-  }
-  let issue_type = case string_to_type(issue_type_str) {
-    Ok(t) -> t
-    Error(_) -> Bug
-  }
-  decode.success(issue_types.Issue(
-    id: id,
-    title: title,
-    description: description,
-    severity: severity,
-    status: status,
-    issue_type: issue_type,
-    created_at: created_at,
-    resolved_at: resolved_at,
-    created_by: created_by,
-    discovered_by: discovered_by,
-    environment: environment,
-    git_branch: git_branch,
-    git_hash: git_hash,
-    reported_by: reported_by,
-    source: source,
-  ))
 }
 
 fn id_decoder() -> decode.Decoder(String) {
@@ -122,14 +123,29 @@ pub fn list(
       case query_result {
         Error(e) -> Error(db_error_to_issue_error(e))
         Ok(result) -> {
-          let issues = result.rows
+          let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, issue_decoder()) })
-            |> list.filter_map(fn(r) { r })
-          Ok(issues)
+          case decode_all_results(decoded) {
+            Error(_) -> Error(DecodeError("Failed to decode issue row"))
+            Ok(issues) -> Ok(issues)
+          }
         }
       }
     })
   }, db_error_to_issue_error)
+}
+
+fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
+  case results {
+    [] -> Ok([])
+    [Ok(v), ..rest] -> {
+      case decode_all_results(rest) {
+        Error(e) -> Error(e)
+        Ok(vs) -> Ok([v, ..vs])
+      }
+    }
+    [Error(e), .._] -> Error(e)
+  }
 }
 
 fn sql_with_filters(
@@ -141,11 +157,14 @@ fn sql_with_filters(
   offset: Int,
 ) -> #(String, List(dynamic.Dynamic)) {
   let base_sql = "SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues"
-  let order_limit = " ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $" <> string.inspect(limit) <> " OFFSET $" <> string.inspect(offset)
 
   // Build WHERE clause dynamically
   let #(where_clause, where_params) = build_where(status, severity, issue_type, project_id)
-  #(base_sql <> where_clause <> order_limit, where_params)
+  let param_count = list.length(where_params)
+  let limit_idx = param_count + 1
+  let offset_idx = param_count + 2
+  let order_limit = " ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, created_at DESC LIMIT $" <> string.inspect(limit_idx) <> " OFFSET $" <> string.inspect(offset_idx)
+  #(base_sql <> where_clause <> order_limit, list.append(where_params, [dynamic.int(limit), dynamic.int(offset)]))
 }
 
 fn build_where(

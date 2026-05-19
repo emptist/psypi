@@ -7,6 +7,19 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import pi_tool_call.{type PiToolCall, PiToolCall, raw_json}
 
+fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
+  case results {
+    [] -> Ok([])
+    [Ok(v), ..rest] -> {
+      case decode_all_results(rest) {
+        Error(e) -> Error(e)
+        Ok(vs) -> Ok([v, ..vs])
+      }
+    }
+    [Error(e), .._] -> Error(e)
+  }
+}
+
 pub type EventHook {
   EventHook(
     id: String,
@@ -85,16 +98,12 @@ pub fn list_all_hooks() -> promise.Promise(Result(List(EventHook), db.DbError)) 
         case result {
           Error(e) -> Error(e)
           Ok(query_result) -> {
-            let hooks =
-              query_result.rows
-              |> list.map(fn(row) {
-                case decode.run(row, event_hook_decoder()) {
-                  Ok(h) -> [h]
-                  Error(_) -> []
-                }
-              })
-              |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
-            Ok(hooks)
+            let decoded = query_result.rows
+              |> list.map(fn(row) { decode.run(row, event_hook_decoder()) })
+            case decode_all_results(decoded) {
+              Error(_) -> Error(db.QueryError("Failed to decode event hook row"))
+              Ok(hooks) -> Ok(hooks)
+            }
           }
         }
       })
@@ -124,16 +133,12 @@ pub fn list_active_hooks() -> promise.Promise(
         case result {
           Error(e) -> Error(e)
           Ok(query_result) -> {
-            let hooks =
-              query_result.rows
-              |> list.map(fn(row) {
-                case decode.run(row, event_hook_decoder()) {
-                  Ok(h) -> [h]
-                  Error(_) -> []
-                }
-              })
-              |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
-            Ok(hooks)
+            let decoded = query_result.rows
+              |> list.map(fn(row) { decode.run(row, event_hook_decoder()) })
+            case decode_all_results(decoded) {
+              Error(_) -> Error(db.QueryError("Failed to decode event hook row"))
+              Ok(hooks) -> Ok(hooks)
+            }
           }
         }
       })

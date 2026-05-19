@@ -45,11 +45,13 @@ pub fn parse(
   let learnings = parse_marker(text, "[LEARN]")
   let issues = parse_marker(text, "[ISSUE]")
   let tasks = parse_marker(text, "[TASK]")
-  let issue_list_count = parse_issue_list_marker(text)
-  Ok(#(learnings, issues, tasks, issue_list_count))
+  case parse_issue_list_marker(text) {
+    Error(e) -> Error(e)
+    Ok(issue_list_count) -> Ok(#(learnings, issues, tasks, issue_list_count))
+  }
 }
 
-fn parse_issue_list_marker(text: String) -> Int {
+fn parse_issue_list_marker(text: String) -> Result(Int, String) {
   text
   |> string.split("\n")
   |> list.filter(fn(line) { string.contains(line, "[ISSUELIST]") })
@@ -60,18 +62,18 @@ fn parse_issue_list_marker(text: String) -> Int {
     |> string.trim
     |> parse_count_from_issue_list
   })
-  |> result.unwrap(0)
+  |> result.unwrap(Error("No [ISSUELIST] marker found"))
 }
 
-fn parse_count_from_issue_list(s: String) -> Int {
+fn parse_count_from_issue_list(s: String) -> Result(Int, String) {
   let parts = string.split(s, " ")
   let count_str = case list.drop(parts, 1) {
     [first, ..] -> first
     _ -> s
   }
   case int.parse(count_str) {
-    Ok(n) -> n
-    Error(_) -> 5
+    Ok(n) -> Ok(n)
+    Error(_) -> Error("Invalid ISSUELIST count: " <> count_str)
   }
 }
 
@@ -86,30 +88,30 @@ pub fn areflect(
   text: String,
   agent_id: String,
 ) -> promise.Promise(Result(ReflectionResult, ReflectionError)) {
-  let #(learnings, issues, tasks, issue_list_count) = case parse(text) {
-    Ok(result) -> result
-    Error(_) -> #([], [], [], 0)
-  }
-
-  db.with_connection(fn(conn) {
-    promise.await(save_learnings(conn, learnings, agent_id), fn(_) {
-      promise.await(save_issues(conn, issues, agent_id), fn(_) {
-        promise.await(save_tasks(conn, tasks, agent_id), fn(_) {
-          promise.map(fetch_recent_issues(conn, issue_list_count), fn(issue_list) {
-            case issue_list {
-              Ok(issues) -> Ok(ReflectionResult(
-                learnings: list.length(learnings),
-                issues: list.length(issues),
-                tasks: list.length(tasks),
-                issue_list: issues,
-              ))
-              Error(e) -> Error(e)
-            }
+  case parse(text) {
+    Error(e) -> promise.resolve(Error(DecodeError(e)))
+    Ok(#(learnings, issues, tasks, issue_list_count)) -> {
+      db.with_connection(fn(conn) {
+        promise.await(save_learnings(conn, learnings, agent_id), fn(_) {
+          promise.await(save_issues(conn, issues, agent_id), fn(_) {
+            promise.await(save_tasks(conn, tasks, agent_id), fn(_) {
+              promise.map(fetch_recent_issues(conn, issue_list_count), fn(issue_list) {
+                case issue_list {
+                  Ok(issues) -> Ok(ReflectionResult(
+                    learnings: list.length(learnings),
+                    issues: list.length(issues),
+                    tasks: list.length(tasks),
+                    issue_list: issues,
+                  ))
+                  Error(e) -> Error(e)
+                }
+              })
+            })
           })
         })
-      })
-    })
-  }, db_error_to_reflection_error)
+      }, db_error_to_reflection_error)
+    }
+  }
 }
 
 fn issue_summary_decoder() -> decode.Decoder(IssueSummary) {
@@ -145,10 +147,13 @@ fn fetch_recent_issues(
       promise.map(db.query(conn, sql, params), fn(query_result) {
         case query_result {
           Ok(result) -> {
-            let issues = result.rows
+            let decoded = result.rows
               |> list.map(fn(row) { decode.run(row, issue_summary_decoder()) })
-              |> list.filter_map(fn(r) { r })
-            Ok(issues)
+              |> list.try_map(fn(r) { r })
+            case decoded {
+              Error(_) -> Error(DecodeError("Failed to decode issue row"))
+              Ok(issues) -> Ok(issues)
+            }
           }
           Error(_) -> Error(QueryError("Failed to fetch issues"))
         }

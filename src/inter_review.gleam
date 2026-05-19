@@ -64,6 +64,19 @@ pub type InterReviewError {
 }
 
 // Error mapper for db.with_connection
+fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
+  case results {
+    [] -> Ok([])
+    [Ok(v), ..rest] -> {
+      case decode_all_results(rest) {
+        Error(e) -> Error(e)
+        Ok(vs) -> Ok([v, ..vs])
+      }
+    }
+    [Error(e), .._] -> Error(e)
+  }
+}
+
 fn db_error_to_inter_review_error(e: db.DbError) -> InterReviewError {
   case e {
     db.ConnectionError(msg) -> ConnectionError(msg)
@@ -281,16 +294,12 @@ pub fn list_reviews(
         case query_result {
           Error(e) -> Error(db_error_to_inter_review_error(e))
           Ok(result) -> {
-            let reviews =
-              result.rows
-              |> list.map(fn(row) {
-                case decode.run(row, review_decoder()) {
-                  Ok(review) -> [review]
-                  Error(_) -> []
-                }
-              })
-              |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
-            Ok(reviews)
+            let decoded = result.rows
+              |> list.map(fn(row) { decode.run(row, review_decoder()) })
+            case decode_all_results(decoded) {
+              Error(_) -> Error(DecodeError("Failed to decode review row"))
+              Ok(reviews) -> Ok(reviews)
+            }
           }
         }
       })

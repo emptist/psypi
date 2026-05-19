@@ -18,6 +18,19 @@ pub type AgentError {
   QueryError(String)
 }
 
+fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
+  case results {
+    [] -> Ok([])
+    [Ok(v), ..rest] -> {
+      case decode_all_results(rest) {
+        Error(e) -> Error(e)
+        Ok(vs) -> Ok([v, ..vs])
+      }
+    }
+    [Error(e), .._] -> Error(e)
+  }
+}
+
 fn db_error_to_agent_error(e: db.DbError) -> AgentError {
   case e {
     db.ConnectionError(msg) -> ConnectionError(msg)
@@ -47,10 +60,12 @@ pub fn list() -> promise.Promise(Result(List(Agent), AgentError)) {
       case query_result {
         Error(e) -> Error(db_error_to_agent_error(e))
         Ok(result) -> {
-          let agents = result.rows
+          let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, agent_decoder()) })
-            |> list.filter_map(fn(r) { r })
-          Ok(agents)
+          case decode_all_results(decoded) {
+            Error(_) -> Error(QueryError("Failed to decode agent row"))
+            Ok(agents) -> Ok(agents)
+          }
         }
       }
     })

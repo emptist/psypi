@@ -43,12 +43,13 @@ pub type MeetingError {
   DecodeError(String)
 }
 
-fn string_to_status(s: String) -> MeetingStatus {
+fn string_to_status(s: String) -> Result(MeetingStatus, String) {
   case s {
-    "active" -> Active
-    "completed" -> Completed
-    "cancelled" -> Cancelled
-    _ -> Pending
+    "pending" -> Ok(Pending)
+    "active" -> Ok(Active)
+    "completed" -> Ok(Completed)
+    "cancelled" -> Ok(Cancelled)
+    _ -> Error("Unknown meeting status: " <> s)
   }
 }
 
@@ -61,15 +62,18 @@ fn meeting_decoder() -> decode.Decoder(Meeting) {
   use consensus_at <- decode.field("consensus_at", decode.optional(decode.string))
   use consensus <- decode.field("consensus", decode.optional(decode.string))
 
-  decode.success(Meeting(
-    id: id,
-    topic: topic,
-    created_by: created_by,
-    status: string_to_status(status_str),
-    created_at: created_at,
-    consensus_at: consensus_at,
-    consensus: consensus,
-  ))
+  case string_to_status(status_str) {
+    Error(_) -> decode.failure(Meeting(id: id, topic: topic, created_by: created_by, status: Pending, created_at: created_at, consensus_at: consensus_at, consensus: consensus), "Unknown meeting status: " <> status_str)
+    Ok(status) -> decode.success(Meeting(
+      id: id,
+      topic: topic,
+      created_by: created_by,
+      status: status,
+      created_at: created_at,
+      consensus_at: consensus_at,
+      consensus: consensus,
+    ))
+  }
 }
 
 fn opinion_decoder() -> decode.Decoder(Opinion) {
@@ -88,6 +92,19 @@ fn opinion_decoder() -> decode.Decoder(Opinion) {
     reasoning: reasoning,
     created_at: created_at,
   ))
+}
+
+fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
+  case results {
+    [] -> Ok([])
+    [Ok(v), ..rest] -> {
+      case decode_all_results(rest) {
+        Error(e) -> Error(e)
+        Ok(vs) -> Ok([v, ..vs])
+      }
+    }
+    [Error(e), .._] -> Error(e)
+  }
 }
 
 fn id_decoder() -> decode.Decoder(String) {
@@ -169,11 +186,12 @@ pub fn list(
       case query_result {
         Error(e) -> Error(db_error_to_meeting_error(e))
         Ok(result) -> {
-          let meetings = result.rows
+          let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, meeting_decoder()) })
-            |> list.filter_map(fn(r) { r })
-
-          Ok(meetings)
+          case decode_all_results(decoded) {
+            Error(_) -> Error(DecodeError("Failed to decode meeting row"))
+            Ok(meetings) -> Ok(meetings)
+          }
         }
       }
     })
@@ -266,11 +284,12 @@ pub fn list_opinions(
       case query_result {
         Error(e) -> Error(db_error_to_meeting_error(e))
         Ok(result) -> {
-          let opinions = result.rows
+          let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, opinion_decoder()) })
-            |> list.filter_map(fn(r) { r })
-
-          Ok(opinions)
+          case decode_all_results(decoded) {
+            Error(_) -> Error(DecodeError("Failed to decode opinion row"))
+            Ok(opinions) -> Ok(opinions)
+          }
         }
       }
     })
