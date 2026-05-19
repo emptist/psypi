@@ -75,16 +75,18 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
       return new Error('LLM error: ' + result.errorMessage);
     }
     let text = '';
+    let hasThinking = false;
     if (Array.isArray(result?.content)) {
       text = result.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
-    }
-    if (!text && Array.isArray(result?.content)) {
-      text = result.content.filter(c => c.type === 'thinking').map(c => c.thinking).join(' ');
+      hasThinking = result.content.some(c => c.type === 'thinking');
     }
     if (!text && typeof result?.text === 'string') {
       text = result.text;
     }
     if (!text) {
+      if (hasThinking) {
+        return new Error('LLM only thought, no text output. stopReason=' + (result?.stopReason || 'none'));
+      }
       return new Error('empty output, stopReason=' + (result?.stopReason || 'none') + ' contentTypes=' + (Array.isArray(result?.content) ? result.content.map(c => c.type).join(',') : 'none'));
     }
     return new Ok(text);

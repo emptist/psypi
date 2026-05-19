@@ -55,7 +55,7 @@ fn coordinate_with_s(
       let composition =
         build_system_prompt(soul_content, directives, context_window)
       let system_prompt = compose(composition)
-      let user_prompt = build_user_prompt(usage_json, entries_json)
+      let user_prompt = build_user_prompt(usage_json, entries_json, ctx)
       notify_info(ctx, "[AUTONOMIC] A thinking...")
       promise.await(
         call_monitor(ctx, user_prompt, system_prompt),
@@ -117,15 +117,28 @@ fn build_system_prompt(
   })
 }
 
-fn build_user_prompt(usage_json: String, entries_json: String) -> String {
+fn build_user_prompt(
+  usage_json: String,
+  entries_json: String,
+  ctx: a,
+) -> String {
   let usage_section = case string.contains(usage_json, "tokens") {
     True -> usage_json
     False -> ""
   }
   let recent = truncate(entries_json, 2000)
-  case usage_section == "" {
+  let cwd = ctx_get_cwd(ctx)
+  let cwd_section = case cwd == "" {
+    True -> ""
+    False -> "Working directory: " <> cwd
+  }
+  let base = case usage_section == "" {
     True -> recent
     False -> usage_section <> "\n" <> recent
+  }
+  case cwd_section == "" {
+    True -> base
+    False -> cwd_section <> "\n" <> base
   }
 }
 
