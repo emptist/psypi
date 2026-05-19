@@ -2,7 +2,7 @@ import gleam/javascript/promise
 import gleam/string
 import gleam/list
 import code_version
-import pi_extension.{read_file_sync, set_status}
+import pi_extension.{read_file_sync, set_status, pi_send_message}
 
 fn extract_filename(path: String) -> String {
   let parts = string.split(path, "/")
@@ -16,21 +16,20 @@ pub fn on_tool_call(
   tool_name: String,
   file_path: String,
   ctx: a,
+  pi: a,
 ) -> promise.Promise(Result(Nil, String)) {
-  set_status(ctx, "psypi-autobackup", "[DEBUG] tool=" <> tool_name <> " path=" <> file_path)
   case tool_name == "edit" {
     False -> promise.resolve(Ok(Nil))
     True -> {
-      case file_path == "" || string.length(file_path) < 2 {
-        True -> {
-          set_status(ctx, "psypi-autobackup", "[SKIP] edit tool: invalid file_path")
-          promise.resolve(Ok(Nil))
-        }
+      case file_path == "" {
+        True -> promise.resolve(Ok(Nil))
         False -> {
           case read_file_sync(file_path) {
             Error(e) -> {
-              set_status(ctx, "psypi-autobackup", "[FAIL] read: " <> e)
-              promise.resolve(Error("Read failed: " <> e))
+              let msg = "[FAIL] read: " <> e <> " | path: " <> file_path <> " | tool: " <> tool_name <> " | note: file exists on disk but FFI returned error — possible stale pi_extension_ffi.mjs in Node cache. Restart Pi TUI."
+              set_status(ctx, "psypi-autobackup", msg)
+              pi_send_message(pi, "hook-error", msg, "error")
+              promise.resolve(Error(msg))
             }
             Ok(content) -> {
               promise.map(
@@ -43,8 +42,10 @@ pub fn on_tool_call(
                       Ok(Nil)
                     }
                     Error(e) -> {
-                      set_status(ctx, "psypi-autobackup", "[FAIL] save_version: " <> string.inspect(e))
-                      Error("save_version failed")
+                      let msg = "[FAIL] save_version: " <> string.inspect(e) <> " | path: " <> file_path
+                      set_status(ctx, "psypi-autobackup", msg)
+                      pi_send_message(pi, "hook-error", msg, "error")
+                      Error(msg)
                     }
                   }
                 },
