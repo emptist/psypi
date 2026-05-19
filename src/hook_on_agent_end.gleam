@@ -2,8 +2,8 @@ import gleam/javascript/promise
 import gleam/string
 import pi_extension.{
   ctx_is_idle, ctx_has_pending_messages, ctx_get_entries_json,
-  ctx_get_context_usage_json, ctx_get_cwd, notify_info,
-  pi_send_message, read_file_sync,
+  ctx_get_context_usage_json, notify_info, notify_error,
+  pi_send_message, call_monitor,
 }
 
 pub fn on_agent_end(
@@ -11,87 +11,67 @@ pub fn on_agent_end(
   pi: b,
 ) -> promise.Promise(Result(Nil, String)) {
   case ctx_is_idle(ctx) {
-    False -> {
-      notify_info(ctx, "[AUTONOMIC] ctx.isIdle() = false, skipping A-worker wake-up")
-      promise.resolve(Ok(Nil))
-    }
+    False -> promise.resolve(Ok(Nil))
     True -> {
       case ctx_has_pending_messages(ctx) {
-        True -> {
-          notify_info(ctx, "[AUTONOMIC] S-worker has pending messages, skipping wake-up")
-          promise.resolve(Ok(Nil))
-        }
+        True -> promise.resolve(Ok(Nil))
         False -> {
           let entries_json = ctx_get_entries_json(ctx)
-          notify_info(ctx, "[AUTONOMIC] ctx.isIdle() = true, proceeding with wake-up")
-          coordinate_with_s_worker(ctx, pi, entries_json)
+          let usage_json = ctx_get_context_usage_json(ctx)
+          compose_and_send(ctx, pi, entries_json, usage_json)
         }
       }
     }
   }
 }
 
-fn coordinate_with_s_worker(
+fn compose_and_send(
   ctx: a,
   pi: b,
   entries_json: String,
+  usage_json: String,
 ) -> promise.Promise(Result(Nil, String)) {
-  let brief = read_monitor_brief(ctx)
-  let usage_json = ctx_get_context_usage_json(ctx)
-  let token_info = extract_token_info(usage_json)
-  let recent_summary = extract_recent_summary(entries_json)
-  let wakeup_msg = build_wakeup_message(token_info, brief, recent_summary)
-  notify_info(ctx, "[AUTONOMIC] Sending wake-up directive to S-worker...")
-  pi_send_message(pi, "autonomic-wakeup", wakeup_msg, "persistent")
-  notify_info(ctx, "[AUTONOMIC] Wake-up directive sent")
-  promise.resolve(Ok(Nil))
-}
+  let system_prompt = "You are the Autonomic Worker. The Somatic Worker just went idle. Your job: review the context and decide if anything needs attention. If something needs attention, compose a brief natural message for the S-worker. If nothing needs attention, respond with ONLY: SKIP"
 
-fn read_monitor_brief(ctx: a) -> String {
-  let cwd = ctx_get_cwd(ctx)
-  case cwd == "" {
-    True -> ""
-    False -> {
-      let brief_path = cwd <> "/docs/MONITOR-BRIEF.md"
-      case read_file_sync(brief_path) {
-        Ok(content) -> content
-        Error(_) -> ""
+  let user_prompt = "Recent session entries:\n"
+    <> truncate(entries_json, 3000)
+    <> "\n\nContext usage:\n"
+    <> usage_json
+    <> "\n\nDecide: does the S-worker need to be woken up? If yes, write the wake-up message. If no, respond SKIP."
+
+  promise.map(
+    call_monitor(ctx, user_prompt, system_prompt),
+    fn(result) {
+      case result {
+        Ok("SKIP") -> {
+          notify_info(ctx, "[AUTONOMIC] LLM decided: nothing needs attention")
+          Ok(Nil)
+        }
+        Ok("") -> {
+          let msg = "[AUTONOMIC] callMonitor returned empty — LLM produced no output"
+          notify_error(ctx, msg)
+          pi_send_message(pi, "autonomic-wakeup", msg, "persistent")
+          Ok(Nil)
+        }
+        Ok(msg) -> {
+          notify_info(ctx, "[AUTONOMIC] LLM composed wake-up message")
+          pi_send_message(pi, "autonomic-wakeup", msg, "persistent")
+          Ok(Nil)
+        }
+        Error(e) -> {
+          let msg = "[AUTONOMIC] callMonitor failed: " <> e
+          notify_error(ctx, msg)
+          pi_send_message(pi, "autonomic-wakeup", msg, "persistent")
+          Ok(Nil)
+        }
       }
-    }
-  }
+    },
+  )
 }
 
-fn extract_token_info(usage_json: String) -> String {
-  case string.contains(usage_json, "tokens") && string.contains(usage_json, "contextWindow") {
-    True -> "Context usage available."
-    False -> ""
+fn truncate(s: String, max: Int) -> String {
+  case string.length(s) > max {
+    True -> string.slice(s, 0, max) <> "..."
+    False -> s
   }
-}
-
-fn extract_recent_summary(entries_json: String) -> String {
-  case string.length(entries_json) > 2000 {
-    True -> string.slice(entries_json, 0, 2000) <> "..."
-    False -> entries_json
-  }
-}
-
-fn build_wakeup_message(
-  token_info: String,
-  brief: String,
-  recent_summary: String,
-) -> String {
-  let brief_section = case brief == "" {
-    True -> ""
-    False -> "Monitor Brief:\n" <> brief <> "\n\n"
-  }
-  let token_section = case token_info == "" {
-    True -> ""
-    False -> token_info <> "\n\n"
-  }
-  "[from A-worker:] Autonomic Worker wake-up.\n\n"
-  <> "The Somatic Worker has gone idle. Review the recent context below and decide what needs attention.\n\n"
-  <> token_section
-  <> brief_section
-  <> "Recent conversation context:\n"
-  <> recent_summary
 }

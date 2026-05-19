@@ -4,33 +4,40 @@
 
 `ctx.isIdle()` is a Pi runtime API that returns whether the agent (S-agentbot) is currently processing anything. This is the foundation of the A-S communication mechanism.
 
-## Business Logic Chain (from old fake Gleam)
+## Business Logic Chain
 
 ### Trigger: agent_end event
 - Fires when S-agentbot finishes processing a user prompt
 - The S-agentbot has gone idle
 
-### Step 1: Debounce (wait 5 minutes)
-- Read `monitor_debounce_ms` from `psypi_config` table (key: monitor_debounce_ms)
-- Default: 300000ms (5 minutes) — NOT 15000ms (15 seconds) which was too short
+### Step 1: Immediate Feedback (Phase 1 — debugging)
+- Check `ctx.isIdle()` immediately when `agent_end` fires (no debounce)
+- If `ctx.isIdle() === true` → call `ctx.ui.notify('[AUTONOMIC] S-worker is idle', 'info')` immediately
+- This gives the user instant visual feedback that the autonomic worker detected the idle state
+- **This is the debugging phase** — it confirms the hook fired and idle was detected
+- If `ctx.isIdle() === false` → S-worker is already busy again, skip everything
+
+### Step 2: Debounce Wait (Phase 2)
+- Read `monitor_debounce_ms` from `system_config` table (key: monitor_debounce_ms)
+- Default: 120000ms (2 minutes)
 - Use `setTimeout(debounceMs)` to wait
 - Rationale: S-agentbot might get a new prompt immediately after finishing. No need to wake it up if it's already busy.
 
-### Step 2: Check ctx.isIdle()
+### Step 3: Check ctx.isIdle() Again (Phase 3 entry)
 - After debounce, check if S-agentbot is STILL idle
 - If `ctx.isIdle() === false` → S-agentbot is busy with new work, skip wake-up
 - If `ctx.isIdle() === true` → S-agentbot is idle, proceed to compose message
 
-### Step 3: Read MONITOR-BRIEF.md
+### Step 4: Read MONITOR-BRIEF.md
 - Read from `{ctx.cwd}/docs/MONITOR-BRIEF.md`
 - If file not found, continue with empty brief
 - Brief contains hard-to-find knowledge for the A-agentbot
 
-### Step 4: Get context usage
+### Step 5: Get context usage
 - Call `ctx.getContextUsage()` → returns {tokens, contextWindow}
 - Format: "Context: X% used." (only if usage data available)
 
-### Step 5: Build system prompt for Monitor LLM
+### Step 6: Build system prompt for Monitor LLM
 ```
 You are the Autonomic Agentbot (Monitor). The Somatic Agentbot has gone idle.
 

@@ -5,6 +5,7 @@
 
 import { readFileSync } from 'fs';
 import { Ok, Error } from './gleam.mjs';
+import { complete, getModel } from '@earendil-works/pi-ai';
 console.error('[DIAG:pi_extension_ffi] MODULE LOADED');
 
 export function notify_error(ctx, message) {
@@ -51,6 +52,32 @@ export function pi_send_message(pi, customType, content, display) {
     content: [{ type: 'text', text: String(content) }],
     display: String(display),
   }, { triggerTurn: true });
+}
+
+export async function call_monitor(ctx, userPrompt, systemPrompt) {
+  try {
+    const model = ctx.model;
+    const modelRegistry = ctx.modelRegistry;
+    if (!model) {
+      return new Error('callMonitor: ctx.model is missing — cannot complete LLM call');
+    }
+    const messages = [
+      { role: 'system', content: [{ type: 'text', text: String(systemPrompt) }] },
+      { role: 'user', content: [{ type: 'text', text: String(userPrompt) }] },
+    ];
+    const result = await complete(model, { systemPrompt, messages }, { modelRegistry });
+    // result is an AssistantMessage with content: (TextContent | ThinkingContent | ToolCall)[]
+    const text = result.content
+      ?.filter(c => c.type === 'text')
+      ?.map(c => c.text)
+      ?.join(' ') || '';
+    if (!text) {
+      return new Error('callMonitor returned empty — LLM produced no output');
+    }
+    return new Ok(text);
+  } catch (e) {
+    return new Error(e.message || 'callMonitor failed');
+  }
 }
 
 export function read_file_sync(path) {
