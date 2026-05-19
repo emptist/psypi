@@ -25,7 +25,7 @@ fn config_value_decoder() -> decode.Decoder(String) {
 
 pub fn get(key: String) -> promise.Promise(Result(String, ConfigError)) {
   db.with_connection(fn(conn) {
-    let sql = "SELECT value FROM system_config WHERE key = $1"
+    let sql = "SELECT value FROM psypi_config WHERE key = $1"
     let params = [dynamic.string(key)]
 
     promise.map(db.query(conn, sql, params), fn(query_result) {
