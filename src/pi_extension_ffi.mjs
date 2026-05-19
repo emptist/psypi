@@ -60,21 +60,16 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
     if (!model) {
       return new Error('callMonitor: ctx.model is missing — cannot complete LLM call');
     }
-    const messages = [
-      { role: 'system', content: [{ type: 'text', text: String(systemPrompt) }] },
-      { role: 'user', content: [{ type: 'text', text: String(userPrompt) }] },
-    ];
-    const completionCtx = { systemPrompt, messages };
-    const result = await complete(model, completionCtx, { modelRegistry });
+    const context = {
+      systemPrompt: String(systemPrompt),
+      messages: [
+        { role: 'user', content: String(userPrompt), timestamp: Date.now() },
+      ],
+    };
+    const result = await complete(model, context, { modelRegistry });
     let text = '';
     if (Array.isArray(result?.content)) {
       text = result.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
-    }
-    if (!text && Array.isArray(result?.choices?.[0]?.message?.content)) {
-      text = result.choices[0].message.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
-    }
-    if (!text && typeof result?.choices?.[0]?.text === 'string') {
-      text = result.choices[0].text;
     }
     if (!text && typeof result?.text === 'string') {
       text = result.text;
