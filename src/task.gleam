@@ -38,12 +38,13 @@ pub type TaskError {
   DecodeError(String)
 }
 
-pub fn string_to_status(s: String) -> TaskStatus {
+pub fn string_to_status(s: String) -> Result(TaskStatus, String) {
   case s {
-    "RUNNING" -> Running
-    "COMPLETED" -> Completed
-    "FAILED" -> Failed
-    _ -> Pending
+    "pending" -> Ok(Pending)
+    "running" -> Ok(Running)
+    "completed" -> Ok(Completed)
+    "failed" -> Ok(Failed)
+    _ -> Error("Unknown task status: " <> s)
   }
 }
 
@@ -62,21 +63,37 @@ pub fn task_decoder() -> decode.Decoder(Task) {
   use created_by <- decode.field("created_by", decode.string)
   use source <- decode.field("source", decode.optional(decode.string))
 
-  decode.success(Task(
-    id: id,
-    title: title,
-    description: description,
-    status: string_to_status(status_str),
-    priority: priority,
-    result: result,
-    error: error,
-    retry_count: retry_count,
-    created_at: created_at,
-    updated_at: updated_at,
-    completed_at: completed_at,
-    created_by: created_by,
-    source: source,
-  ))
+  case string_to_status(status_str) {
+    Error(_) -> decode.failure(Task(id: id, title: title, description: description, status: Pending, priority: priority, result: result, error: error, retry_count: retry_count, created_at: created_at, updated_at: updated_at, completed_at: completed_at, created_by: created_by, source: source), "Unknown task status: " <> status_str)
+    Ok(status) -> decode.success(Task(
+      id: id,
+      title: title,
+      description: description,
+      status: status,
+      priority: priority,
+      result: result,
+      error: error,
+      retry_count: retry_count,
+      created_at: created_at,
+      updated_at: updated_at,
+      completed_at: completed_at,
+      created_by: created_by,
+      source: source,
+    ))
+  }
+}
+
+fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
+  case results {
+    [] -> Ok([])
+    [Ok(v), ..rest] -> {
+      case decode_all_results(rest) {
+        Error(e) -> Error(e)
+        Ok(vs) -> Ok([v, ..vs])
+      }
+    }
+    [Error(e), .._] -> Error(e)
+  }
 }
 
 pub fn id_decoder() -> decode.Decoder(String) {
@@ -140,11 +157,12 @@ pub fn list(
       case query_result {
         Error(e) -> Error(db_error_to_task_error(e))
         Ok(result) -> {
-          let tasks = result.rows
+          let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, task_decoder()) })
-            |> list.filter_map(fn(r) { r })
-
-          Ok(tasks)
+          case decode_all_results(decoded) {
+            Error(_) -> Error(DecodeError("Failed to decode task row"))
+            Ok(tasks) -> Ok(tasks)
+          }
         }
       }
     })
