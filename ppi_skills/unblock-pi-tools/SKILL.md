@@ -184,8 +184,8 @@ psypi --print "What is my agent ID?"
 
 **Fix:**
 ```sql
-ALTER TABLE issues ADD COLUMN created_by TEXT NOT NULL DEFAULT 'nezha';
-ALTER TABLE issues ADD COLUMN discovered_by TEXT NOT NULL DEFAULT 'nezha';
+ALTER TABLE issues ADD COLUMN created_by TEXT NOT NULL DEFAULT 'psypi';
+  ALTER TABLE issues ADD COLUMN discovered_by TEXT NOT NULL DEFAULT 'psypi';
 -- Check the Gleam query for the exact column list
 ```
 
