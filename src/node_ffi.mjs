@@ -43,3 +43,20 @@ export function exists(cmd) {
     return false;
   }
 }
+
+// Get environment variable
+export function get_env(name) {
+  return process.env[name] || '';
+}
+
+// Ensure directory exists
+export function ensure_dir(path) {
+  const fs = require('fs');
+  fs.mkdirSync(path, { recursive: true });
+}
+
+// Write text file
+export function write_text_file(path, content) {
+  const fs = require('fs');
+  fs.writeFileSync(path, content, 'utf8');
+}

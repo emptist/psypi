@@ -110,21 +110,20 @@ pub fn all_tools() -> List(PiToolCall) {
 
 pub fn all_event_hooks() -> List(PiEventHook) {
   [
-    // DISABLED: auto-backup hook — read_file_sync FFI bug in old cached code
-    // event_hook(
-    //   "tool_call",
-    //   "hook_on_tool_call",
-    //   "on_tool_call",
-    //   [
-    //     from_param("event.toolName || ''"),
-    //     from_param("event.input ? (event.input.path || event.input.filePath || '') : ''"),
-    //     lit("ctx"),
-    //     lit("pi"),
-    //   ],
-    //   option.None,
-    //   SilentSuccess,
-    //   NotifyError,
-    // ),
+    event_hook(
+      "tool_call",
+      "hook_on_tool_call",
+      "on_tool_call",
+      [
+        from_param("event.toolName || ''"),
+        from_param("event.input ? (event.input.path || event.input.filePath || '') : ''"),
+        lit("ctx"),
+        lit("pi"),
+      ],
+      option.None,
+      SilentSuccess,
+      NotifyError,
+    ),
     event_hook(
       "session_start",
       "monitor",

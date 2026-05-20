@@ -67,3 +67,17 @@ pub fn get_int(
 pub fn get_debounce_ms() -> promise.Promise(Result(Int, ConfigError)) {
   get_int("monitor_debounce_ms")
 }
+
+pub fn set(key: String, value: String) -> promise.Promise(Result(Nil, ConfigError)) {
+  db.with_connection(fn(conn) {
+    let sql = "INSERT INTO psypi_config (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now()"
+    let params = [dynamic.string(key), dynamic.string(value)]
+
+    promise.map(db.query(conn, sql, params), fn(result) {
+      case result {
+        Ok(_) -> Ok(Nil)
+        Error(e) -> Error(db_error_to_config_error(e))
+      }
+    })
+  }, db_error_to_config_error)
+}

@@ -56,7 +56,7 @@ fn commit_with_review_id(
     False -> promise.resolve(Error("Invalid review_id format."))
     True -> {
       let escaped = string.replace(message, "\"", "\\\"")
-      let cmd = "git add -A && git commit -m \"" <> escaped <> "\""
+      let cmd = "git commit -m \"" <> escaped <> "\""
       case exec_sync(cmd) {
         Ok(_) -> promise.resolve(Ok("Committed: " <> message))
         Error(e) -> promise.resolve(Error("Commit failed: " <> e))

@@ -40,10 +40,10 @@ pub type TaskError {
 
 pub fn string_to_status(s: String) -> Result(TaskStatus, String) {
   case s {
-    "pending" -> Ok(Pending)
-    "running" -> Ok(Running)
-    "completed" -> Ok(Completed)
-    "failed" -> Ok(Failed)
+    "pending" | "PENDING" -> Ok(Pending)
+    "running" | "RUNNING" -> Ok(Running)
+    "completed" | "COMPLETED" -> Ok(Completed)
+    "failed" | "FAILED" -> Ok(Failed)
     _ -> Error("Unknown task status: " <> s)
   }
 }

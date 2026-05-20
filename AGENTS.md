@@ -90,7 +90,7 @@ When the S-worker finishes a turn, the `agent_end` event fires. The autonomic ho
 
 **Key insight:** Phase 1 uses `ctx.ui.notify()` (transient toast) for immediate human feedback. Phase 3 uses `pi_send_message()` (persistent message) because by then the TUI session may be dormant and transient toasts are invisible.
 
-**Current bug:** Phase 1 is missing from the code. The hook jumps straight to Phase 2 (debounce), so there's no immediate feedback. Additionally, `ctx.ui.notify()` calls in Phase 3 fire when the TUI is already dormant, making them invisible. The `pi_send_message` persistent messages still work but the LLM call (`callMonitor`) is returning empty output.
+**Current status (2026-05-20):** The hook does Phase 1 (isIdle check + notify) correctly. Phase 2 (debounce) reads from system_config. Phase 3 (LLM composition) may fail silently — call_monitor uses completeSimple from @earendil-works/pi-ai and the response parsing may not match the actual API response format. Autonomic stats are all zeros (inter_review not used). See docs/INVESTIGATION-A-BOT.md for full analysis.
 
 ## Self-Loading Skills
 

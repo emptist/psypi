@@ -11,10 +11,10 @@ description: Quick cheat‑sheet for using Psypi from the TUI (Autonomic vs Soma
 - **Autonomic Agentbot** (`A‑…`) – autonomous, event‑driven, monitors the system.
 - **Somatic Agentbot** (`S‑…`) – prompt‑driven, reacts to user or Monitor‑injected prompts.
 - They are the *same AI*; the only difference is the ID prefix (`ctx.isIdle()` at call time).
-- The ID is always freshly computed (no cache). Format: `(A|S)-<project>-<source>-<model>[-<thinking_level>]`
-  - Example: `S-psypi-psypi-openrouter/owl-alpha` or `A-psypi-psypi-openrouter/owl-alpha-high`
-  - When no `.git` found in cwd, prepends `G-` (e.g., `G-S-psypi-psypi-openrouter/owl-alpha`)
-- **Pi Reference Resources** – For advanced Pi patterns, see `/Users/jk/gits/hub/tools_ai/refers/pi/` with prompts like `cl.md` (changelog), `is.md` (issue analysis), `pr.md` (PR review), `wr.md` (work wrapup)
+- The ID is always freshly computed (no cache). Format: `(G-)(A|S)-<project>-<source>-<model>[-<thinking_level>]`
+  - Example: `S-psypi-openrouter/owl-alpha` or `A-psypi-openrouter/owl-alpha-high`
+  - When no `.git` found in cwd, prepends `G-` (e.g., `G-S-psypi-openrouter/owl-alpha`)
+- **Pi Reference Resources** – For advanced Pi patterns, see `../refers/pi/` with prompts like `cl.md` (changelog), `is.md` (issue analysis), `pr.md` (PR review), `wr.md` (work wrapup)
 
 ## Getting your identity
 ```
@@ -173,6 +173,49 @@ These are registered as Pi commands, not Pi tools:
 - Always invoke them from the **Psypi TUI** prompt.
 - **Never cache the ID.** It must be computed fresh every time because `ctx.isIdle()` is live.
 
+## Architecture Overview
+
+```
+Gleam source (src/*.gleam)
+  ↓ gleam build
+Compiled JS (build/dev/javascript/psypi/*.mjs)
+  ↓ extension_generator.gleam composes text
+extension.js (auto-generated, never hand-edit)
+  ↓ Pi TUI loads it
+Pi runtime (tools, hooks, commands)
+```
+
+### Key architectural rules:
+1. **`extension.js` is ALWAYS auto-generated** — never hand-edit it
+2. **Gleam `PiToolCall` values define all Pi tools** — add new tools by creating Gleam values
+3. **FFI is minimal** — use pure Gleam libraries (simplifile, gleam_json) when possible
+4. **Small modules** — each Gleam module should be focused (< 200 lines ideally)
+5. **Type safety** — use custom types extensively, `string_to_*()` converters for DB enums
+6. **FFI files** (`pi_extension_ffi.mjs`, `node_ffi.mjs`) must use `new Ok(value)` / `new Error(error)` — never plain JS objects
+
+## Gleam Code Quality Standards
+
+When working with the Gleam codebase, follow these patterns:
+
+### DO:
+- Use `case` expressions for all control flow (no `if/else` in Gleam)
+- Use `|>` pipe operator for chaining
+- Use `list.map`, `list.filter`, `list.fold` instead of recursion when possible
+- Use `@external(javascript, "./ffi.mjs", "functionName")` for FFI
+- Use `simplifile` for file operations (pure Gleam)
+- Use `gleam_json` for JSON encoding/decoding
+- Keep modules small and focused
+- Use custom types for all domain concepts
+- Make invalid states unrepresentable
+
+### DON'T:
+- Don't use hand-written JS in `extension.js` — it's auto-generated
+- Don't use `node_pg` FFI when pure Gleam alternatives exist
+- Don't create large modules (> 300 lines)
+- Don't use plain JS objects `{ ok: true, value: x }` in FFI — use `new Ok(value)` / `new Error(error)`
+- Don't cache the agent ID
+- Don't use `io.debug` or `string.inspect` (not available in Gleam)
+
 ## Pi Prompt Patterns (from refer resources)
 Reference Pi prompts available at `../refers/pi/.pi/prompts/`:
 - **`cl.md`** – Audit changelog entries before release
@@ -182,5 +225,16 @@ Reference Pi prompts available at `../refers/pi/.pi/prompts/`:
 
 These can be used by both Autonomic and Somatic agents for standard Pi workflows.
 
+## A-Bot (Autonomic) Status
+
+The A-bot runs as event hooks inside the Pi TUI. Key things to know:
+- **agent_end hook**: Fires when S-bot finishes a turn. Checks `ctx.isIdle()`, waits debounce period (default 5 min), then composes wake-up message via LLM
+- **call_monitor**: The FFI function that calls the LLM. Uses `completeSimple` from `@earendil-works/pi-ai`. Known issue: may return empty output in some cases
+- **Wake-up messages**: Sent via `pi_send_message` with custom type `autonomic-wakeup`. Appear as `[A-agentbot]` prefix in session
+- **Debugging**: If A-bot seems inactive, check: (1) `system_config` table has `monitor_debounce_ms`, (2) `ctx.model` is available, (3) API key is valid
+- **Stats all zeros**: `psypi-autonomic-stats` shows zeros because inter_review system hasn't been used yet
+
 ## Quick tip
 - After any change, run `/psypi-commit` to let the Monitor review and approve the commit. This keeps the single-dreamer cycle safe and autonomous.
+- After Gleam source changes: `rm -rf build/ && gleam build` then restart Pi.
+- **Restart Pi**: `pkill -f pi-coding-agent; cd /Users/jk/gits/hub/tools_ai/psypi && npx -y @earendil-works/pi-coding-agent --prompt "what is your id?"`

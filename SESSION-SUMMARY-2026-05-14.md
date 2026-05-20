@@ -53,3 +53,54 @@ Hooks should be THIN — no pattern matching, no blocking logic. The Autonomic A
 1. Test all tools after restart
 2. Continue splitting large Gleam files (< 100 lines target)
 3. Let Autonomic Agentbot use `psypi-direct-agentbot` to set directives
+
+---
+
+## Session 2 — A-Agentbot Behavior Fix (2026-05-20)
+
+### Problem
+A-agentbot was directing S to do passive observation work ("check the database", "review tasks") instead of helping S finish current work. This created useless loops where A asks S to inspect things, S reports back, A asks for more inspections.
+
+### Root Causes Found
+1. **`souls` table was empty** — `read_soul_from_db()` queried `souls` (plural) which had zero rows. Should query `soul` (singular) which has 5 active Monitor responsibilities.
+2. **A's identity prompt was too vague** — Said "observe, analyze, and direct S" without specifying *how* to pick good tasks or that A should help S finish current work.
+3. **No project state in A's prompt** — A had no data about active tasks/issues, so it defaulted to generic "check" directives.
+4. **No behavioral rules** — Nothing in the prompt prevented A from redirecting S to unrelated tasks.
+
+### Fixes Applied
+
+#### 1. Fixed `read_soul_from_db()` — query correct table
+- Changed from `SELECT content FROM souls WHERE name='Monitor'` to `SELECT role, domain, responsibility FROM soul WHERE is_active=true AND role='Monitor'`
+- Created `soul_responsibility_decoder()` to format soul entries
+- Dropped empty `souls` table from database
+
+#### 2. Rewrote `a_identity_prompt()` — clear behavioral rules
+- Primary job: help S finish current work, not redirect
+- Priority order: inter-review → unblock → continue → new task (only if idle)
+- Rules: never distract, never busywork, never repeat, always check in-progress work
+
+#### 3. Added `read_project_state_from_db()` — real context for A
+- Queries active tasks (status, priority, stuck flag)
+- Queries open issues (severity, title)
+- Injects results into A's user prompt as "Project State"
+
+#### 4. Rewrote `build_user_prompt()` — instruct A to use project state
+- Includes project state section with active tasks and issues
+- Instructs A to check in-progress work before suggesting new tasks
+- Emphasizes inter-review and finishing over redirecting
+
+#### 5. Updated `MONITOR-BRIEF.md` — align documentation with new behavior
+- Added "Core Principle: Help S Finish, Don't Redirect"
+- Updated priority order and rules
+- Added "What NOT to do" section
+- Changed tone from "check and report" to "inter-review and unblock"
+
+### Build Status
+- ✅ `gleam build` — success
+- ✅ `gleam run -m extension_generator` — success
+- ✅ All changes in `extension.js`
+
+### Files Changed
+- `src/hook_on_agent_end.gleam` — Major rewrite of soul reading, identity prompt, user prompt, added project state queries
+- `docs/MONITOR-BRIEF.md` — Updated behavioral guidelines
+- Database: dropped empty `souls` table

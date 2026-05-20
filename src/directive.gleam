@@ -63,7 +63,7 @@ pub fn set_directive(
           let agent_id = id_val.id
           // 2. Query SOUL from database
           let soul_sql =
-            "SELECT role, domain FROM soul WHERE is_active = true AND role = 'Monitor' LIMIT 1"
+            "SELECT role, domain FROM agent_souls WHERE id_prefix = 'A' LIMIT 1"
           promise.await(
             db.query(conn, soul_sql, []),
             fn(soul_result) {
