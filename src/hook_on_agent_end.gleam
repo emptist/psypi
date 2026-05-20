@@ -196,9 +196,11 @@ fn build_user_prompt(
     False -> ""
   }
   let recent_section =
-    "Below is S's recent conversation. You are A, not S. "
-    <> "Do NOT continue S's conversation. "
-    <> "Analyze what S just did and tell S what to do next.\n\n"
+    "Below is S's recent conversation (most recent at the end). You are A, not S. "
+    <> "IMPORTANT: Analyze the LAST thing S did or said. "
+    <> "Do NOT suggest the same task S was just doing. "
+    <> "If S just read a directory, don't ask S to read a directory again. "
+    <> "Find a DIFFERENT useful task for S.\n\n"
     <> truncate(entries_json, 2000)
   context_section <> usage_section <> recent_section
 }
