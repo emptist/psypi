@@ -1,4 +1,5 @@
 import db
+import file_utils
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/int
@@ -84,14 +85,32 @@ fn coordinate_with_s(
                     fn(monitor_result) {
                       case monitor_result {
                         Ok(response) -> {
-                          pi_send_message(
-                            pi,
-                            "autonomic-wakeup",
-                            response,
-                            "persistent",
-                          )
-                          notify_info(ctx, "[AUTONOMIC] wake-up sent")
-                          promise.resolve(Ok(Nil))
+                          // Deduplication: skip if same as last wake-up
+                          promise.await(get_last_wakeup(), fn(last_result) {
+                            let last_msg = case last_result {
+                              Ok(msg) -> msg
+                              Error(_) -> ""
+                            }
+                            case last_msg == response {
+                              True -> {
+                                notify_info(ctx, "[AUTONOMIC] skipping duplicate wake-up")
+                                promise.resolve(Ok(Nil))
+                              }
+                              False -> {
+                                // Store new message and send
+                                promise.await(set_last_wakeup(response), fn(_) {
+                                  pi_send_message(
+                                    pi,
+                                    "autonomic-wakeup",
+                                    response,
+                                    "persistent",
+                                  )
+                                  notify_info(ctx, "[AUTONOMIC] wake-up sent")
+                                  promise.resolve(Ok(Nil))
+                                })
+                              }
+                            }
+                          })
                         }
                         Error(e) -> {
                           let msg =
@@ -321,5 +340,22 @@ fn truncate(s: String, max: Int) -> String {
   case string.length(s) > max {
     True -> string.slice(s, 0, max) <> "..."
     False -> s
+  }
+}
+
+// Deduplication: track last wake-up message to avoid duplicates
+fn get_last_wakeup() -> promise.Promise(Result(String, String)) {
+  let path = ".psypi_last_wakeup"
+  case file_utils.read_file(path) {
+    Ok(content) -> promise.resolve(Ok(content))
+    Error(_) -> promise.resolve(Ok(""))
+  }
+}
+
+fn set_last_wakeup(msg: String) -> promise.Promise(Result(Nil, String)) {
+  let path = ".psypi_last_wakeup"
+  case file_utils.write_file(path, msg) {
+    Ok(_) -> promise.resolve(Ok(Nil))
+    Error(_) -> promise.resolve(Error("Failed to write last wakeup"))
   }
 }
