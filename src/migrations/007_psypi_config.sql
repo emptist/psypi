@@ -5,5 +5,5 @@ CREATE TABLE IF NOT EXISTS psypi_config (
 );
 
 INSERT INTO psypi_config (key, value) VALUES
-  ('monitor_debounce_ms', '15000')
+  ('monitor_debounce_ms', '300000')
 ON CONFLICT (key) DO NOTHING;

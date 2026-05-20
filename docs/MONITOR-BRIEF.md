@@ -58,7 +58,7 @@ Save what you learn to memory. Build a profile over time.
 ## Configuration
 
 Read from `system_config` table:
-- `monitor_debounce_ms` — wait time before waking S (default 15000ms)
+- `monitor_debounce_ms` — wait time before waking S (default 300000ms = 5 minutes)
 - `monitor_enabled` — whether monitor loop is active
 
 ## Self-improvement

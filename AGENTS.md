@@ -77,7 +77,7 @@ When the S-worker finishes a turn, the `agent_end` event fires. The autonomic ho
 - **This is the debugging phase** — it confirms the hook fired and idle was detected
 
 ### Phase 2: Debounce Wait
-- Read `monitor_debounce_ms` from `system_config` table (default: 120000ms = 2 minutes)
+- Read `monitor_debounce_ms` from `system_config` table (default: 300000ms = 5 minutes)
 - Wait via `setTimeout(debounceMs)`
 - Rationale: S-worker might receive a new prompt immediately. No need to wake it if it's already busy.
 

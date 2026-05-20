@@ -121,7 +121,7 @@
 
 **Claims:**
 - Key: `monitor_debounce_ms` in `system_config` table
-- Default: 15000ms (15 seconds)
+- Default: 300000ms (5 minutes)
 - Lists example values (15000, 60000, 120000)
 - Describes debugging for failed wake-up messages
 
