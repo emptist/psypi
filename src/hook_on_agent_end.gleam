@@ -1,6 +1,6 @@
 import db
-import file_utils
 import gleam/dynamic.{type Dynamic}
+import system_config
 import gleam/dynamic/decode
 import gleam/int
 import gleam/javascript/promise
@@ -17,11 +17,18 @@ import system_prompt_types.{
 }
 
 pub fn on_agent_end(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
+  notify_info(ctx, "[AUTONOMIC] on_agent_end FIRED — entering handler")
   case ctx_is_idle(ctx), ctx_has_pending_messages(ctx) {
-    False, _ -> promise.resolve(Ok(Nil))
-    True, True -> promise.resolve(Ok(Nil))
+    False, _ -> {
+      notify_info(ctx, "[AUTONOMIC] S is not idle — skipping")
+      promise.resolve(Ok(Nil))
+    }
+    True, True -> {
+      notify_info(ctx, "[AUTONOMIC] S is idle but has pending messages — skipping")
+      promise.resolve(Ok(Nil))
+    }
     True, False -> {
-      notify_info(ctx, "[AUTONOMIC] S is idle")
+      notify_info(ctx, "[AUTONOMIC] S is idle — composing wake-up")
       let entries_json = ctx_get_entries_json(ctx)
       coordinate_with_s(ctx, pi, entries_json)
     }
@@ -35,6 +42,24 @@ fn coordinate_with_s(
 ) -> promise.Promise(Result(Nil, String)) {
   let usage_json = ctx_get_context_usage_json(ctx)
   let cwd = ctx_get_cwd(ctx)
+  promise.await(is_s_still_idle(), fn(idle_result) {
+    case idle_result {
+      Ok(False) -> {
+        pi_send_message(pi, "autonomic-info", "S is busy, skipping wake-up", "persistent")
+        promise.resolve(Ok(Nil))
+      }
+      _ -> coordinate_when_idle(ctx, pi, entries_json, usage_json, cwd)
+    }
+  })
+}
+
+fn coordinate_when_idle(
+  ctx: a,
+  pi: b,
+  entries_json: String,
+  usage_json: String,
+  cwd: String,
+) -> promise.Promise(Result(Nil, String)) {
   case parse_context_window(usage_json) {
     Error(e) -> {
       let msg =
@@ -42,7 +67,6 @@ fn coordinate_with_s(
         <> e
         <> ". Fix parse_context_window in hook_on_agent_end.gleam. Raw JSON: "
         <> string.slice(usage_json, 0, 300)
-      notify_info(ctx, "[AUTONOMIC] " <> msg)
       pi_send_message(pi, "autonomic-error", msg, "persistent")
       promise.resolve(Ok(Nil))
     }
@@ -53,8 +77,7 @@ fn coordinate_with_s(
             let msg =
               "[A-agentbot] <ERROR> read_soul_from_db failed: "
               <> e
-              <> ". Check souls table in psypi DB: SELECT * FROM souls WHERE name='Monitor'"
-            notify_info(ctx, "[AUTONOMIC] " <> msg)
+              <> ". Check agent_souls table in psypi DB: SELECT * FROM agent_souls WHERE id_prefix='A'"
             pi_send_message(pi, "autonomic-error", msg, "persistent")
             promise.resolve(Ok(Nil))
           }
@@ -66,70 +89,68 @@ fn coordinate_with_s(
                     "[A-agentbot] <ERROR> read_directives_from_db failed: "
                     <> e
                     <> ". Check system_directives table: SELECT * FROM system_directives WHERE is_active=true"
-                  notify_info(ctx, "[AUTONOMIC] " <> msg)
                   pi_send_message(pi, "autonomic-error", msg, "persistent")
                   promise.resolve(Ok(Nil))
                 }
-                Ok(directives) -> {
-                  let system_prompt =
-                    compose(build_system_prompt(
-                      soul_content,
-                      directives,
-                      context_window,
-                    ))
-                  let user_prompt =
-                    build_user_prompt(usage_json, entries_json, cwd)
-                  notify_info(ctx, "[AUTONOMIC] A thinking...")
-                  promise.await(
-                    call_monitor(ctx, user_prompt, system_prompt),
-                    fn(monitor_result) {
-                      case monitor_result {
-                        Ok(response) -> {
-                          // Deduplication: skip if same as last wake-up
-                          promise.await(get_last_wakeup(), fn(last_result) {
-                            let last_msg = case last_result {
-                              Ok(msg) -> msg
-                              Error(_) -> ""
-                            }
-                            case last_msg == response {
-                              True -> {
-                                notify_info(ctx, "[AUTONOMIC] skipping duplicate wake-up")
-                                promise.resolve(Ok(Nil))
+                Ok(directives) ->
+                  promise.await(read_project_state_from_db(), fn(state_result) {
+                    let project_state = case state_result {
+                      Ok(s) -> s
+                      Error(e) -> "Failed to read project state: " <> e
+                    }
+                    let system_prompt =
+                      compose(build_system_prompt(
+                        soul_content,
+                        directives,
+                        context_window,
+                      ))
+                    let user_prompt =
+                      build_user_prompt(usage_json, entries_json, cwd, project_state)
+                    pi_send_message(pi, "autonomic-info", "A thinking...", "persistent")
+                    promise.await(
+                      call_monitor(ctx, user_prompt, system_prompt),
+                      fn(monitor_result) {
+                        case monitor_result {
+                          Ok(response) -> {
+                            promise.await(get_last_wakeup(), fn(last_result) {
+                              let last_msg = case last_result {
+                                Ok(msg) -> msg
+                                Error(_) -> ""
                               }
-                              False -> {
-                                // Store new message and send
-                                promise.await(set_last_wakeup(response), fn(_) {
-                                  pi_send_message(
-                                    pi,
-                                    "autonomic-wakeup",
-                                    response,
-                                    "persistent",
-                                  )
-                                  notify_info(ctx, "[AUTONOMIC] wake-up sent")
+                              case last_msg == response {
+                                True -> {
+                                  pi_send_message(pi, "autonomic-info", "skipping duplicate wake-up", "persistent")
                                   promise.resolve(Ok(Nil))
-                                })
+                                }
+                                False -> {
+                                  promise.await(set_last_wakeup(response), fn(_) {
+                                    notify_info(ctx, "[AUTONOMIC] sending wake-up, response length=" <> int.to_string(string.length(response)))
+                                    pi_send_message(
+                                      pi,
+                                      "autonomic-wakeup",
+                                      response,
+                                      "persistent",
+                                    )
+                                    notify_info(ctx, "[AUTONOMIC] wake-up pi_send_message called")
+                                    pi_send_message(pi, "autonomic-info", "wake-up sent", "persistent")
+                                    promise.resolve(Ok(Nil))
+                                  })
+                                }
                               }
-                            }
-                          })
+                            })
+                          }
+                          Error(e) -> {
+                            let msg =
+                              "[A-agentbot] <ERROR> call_monitor failed: "
+                              <> e
+                              <> ". Check pi_extension_ffi.mjs call_monitor function and ctx.model/modelRegistry"
+                            pi_send_message(pi, "autonomic-error", msg, "persistent")
+                            promise.resolve(Ok(Nil))
+                          }
                         }
-                        Error(e) -> {
-                          let msg =
-                            "[A-agentbot] <ERROR> call_monitor failed: "
-                            <> e
-                            <> ". Check pi_extension_ffi.mjs call_monitor function and ctx.model/modelRegistry"
-                          notify_info(ctx, "[AUTONOMIC] " <> msg)
-                          pi_send_message(
-                            pi,
-                            "autonomic-error",
-                            msg,
-                            "persistent",
-                          )
-                          promise.resolve(Ok(Nil))
-                        }
-                      }
-                    },
-                  )
-                }
+                      },
+                    )
+                  })
               }
             })
         }
@@ -153,14 +174,24 @@ fn a_identity_prompt() -> String {
   "You are the Autonomic Agentbot (A-agentbot). Your ID starts with A-. "
   <> "You are NOT the Somatic Agentbot (S-agentbot). "
   <> "You are NOT the human user. "
-  <> "Psypi is the personal assistant — you and S together form it. "
-  <> "You observe, analyze, and direct S on what to work on next. "
-  <> "Never say SKIP or that there is nothing to do. "
-  <> "Never introduce yourself or state your identifier. "
-  <> "Your output is sent directly to S as a task instruction. "
-  <> "Output ONLY the task instruction for S — no preamble, no self-intro. "
-  <> "Be brief and specific. One task per message. "
-  <> "Always output a clear text instruction for S — do not only think."
+  <> "Psypi is the personal assistant — you and S together form it.\n\n"
+  <> "## Your Role\n"
+  <> "Your PRIMARY job is to help S finish S's CURRENT work, not to redirect S to unrelated tasks.\n\n"
+  <> "### Priority Order:\n"
+  <> "1. **Inter-review**: Review S's recent work for quality, bugs, missing edge cases, better approaches.\n"
+  <> "2. **Unblock**: If S is stuck, provide the specific information, context, or suggestion to unblock.\n"
+  <> "3. **Continue**: Help S continue the current task — suggest next steps, point out what's missing.\n"
+  <> "4. **New task ONLY if idle**: Only suggest a new task if S has NO in-progress work and is truly idle.\n\n"
+  <> "### Rules:\n"
+  <> "- NEVER distract S from in-progress work with unrelated tasks.\n"
+  <> "- NEVER ask S to 'check' or 'review' things as a busywork task.\n"
+  <> "- NEVER repeat the same directive twice.\n"
+  <> "- ALWAYS check if S has a RUNNING or in-progress task before suggesting new work.\n"
+  <> "- When doing inter-review, be specific: point to exact files, lines, or decisions.\n"
+  <> "- Keep messages short and actionable. One focused message per turn.\n"
+  <> "- Never say SKIP or that there is nothing to do.\n"
+  <> "- Never introduce yourself or state your identifier.\n"
+  <> "- Output ONLY the instruction for S — no preamble, no self-intro."
 }
 
 fn add_soul_content(
@@ -186,6 +217,7 @@ fn build_user_prompt(
   usage_json: String,
   entries_json: String,
   cwd: String,
+  project_state: String,
 ) -> String {
   let context_section = case cwd == "" {
     True -> ""
@@ -195,14 +227,17 @@ fn build_user_prompt(
     True -> "Context usage: " <> usage_json <> "\n"
     False -> ""
   }
+  let state_section =
+    "## Project State (from database):\n"
+    <> project_state <> "\n\n"
   let recent_section =
-    "Below is S's recent conversation (most recent at the end). You are A, not S. "
-    <> "IMPORTANT: Analyze the LAST thing S did or said. "
-    <> "Do NOT suggest the same task S was just doing. "
-    <> "If S just read a directory, don't ask S to read a directory again. "
-    <> "Find a DIFFERENT useful task for S.\n\n"
+    "## S's Recent Conversation (most recent at the end):\n"
+    <> "Analyze what S was LAST doing. "
+    <> "If S has in-progress work, help FINISH it — do NOT redirect to something else. "
+    <> "If S just completed something, offer an inter-review or suggest the next logical step. "
+    <> "Only propose a completely new task if S is truly idle with no in-progress work.\n\n"
     <> truncate(entries_json, 2000)
-  context_section <> usage_section <> recent_section
+  context_section <> usage_section <> state_section <> recent_section
 }
 
 fn db_error_to_string(e: db.DbError) -> String {
@@ -212,21 +247,55 @@ fn db_error_to_string(e: db.DbError) -> String {
   }
 }
 
+fn is_s_still_idle() -> promise.Promise(Result(Bool, String)) {
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "SELECT COUNT(*) as cnt FROM agent_sessions "
+        <> "WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'"
+      promise.map(db.query(conn, sql, []), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_string(e))
+          Ok(result) ->
+            case result.rows {
+              [] -> Ok(True)
+              [row, ..] -> {
+                case decode.run(row, count_decoder()) {
+                  Ok(cnt) -> Ok(cnt == 0)
+                  Error(_) -> Ok(True)
+                }
+              }
+            }
+        }
+      })
+    },
+    db_error_to_string,
+  )
+}
+
+fn count_decoder() -> decode.Decoder(Int) {
+  use cnt <- decode.field("cnt", decode.string)
+  case int.parse(cnt) {
+    Ok(n) -> decode.success(n)
+    Error(_) -> decode.success(0)
+  }
+}
+
 fn read_soul_from_db() -> promise.Promise(Result(String, String)) {
   db.with_connection(
     fn(conn) {
       let sql =
-        "SELECT content FROM souls WHERE name = 'Monitor' AND agent_id LIKE 'A-%' LIMIT 1"
+        "SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'"
       promise.map(db.query(conn, sql, []), fn(query_result) {
         case query_result {
           Error(e) -> Error(db_error_to_string(e))
           Ok(result) ->
             result.rows
-            |> decode_rows(soul_content_decoder())
+            |> decode_rows(soul_responsibility_decoder())
             |> result.map(fn(entries) {
               case entries {
-                [] -> Error("No Monitor soul entries found")
-                [content, ..] -> Ok(content)
+                [] -> Error("No AutonomicBot soul entries found")
+                _ -> Ok(string.join(entries, "\n"))
               }
             })
             |> result.flatten
@@ -237,9 +306,11 @@ fn read_soul_from_db() -> promise.Promise(Result(String, String)) {
   )
 }
 
-fn soul_content_decoder() -> decode.Decoder(String) {
-  use content <- decode.field("content", decode.string)
-  decode.success(content)
+fn soul_responsibility_decoder() -> decode.Decoder(String) {
+  use role <- decode.field("role", decode.string)
+  use domain <- decode.field("domain", decode.string)
+  use responsibility <- decode.field("responsibility", decode.string)
+  decode.success("[" <> role <> " | " <> domain <> "] " <> responsibility)
 }
 
 fn read_directives_from_db() -> promise.Promise(Result(List(String), String)) {
@@ -285,6 +356,91 @@ fn decode_rows(
     |> result.map_error(fn(e) { "decode: " <> string.inspect(e) })
   })
   |> result.all
+}
+
+fn read_project_state_from_db() -> promise.Promise(Result(String, String)) {
+  let tasks_promise = read_active_tasks_no_conn()
+  let issues_promise = read_open_issues_no_conn()
+  promise.await(tasks_promise, fn(tasks_result) {
+    let tasks_text = case tasks_result {
+      Ok(t) -> t
+      Error(_) -> "  (tasks unavailable)"
+    }
+    promise.await(issues_promise, fn(issues_result) {
+      let issues_text = case issues_result {
+        Ok(i) -> i
+        Error(_) -> "  (issues unavailable)"
+      }
+      promise.resolve(Ok("ACTIVE TASKS:\n" <> tasks_text <> "\n\nOPEN ISSUES:\n" <> issues_text))
+    })
+  })
+}
+
+fn read_active_tasks_no_conn() -> promise.Promise(Result(String, String)) {
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "SELECT id::text, title, status, priority, is_stuck "
+        <> "FROM tasks WHERE status NOT IN ('COMPLETED','FAILED','FAKE_COMPLETE') "
+        <> "ORDER BY is_stuck DESC, priority DESC, updated_at ASC LIMIT 10"
+      promise.map(db.query(conn, sql, []), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_string(e))
+          Ok(result) ->
+            case result.rows {
+              [] -> Ok("  (none)")
+              rows ->
+                rows
+                |> decode_rows(task_row_decoder())
+                |> result.map(fn(lines) { string.join(lines, "\n") })
+            }
+        }
+      })
+    },
+    fn(e) { db_error_to_string(e) },
+  )
+}
+
+fn read_open_issues_no_conn() -> promise.Promise(Result(String, String)) {
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "SELECT id::text, title, severity "
+        <> "FROM issues WHERE status NOT IN ('resolved','closed') "
+        <> "ORDER BY created_at DESC LIMIT 10"
+      promise.map(db.query(conn, sql, []), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_string(e))
+          Ok(result) ->
+            case result.rows {
+              [] -> Ok("  (none)")
+              rows ->
+                rows
+                |> decode_rows(issue_row_decoder())
+                |> result.map(fn(lines) { string.join(lines, "\n") })
+            }
+        }
+      })
+    },
+    fn(e) { db_error_to_string(e) },
+  )
+}
+
+fn task_row_decoder() -> decode.Decoder(String) {
+  use id <- decode.field("id", decode.string)
+  use title <- decode.field("title", decode.string)
+  use status <- decode.field("status", decode.string)
+  use priority <- decode.field("priority", decode.string)
+  use is_stuck <- decode.field("is_stuck", decode.string)
+  let prefix = case is_stuck == "true" { True -> "[STUCK] " False -> "" }
+  decode.success("  - " <> prefix <> "[" <> status <> " p" <> priority <> "] " <> title <> " (id: " <> id <> ")")
+}
+
+fn issue_row_decoder() -> decode.Decoder(String) {
+  use id <- decode.field("id", decode.string)
+  use title <- decode.field("title", decode.string)
+  use severity <- decode.field("severity", decode.string)
+  decode.success("  - [" <> severity <> "] " <> title <> " (id: " <> id <> ")")
 }
 
 fn parse_context_window(usage_json: String) -> Result(Int, String) {
@@ -345,19 +501,23 @@ fn truncate(s: String, max: Int) -> String {
   }
 }
 
-// Deduplication: track last wake-up message to avoid duplicates
+// Deduplication: track last wake-up message in database
 fn get_last_wakeup() -> promise.Promise(Result(String, String)) {
-  let path = ".psypi_last_wakeup"
-  case file_utils.read_file(path) {
-    Ok(content) -> promise.resolve(Ok(content))
-    Error(_) -> promise.resolve(Ok(""))
-  }
+  promise.map(system_config.get("last_wakeup"), fn(result) {
+    case result {
+      Ok(value) -> Ok(value)
+      Error(_) -> Ok("")
+    }
+  })
 }
 
 fn set_last_wakeup(msg: String) -> promise.Promise(Result(Nil, String)) {
-  let path = ".psypi_last_wakeup"
-  case file_utils.write_file(path, msg) {
-    Ok(_) -> promise.resolve(Ok(Nil))
-    Error(_) -> promise.resolve(Error("Failed to write last wakeup"))
-  }
+  promise.map(system_config.set("last_wakeup", msg), fn(result) {
+    case result {
+      Ok(_) -> Ok(Nil)
+      Error(_) -> Error("Failed to set last wakeup")
+    }
+  })
 }
+
+

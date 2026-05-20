@@ -59,25 +59,44 @@ export function pi_send_message(pi, customType, content, display) {
 
 export async function call_monitor(ctx, userPrompt, systemPrompt) {
   try {
+    // DIAGNOSTIC: check ctx.model availability
+    ctx.ui.notify('[DIAG] call_monitor: ctx.model=' + (ctx.model ? ctx.model.id : 'MISSING') + ' ctx.modelRegistry=' + (ctx.modelRegistry ? 'present' : 'MISSING'), 'info');
+
     const model = ctx.model;
     const modelRegistry = ctx.modelRegistry;
     if (!model) {
+      ctx.ui.notify('[DIAG] call_monitor: ABORT ctx.model is missing', 'error');
       return new Error('callMonitor: ctx.model is missing');
     }
+
+    // DIAGNOSTIC: auth step
     const auth = await modelRegistry.getApiKeyAndHeaders(model);
+    ctx.ui.notify('[DIAG] call_monitor: auth.ok=' + auth.ok + ' hasApiKey=' + (!!auth.apiKey) + ' provider=' + (model.provider || 'unknown') + ' error=' + (auth.error || 'none'), 'info');
     if (!auth.ok || !auth.apiKey) {
       return new Error('callMonitor: no API key for ' + (model.provider || 'unknown') + ': ' + (auth.error || 'auth failed'));
     }
+
     const context = {
       systemPrompt: String(systemPrompt),
       messages: [
         { role: 'user', content: [{ type: 'text', text: String(userPrompt) }], timestamp: Date.now() },
       ],
     };
+
+    // DIAGNOSTIC: LLM call
+    ctx.ui.notify('[DIAG] call_monitor: calling completeSimple with reasoning=medium...', 'info');
     let result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'medium' });
+    ctx.ui.notify('[DIAG] call_monitor: completeSimple returned. stopReason=' + (result?.stopReason || 'none') + ' hasContent=' + (Array.isArray(result?.content)) + ' contentType=' + (typeof result?.content) + ' hasText=' + (typeof result?.text) + ' errorMessage=' + (result?.errorMessage || 'none'), 'info');
+
     if (result?.errorMessage) {
       return new Error('LLM error: ' + result.errorMessage);
     }
+
+    // DIAGNOSTIC: log raw content structure
+    if (Array.isArray(result?.content)) {
+      ctx.ui.notify('[DIAG] call_monitor: content is array, length=' + result.content.length + ' types=' + result.content.map(c => c.type).join(','), 'info');
+    }
+
     let text = '';
     let hasThinking = false;
     if (Array.isArray(result?.content)) {
@@ -87,9 +106,15 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
     if (!text && typeof result?.text === 'string') {
       text = result.text;
     }
+
+    // DIAGNOSTIC: text extraction result
+    ctx.ui.notify('[DIAG] call_monitor: extracted text length=' + text.length + ' hasThinking=' + hasThinking, 'info');
+
     if (!text && hasThinking) {
       // Retry without reasoning if only thinking was returned
+      ctx.ui.notify('[DIAG] call_monitor: retrying with reasoning=none...', 'info');
       result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'none' });
+      ctx.ui.notify('[DIAG] call_monitor: retry returned. stopReason=' + (result?.stopReason || 'none') + ' hasContent=' + (Array.isArray(result?.content)), 'info');
       if (result?.errorMessage) {
         return new Error('LLM error (retry): ' + result.errorMessage);
       }
@@ -99,6 +124,7 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
       if (!text && typeof result?.text === 'string') {
         text = result.text;
       }
+      ctx.ui.notify('[DIAG] call_monitor: retry extracted text length=' + text.length, 'info');
     }
     if (!text) {
       if (hasThinking) {
@@ -106,8 +132,10 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
       }
       return new Error('empty output, stopReason=' + (result?.stopReason || 'none') + ' contentTypes=' + (Array.isArray(result?.content) ? result.content.map(c => c.type).join(',') : 'none'));
     }
+    ctx.ui.notify('[DIAG] call_monitor: SUCCESS returning Ok, text length=' + text.length, 'info');
     return new Ok(text);
   } catch (e) {
+    ctx.ui.notify('[DIAG] call_monitor: EXCEPTION: ' + (e.message || String(e)), 'error');
     return new Error(e.message || 'callMonitor failed');
   }
 }

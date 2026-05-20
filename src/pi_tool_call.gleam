@@ -364,17 +364,22 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let error_catch = case on_error {
         NotifyError -> "        ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n        pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
       }
-      [
-        "  // Event hook (debounced): " <> event_name,
-        "  pi.on('" <> event_name <> "', async (event, ctx) => {",
-        "    try {",
-        "      " <> debounce_import,
+       [
+         "  // Event hook (debounced): " <> event_name,
+         "  pi.on('" <> event_name <> "', async (event, ctx) => {",
+         "    try {",
+         "      // Phase 1: Check if S is actually idle",
+         "      const idle = ctx.isIdle();",
+         "      ctx.ui.notify('[AUTONOMIC] isIdle=' + idle, 'info');",
+         "      if (!idle) { return; }",
+         "      " <> debounce_import,
         "      const debounceResult = await " <> debounce_call <> ";",
         "      const dr = unwrapGleamResult(debounceResult);",
         "      if (!dr.ok) { ctx.ui.notify('Hook " <> event_name <> " <ERROR> debounce config: ' + dr.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " <ERROR> debounce config: ' + dr.error, 'error'); return; }",
         "      const debounceMs = dr.value;",
         "      setTimeout(async () => {",
         "        try {",
+        "          ctx.ui.notify('[AUTONOMIC] setTimeout callback fired for " <> event_name <> "', 'info');",
         "          " <> hook_import_line_,
         "          const result = await " <> call <> ";",
         "          const r = unwrapGleamResult(result);",

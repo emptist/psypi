@@ -70,6 +70,11 @@ fn id_decoder() -> decode.Decoder(String) {
   decode.success(id)
 }
 
+fn count_decoder() -> decode.Decoder(Int) {
+  use cnt <- decode.field("cnt", decode.int)
+  decode.success(cnt)
+}
+
 pub fn add(
   title: String,
   description: String,
@@ -234,7 +239,7 @@ pub fn count(
         Ok(result) -> {
           case result.rows {
             [row, ..] -> {
-              case decode.run(row, decode.int) {
+              case decode.run(row, count_decoder()) {
                 Ok(n) -> Ok(n)
                 Error(_) -> Ok(0)
               }
