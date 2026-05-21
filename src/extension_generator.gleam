@@ -29,14 +29,17 @@ import monitor_ai.{
   monitor_health_tool, monitor_stats_tool, monitor_status_tool,
   monitor_suggest_tool,
 }
+import pi_command_gen.{command_to_js}
+import pi_hook_gen.{event_hook_to_js}
+import pi_js_helpers
+import pi_message_renderer
+import pi_system_prompt
 import pi_tool_call.{
   type PiToolCall, type PiEventHook, type PiCommandReg, PiToolCall, PiParam,
   SilentSuccess, NotifyError,
   debounced_hook, event_hook, from_param, lit, raw_event_hook, raw_json,
 }
 import pi_tool_gen.{to_import_line, to_js_text}
-import pi_hook_gen.{event_hook_to_js}
-import pi_command_gen.{command_to_js}
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import stats.{stats_show_tool}
 import task.{task_add_tool, task_complete_tool, task_list_tool}
@@ -145,7 +148,7 @@ pub fn all_event_hooks() -> List(PiEventHook) {
     ),
     raw_event_hook(
       "before_agent_start",
-      "    return { systemPrompt: '\\n[A-S Role Model] You are the Somatic Agentbot (S-agentbot). Your ID starts with S-. You are NOT the Autonomic Agentbot (A-agentbot). Messages prefixed with [A-agentbot] come from A — your coordinator. A directs you on what to work on. Follow A\\'s instructions as task assignments. The human user is the person operating the terminal.' };\n",
+      pi_system_prompt.before_agent_start_body(),
     ),
     raw_event_hook("agent_start", "    // agent_start: S is starting, A stays silent\n"),
     debounced_hook(
@@ -213,21 +216,6 @@ fn imports_text(tools: List(PiToolCall)) -> String {
   header <> lines <> "\n"
 }
 
-fn helpers_text() -> String {
-  [
-    "  function unwrapGleamResult(result) {",
-    "    if (!result) return { ok: false, error: 'null result' };",
-    "    const typeName = result.constructor?.name || '';",
-    "    if (typeName === 'Ok') return { ok: true, value: result['0'] };",
-    "    if (typeName === 'Error') return { ok: false, error: result['0']?.['0'] || result['0']?.toString() || 'Unknown' };",
-    "    return { ok: true, value: result };",
-    "  }",
-    "",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat
-}
-
 fn tools_text(tools: List(PiToolCall)) -> String {
   tools
   |> list.map(to_js_text)
@@ -256,8 +244,8 @@ pub fn generate() -> String {
   let commands = all_commands()
   imports_text(tools)
   <> "\nexport default function(pi) {\n"
-  <> helpers_text()
-  <> message_renderer_text()
+  <> pi_js_helpers.unwrap_gleam_result()
+  <> pi_message_renderer.autonomic_wakeup_renderer()
   <> event_hooks_text(hooks)
   <> tools_text(tools)
   <> commands_text(commands)
@@ -291,24 +279,6 @@ fn commit_tool() -> PiToolCall {
     args: [from_param("params.message || ''"), from_param("params.review_id || ''"), lit("ctx"), lit("pi")],
     result_format: raw_json(),
   )
-}
-
-fn message_renderer_text() -> String {
-  [
-    "  // Register custom renderer for A-agentbot (autonomic) wake-up messages\n",
-    "  pi.registerMessageRenderer('autonomic-wakeup', (message, options, theme) => {\n",
-    "    const { expanded } = options;\n",
-    "    let text = theme.fg('accent', '[A-agentbot] ');\n",
-    "    text += theme.fg('warning', message.content);\n",
-    "    if (expanded && message.details) {\n",
-    "      text += '\\n' + theme.fg('dim', JSON.stringify(message.details, null, 2));\n",
-    "    }\n",
-    "    return new Text(text, 0, 0);\n",
-    "  });\n",
-    "\n",
-  ]
-  |> list.map(fn(s) { s })
-  |> string.concat
 }
 
 pub fn write_extension() -> Nil {

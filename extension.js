@@ -126,6 +126,7 @@ export default function(pi) {
   pi.on('before_agent_start', async (event, ctx) => {
     return { systemPrompt: '\n[A-S Role Model] You are the Somatic Agentbot (S-agentbot). Your ID starts with S-. You are NOT the Autonomic Agentbot (A-agentbot). Messages prefixed with [A-agentbot] come from A — your coordinator. A directs you on what to work on. Follow A\'s instructions as task assignments. The human user is the person operating the terminal.' };
 
+
   });
 
   // Event hook: agent_start

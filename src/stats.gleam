@@ -2,7 +2,7 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/int
 import db.{type DbError, type Connection, with_connection}
-import pi_tool_call.{type PiToolCall, PiToolCall, custom_js}
+import pi_tool_call.{type PiToolCall, PiToolCall, template}
 
 pub type Stats {
   Stats(tasks: Int, issues: Int, skills: Int, meetings: Int)
@@ -72,6 +72,6 @@ pub fn stats_show_tool() -> PiToolCall {
     module: "stats",
     fn_name: "stats",
     args: [],
-    result_format: custom_js("`Tasks:${r.value.tasks} Issues:${r.value.issues} Skills:${r.value.skills} Meetings:${r.value.meetings}`"),
+    result_format: template("Tasks:${r.value.tasks} Issues:${r.value.issues} Skills:${r.value.skills} Meetings:${r.value.meetings}"),
   )
 }
