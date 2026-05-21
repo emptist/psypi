@@ -15,6 +15,7 @@ pub type IdentityContext {
     model: String,
     thinking_level: String,
     global: Bool,
+    cwd: String,
   )
 }
 

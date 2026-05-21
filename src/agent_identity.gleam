@@ -1,39 +1,57 @@
+// agent_identity.gleam — Agent identity resolution
+//
+// Resolves the current agent's identity (S-bot or A-bot) from context.
+// Project detection and filesystem checks are done in Gleam, not in
+// hand-written JS strings.
+
 import agent_identity_types.{
   type AgentIdentity, type IdentityContext, type IdentityError,
   resolved_identity,
 }
+import gleam/list
+import gleam/string
 import pi_tool_call.{type PiToolCall, PiToolCall, lit, raw_json}
 
+/// Resolve project name from cwd by taking the last path component
+fn resolve_project(cwd: String) -> String {
+  case cwd {
+    "" -> "non-project"
+    _ -> {
+      let parts = string.split(cwd, "/") |> list.filter(fn(s) { s != "" })
+      case list.last(parts) {
+        Ok(dir) -> dir
+        Error(_) -> "non-project"
+      }
+    }
+  }
+}
+
+/// Check if cwd is a project directory (has .git subdirectory)
+@external(javascript, "./agent_identity_ffi.mjs", "check_git_exists")
+fn check_git_exists(cwd: String) -> Bool
+
+/// Get the resolved agent identity from context
 pub fn get_resolved_identity(
   ctx: IdentityContext,
 ) -> Result(AgentIdentity, IdentityError) {
-  resolved_identity(ctx)
+  let project = resolve_project(ctx.cwd)
+  let global = case check_git_exists(ctx.cwd) {
+    True -> False
+    False -> True
+  }
+  let ctx_with_project = agent_identity_types.IdentityContext(
+    is_idle: ctx.is_idle,
+    project: project,
+    source: ctx.source,
+    model: ctx.model,
+    thinking_level: ctx.thinking_level,
+    global: global,
+    cwd: ctx.cwd,
+  )
+  resolved_identity(ctx_with_project)
 }
 
-fn ctx_model_id() -> String {
-  "(ctx.model?.id || '')"
-}
-
-fn ctx_provider() -> String {
-  "(ctx.model?.provider || '')"
-}
-
-fn ctx_model_thinking() -> String {
-  "(ctx.model?.thinkingLevel || '')"
-}
-
-fn ctx_project_name() -> String {
-  "(function(){ var cwd = ctx.cwd || ''; if(!cwd) return 'non-project'; var parts = cwd.split('/').filter(Boolean); var dir = parts.pop() || ''; try { require('fs').statSync(cwd + '/.git'); return dir; } catch(e) { return 'non-project'; } }())"
-}
-
-fn ctx_is_global() -> String {
-  "(function(){ var cwd = ctx.cwd || ''; if(!cwd) return true; try { require('fs').statSync(cwd + '/.git'); return false; } catch(e) { return true; } }())"
-}
-
-fn ctx_is_idle() -> String {
-  "ctx.isIdle()"
-}
-
+/// Pi tool: psypi-my-id — get the calling agent's ID
 pub fn my_id_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-my-id",
@@ -43,19 +61,10 @@ pub fn my_id_tool() -> PiToolCall {
     fn_name: "get_resolved_identity",
     args: [
       lit(
-        "({ is_idle: "
-        <> ctx_is_idle()
-        <> ", project: "
-        <> ctx_project_name()
-        <> ", source: "
-        <> ctx_provider()
-        <> ", model: "
-        <> ctx_model_id()
-        <> ", thinking_level: "
-        <> ctx_model_thinking()
-        <> ", global: "
-        <> ctx_is_global()
-        <> " })",
+        "({ is_idle: ctx.isIdle(), source: (ctx.model?.provider || ''), "
+        <> "model: (ctx.model?.id || ''), "
+        <> "thinking_level: (ctx.model?.thinkingLevel || ''), "
+        <> "cwd: (ctx.cwd || '') })",
       ),
     ],
     result_format: raw_json(),

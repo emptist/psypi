@@ -56,6 +56,7 @@ pub fn set_directive(
           model: model_id,
           thinking_level: thinking_level,
           global: False,
+          cwd: "",
         ))
       case identity {
         Error(_) -> promise.resolve(Error(QueryError("Identity error")))

@@ -193,7 +193,7 @@ export default function(pi) {
     parameters: { "type": "object", "properties": {} },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
-        const result = await agent_identity_get_resolved_identity(({ is_idle: ctx.isIdle(), project: (function(){ var cwd = ctx.cwd || ''; if(!cwd) return 'non-project'; var parts = cwd.split('/').filter(Boolean); var dir = parts.pop() || ''; try { require('fs').statSync(cwd + '/.git'); return dir; } catch(e) { return 'non-project'; } }()), source: (ctx.model?.provider || ''), model: (ctx.model?.id || ''), thinking_level: (ctx.model?.thinkingLevel || ''), global: (function(){ var cwd = ctx.cwd || ''; if(!cwd) return true; try { require('fs').statSync(cwd + '/.git'); return false; } catch(e) { return true; } }()) }));
+        const result = await agent_identity_get_resolved_identity(({ is_idle: ctx.isIdle(), source: (ctx.model?.provider || ''), model: (ctx.model?.id || ''), thinking_level: (ctx.model?.thinkingLevel || ''), cwd: (ctx.cwd || '') }));
         const r = unwrapGleamResult(result);
         if (!r.ok) {
           pi_extension_notify_error(ctx, 'Tool psypi-my-id error: ' + r.error);
