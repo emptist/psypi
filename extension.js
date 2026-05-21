@@ -138,10 +138,6 @@ export default function(pi) {
   // Event hook (debounced): agent_end
   pi.on('agent_end', async (event, ctx) => {
     try {
-      // Phase 1: Check if S is actually idle
-      const idle = ctx.isIdle();
-      ctx.ui.notify('[AUTONOMIC] isIdle=' + idle, 'info');
-      if (!idle) { return; }
       const system_config_get_debounce_ms = (await import('./build/dev/javascript/psypi/system_config.mjs')).get_debounce_ms;
       const debounceResult = await system_config_get_debounce_ms();
       const dr = unwrapGleamResult(debounceResult);
