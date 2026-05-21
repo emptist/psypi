@@ -3,6 +3,7 @@
 
 import { Text } from "@mariozechner/pi-tui";
 import { notify_error as pi_extension_notify_error, pi_send_message as pi_extension_pi_send_message } from "./build/dev/javascript/psypi/pi_extension.mjs";
+import { record_trigger } from "./build/dev/javascript/psypi/event_hooks.mjs";
 
 import { get_resolved_identity as agent_identity_get_resolved_identity } from "./build/dev/javascript/psypi/agent_identity.mjs";
 import { add as task_add } from "./build/dev/javascript/psypi/task.mjs";
@@ -67,7 +68,6 @@ export default function(pi) {
   pi.on('tool_call', async (event, ctx) => {
     try {
 
-      const { record_trigger } = (await import('./build/dev/javascript/psypi/event_hooks.mjs')).record_trigger;
       const hook_on_tool_call_on_tool_call = (await import('./build/dev/javascript/psypi/hook_on_tool_call.mjs')).on_tool_call;
       const result = await hook_on_tool_call_on_tool_call(event.toolName || '', event.input ? (event.input.path || event.input.filePath || '') : '', ctx, pi);
       const r = unwrapGleamResult(result);
@@ -87,7 +87,6 @@ export default function(pi) {
     try {
     if (ctx.model) {
 
-      const { record_trigger } = (await import('./build/dev/javascript/psypi/event_hooks.mjs')).record_trigger;
       const monitor_record_current_model = (await import('./build/dev/javascript/psypi/monitor.mjs')).record_current_model;
       const result = await monitor_record_current_model(ctx.model);
       const r = unwrapGleamResult(result);
@@ -108,7 +107,6 @@ export default function(pi) {
     try {
     if (event.model) {
 
-      const { record_trigger } = (await import('./build/dev/javascript/psypi/event_hooks.mjs')).record_trigger;
       const monitor_record_current_model = (await import('./build/dev/javascript/psypi/monitor.mjs')).record_current_model;
       const result = await monitor_record_current_model(event.model);
       const r = unwrapGleamResult(result);
@@ -172,7 +170,6 @@ export default function(pi) {
   pi.on('tool_result', async (event, ctx) => {
     try {
 
-      const { record_trigger } = (await import('./build/dev/javascript/psypi/event_hooks.mjs')).record_trigger;
       const hook_on_tool_result_on_tool_result = (await import('./build/dev/javascript/psypi/hook_on_tool_result.mjs')).on_tool_result;
       const result = await hook_on_tool_result_on_tool_result(JSON.stringify(event.result || ''), event.toolName || '', pi);
       const r = unwrapGleamResult(result);

@@ -197,6 +197,7 @@ fn imports_text(tools: List(PiToolCall)) -> String {
       "",
       "import { Text } from \"@mariozechner/pi-tui\";",
       "import { notify_error as pi_extension_notify_error, pi_send_message as pi_extension_pi_send_message } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
+      "import { record_trigger } from \"./build/dev/javascript/psypi/event_hooks.mjs\";",
       "",
     ]
     |> list.map(fn(s) { s <> "\n" })

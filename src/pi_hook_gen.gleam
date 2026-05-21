@@ -72,7 +72,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
     ) -> {
       let import_line = hook_import_line(module, fn_name)
       let call = hook_call_expr(module, fn_name, args)
-      let record_trigger_import = "const { record_trigger } = (await import('./build/dev/javascript/psypi/event_hooks.mjs')).record_trigger;"
+
       let guard_prefix = case guard {
         Some(g) -> "    if (" <> g <> ") {\n"
         None -> ""
@@ -92,7 +92,6 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "  pi.on('" <> event_name <> "', async (event, ctx) => {",
         "    try {",
         guard_prefix,
-        "      " <> record_trigger_import,
         "      " <> import_line,
         "      const result = await " <> call <> ";",
         "      const r = unwrapGleamResult(result);",
