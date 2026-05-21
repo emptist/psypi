@@ -3,7 +3,7 @@
 
 import { Text } from "@mariozechner/pi-tui";
 import { notify_error as pi_extension_notify_error, pi_send_message as pi_extension_pi_send_message } from "./build/dev/javascript/psypi/pi_extension.mjs";
-import { record_trigger } from "./build/dev/javascript/psypi/event_hooks.mjs";
+import { record_trigger as event_hooks_record_trigger } from "./build/dev/javascript/psypi/event_hooks.mjs";
 
 import { get_resolved_identity as agent_identity_get_resolved_identity } from "./build/dev/javascript/psypi/agent_identity.mjs";
 import { add as task_add } from "./build/dev/javascript/psypi/task.mjs";
@@ -73,7 +73,7 @@ export default function(pi) {
       const r = unwrapGleamResult(result);
       if (r.ok) {  }
       else { ctx.ui.notify('Hook tool_call failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook tool_call failed: ' + r.error, 'error'); }
-      await record_trigger('tool_call');
+      await event_hooks_record_trigger('tool_call');
 
     } catch(e) {
       ctx.ui.notify('Hook tool_call error: ' + (e.message || String(e)), 'error');
@@ -92,7 +92,7 @@ export default function(pi) {
       const r = unwrapGleamResult(result);
       if (r.ok) {  }
       else { ctx.ui.notify('Hook session_start failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook session_start failed: ' + r.error, 'error'); }
-      await record_trigger('session_start');
+      await event_hooks_record_trigger('session_start');
     }
 
     } catch(e) {
@@ -112,7 +112,7 @@ export default function(pi) {
       const r = unwrapGleamResult(result);
       if (r.ok) {  }
       else { ctx.ui.notify('Hook model_select failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook model_select failed: ' + r.error, 'error'); }
-      await record_trigger('model_select');
+      await event_hooks_record_trigger('model_select');
     }
 
     } catch(e) {
@@ -154,6 +154,7 @@ export default function(pi) {
           const r = unwrapGleamResult(result);
           if (r.ok) {  }
           else { ctx.ui.notify('Hook agent_end failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook agent_end failed: ' + r.error, 'error'); }
+          await event_hooks_record_trigger('agent_end');
         } catch(e) {
         ctx.ui.notify('Hook agent_end error: ' + (e.message || String(e)), 'error');
         pi_extension_pi_send_message(pi, 'hook-error', 'Hook agent_end error: ' + (e.message || String(e)), 'error');
@@ -175,7 +176,7 @@ export default function(pi) {
       const r = unwrapGleamResult(result);
       if (r.ok) {  }
       else { ctx.ui.notify('Hook tool_result failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook tool_result failed: ' + r.error, 'error'); }
-      await record_trigger('tool_result');
+      await event_hooks_record_trigger('tool_result');
 
     } catch(e) {
       ctx.ui.notify('Hook tool_result error: ' + (e.message || String(e)), 'error');
@@ -701,7 +702,7 @@ export default function(pi) {
   },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
-        const result = await learning_save(params.content || "", (() => { const t = (params.tags || '').trim(); if (!t) return '{}'; if (t.startsWith('[')) { try { const arr = JSON.parse(t); return '{' + arr.map(s => String(s).trim()).join(',') + '}'; } catch(e) { return '{' + t + '}'; } } return '{' + t.split(',').map(s => s.trim()).join(',') + '}'; })(), parseInt(params.importance || '5'), 'psypi');
+        const result = await learning_save(params.content || "", params.tags || '', parseInt(params.importance || '5'), 'psypi');
         const r = unwrapGleamResult(result);
         if (!r.ok) {
           pi_extension_notify_error(ctx, 'Tool psypi-learn-save error: ' + r.error);

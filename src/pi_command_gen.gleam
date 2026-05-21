@@ -1,6 +1,27 @@
 // pi_command_gen.gleam — PiCommandReg → JavaScript source text
 //
 // Converts PiCommandReg values into pi.registerCommand({...}) JS blocks.
+//
+// ⚠️  AI AGENT RULES FOR THIS FILE:
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 1. NEVER hand-write JS logic inside Gleam strings. If you need JS
+//    behavior that doesn't exist yet, add a Gleam helper function that
+//    EMITS the JS text — just like result_to_js() and hook_import_line()
+//    do. The Gleam code is a TEXT GENERATOR, not a place to embed raw JS.
+//
+// 2. NEVER hand-write SQL inside Gleam strings. If you need DB access,
+//    add the query to a Gleam module (e.g. event_hooks.gleam) and
+//    import/call it from the generated JS.
+//
+// 3. Gleam string escaping is NOT JavaScript escaping. In Gleam
+//    double-quoted strings: \" for literal ", \\ for literal \.
+//    Single quotes (') need NO escaping in Gleam strings.
+//
+// 4. Every list element in the output MUST end with a comma. Missing
+//    commas cause cryptic parse errors on the NEXT line.
+//
+// 5. When in doubt: look at how the existing functions handle the same
+//    pattern and copy that structure exactly.
 
 import gleam/list
 import gleam/string

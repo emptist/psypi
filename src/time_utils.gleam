@@ -1,10 +1,8 @@
 import gleam/int
 import gleam/javascript/promise
 
-/// Get current time as ISO 8601 string using JavaScript Date
-pub fn now_iso8601() -> promise.Promise(String) {
-  promise.resolve("new Date().toISOString()")
-}
+@external(javascript, "./time_utils_ffi.mjs", "now_iso8601")
+pub fn now_iso8601() -> promise.Promise(String)
 
 /// Format seconds as minutes and seconds
 pub fn format_duration(seconds: Int) -> String {

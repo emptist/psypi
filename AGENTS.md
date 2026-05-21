@@ -21,6 +21,16 @@
 - Gleam `PiToolCall` values define all Pi tools
 - Identity: one pure function `get_resolved_identity(ctx)` — A/S prefix emerges from `ctx.isIdle()`
 
+## Code Generator Rules (pi_tool_gen, pi_hook_gen, pi_command_gen)
+
+These files are Gleam code that **emits JavaScript text**. They are NOT places to hand-write JS.
+
+- **NEVER embed raw JS logic in Gleam strings.** If you need new JS behavior, write a Gleam helper function that emits the JS text (like `success_action_to_js()`, `hook_import_line()`, `params_to_js()`).
+- **NEVER hand-write SQL in Gleam strings.** Use existing imports like `event_hooks_record_trigger()`, or add proper parameterized queries to a Gleam module.
+- **Gleam escaping ≠ JS escaping.** In Gleam double-quoted strings: `\"` for literal `"`, `\\` for literal `\`. Single quotes need NO escaping.
+- **Every list element must end with a comma.** Missing commas cause cryptic parse errors on the *next* line.
+- The ONLY handwritten JS in the repo is `bin/psypi.mjs` (the bootstrapper). Everything else is generated.
+
 ## Adding a Pi Tool
 
 1. Define Gleam function in its module

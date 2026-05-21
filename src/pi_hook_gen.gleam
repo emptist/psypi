@@ -1,6 +1,30 @@
 // pi_hook_gen.gleam — PiEventHook → JavaScript source text
 //
 // Converts PiEventHook values into pi.on('event', ...) JS blocks.
+//
+// ⚠️  AI AGENT RULES FOR THIS FILE:
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 1. NEVER hand-write JS logic inside Gleam strings. If you need JS
+//    behavior that doesn't exist yet, add a Gleam helper function that
+//    EMITS the JS text — just like success_action_to_js() and
+//    hook_import_line() do. The Gleam code is a TEXT GENERATOR, not a
+//    place to embed raw JS.
+//
+// 2. NEVER hand-write SQL inside Gleam strings. Use the existing
+//    event_hooks_record_trigger() import (already available in the
+//    generated extension.js). If you need new DB operations, add them
+//    to event_hooks.gleam as proper parameterized queries, then call
+//    them from here via the import.
+//
+// 3. Gleam string escaping is NOT JavaScript escaping. In Gleam
+//    double-quoted strings: \" for literal ", \\ for literal \.
+//    Single quotes (') need NO escaping in Gleam strings.
+//
+// 4. Every list element in the output MUST end with a comma. Missing
+//    commas cause cryptic parse errors on the NEXT line.
+//
+// 5. When in doubt: look at how the existing branches handle the same
+//    pattern and copy that structure exactly.
 
 import gleam/list
 import gleam/string
@@ -73,6 +97,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let import_line = hook_import_line(module, fn_name)
       let call = hook_call_expr(module, fn_name, args)
 
+
       let guard_prefix = case guard {
         Some(g) -> "    if (" <> g <> ") {\n"
         None -> ""
@@ -97,7 +122,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      const r = unwrapGleamResult(result);",
         "      if (r.ok) { " <> success_js <> " }",
         "      else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
-        "      await record_trigger('" <> event_name <> "');",
+        "      await event_hooks_record_trigger('" <> event_name <> "');",
         guard_suffix,
         "    } catch(e) {",
         error_catch,
@@ -153,6 +178,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "          const r = unwrapGleamResult(result);",
         "          if (r.ok) { " <> success_js <> " }",
         "          else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
+        "          await event_hooks_record_trigger('" <> event_name <> "');",
         "        } catch(e) {",
         error_catch,
         "        }",
