@@ -197,6 +197,40 @@ Pi runtime (tools, hooks, commands)
 5. **Type safety** — use custom types extensively, `string_to_*()` converters for DB enums
 6. **FFI files** (`pi_extension_ffi.mjs`, `node_ffi.mjs`) must use `new Ok(value)` / `new Error(error)` — never plain JS objects
 
+## ⚠️ GOLDEN RULE: No Hand-Written JS in Gleam Code
+
+**99% of all bugs in this codebase were caused by hand-written JS strings embedded in Gleam modules.** This is the #1 thing to avoid.
+
+### The Rule
+
+**NEVER write JavaScript code as Gleam string literals in non-generator modules.** If you need JS interop, use one of these patterns:
+
+1. **Gleam FFI (`@external`)**: For calling Node.js APIs (filesystem, dates, etc.)
+   - Create `src/<module>_ffi.mjs` with `export function`
+   - Declare in Gleam: `@external(javascript, "./<module>_ffi.mjs", "fn_name")`
+   - Example: `time_utils_ffi.mjs`, `agent_identity_ffi.mjs`
+
+2. **Gleam generator functions**: For emitting JS text into extension.js
+   - Write Gleam functions that return JS text strings
+   - Compose them in `pi_tool_gen.gleam`, `pi_hook_gen.gleam`, `pi_command_gen.gleam`
+   - Example: `hook_import_line()`, `success_action_to_js()`, `params_to_js()`
+
+3. **Pi type constructors**: For building tool/hook/command definitions
+   - Use `lit()`, `from_param()`, `event_hook()`, `raw_event_hook()`, `template()`
+   - Never hand-write JS object literals or IIFEs
+
+### Bug Patterns to Avoid
+
+| ❌ Bug Pattern | ✅ Correct Approach |
+|---|---|
+| `promise.resolve("new Date().toISOString()")` — returns literal string | FFI function in `*_ffi.mjs` |
+| `"(function(){ var cwd = ...; require('fs')... })()"` — JS IIFE | Gleam FFI + Gleam string ops |
+| `"(() => { const t = ...; JSON.parse(t); ... })()"` — JS IIFE | Pure Gleam string functions |
+| `custom_js("...${r.value}...")` — raw JS in result | `template("...${r.value}...")` |
+| Hand-editing `extension.js` | Edit Gleam source, regenerate |
+
+The ONLY hand-written JS file in the repo is `bin/psypi.mjs`. Everything else is auto-generated or uses proper FFI.
+
 ## Gleam Code Quality Standards
 
 When working with the Gleam codebase, follow these patterns:
@@ -232,10 +266,11 @@ These can be used by both Autonomic and Somatic agents for standard Pi workflows
 ## A-Bot (Autonomic) Status
 
 The A-bot runs as event hooks inside the Pi TUI. Key things to know:
-- **agent_end hook**: Fires when S-bot finishes a turn. Checks `ctx.isIdle()`, waits debounce period (default 5 min), then composes wake-up message via LLM
-- **call_monitor**: The FFI function that calls the LLM. Uses `completeSimple` from `@earendil-works/pi-ai`. Known issue: may return empty output in some cases
+- **agent_end hook**: Fires when S-bot finishes a turn. Starts debounce timer (default 3 min). After debounce, `hook_on_agent_end.gleam` checks idle state and composes wake-up message
+- **No early exit before debounce**: The generated JS does NOT check `ctx.isIdle()` before starting the timer. All idle checking happens in Gleam after the debounce period
+- **call_monitor**: The FFI function that calls the LLM. Uses `completeSimple` from `@earendil-works/pi-ai`
 - **Wake-up messages**: Sent via `pi_send_message` with custom type `autonomic-wakeup`. Appear as `[A-agentbot]` prefix in session
-- **Debugging**: If A-bot seems inactive, check: (1) `system_config` table has `monitor_debounce_ms`, (2) `ctx.model` is available, (3) API key is valid
+- **Debugging**: If A-bot seems inactive, check: (1) `system_config` table has `monitor_debounce_ms`, (2) `ctx.model` is available, (3) API key is valid, (4) hook modules exist in build output
 - **Stats all zeros**: `psypi-autonomic-stats` shows zeros because inter_review system hasn't been used yet
 
 ## Quick tip

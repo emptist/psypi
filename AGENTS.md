@@ -21,15 +21,56 @@
 - Gleam `PiToolCall` values define all Pi tools
 - Identity: one pure function `get_resolved_identity(ctx)` — A/S prefix emerges from `ctx.isIdle()`
 
+## ⚠️ GOLDEN RULE: No Hand-Written JS in Gleam Code
+
+**99% of all bugs in this codebase were caused by hand-written JS strings embedded in Gleam modules.** This is the #1 thing to avoid.
+
+### The Rule
+
+**NEVER write JavaScript code as Gleam string literals in non-generator modules.** If you need JS interop, use one of these three patterns:
+
+1. **Gleam FFI (`@external`)**: For calling Node.js APIs (filesystem, dates, etc.)
+   - Create `src/<module>_ffi.mjs` with `export function`
+   - Declare in Gleam: `@external(javascript, "./<module>_ffi.mjs", "fn_name")`
+   - Example: `time_utils_ffi.mjs`, `agent_identity_ffi.mjs`
+
+2. **Gleam generator functions**: For emitting JS text into extension.js
+   - Write Gleam functions that return JS text strings
+   - Compose them in `pi_tool_gen.gleam`, `pi_hook_gen.gleam`, `pi_command_gen.gleam`
+   - Example: `hook_import_line()`, `success_action_to_js()`, `params_to_js()`
+
+3. **Pi type constructors**: For building tool/hook/command definitions
+   - Use `lit()`, `from_param()`, `event_hook()`, `raw_event_hook()`, `template()`
+   - Never hand-write JS object literals or IIFEs
+
+### What NOT To Do
+
+| ❌ Bug Pattern | ✅ Correct Approach |
+|---|---|
+| `promise.resolve("new Date().toISOString()")` — returns a literal string | FFI function in `*_ffi.mjs` that calls `new Date()` |
+| `"(function(){ var cwd = ...; require('fs')... })()"` — JS IIFE in Gleam | Gleam FFI for filesystem + Gleam string operations for logic |
+| `"(() => { const t = ...; JSON.parse(t); ... })()"` — JS IIFE for parsing | Pure Gleam string functions (`string.split`, `string.trim`) |
+| `custom_js("...${r.value}...")` — raw JS in result format | `template("...${r.value}...")` — uses Gleam Template type |
+| Hand-editing `extension.js` | Edit Gleam source, then `gleam run -m extension_generator` |
+| `if (!idle) { return; }` early exit in generated hook | Let Gleam handler do all logic checks |
+
+### Why This Matters
+
+Hand-written JS in Gleam is:
+- **Invisible to the Gleam compiler** — type errors, syntax errors, and logic bugs pass silently
+- **Extremely hard to debug** — the error appears at JS runtime, far from the Gleam source
+- **Unnecessary** — Gleam FFI + generator functions cover all use cases cleanly
+
+The ONLY hand-written JS file in the entire repo is `bin/psypi.mjs` (the bootstrapper that spawns Pi). Everything else is auto-generated or uses proper FFI.
+
 ## Code Generator Rules (pi_tool_gen, pi_hook_gen, pi_command_gen)
 
-These files are Gleam code that **emits JavaScript text**. They are NOT places to hand-write JS.
+These files are Gleam code that **emits JavaScript text**. They compose Gleam strings into JS templates.
 
-- **NEVER embed raw JS logic in Gleam strings.** If you need new JS behavior, write a Gleam helper function that emits the JS text (like `success_action_to_js()`, `hook_import_line()`, `params_to_js()`).
-- **NEVER hand-write SQL in Gleam strings.** Use existing imports like `event_hooks_record_trigger()`, or add proper parameterized queries to a Gleam module.
+- Build JS text using Gleam string operations (`<>`, `list.map`, `string.join`)
+- Use helper functions like `hook_import_line()`, `params_to_js()`, `success_action_to_js()`
 - **Gleam escaping ≠ JS escaping.** In Gleam double-quoted strings: `\"` for literal `"`, `\\` for literal `\`. Single quotes need NO escaping.
 - **Every list element must end with a comma.** Missing commas cause cryptic parse errors on the *next* line.
-- The ONLY handwritten JS in the repo is `bin/psypi.mjs` (the bootstrapper). Everything else is generated.
 
 ## Adding a Pi Tool
 
@@ -77,29 +118,22 @@ The A- or S- prefix is not a role assignment — it emerges from `ctx.isIdle()` 
 
 ## agent_end Workflow (A-S Communication)
 
-When the S-worker finishes a turn, the `agent_end` event fires. The autonomic hook follows a strict 3-phase protocol:
+When the S-worker finishes a turn, the `agent_end` event fires. The autonomic hook follows a strict protocol:
 
-### Phase 1: Immediate Feedback (debugging)
-- `agent_end` fires → check `ctx.isIdle()` immediately
-- If `True` → call `ctx.ui.notify()` right away with `[AUTONOMIC] S-worker is idle`
-- This gives the user instant visual feedback that the autonomic worker detected the idle state
-- **This is the debugging phase** — it confirms the hook fired and idle was detected
+### Phase 1: Debounce Wait (in generated JS)
+- Read `monitor_debounce_ms` from `system_config` table (default: 180000ms = 3 minutes)
+- Start `setTimeout(debounceMs)` — **always**, no early exit
+- The generated JS does NOT check `ctx.isIdle()` before starting the timer
+- Rationale: idle state at event fire time is meaningless; what matters is idle state after the debounce
 
-### Phase 2: Debounce Wait
-- Read `monitor_debounce_ms` from `system_config` table (default: 300000ms = 5 minutes)
-- Wait via `setTimeout(debounceMs)`
-- Rationale: S-worker might receive a new prompt immediately. No need to wake it if it's already busy.
+### Phase 2: Intelligent Composition (in `hook_on_agent_end.gleam`)
+- After debounce, `hook_on_agent_end.gleam` checks `ctx_is_idle()` and `ctx_has_pending_messages()`
+- If not idle or has pending messages → skip silently
+- If idle → read soul from DB, compose wake-up message via `call_monitor()`
+- Send via `pi_send_message(pi, 'autonomic-wakeup', msg, 'persistent')`
+- On failure → send error as persistent notification so S-worker can debug
 
-### Phase 3: Intelligent Composition
-- After debounce, check `ctx.isIdle()` again
-- If `False` → S-worker is busy, skip silently
-- If `True` → call Monitor LLM via `callMonitor()` to compose a wake-up message
-- Send via `pi_send_message(pi, 'autonomic-wakeup', msg, 'persistent')` with `triggerTurn: true`
-- On LLM failure → send error message as persistent notification so S-worker can debug
-
-**Key insight:** Phase 1 uses `ctx.ui.notify()` (transient toast) for immediate human feedback. Phase 3 uses `pi_send_message()` (persistent message) because by then the TUI session may be dormant and transient toasts are invisible.
-
-**Current status (2026-05-20):** The hook does Phase 1 (isIdle check + notify) correctly. Phase 2 (debounce) reads from system_config. Phase 3 (LLM composition) may fail silently — call_monitor uses completeSimple from @earendil-works/pi-ai and the response parsing may not match the actual API response format. Autonomic stats are all zeros (inter_review not used). See docs/INVESTIGATION-A-BOT.md for full analysis.
+**Critical design point:** The generated JS hook must NOT check `ctx.isIdle()` before starting the debounce timer. The old code had `if (!idle) { return; }` which prevented the timer from ever starting. All idle checking happens in the Gleam handler after the debounce period.
 
 ## Commit Workflow (QC Two-Phase)
 
