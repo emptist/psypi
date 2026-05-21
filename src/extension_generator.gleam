@@ -32,9 +32,11 @@ import monitor_ai.{
 import pi_tool_call.{
   type PiToolCall, type PiEventHook, type PiCommandReg, PiToolCall, PiParam,
   SilentSuccess, NotifyError,
-  command_to_js, debounced_hook, event_hook, event_hook_to_js,
-  to_import_line, to_js_text, from_param, lit, raw_event_hook, raw_json,
+  debounced_hook, event_hook, from_param, lit, raw_event_hook, raw_json,
 }
+import pi_tool_gen.{to_import_line, to_js_text}
+import pi_hook_gen.{event_hook_to_js}
+import pi_command_gen.{command_to_js}
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import stats.{stats_show_tool}
 import task.{task_add_tool, task_complete_tool, task_list_tool}
