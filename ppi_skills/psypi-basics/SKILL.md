@@ -54,13 +54,18 @@ The prefix is determined by `ctx.isIdle()` at the moment of the call: `S-` when 
     → Parses [LEARN], [ISSUE], [TASK], [ISSUELIST] markers from text and saves to DB.
 ```
 
-### Commit with Monitor review
+### Commit with Monitor review (QC Two-Phase)
 ```
 /psypi-commit message="Refactor ID handling"
-    → runs Monitor review, shows PASS/FAIL + score, returns review_id on pass.
+    → Phase 1: stages changes, sends review request to S-worker.
+      A reviews diff, responds PASS/FAIL + score + review_id.
 /psypi-commit message="Refactor ID handling" review_id="<uuid>"
-    → skips review, commits directly with a valid review_id.
+    → Phase 2: commits with review_id as proof of QC approval.
+      The review_id is the "ticket" — no ticket, no commit.
 ```
+**Important:** S should NOT call psypi-commit on its own changes (infinite self-review loop).
+Proper flow: S makes changes → A reviews → A calls psypi-commit with review_id.
+For S's own work, use direct `git add` + `git commit` instead.
 
 ### Meetings (discussion between Somatic and Autonomic workers)
 ```

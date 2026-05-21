@@ -91,6 +91,18 @@ When the S-worker finishes a turn, the `agent_end` event fires. The autonomic ho
 
 **Current status (2026-05-20):** The hook does Phase 1 (isIdle check + notify) correctly. Phase 2 (debounce) reads from system_config. Phase 3 (LLM composition) may fail silently — call_monitor uses completeSimple from @earendil-works/pi-ai and the response parsing may not match the actual API response format. Autonomic stats are all zeros (inter_review not used). See docs/INVESTIGATION-A-BOT.md for full analysis.
 
+## Commit Workflow (QC Two-Phase)
+
+`psypi-commit` uses a two-phase QC design — no commit lands without a review_id.
+
+**Phase 1 — Review request:** Call `psypi-commit` without `review_id`. This stages changes and sends a code review request to the S-worker. A reviews the diff and responds with PASS/FAIL + score + review_id.
+
+**Phase 2 — Commit with review_id:** Call `psypi-commit` with the `review_id` from Phase 1. This performs the actual git commit. The review_id is the "ticket" proving QC passed.
+
+**Proper flow:** S makes changes → A reviews → A calls `psypi-commit` with review_id → commit lands.
+
+**Gotcha:** S should NOT call `psypi-commit` on its own changes — it creates an infinite self-review loop. For S's own work, use direct `git add` + `git commit`, or let A handle the commit.
+
 ## Self-Loading Skills
 
 If a task needs specialized expertise, load the skill yourself:
