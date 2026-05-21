@@ -1,7 +1,7 @@
 // extension_generator.gleam — Pi Extension Generator
 // Composes small generator modules into extension.js
 
-import agent_identity.{autonomic_id_tool, somatic_id_tool}
+import agent_identity.{my_id_tool}
 import agents.{agents_list_tool}
 import areflect.{areflect_tool}
 import broadcast.{broadcast_list_tool, broadcast_send_tool}
@@ -48,8 +48,7 @@ import task.{task_add_tool, task_complete_tool, task_list_tool}
 pub fn all_tools() -> List(PiToolCall) {
   [
     // Identity
-    somatic_id_tool(),
-    autonomic_id_tool(),
+    my_id_tool(),
     // Tasks
     task_add_tool(),
     task_list_tool(),

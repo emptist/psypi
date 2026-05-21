@@ -60,11 +60,10 @@ The A- or S- prefix is not a role assignment — it emerges from `ctx.isIdle()` 
 - `project` ← `ctx.cwd` (directory name when .git exists)
 - `global` ← whether no .git found (prepends G- to ID)
 
-**To find your identity, use the identity tools:**
-- `psypi-somatic-id` — calls `get_resolved_identity` with live `ctx.isIdle()`
-- `psypi-autonomic-id` — calls `get_resolved_identity` with live `ctx.isIdle()`
+**To find your identity, use:**
+- `psypi-my-id` — calls `get_resolved_identity` with live `ctx.isIdle()`. Returns `S-` prefix when called by the Somatic Agentbot, `A-` prefix when called by the Autonomic Agentbot.
 
-**Example:** Ask "what is your id?" and the AI should call `psypi-somatic-id` (it IS the somatic agentbot).
+**Example:** Ask "what is your id?" and the AI should call `psypi-my-id`.
 
 ## agent_end Workflow (A-S Communication)
 

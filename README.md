@@ -45,8 +45,7 @@ All functionality is exposed as Pi tools — use them inside the TUI, never from
 
 | Tool                    | Description                 |
 | ----------------------- | --------------------------- |
-| `psypi-somatic-id`      | Get Somatic Agentbot ID     |
-| `psypi-autonomic-id`    | Get Autonomic Agentbot ID   |
+| `psypi-my-id`           | Get the calling agent's ID (S- or A- prefix) |
 | `psypi-task-add`        | Add a task                  |
 | `psypi-task-list`       | List tasks                  |
 | `psypi-task-complete`   | Complete a task             |

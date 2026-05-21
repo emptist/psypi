@@ -18,10 +18,9 @@ description: Quick cheat‑sheet for using Psypi from the TUI (Autonomic vs Soma
 
 ## Getting your identity
 ```
-/psypi-somatic-id       # returns Somatic Agentbot ID (S-…)
-/psypi-autonomic-id     # returns Autonomic Agentbot ID (A-…)
+/psypi-my-id            # returns the calling agent's ID (S- or A- prefix)
 ```
-Both call the same pure function `get_resolved_identity(ctx)` — the prefix is determined by `ctx.isIdle()` at the moment of the call.
+The prefix is determined by `ctx.isIdle()` at the moment of the call: `S-` when called by the Somatic Agentbot (prompt-driven), `A-` when called by the Autonomic Agentbot (event-driven). There is only one tool — every agent calls the same one and gets the correct identity automatically.
 
 ## Common Pi-tools (use **inside the Psypi TUI**; just type a leading `/`)
 

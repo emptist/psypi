@@ -34,38 +34,10 @@ fn ctx_is_idle() -> String {
   "ctx.isIdle()"
 }
 
-pub fn somatic_id_tool() -> PiToolCall {
+pub fn my_id_tool() -> PiToolCall {
   PiToolCall(
-    name: "psypi-somatic-id",
-    description: "Get Somatic Agentbot ID (S- prefix, prompt-driven). ID includes model and thinking level from live ctx.",
-    params: [],
-    module: "agent_identity",
-    fn_name: "get_resolved_identity",
-    args: [
-      lit(
-        "({ is_idle: "
-        <> ctx_is_idle()
-        <> ", project: "
-        <> ctx_project_name()
-        <> ", source: "
-        <> ctx_provider()
-        <> ", model: "
-        <> ctx_model_id()
-        <> ", thinking_level: "
-        <> ctx_model_thinking()
-        <> ", global: "
-        <> ctx_is_global()
-        <> " })",
-      ),
-    ],
-    result_format: raw_json(),
-  )
-}
-
-pub fn autonomic_id_tool() -> PiToolCall {
-  PiToolCall(
-    name: "psypi-autonomic-id",
-    description: "Get Autonomic Agentbot ID (A- prefix, event-driven). ID includes model and thinking level from live ctx.",
+    name: "psypi-my-id",
+    description: "Get the calling agent's ID. Returns S- prefix when called by the Somatic Agentbot (prompt-driven), A- prefix when called by the Autonomic Agentbot (event-driven). ID includes model and thinking level from live ctx.",
     params: [],
     module: "agent_identity",
     fn_name: "get_resolved_identity",
