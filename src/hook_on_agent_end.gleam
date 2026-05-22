@@ -45,7 +45,7 @@ fn coordinate_with_s(
   promise.await(is_s_still_idle(), fn(idle_result) {
     case idle_result {
       Ok(False) -> {
-        pi_send_message(pi, "autonomic-info", "S is busy, skipping wake-up", "persistent")
+        notify_info(ctx, "S is busy, skipping wake-up")
         promise.resolve(Ok(Nil))
       }
       _ -> coordinate_when_idle(ctx, pi, entries_json, usage_json, cwd)
@@ -106,7 +106,7 @@ fn coordinate_when_idle(
                       ))
                     let user_prompt =
                       build_user_prompt(usage_json, entries_json, cwd, project_state)
-                    pi_send_message(pi, "autonomic-info", "A thinking...", "persistent")
+                    notify_info(ctx, "[AUTONOMIC] A thinking...")
                     promise.await(
                       call_monitor(ctx, user_prompt, system_prompt),
                       fn(monitor_result) {
@@ -119,7 +119,7 @@ fn coordinate_when_idle(
                               }
                               case last_msg == response {
                                 True -> {
-                                  pi_send_message(pi, "autonomic-info", "skipping duplicate wake-up", "persistent")
+                                  notify_info(ctx, "[AUTONOMIC] skipping duplicate wake-up")
                                   promise.resolve(Ok(Nil))
                                 }
                                 False -> {
@@ -132,7 +132,7 @@ fn coordinate_when_idle(
                                       "persistent",
                                     )
                                     notify_info(ctx, "[AUTONOMIC] wake-up pi_send_message called")
-                                    pi_send_message(pi, "autonomic-info", "wake-up sent", "persistent")
+                                    notify_info(ctx, "wake-up sent")
                                     promise.resolve(Ok(Nil))
                                   })
                                 }

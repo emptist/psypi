@@ -78,6 +78,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "  // Event hook: " <> event_name,
         "  pi.on('" <> event_name <> "', async (event, ctx) => {",
         handler_body,
+        "    await event_hooks_record_trigger('" <> event_name <> "');",
         "  });",
         "",
       ]
