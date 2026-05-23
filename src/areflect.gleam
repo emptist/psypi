@@ -292,6 +292,6 @@ pub fn areflect_tool() -> PiToolCall {
       from_param("params.text || \"\""),
       from_param("'psypi'"),
     ],
-    result_format: template("Reflection: ${JSON.stringify(r.value)}"),
+    result_format: template("Reflection: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }

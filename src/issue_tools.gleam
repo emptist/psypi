@@ -45,7 +45,7 @@ pub fn issue_list_tool() -> PiToolCall {
       from_param("parseInt(params?.limit || '50')"),
       from_param("parseInt(params?.offset || '0')"),
     ],
-    result_format: template("Issues: ${JSON.stringify(r.value)}"),
+    result_format: template("Issues: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
 
@@ -79,7 +79,7 @@ pub fn issue_get_tool() -> PiToolCall {
     module: "issue_db",
     fn_name: "get",
     args: [from_param("params.id || \"\"")],
-    result_format: template("Issue: ${JSON.stringify(r.value)}"),
+    result_format: template("Issue: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
 

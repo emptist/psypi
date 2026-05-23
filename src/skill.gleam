@@ -316,7 +316,7 @@ pub fn skill_list_tool() -> PiToolCall {
     module: "skill",
     fn_name: "list",
     args: [from_param("params?.status || null")],
-    result_format: template("Skills: ${JSON.stringify(r.value)}"),
+    result_format: template("Skills: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
 
@@ -329,7 +329,7 @@ pub fn skill_get_tool() -> PiToolCall {
     module: "skill",
     fn_name: "get",
     args: [from_param("params.id || \"\"")],
-    result_format: template("Skill: ${JSON.stringify(r.value)}"),
+    result_format: template("Skill: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
 
@@ -342,6 +342,6 @@ pub fn skill_search_tool() -> PiToolCall {
     module: "skill",
     fn_name: "search",
     args: [from_param("params.query || \"\"")],
-    result_format: template("Search results: ${JSON.stringify(r.value)}"),
+    result_format: template("Search results: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }

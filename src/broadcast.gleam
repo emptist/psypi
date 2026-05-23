@@ -315,6 +315,6 @@ pub fn broadcast_list_tool() -> PiToolCall {
       from_param("null"),
       from_param("parseInt(params.limit || '10')"),
     ],
-    result_format: template("Broadcasts: ${JSON.stringify(r.value)}"),
+    result_format: template("Broadcasts: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }

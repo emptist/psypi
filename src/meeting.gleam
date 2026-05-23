@@ -341,7 +341,7 @@ pub fn meeting_list_tool() -> PiToolCall {
     module: "meeting",
     fn_name: "list",
     args: [from_param("params?.status || null")],
-    result_format: template("Meetings: ${JSON.stringify(r.value)}"),
+    result_format: template("Meetings: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
 
@@ -354,7 +354,7 @@ pub fn meeting_get_tool() -> PiToolCall {
     module: "meeting",
     fn_name: "get",
     args: [from_param("params.id || \"\"")],
-    result_format: template("Meeting: ${JSON.stringify(r.value)}"),
+    result_format: template("Meeting: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
 
@@ -367,7 +367,7 @@ pub fn meeting_opinions_tool() -> PiToolCall {
     module: "meeting",
     fn_name: "list_opinions",
     args: [from_param("params.meeting_id || \"\"")],
-    result_format: template("Opinions: ${JSON.stringify(r.value)}"),
+    result_format: template("Opinions: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
 
@@ -380,7 +380,7 @@ pub fn meeting_create_tool() -> PiToolCall {
     module: "meeting",
     fn_name: "create",
     args: [from_param("params.topic || \"\""), from_param("params.created_by || \"psypi\"")],
-    result_format: template("Meeting created: ${JSON.stringify(r.value)}"),
+    result_format: template("Meeting created: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
 

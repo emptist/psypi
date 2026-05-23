@@ -85,6 +85,6 @@ pub fn agents_list_tool() -> PiToolCall {
     module: "agents",
     fn_name: "list",
     args: [],
-    result_format: template("Agents: ${JSON.stringify(r.value)}"),
+    result_format: template("Agents: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
