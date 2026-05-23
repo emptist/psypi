@@ -19,11 +19,14 @@ pub fn get_config() -> promise.Promise(Result(Config, ConfigError)) {
       url -> Ok(url)
     }
   )
-  
+
   promise.map(db_url, fn(db_result) {
     case db_result {
       Ok(url) -> {
-        let session_id = get_env("AGENT_SESSION_ID")
+        let session_id = case get_env("AGENT_SESSION_ID") {
+          "" -> "default"
+          id -> id
+        }
         Ok(Config(database_url: url, agent_session_id: session_id))
       }
       Error(e) -> Error(e)
@@ -31,8 +34,5 @@ pub fn get_config() -> promise.Promise(Result(Config, ConfigError)) {
   })
 }
 
-fn get_env(_key: String) -> String {
-  // TODO: Implement proper FFI for env vars
-  // Simplified - returns empty string if not found
-  ""
-}
+@external(javascript, "./node_ffi.mjs", "get_env")
+fn get_env(key: String) -> String
