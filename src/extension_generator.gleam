@@ -65,6 +65,54 @@ fn unwrap_gleam_result_js() -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Inline: Gleam value → JSON-safe JS object converter
+// ---------------------------------------------------------------------------
+
+fn gleam_value_to_json_js() -> String {
+  [
+    "  function gleamValueToJson(val) {",
+    "    if (val === null || val === undefined) return val;",
+    "    if (typeof val !== 'object') return val;",
+    "    const name = val.constructor?.name || '';",
+    "    // Gleam list: NonEmpty { head, tail } / Empty {}",
+    "    if (name === 'NonEmpty') {",
+    "      const arr = [];",
+    "      let cur = val;",
+    "      while (cur && cur.constructor?.name === 'NonEmpty') {",
+    "        arr.push(gleamValueToJson(cur.head));",
+    "        cur = cur.tail;",
+    "      }",
+    "      return arr;",
+    "    }",
+    "    // Gleam record: convert to plain object by extracting fields",
+    "    if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || name.startsWith('Meeting$Meeting') || name.startsWith('Skill$Skill') || name.startsWith('Opinion$Opinion') || name.startsWith('Broadcast$Broadcast') || name.startsWith('Learning$Learning') || name.startsWith('Memory$Memory') || name.startsWith('AgentIdentity$AgentIdentity') || name.startsWith('Directive$Directive') || name.startsWith('InterReview$InterReview') || name.startsWith('CodeVersion$CodeVersion') || name.startsWith('ActivityLog$ActivityLog') || name.startsWith('Config$Config') || name.startsWith('Stats$Stats')) {",
+    "      return Object.fromEntries(Object.entries(val).map(([k, v]) => [k, gleamValueToJson(v)]));",
+    "    }",
+    "    // Gleam Option: Some { '0': val } / None {}",
+    "    if (name === 'Some') return gleamValueToJson(val['0'] ?? val[0]);",
+    "    if (name === 'None') return null;",
+    "    // Gleam Result: Ok { '0': val } / Error { '0': val }",
+    "    if (name === 'Ok') return { ok: true, value: gleamValueToJson(val['0'] ?? val[0]) };",
+    "    if (name === 'Error') return { ok: false, error: gleamValueToJson(val['0'] ?? val[0]) };",
+    "    // Gleam custom type variants (e.g. TaskStatus$Pending, IssueStatus$Open)",
+    "    if (name.includes('$') && !name.startsWith('_')) {",
+    "      const variantName = name.split('$').pop();",
+    "      const fields = Object.entries(val).map(([k, v]) => gleamValueToJson(v));",
+    "      if (fields.length === 0) return variantName;",
+    "      if (fields.length === 1) return { type: variantName, value: fields[0] };",
+    "      return { type: variantName, fields: fields };",
+    "    }",
+    "    // Plain object or array: recurse",
+    "    if (Array.isArray(val)) return val.map(gleamValueToJson);",
+    "    return Object.fromEntries(Object.entries(val).map(([k, v]) => [k, gleamValueToJson(v)]));",
+    "  }",
+    "",
+  ]
+  |> list.map(fn(s) { s <> "\n" })
+  |> string.concat
+}
+
+// ---------------------------------------------------------------------------
 // Inline: autonomic-wakeup message renderer (formerly pi_message_renderer.gleam)
 // ---------------------------------------------------------------------------
 
@@ -144,7 +192,7 @@ fn tool_args_to_js(args: List(FnArg)) -> String {
 
 fn result_to_js(format: ResultFormat) -> String {
   case format {
-    RawJson -> "JSON.stringify(r.value)"
+    RawJson -> "JSON.stringify(gleamValueToJson(r.value))"
     Template(tpl) -> "`" <> tpl <> "`"
     CustomJs(expr) -> expr
   }
@@ -350,7 +398,7 @@ fn event_hook_to_js(hook: PiEventHook) -> String {
 
 fn command_result_to_js(format: ResultFormat) -> String {
   case format {
-    RawJson -> "JSON.stringify(r.value)"
+    RawJson -> "JSON.stringify(gleamValueToJson(r.value))"
     Template(tpl) -> "`" <> tpl <> "`"
     CustomJs(expr) -> expr
   }
@@ -616,6 +664,7 @@ pub fn generate() -> String {
   let commands = all_commands()
   imports_text(tools)
   <> "\nexport default function(pi) {\n"
+  <> gleam_value_to_json_js()
   <> unwrap_gleam_result_js()
   <> autonomic_wakeup_renderer_js()
   <> event_hooks_text(hooks)
