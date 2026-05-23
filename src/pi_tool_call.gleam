@@ -92,6 +92,7 @@ pub type PiEventHook {
   PiRawHook(
     event_name: String,
     handler_body: String,
+    record_trigger: Bool,
   )
 }
 
@@ -160,7 +161,11 @@ pub fn custom_js(expr: String) -> ResultFormat {
 // -------------------------------------------------------------------
 
 pub fn raw_event_hook(name: String, handler_body: String) -> PiEventHook {
-  PiRawHook(event_name: name, handler_body: handler_body)
+  PiRawHook(event_name: name, handler_body: handler_body, record_trigger: True)
+}
+
+pub fn raw_event_hook_no_trigger(name: String, handler_body: String) -> PiEventHook {
+  PiRawHook(event_name: name, handler_body: handler_body, record_trigger: False)
 }
 
 pub fn event_hook(

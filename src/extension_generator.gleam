@@ -38,7 +38,7 @@ import pi_tool_call.{
   PiToolCall, PiParam,
   JsLiteral, FromParam, RawJson, Template, CustomJs,
   SilentSuccess, NotifySuccess, SetStatus, NotifyError,
-  event_hook, debounced_hook, raw_event_hook,
+  event_hook, debounced_hook, raw_event_hook, raw_event_hook_no_trigger,
   from_param, lit, raw_json,
 }
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
@@ -140,6 +140,7 @@ fn autonomic_wakeup_renderer_js() -> String {
 
 fn before_agent_start_body_js() -> String {
   [
+    "    await event_hooks_record_trigger('before_agent_start');",
     "    return { systemPrompt: '\\n[A-S Role Model] You are the Somatic Agentbot (S-agentbot). Your ID starts with S-. You are NOT the Autonomic Agentbot (A-agentbot). Messages prefixed with [A-agentbot] come from A — your coordinator. A directs you on what to work on. Follow A\\'s instructions as task assignments. The human user is the person operating the terminal.' };",
     "",
   ]
@@ -273,12 +274,16 @@ fn hook_call_expr_js(module: String, fn_name: String, args: List(FnArg)) -> Stri
 
 fn event_hook_to_js(hook: PiEventHook) -> String {
   case hook {
-    pi_tool_call.PiRawHook(event_name:, handler_body:) -> {
+    pi_tool_call.PiRawHook(event_name:, handler_body:, record_trigger:) -> {
+      let trigger_line = case record_trigger {
+        True -> "    await event_hooks_record_trigger('" <> event_name <> "');\n"
+        False -> ""
+      }
       [
         "  // Event hook: " <> event_name,
         "  pi.on('" <> event_name <> "', async (event, ctx) => {",
         handler_body,
-        "    await event_hooks_record_trigger('" <> event_name <> "');",
+        trigger_line,
         "  });",
         "",
       ]
@@ -567,7 +572,7 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       SilentSuccess,
       NotifyError,
     ),
-    raw_event_hook(
+    raw_event_hook_no_trigger(
       "before_agent_start",
       before_agent_start_body_js(),
     ),
