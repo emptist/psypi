@@ -5,6 +5,16 @@ import gleam/string
 import inter_review
 import pi_extension.{exec_sync}
 
+/// Escape a string for safe use in a shell command.
+/// Escapes backticks, dollar signs, double quotes, and backslashes.
+fn shell_escape(s: String) -> String {
+  s
+  |> string.replace("\\", "\\\\")
+  |> string.replace("\"", "\\\"")
+  |> string.replace("`", "\\`")
+  |> string.replace("$", "\\$")
+}
+
 pub fn on_commit(
   message: String,
   review_id: String,
@@ -66,7 +76,7 @@ fn commit_if_reviewed(
           Some(score) ->
             case score >= 50 {
               True -> {
-                let escaped = string.replace(message, "\"", "\\\"")
+                let escaped = shell_escape(message)
                 let cmd = "git commit -m \"" <> escaped <> "\""
                 case exec_sync(cmd) {
                   Ok(_) -> Ok("Committed: " <> message <> " (score: " <> int.to_string(score) <> "/100)")

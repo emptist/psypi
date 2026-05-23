@@ -13,6 +13,7 @@
 5. **Gleam types** — Enums are source of truth. Validate at boundary via `string_to_*()` → `Result`, never pass raw strings to SQL
 6. **Clean build** — Always `rm -rf build/ && gleam build` before building
 7. **pnpm** — Not npm
+8. **☠️ NO FAKE GLEAM** — Never create `pi_*.gleam` modules. Never write JS code as Gleam string literals. Use `.mjs` + `@external` FFI instead. This is the #1 source of bugs.
 
 ## Architecture
 
@@ -63,14 +64,27 @@ Hand-written JS in Gleam is:
 
 The ONLY hand-written JS file in the entire repo is `bin/psypi.mjs` (the bootstrapper that spawns Pi). Everything else is auto-generated or uses proper FFI.
 
-## Code Generator Rules (pi_tool_gen, pi_hook_gen, pi_command_gen)
+## ☠️ DEATH PENALTY: No Fake Gleam Modules
 
-These files are Gleam code that **emits JavaScript text**. They compose Gleam strings into JS templates.
+**The ONLY generator module allowed is `extension_generator.gleam`.**
 
-- Build JS text using Gleam string operations (`<>`, `list.map`, `string.join`)
-- Use helper functions like `hook_import_line()`, `params_to_js()`, `success_action_to_js()`
-- **Gleam escaping ≠ JS escaping.** In Gleam double-quoted strings: `\"` for literal `"`, `\\` for literal `\`. Single quotes need NO escaping.
-- **Every list element must end with a comma.** Missing commas cause cryptic parse errors on the *next* line.
+These modules are BANNED and MUST BE DELETED:
+
+| Module | Issue ID | Replacement |
+|--------|----------|-------------|
+| `src/pi_js_helpers.gleam` | #f8ea3f97 | Move to `src/pi_extension_ffi.mjs` |
+| `src/pi_tool_gen.gleam` | #bbdc5fd0 | Merge into `extension_generator.gleam` |
+| `src/pi_hook_gen.gleam` | #96fc8a50 | Merge into `extension_generator.gleam` |
+| `src/pi_command_gen.gleam` | #fa0e3357 | Merge into `extension_generator.gleam` |
+| `src/pi_message_renderer.gleam` | #0b0974bc | Merge into `extension_generator.gleam` |
+| `src/pi_system_prompt.gleam` | #be445168 | Merge into `extension_generator.gleam` |
+
+**NEVER create new `pi_*.gleam` files. NEVER add JS string generation to any module.**
+
+If you need JS interop: use `.mjs` + `@external` FFI.
+If you need pure logic: write real Gleam code.
+
+**Violating this rule = immediate termination. No exceptions.**
 
 ## Adding a Pi Tool
 
