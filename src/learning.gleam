@@ -3,7 +3,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import db
-import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
+import pi_tool_call.{type PiToolCall, PiToolCall, string_param, number_param, from_param, template}
 
 pub type LearningError {
   ConnectionError(String)
@@ -92,13 +92,13 @@ pub fn learn_save_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-learn-save",
     description: "Save a learning to memory",
-    params: [string_param("content"), string_param("tags"), string_param("importance")],
+    params: [string_param("content"), string_param("tags"), number_param("importance")],
     module: "learning",
     fn_name: "save",
     args: [
       from_param("params.content || \"\""),
       from_param("params.tags || ''"),
-      from_param("parseInt(params.importance || '5')"),
+      from_param("(params.importance || 5)"),
       from_param("'psypi'"),
     ],
     result_format: template("Learning saved"),
