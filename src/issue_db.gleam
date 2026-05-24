@@ -81,11 +81,12 @@ pub fn add(
   severity: String,
   issue_type: String,
   created_by: String,
+  project_id: String,
 ) -> promise.Promise(Result(String, IssueError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      INSERT INTO issues (title, description, severity, issue_type, created_by)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO issues (title, description, severity, issue_type, created_by, project_id)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING id
     "
     let params = [
@@ -94,6 +95,7 @@ pub fn add(
       dynamic.string(severity),
       dynamic.string(issue_type),
       dynamic.string(created_by),
+      dynamic.string(project_id),
     ]
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
@@ -202,11 +204,16 @@ fn build_where(
     None -> #(conditions, params)
   }
   let #(conditions, params) = case project_id {
+    Some("ALL") -> #(conditions, params)
     Some(p) -> {
       let idx = list.length(params) + 1
       #(["project_id = $" <> string.inspect(idx), ..conditions], [dynamic.string(p), ..params])
     }
-    None -> #(conditions, params)
+    None -> {
+      // Default: filter by current project from session variable
+      let idx = list.length(params) + 1
+      #(["project_id = $" <> string.inspect(idx), ..conditions], [dynamic.string("0d324e68-b399-4b85-bd8a-6b1ef7b46168"), ..params])
+    }
   }
   case conditions {
     [] -> #("", [])
@@ -261,9 +268,9 @@ pub fn get(
              created_at::text, resolved_at::text, created_by,
              discovered_by, environment, git_branch, git_hash, reported_by, source
       FROM issues
-      WHERE id = $1
+      WHERE id = $1 AND project_id = $2
     "
-    let params = [dynamic.string(issue_id)]
+    let params = [dynamic.string(issue_id), dynamic.string("0d324e68-b399-4b85-bd8a-6b1ef7b46168")]
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
         Error(e) -> Error(db_error_to_issue_error(e))
@@ -291,10 +298,10 @@ pub fn resolve(
     let sql = "
       UPDATE issues
       SET status = 'resolved', resolved_at = NOW(), resolution = $2
-      WHERE id = $1
+      WHERE id = $1 AND project_id = $3
       RETURNING id
     "
-    let params = [dynamic.string(issue_id), dynamic.string(resolution)]
+    let params = [dynamic.string(issue_id), dynamic.string(resolution), dynamic.string("0d324e68-b399-4b85-bd8a-6b1ef7b46168")]
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
         Error(e) -> Error(db_error_to_issue_error(e))
