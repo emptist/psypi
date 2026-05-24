@@ -28,8 +28,11 @@ pub fn connect() -> promise.Promise(Result(Connection, DbError)) {
       Error(e) -> promise.resolve(Error(ConnectionError(e.message)))
       Ok(_) -> {
         // Set app.current_project_id for RLS policies
-        // This allows INSERT/UPDATE/SELECT on tables with project isolation
-        let project_id = "0d324e68-b399-4b85-bd8a-6b1ef7b46168"
+        // Read from env var for portability; fall back to default for existing deployments
+        let project_id = case get_project_id_env() {
+          "" -> "0d324e68-b399-4b85-bd8a-6b1ef7b46168"
+          id -> id
+        }
         let set_sql = "SET app.current_project_id = '" <> project_id <> "'"
         promise.map(node_pg.query(client, set_sql, []), fn(_) {
           Ok(Connection(client))
@@ -77,3 +80,6 @@ pub fn with_connection(
     }
   })
 }
+
+@external(javascript, "./node_ffi.mjs", "get_project_id_env")
+fn get_project_id_env() -> String
