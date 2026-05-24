@@ -2,7 +2,7 @@ import gleam/javascript/promise
 import gleam/string
 import gleam/list
 import code_version
-import pi_extension.{read_file_sync, set_status, pi_send_message}
+import pi_extension.{notify_error, read_file_sync, set_status}
 
 fn extract_filename(path: String) -> String {
   let parts = string.split(path, "/")
@@ -28,7 +28,7 @@ pub fn on_tool_call(
             Error(e) -> {
               let msg = "[FAIL] read: " <> e <> " | path: " <> file_path <> " | tool: " <> tool_name <> " | note: file exists on disk but FFI returned error — possible stale pi_extension_ffi.mjs in Node cache. Restart Pi TUI."
               set_status(ctx, "psypi-autobackup", msg)
-              pi_send_message(pi, "hook-error", msg, "error")
+              notify_error(pi, msg)
               promise.resolve(Error(msg))
             }
             Ok(content) -> {
@@ -44,7 +44,7 @@ pub fn on_tool_call(
                     Error(e) -> {
                       let msg = "[FAIL] save_version: " <> string.inspect(e) <> " | path: " <> file_path
                       set_status(ctx, "psypi-autobackup", msg)
-                      pi_send_message(pi, "hook-error", msg, "error")
+                      notify_error(pi, msg)
                       Error(msg)
                     }
                   }

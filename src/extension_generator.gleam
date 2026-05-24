@@ -194,7 +194,7 @@ fn imports_text(tools: List(PiToolCall)) -> String {
       "// DO NOT EDIT - Regenerate with: gleam run -m extension_generator",
       "",
       "import { Text } from \"@mariozechner/pi-tui\";",
-      "import { notify_error as pi_extension_notify_error, pi_send_message as pi_extension_pi_send_message, unwrapGleamResult, gleamValueToJson, registerAutonomicWakeupRenderer } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
+      "import { notify_error as pi_extension_notify_error, unwrapGleamResult, gleamValueToJson, registerAutonomicWakeupRenderer } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
       "import { record_trigger as event_hooks_record_trigger } from \"./build/dev/javascript/psypi/event_hooks.mjs\";",
       "",
     ]
