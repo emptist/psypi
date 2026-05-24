@@ -1,6 +1,6 @@
 import db
 import gleam/dynamic.{type Dynamic}
-import system_config
+import psypi_config
 import gleam/dynamic/decode
 import gleam/int
 import gleam/javascript/promise
@@ -20,19 +20,67 @@ pub fn on_agent_end(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
   notify_info(ctx, "[AUTONOMIC] on_agent_end FIRED — entering handler")
   case ctx_is_idle(ctx), ctx_has_pending_messages(ctx) {
     False, _ -> {
-      notify_info(ctx, "[AUTONOMIC] S is not idle — skipping")
-      promise.resolve(Ok(Nil))
+      notify_info(ctx, "[AUTONOMIC] S is not idle — clearing idle_since")
+      promise.await(psypi_config.set("idle_since", "0"), fn(_) {
+        promise.resolve(Ok(Nil))
+      })
     }
     True, True -> {
       notify_info(ctx, "[AUTONOMIC] S is idle but has pending messages — skipping")
       promise.resolve(Ok(Nil))
     }
     True, False -> {
-      notify_info(ctx, "[AUTONOMIC] S is idle — composing wake-up")
-      let entries_json = ctx_get_entries_json(ctx)
-      coordinate_with_s(ctx, pi, entries_json)
+      notify_info(ctx, "[AUTONOMIC] S is idle — checking debounce")
+      let now = current_time_ms()
+      promise.await(get_idle_since(), fn(idle_result) {
+        let idle_since = case idle_result {
+          Ok(t) ->
+            case int.parse(t) {
+              Ok(n) -> n
+              Error(_) -> 0
+            }
+          Error(_) -> 0
+        }
+        case idle_since {
+          0 -> {
+            notify_info(ctx, "[AUTONOMIC] first idle detection — recording timestamp")
+            promise.await(psypi_config.set("idle_since", int.to_string(now)), fn(_) {
+              promise.resolve(Ok(Nil))
+            })
+          }
+          _ -> {
+            let elapsed = now - idle_since
+            promise.await(psypi_config.get_debounce_ms(), fn(debounce_result) {
+              let debounce_ms = case debounce_result {
+                Ok(ms) -> ms
+                Error(_) -> 900000
+              }
+              case elapsed >= debounce_ms {
+                True -> {
+                  notify_info(ctx, "[AUTONOMIC] debounce satisfied, elapsed=" <> int.to_string(elapsed) <> "ms >= " <> int.to_string(debounce_ms) <> "ms")
+                  let entries_json = ctx_get_entries_json(ctx)
+                  coordinate_with_s(ctx, pi, entries_json)
+                }
+                False -> {
+                  notify_info(ctx, "[AUTONOMIC] debounce NOT satisfied, elapsed=" <> int.to_string(elapsed) <> "ms < " <> int.to_string(debounce_ms) <> "ms — skipping")
+                  promise.resolve(Ok(Nil))
+                }
+              }
+            })
+          }
+        }
+      })
     }
   }
+}
+
+fn get_idle_since() -> promise.Promise(Result(String, String)) {
+  promise.map(psypi_config.get("idle_since"), fn(result) {
+    case result {
+      Ok(value) -> Ok(value)
+      Error(_) -> Ok("0")
+    }
+  })
 }
 
 fn coordinate_with_s(
@@ -112,32 +160,15 @@ fn coordinate_when_idle(
                       fn(monitor_result) {
                         case monitor_result {
                           Ok(response) -> {
-                            promise.await(get_last_wakeup(), fn(last_result) {
-                              let last_msg = case last_result {
-                                Ok(msg) -> msg
-                                Error(_) -> ""
-                              }
-                              case last_msg == response {
-                                True -> {
-                                  notify_info(ctx, "[AUTONOMIC] skipping duplicate wake-up")
-                                  promise.resolve(Ok(Nil))
-                                }
-                                False -> {
-                                  promise.await(set_last_wakeup(response), fn(_) {
-                                    notify_info(ctx, "[AUTONOMIC] sending wake-up, response length=" <> int.to_string(string.length(response)))
-                                    pi_send_message(
-                                      pi,
-                                      "autonomic-wakeup",
-                                      response,
-                                      "persistent",
-                                    )
-                                    notify_info(ctx, "[AUTONOMIC] wake-up pi_send_message called")
-                                    notify_info(ctx, "wake-up sent")
-                                    promise.resolve(Ok(Nil))
-                                  })
-                                }
-                              }
-                            })
+                            notify_info(ctx, "[AUTONOMIC] sending wake-up, response length=" <> int.to_string(string.length(response)))
+                            pi_send_message(
+                              pi,
+                              "autonomic-wakeup",
+                              response,
+                              "persistent",
+                            )
+                            notify_info(ctx, "[AUTONOMIC] wake-up sent")
+                            promise.resolve(Ok(Nil))
                           }
                           Error(e) -> {
                             let msg =
@@ -501,23 +532,15 @@ fn truncate(s: String, max: Int) -> String {
   }
 }
 
-// Deduplication: track last wake-up message in database
-fn get_last_wakeup() -> promise.Promise(Result(String, String)) {
-  promise.map(system_config.get("last_wakeup"), fn(result) {
-    case result {
-      Ok(value) -> Ok(value)
-      Error(_) -> Ok("")
-    }
-  })
+fn current_time_ms() -> Int {
+  let res = now_ms()
+  case res {
+    Ok(t) -> t
+    Error(_) -> 0
+  }
 }
 
-fn set_last_wakeup(msg: String) -> promise.Promise(Result(Nil, String)) {
-  promise.map(system_config.set("last_wakeup", msg), fn(result) {
-    case result {
-      Ok(_) -> Ok(Nil)
-      Error(_) -> Error("Failed to set last wakeup")
-    }
-  })
-}
+@external(javascript, "./node_ffi.mjs", "now_ms")
+fn now_ms() -> Result(Int, String)
 
 

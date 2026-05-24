@@ -49,6 +49,11 @@ export function get_env(name) {
   return process.env[name] || '';
 }
 
+// Get project ID for RLS policies (PSYPI_PROJECT_ID env var, or empty string for default)
+export function get_project_id_env() {
+  return process.env['PSYPI_PROJECT_ID'] || '';
+}
+
 // Ensure directory exists
 export function ensure_dir(path) {
   const fs = require('fs');
@@ -59,4 +64,9 @@ export function ensure_dir(path) {
 export function write_text_file(path, content) {
   const fs = require('fs');
   fs.writeFileSync(path, content, 'utf8');
+}
+
+// Current time in milliseconds
+export function now_ms() {
+  return new Ok(Date.now());
 }
