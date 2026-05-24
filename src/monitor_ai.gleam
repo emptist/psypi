@@ -271,7 +271,7 @@ pub fn get_model_stats() -> promise.Promise(Result(ModelStats, MonitorError)) {
         COUNT(*)::INT as total_reviews,
         COALESCE(AVG(overall_score), 0)::INT as avg_score,
         COALESCE(AVG(EXTRACT(MILLISECONDS FROM (completed_at - requested_at))), 0)::INT as avg_response_time_ms,
-        COUNT(*) FILTER (WHERE status = 'failed')::INT as failure_count
+        COUNT(*) FILTER (WHERE status = 'FAILED')::INT as failure_count
       FROM inter_reviews
       WHERE requested_at > NOW() - INTERVAL '24 hours'
     "
@@ -349,12 +349,12 @@ pub fn get_work_suggestions() -> promise.Promise(
         SELECT 'stale_tasks' as suggestion_type,
                'Review ' || COUNT(*)::TEXT || ' stale tasks (>7 days)' as description,
                3 as priority
-        FROM tasks WHERE status = 'pending' AND created_at < NOW() - INTERVAL '7 days'
+        FROM tasks WHERE status = 'PENDING' AND created_at < NOW() - INTERVAL '7 days'
         UNION ALL
         SELECT 'pending_skills' as suggestion_type,
                'Review ' || COUNT(*)::TEXT || ' pending skills' as description,
                4 as priority
-        FROM skills WHERE status = 'pending'
+        FROM skills WHERE status = 'PENDING'
       ) sub
       ORDER BY priority
       LIMIT 5
@@ -504,7 +504,7 @@ pub fn analyze_and_act() -> promise.Promise(Result(MonitorAction, MonitorError))
         -- Stale pending tasks (>7 days)
         SELECT 'stale_tasks' as action,
                COUNT(*)::TEXT || ' stale pending tasks' as details
-        FROM tasks WHERE status = 'pending' AND created_at < NOW() - INTERVAL '7 days'
+        FROM tasks WHERE status = 'PENDING' AND created_at < NOW() - INTERVAL '7 days'
         UNION ALL
         -- All good
         SELECT 'healthy' as action,

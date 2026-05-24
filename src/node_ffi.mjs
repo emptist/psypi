@@ -54,6 +54,10 @@ export function get_project_id_env() {
   return process.env['PSYPI_PROJECT_ID'] || '';
 }
 
+export function get_database_url() {
+  return process.env['DATABASE_URL'] || '';
+}
+
 // Ensure directory exists
 export function ensure_dir(path) {
   const fs = require('fs');

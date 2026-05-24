@@ -46,11 +46,12 @@ pub fn run_statement(sql: String) -> promise.Promise(Result(Nil, MigrateError)) 
     promise.map(db.query(conn, sql, []), fn(query_result) {
       case query_result {
         Error(e) -> {
-          io.println("  ⚠️  " <> case e {
-            db.ConnectionError(msg) -> msg
-            db.QueryError(msg) -> msg
-          })
-          Ok(Nil)
+          let msg = case e {
+            db.ConnectionError(m) -> m
+            db.QueryError(m) -> m
+          }
+          io.println("  ⚠️  Migration statement failed: " <> msg)
+          Error(db_error_to_migrate_error(e))
         }
         Ok(_) -> Ok(Nil)
       }

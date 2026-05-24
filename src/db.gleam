@@ -13,13 +13,18 @@ pub type DbError {
 }
 
 pub fn connect() -> promise.Promise(Result(Connection, DbError)) {
-  let config = node_pg.create_config(
-    Some("postgres"),
-    None,
-    Some("localhost"),
-    Some(5432),
-    Some("psypi"),
-  )
+  let database_url = get_database_url()
+  let config = case database_url {
+    "" ->
+      node_pg.create_config(
+        Some("postgres"),
+        None,
+        Some("localhost"),
+        Some(5432),
+        Some("psypi"),
+      )
+    url -> node_pg.connection_string_config(url)
+  }
 
   let client = node_pg.new_client(config)
 
@@ -33,8 +38,9 @@ pub fn connect() -> promise.Promise(Result(Connection, DbError)) {
           "" -> "0d324e68-b399-4b85-bd8a-6b1ef7b46168"
           id -> id
         }
-        let set_sql = "SET app.current_project_id = '" <> project_id <> "'"
-        promise.map(node_pg.query(client, set_sql, []), fn(_) {
+        let set_sql = "SET app.current_project_id = $1"
+        let set_params = [dynamic.string(project_id)]
+        promise.map(node_pg.query(client, set_sql, set_params), fn(_) {
           Ok(Connection(client))
         })
       }
@@ -83,3 +89,6 @@ pub fn with_connection(
 
 @external(javascript, "./node_ffi.mjs", "get_project_id_env")
 fn get_project_id_env() -> String
+
+@external(javascript, "./node_ffi.mjs", "get_database_url")
+fn get_database_url() -> String

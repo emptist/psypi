@@ -24,6 +24,13 @@ pub type MemoryError {
   DecodeError(String)
 }
 
+fn format_pg_array(items: List(String)) -> String {
+  case items {
+    [] -> "{}"
+    _ -> "{" <> string.join(items, ",") <> "}"
+  }
+}
+
 fn db_error_to_memory_error(e: db.DbError) -> MemoryError {
   case e {
     db.ConnectionError(msg) -> ConnectionError(msg)
@@ -59,7 +66,7 @@ pub fn save(
     "
     let params = [
       dynamic.string(content),
-      dynamic.string(string.join(tags, ",")), // TODO: handle array properly
+      dynamic.string(format_pg_array(tags)),
       dynamic.string(source),
       dynamic.int(importance),
       dynamic.string(agent_id),
