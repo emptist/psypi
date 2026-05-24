@@ -18,8 +18,8 @@ fn shell_escape(s: String) -> String {
 pub fn on_commit(
   message: String,
   review_id: String,
-  ctx: a,
-  pi: b,
+  _ctx: a,
+  _pi: b,
 ) -> promise.Promise(Result(String, String)) {
   case review_id == "" {
     True -> trigger_review(message)
