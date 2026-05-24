@@ -15,10 +15,6 @@ import pi_tool_call.{type PiToolCall, PiToolCall, lit, raw_json}
 // Types
 // -------------------------------------------------------------------
 
-pub type AgentTask {
-  AgentTask(id: String, task: String, priority: Int, category: String, is_active: Bool)
-}
-
 pub type EnrichedIdentity {
   EnrichedIdentity(
     id: String,
@@ -34,7 +30,6 @@ pub type EnrichedIdentity {
     model: String,
     source: String,
     thinking_level: String,
-    tasks: List(AgentTask),
   )
 }
 
@@ -116,20 +111,6 @@ fn soul_decoder() -> decode.Decoder(#(String, String, String, String, String, St
   decode.success(#(id, name, domain, responsibility, trigger_type, drive_mode, activation))
 }
 
-fn agent_task_decoder() -> decode.Decoder(AgentTask) {
-  use id <- decode.field("id", decode.string)
-  use task <- decode.field("task", decode.string)
-  use priority <- decode.field("priority", decode.int)
-  use category <- decode.field("category", decode.string)
-  use is_active <- decode.field("is_active", decode.string)
-  let active = case is_active {
-    "true" -> True
-    "t" -> True
-    _ -> False
-  }
-  decode.success(AgentTask(id: id, task: task, priority: priority, category: category, is_active: active))
-}
-
 fn fetch_soul_by_prefix(
   prefix: String,
 ) -> promise.Promise(Result(#(String, String, String, String, String, String, String), IdentityError)) {
@@ -148,36 +129,6 @@ fn fetch_soul_by_prefix(
               }
             _ -> Error(NotFound("No soul found for prefix: " <> prefix))
           }
-      }
-    })
-  }, db_error_to_identity_error)
-}
-
-fn fetch_tasks_by_soul(
-  soul_id: String,
-) -> promise.Promise(Result(List(AgentTask), IdentityError)) {
-  db.with_connection(fn(conn) {
-    let sql = "SELECT id, task, priority, category, is_active FROM agent_tasks WHERE soul_id = $1 AND is_active = true ORDER BY priority ASC"
-    let params = [dynamic.string(soul_id)]
-    promise.map(db.query(conn, sql, params), fn(query_result) {
-      case query_result {
-        Error(e) -> Error(db_error_to_identity_error(e))
-        Ok(result) ->
-          result.rows
-          |> list.map(fn(row) { decode.run(row, agent_task_decoder()) })
-          |> list.filter(fn(r) {
-            case r {
-              Ok(_) -> True
-              Error(_) -> False
-            }
-          })
-          |> list.map(fn(r) {
-            case r {
-              Ok(t) -> t
-              Error(_) -> AgentTask(id: "", task: "", priority: 0, category: "", is_active: False)
-            }
-          })
-          |> fn(tasks) { Ok(tasks) }
       }
     })
   }, db_error_to_identity_error)
@@ -205,13 +156,8 @@ pub fn get_enriched_identity(
 
       promise.await(fetch_soul_by_prefix(prefix), fn(soul_result) {
         case soul_result {
-          Ok(#(soul_id, name, domain, responsibility, trigger_type, drive_mode, activation)) -> {
-            promise.await(fetch_tasks_by_soul(soul_id), fn(tasks_result) {
-              let tasks = case tasks_result {
-                Ok(t) -> t
-                Error(_) -> []
-              }
-              promise.resolve(Ok(EnrichedIdentity(
+          Ok(#(_soul_id, name, domain, responsibility, trigger_type, drive_mode, activation)) -> {
+            promise.resolve(Ok(EnrichedIdentity(
                 id: id,
                 prefix: prefix,
                 role: name,
@@ -225,9 +171,7 @@ pub fn get_enriched_identity(
                 model: ctx.model,
                 source: ctx.source,
                 thinking_level: ctx.thinking_level,
-                tasks: tasks,
               )))
-            })
           }
           Error(_) ->
             promise.resolve(Ok(EnrichedIdentity(
@@ -244,7 +188,6 @@ pub fn get_enriched_identity(
               model: ctx.model,
               source: ctx.source,
               thinking_level: ctx.thinking_level,
-              tasks: [],
             )))
         }
       })
@@ -261,7 +204,7 @@ pub fn get_enriched_identity(
 pub fn my_id_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-my-id",
-    description: "Get the calling agent's full identity. Returns ID, prefix, role, name, domain, responsibilities, trigger_type, drive_mode, activation, project, model, source, thinking_level, and defined tasks.",
+    description: "Get the calling agent's full identity. Returns ID, prefix, role, name, domain, responsibilities, trigger_type, drive_mode, activation, project, model, source, and thinking_level.",
     params: [],
     module: "agent_identity",
     fn_name: "get_enriched_identity",

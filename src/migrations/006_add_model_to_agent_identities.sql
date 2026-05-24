@@ -3,8 +3,8 @@
 -- an identity, replacing the ephemeral session_id as the primary differentiator.
 
 ALTER TABLE agent_identities
-    ADD COLUMN model VARCHAR(255) DEFAULT '',
-    ADD COLUMN thinking_level VARCHAR(20) DEFAULT '';
+    ADD COLUMN IF NOT EXISTS model VARCHAR(255) DEFAULT '',
+    ADD COLUMN IF NOT EXISTS thinking_level VARCHAR(20) DEFAULT '';
 
 -- Index for model-based lookups
-CREATE INDEX idx_agent_identities_model ON agent_identities(model);
+CREATE INDEX IF NOT EXISTS idx_agent_identities_model ON agent_identities(model);

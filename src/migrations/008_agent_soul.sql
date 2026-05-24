@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS agent_souls (
 );
 
 -- Insert Autonomic (A)
-INSERT INTO agent_soul (id_prefix, name, role, domain, responsibility, trigger_type, drive_mode, activation, content)
+INSERT INTO agent_souls (id_prefix, name, role, domain, responsibility, trigger_type, drive_mode, activation, content)
 VALUES (
   'A', 'Autonomic', 'AutonomicBot', 'autonomic',
   'System health monitoring, auto-file issues, suggest improvements, review S commits, consult on architecture',
@@ -84,7 +84,7 @@ system_config table: monitor_debounce_ms (default 15000), monitor_enabled'
 );
 
 -- Insert Somatic (S)
-INSERT INTO agent_soul (id_prefix, name, role, domain, responsibility, trigger_type, drive_mode, activation, content)
+INSERT INTO agent_souls (id_prefix, name, role, domain, responsibility, trigger_type, drive_mode, activation, content)
 VALUES (
   'S', 'Somatic', 'SomaticBot', 'somatic',
   'Prompt-driven task execution, use tools to complete tasks fast, follow instructions from user or A, report clearly',

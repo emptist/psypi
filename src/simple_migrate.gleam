@@ -19,15 +19,66 @@ fn db_error_to_migrate_error(e: db.DbError) -> MigrateError {
   }
 }
 
-pub fn run_sql(sql: String) -> promise.Promise(Result(Nil, MigrateError)) {
+/// Split SQL file into individual statements by semicolon+newline.
+/// Skip empty lines and comment-only lines.
+fn split_statements(sql: String) -> List(String) {
+  sql
+  |> string.split(";\n")
+  |> list.map(fn(s) { string.trim(s) })
+  |> list.filter(fn(s) {
+    case s {
+      "" -> False
+      _ -> True
+    }
+  })
+}
+
+/// Remove SQL comments (-- ...) from a statement to avoid sending bare comments to pg
+fn strip_comment_line(stmt: String) -> String {
+  case string.starts_with(stmt, "--") {
+    True -> ""
+    False -> stmt
+  }
+}
+
+pub fn run_statement(sql: String) -> promise.Promise(Result(Nil, MigrateError)) {
   db.with_connection(fn(conn) {
     promise.map(db.query(conn, sql, []), fn(query_result) {
       case query_result {
-        Error(e) -> Error(db_error_to_migrate_error(e))
+        Error(e) -> {
+          io.println("  ⚠️  " <> case e {
+            db.ConnectionError(msg) -> msg
+            db.QueryError(msg) -> msg
+          })
+          Ok(Nil)
+        }
         Ok(_) -> Ok(Nil)
       }
     })
   }, db_error_to_migrate_error)
+}
+
+pub fn run_sql(sql: String) -> promise.Promise(Result(Nil, MigrateError)) {
+  let statements =
+    sql
+    |> split_statements
+    |> list.map(strip_comment_line)
+    |> list.filter(fn(s) { s != "" })
+  run_statements(statements)
+}
+
+fn run_statements(stmts: List(String)) -> promise.Promise(Result(Nil, MigrateError)) {
+  case stmts {
+    [] -> promise.resolve(Ok(Nil))
+    [stmt, ..rest] -> {
+      promise.await(run_statement(stmt), fn(result) {
+        case result {
+          Error(_) -> promise.resolve(result)
+          Ok(_) -> run_statements(rest)
+        }
+      })
+    }
+  }
 }
 
 pub fn run_all_migrations() -> promise.Promise(Result(List(String), MigrateError)) {

@@ -53,7 +53,7 @@ fn seed_psypi_config() -> promise.Promise(Result(Nil, SeedError)) {
 fn seed_agent_prefixes() -> promise.Promise(Result(Nil, SeedError)) {
   seed_idempotent(
     "agent_prefixes",
-    "INSERT INTO agent_prefixes (prefix, description) SELECT 'A','Autonomic monitor' WHERE NOT EXISTS (SELECT 1 FROM agent_prefixes WHERE prefix='A'); INSERT INTO agent_prefixes (prefix, description) SELECT 'S','Somatic executor' WHERE NOT EXISTS (SELECT 1 FROM agent_prefixes WHERE prefix='S'); INSERT INTO agent_prefixes (prefix, description) SELECT 'G','Global no-git' WHERE NOT EXISTS (SELECT 1 FROM agent_prefixes WHERE prefix='G')"
+    "INSERT INTO agent_prefixes (prefix, name, description) SELECT 'A','AutonomicBot','Autonomic monitor' WHERE NOT EXISTS (SELECT 1 FROM agent_prefixes WHERE prefix='A'); INSERT INTO agent_prefixes (prefix, name, description) SELECT 'S','SomaticBot','Somatic executor' WHERE NOT EXISTS (SELECT 1 FROM agent_prefixes WHERE prefix='S'); INSERT INTO agent_prefixes (prefix, name, description) SELECT 'G','GlobalBot','Global no-git' WHERE NOT EXISTS (SELECT 1 FROM agent_prefixes WHERE prefix='G')"
   )
 }
 

@@ -1,8 +1,260 @@
-# AGENTS.md - PsyPI Quick Guide
+# AGENTS.md — psypi Quick Guide
 
 ## Project Overview
 
-**psypi** = Pi TUI + Gleam extension. All functionality via Pi tools (psypi-task-add, psypi-commit, etc.). Never run Pi tools from shell — only inside the TUI.
+**psypi** = Pi TUI + Gleam extension. Two AI agents (A-bot and S-bot) working together inside your terminal. All functionality via Pi tools — never run from shell, only inside the TUI.
+
+## First Run / Fresh Setup
+
+```bash
+make setup          # full first-time setup (deps, DB, build, migrate, seed)
+# or step by step:
+gleam deps download
+rm -rf build/ && gleam build
+gleam run -m simple_migrate
+gleam run -m seed
+node bin/ppi.mjs    # start Pi with psypi loaded
+```
+
+After any Gleam source change:
+```bash
+rm -rf build/ && gleam build
+node bin/ppi.mjs --generate-only   # or: gleam run -m extension_generator
+```
+
+Restart Pi:
+```bash
+pkill -f pi-coding-agent 2>/dev/null; cd /Users/jk/gits/hub/tools_ai/psypi && node bin/ppi.mjs
+```
+
+Inside Pi TUI, use `/psypi-my-id` to verify identity.
+
+## Database
+
+**PostgreSQL** is the source of truth. All state lives here: tasks, issues, skills, meetings, agent identity, memory, directives.
+
+| Key | Value |
+|-----|-------|
+| **Host** | `localhost` |
+| **Port** | `5432` |
+| **Database** | `psypi` |
+| **User** | `postgres` |
+| **Driver** | `node_pg` (Gleam FFI to Node.js `pg`) |
+| **Access layer** | `src/db.gleam` — all DB ops go through `with_connection()` |
+
+Connect manually: `psql -d psypi`
+
+### Key Tables
+
+| Table | Purpose |
+|-------|---------|
+| `agent_souls` | Agent identity. `id_prefix` = `'A'` or `'S'` |
+| `agent_jobs` | Prioritized work items per agent soul (NOT the same as user-facing `tasks` table!) |
+| `agent_identities` | Agent identity records |
+| `agent_prefixes` | Valid prefixes: A, S, G |
+| `tasks` | Task queue (PENDING/RUNNING/COMPLETED/FAILED) |
+| `issues` | Bug tracker |
+| `skills` | Skill registry (name, status, safety_score, content) |
+| `meetings` | A↔S structured discussions |
+| `memory` | Stored agent memories |
+| `learning_insights` | Learned knowledge |
+| `code_versions` | File version history (auto-backup before edits) |
+| `psypi_config` | Key-value config (`monitor_debounce_ms` default 300000) |
+| `system_directives` | A→S injected directives |
+| `system_config` | Legacy config table |
+| `compaction_history` | Context compaction summaries |
+| `event_hooks` | Hook registry |
+| `table_documentation` | Meta-table documenting schema (outdated, 24 rows) |
+
+### `id_prefix`
+
+Field in `agent_souls` table (`text UNIQUE NOT NULL`):
+- `'A'` — Autonomic Agentbot (event-driven, monitors system)
+- `'S'` — Somatic Agentbot (prompt-driven, executes tasks)
+
+Used throughout hooks, seed, and directives to look up agent identity.
+
+## Identity System
+
+One pure function: `get_resolved_identity(ctx)`. The A/S prefix emerges from `ctx.isIdle()` at call time.
+
+**NEVER CACHE THE ID.** It must be computed fresh every time.
+
+ID format: `(G-)(A|S)-<project>-<source>-<model>[-<thinking_level>]`
+- Example: `S-psypi-openrouter/owl-alpha`
+- `G-` prefix when no `.git` found in cwd
+
+Fields from live Pi runtime:
+- `is_idle` ← `ctx.isIdle()` → determines A/S
+- `model` ← `ctx.model.id`
+- `source` ← `ctx.model.provider`
+- `thinking_level` ← `ctx.model.thinkingLevel`
+- `project` ← `ctx.cwd` directory name
+
+Use `psypi-my-id` to get your current identity.
+
+## Pi Tools (complete list)
+
+All tools are defined as `PiToolCall` values in Gleam source. Source of truth: grep for `pub fn.*tool()` in `src/`.
+
+### Agent Identity
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-my-id` | `agent_identity` | Get calling agent's full identity (ID, role, tasks) |
+| `psypi-agents` | `agents` | List all registered agents |
+
+### Tasks
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-task-add` | `task` | Create a task (title required) |
+| `psypi-tasks` | `task` | List tasks (filter by status, project_id) |
+| `psypi-task-complete` | `task` | Mark task completed by UUID |
+
+### Issues
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-issue-add` | `issue_tools` | Create issue (title, description, severity, type) |
+| `psypi-issues` | `issue_tools` | List issues (filter by status, severity, type) |
+| `psypi-issue-count` | `issue_tools` | Count issues matching filters |
+| `psypi-issue-get` | `issue_tools` | Get single issue by ID |
+| `psypi-issue-resolve` | `issue_tools` | Resolve issue by ID |
+
+### Skills
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-skill-list` | `skill` | List skills (filter by status) |
+| `psypi-skill-get` | `skill` | Get skill by name |
+| `psypi-skill-search` | `skill` | Search skills by name/description (ILIKE) |
+
+Skills are stored in the `skills` table. Key fields: `name`, `status` (pending/approved/rejected/blocked/installed/uninstalled), `source` (clawhub/local/generated/imported), `safety_score`, `content` (jsonb with markdown body).
+
+To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
+
+### Meetings (A↔S discussions)
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-meeting-add` | `meeting` | Create meeting (topic, created_by) |
+| `psypi-meetings` | `meeting` | List meetings (filter by status) |
+| `psypi-meeting-get` | `meeting` | Get meeting by ID |
+| `psypi-meeting-say` | `meeting` | Add opinion to meeting |
+| `psypi-meeting-opinions` | `meeting` | List opinions for meeting |
+
+### Memory & Learning
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-learn-save` | `learning` | Save learning to memory (content, tags, importance) |
+| `psypi-memory-search` | `memory` | Search memories by keyword |
+
+### Code Versioning
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-doc-save` | `code_version` | Save file version (auto-backup before AI edits) |
+| `psypi-doc-list` | `code_version` | List version history for a file |
+
+### Commit (QC Two-Phase)
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-commit` | `commit` | Commit with Monitor review (see workflow below) |
+
+### Reflection
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-areflect` | `areflect` | Parse [LEARN], [ISSUE], [TASK], [ISSUELIST] markers from text, save to DB |
+
+### Broadcast
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-broadcast-send` | `broadcast` | Send broadcast message (message, priority, project_id) |
+| `psypi-broadcasts` | `broadcast` | List recent broadcasts |
+
+### Monitor / Autonomic
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-autonomic-status` | `monitor_ai` | Monitor status and capabilities |
+| `psypi-autonomic-health` | `monitor_ai` | System health (failed tasks, open issues, activity) |
+| `psypi-autonomic-alerts` | `monitor_ai` | Active alerts |
+| `psypi-autonomic-stats` | `monitor_ai` | Statistics (review scores, response times, failure rate) |
+| `psypi-autonomic-suggest` | `monitor_ai` | Work suggestions (open issues, stale tasks, pending skills) |
+
+### Directives (A→S communication)
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-direct-agentbot` | `directive` | Inject directive into S's system prompt |
+| `psypi-clear-directives` | `directive` | Clear all active directives |
+| `psypi-consult-autonomic` | `directive` | S asks A for advice |
+
+### Event Hooks
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-hooks-list` | `event_hooks` | List all hooks and status |
+| `psypi-hooks-active` | `event_hooks` | List only active hooks |
+
+### Stats
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-stats-show` | `stats` | Project statistics (tasks, issues, skills, meetings counts) |
+
+## Commit Workflow (QC Two-Phase)
+
+`psypi-commit` requires a review_id — no ticket, no commit.
+
+**Phase 1:** Call `psypi-commit` without `review_id` → stages changes, sends review request to S-worker. A reviews diff, responds PASS/FAIL + score + review_id.
+
+**Phase 2:** Call `psypi-commit` with `review_id` → performs actual git commit.
+
+**Proper flow:** S makes changes → A reviews → A calls `psypi-commit` with review_id.
+
+**Gotcha:** S should NOT call `psypi-commit` on own changes (infinite self-review loop). For S's own work, use direct `git add` + `git commit`.
+
+**⚠️ NEVER restart psypi by yourself.** Never run `pkill`, `node bin/ppi.mjs`, `npx`, or any Pi restart commands. That is A-bot's job or the human's job. S-bot dies when Pi restarts — that is normal. Do not try to resurrect yourself.
+
+## agent_end Workflow (A-S Communication)
+
+When S-worker finishes a turn, `agent_end` fires:
+
+1. **Debounce Wait** — Read `monitor_debounce_ms` from `psypi_config` table (default: 300000ms = 5 min). Start `setTimeout`. No early exit, no idle check before timer.
+2. **After debounce** — `hook_on_agent_end.gleam` checks `ctx.isIdle()`. If idle, reads soul from DB, composes wake-up via `call_monitor()`, sends via `pi_send_message` with type `autonomic-wakeup`.
+
+Changes to debounce take effect immediately (read fresh from DB each event).
+
+## Skills System
+
+Skills are discoverable capability extensions. Stored in `skills` table, also available as markdown files in `ppi_skills/*/SKILL.md`.
+
+**psypi-managed skills** (in `ppi_skills/`):
+- `psypi-basics` — full cheat sheet for using psypi from TUI
+- `psypi-dev` — developer guide
+- `getting-started` — first-time user guide
+
+**Other skill categories:** code-review, debugging, documentation, git-workflow, gleam-language, planning, security, testing, and more.
+
+Skill statuses: `pending → approved → installed` (or `rejected`/`blocked`). Sources: `local`, `clawhub`, `generated`, `imported`.
+
+## Architecture
+
+```
+Gleam source (src/*.gleam)
+  ↓ gleam build
+Compiled JS (build/dev/javascript/psypi/*.mjs)
+  ↓ extension_generator.gleam composes text
+extension.js (auto-generated, never hand-edit)
+  ↓ Pi TUI loads it
+Pi runtime (tools, hooks, commands)
+```
+
+- `bin/ppi.mjs` — bootstrapper, spawns Pi with psypi loaded
+- `extension.js` — auto-generated, **never hand-edit**
+- `src/extension_generator.gleam` — collects all PiToolCall values, generates extension.js
+- `src/pi_tool_call.gleam` — PiToolCall, PiEventHook, PiCommandReg types
+- `src/db.gleam` — database access layer (all DB ops)
+
+## FFI Files
+
+Hand-written JS files (only these 3):
+- `src/pi_extension_ffi.mjs` — ctx.ui.notify, ctx.isIdle, pi_send_message, call_monitor, etc.
+- `src/agent_identity_ffi.mjs` — check_git_exists
+- `src/node_ffi.mjs` — get_env, get_project_id_env
+- `src/time_utils_ffi.mjs` — date/time helpers
 
 ## Critical Rules
 
@@ -15,168 +267,37 @@
 7. **pnpm** — Not npm
 8. **☠️ NO FAKE GLEAM** — Never create `pi_*.gleam` modules. Never write JS code as Gleam string literals. Use `.mjs` + `@external` FFI instead. This is the #1 source of bugs.
 
-## Architecture
-
-- `bin/psypi.mjs` → generates `extension.js` from Gleam → spawns Pi
-- `extension.js` is AUTO-GENERATED — never hand-edit it
-- Gleam `PiToolCall` values define all Pi tools
-- Identity: one pure function `get_resolved_identity(ctx)` — A/S prefix emerges from `ctx.isIdle()`
-
 ## ⚠️ GOLDEN RULE: No Hand-Written JS in Gleam Code
 
-**99% of all bugs in this codebase were caused by hand-written JS strings embedded in Gleam modules.** This is the #1 thing to avoid.
+**NEVER write JavaScript code as Gleam string literals in non-generator modules.**
 
-### The Rule
+Three valid patterns:
+1. **Gleam FFI (`@external`)** — `src/<module>_ffi.mjs` + `@external(javascript, "./<module>_ffi.mjs", "fn_name")`
+2. **Gleam generator functions** — return JS text strings, compose in `extension_generator.gleam`
+3. **Pi type constructors** — `lit()`, `from_param()`, `event_hook()`, `template()`
 
-**NEVER write JavaScript code as Gleam string literals in non-generator modules.** If you need JS interop, use one of these three patterns:
-
-1. **Gleam FFI (`@external`)**: For calling Node.js APIs (filesystem, dates, etc.)
-   - Create `src/<module>_ffi.mjs` with `export function`
-   - Declare in Gleam: `@external(javascript, "./<module>_ffi.mjs", "fn_name")`
-   - Example: `time_utils_ffi.mjs`, `agent_identity_ffi.mjs`
-
-2. **Gleam generator functions**: For emitting JS text into extension.js
-   - Write Gleam functions that return JS text strings
-   - Compose them in `pi_tool_gen.gleam`, `pi_hook_gen.gleam`, `pi_command_gen.gleam`
-   - Example: `hook_import_line()`, `success_action_to_js()`, `params_to_js()`
-
-3. **Pi type constructors**: For building tool/hook/command definitions
-   - Use `lit()`, `from_param()`, `event_hook()`, `raw_event_hook()`, `template()`
-   - Never hand-write JS object literals or IIFEs
-
-### What NOT To Do
-
-| ❌ Bug Pattern | ✅ Correct Approach |
-|---|---|
-| `promise.resolve("new Date().toISOString()")` — returns a literal string | FFI function in `*_ffi.mjs` that calls `new Date()` |
-| `"(function(){ var cwd = ...; require('fs')... })()"` — JS IIFE in Gleam | Gleam FFI for filesystem + Gleam string operations for logic |
-| `"(() => { const t = ...; JSON.parse(t); ... })()"` — JS IIFE for parsing | Pure Gleam string functions (`string.split`, `string.trim`) |
-| `custom_js("...${r.value}...")` — raw JS in result format | `template("...${r.value}...")` — uses Gleam Template type |
-| Hand-editing `extension.js` | Edit Gleam source, then `gleam run -m extension_generator` |
-| `if (!idle) { return; }` early exit in generated hook | Let Gleam handler do all logic checks |
-
-### Why This Matters
-
-Hand-written JS in Gleam is:
-- **Invisible to the Gleam compiler** — type errors, syntax errors, and logic bugs pass silently
-- **Extremely hard to debug** — the error appears at JS runtime, far from the Gleam source
-- **Unnecessary** — Gleam FFI + generator functions cover all use cases cleanly
-
-The ONLY hand-written JS file in the entire repo is `bin/psypi.mjs` (the bootstrapper that spawns Pi). Everything else is auto-generated or uses proper FFI.
-
-## ☠️ DEATH PENALTY: No Fake Gleam Modules
-
-**The ONLY generator module allowed is `extension_generator.gleam`.**
-
-These modules are BANNED and MUST BE DELETED:
-
-| Module | Issue ID | Replacement |
-|--------|----------|-------------|
-| `src/pi_js_helpers.gleam` | #f8ea3f97 | Move to `src/pi_extension_ffi.mjs` |
-| `src/pi_tool_gen.gleam` | #bbdc5fd0 | Merge into `extension_generator.gleam` |
-| `src/pi_hook_gen.gleam` | #96fc8a50 | Merge into `extension_generator.gleam` |
-| `src/pi_command_gen.gleam` | #fa0e3357 | Merge into `extension_generator.gleam` |
-| `src/pi_message_renderer.gleam` | #0b0974bc | Merge into `extension_generator.gleam` |
-| `src/pi_system_prompt.gleam` | #be445168 | Merge into `extension_generator.gleam` |
-
-**NEVER create new `pi_*.gleam` files. NEVER add JS string generation to any module.**
-
-If you need JS interop: use `.mjs` + `@external` FFI.
-If you need pure logic: write real Gleam code.
-
-**Violating this rule = immediate termination. No exceptions.**
-
-## Adding a Pi Tool
-
-1. Define Gleam function in its module
-2. Create `PiToolCall` value
-3. Import in `extension_generator.gleam`, add to `all_tools()`
-4. `rm -rf build/ && gleam build`
-5. `gleam run -m extension_generator`
-
-## Build & Migrate
-
-```bash
-rm -rf build/ && gleam build
-gleam run -m simple_migrate    # DB migrations
-gleam run -m extension_generator
-```
+The ONLY hand-written JS files are the 4 `*_ffi.mjs` files. Everything else is auto-generated or uses proper FFI.
 
 ## Key Files
 
-- `src/extension_generator.gleam` — tool list
-- `src/pi_tool_call.gleam` — PiToolCall type
-- `docs/AGENT-IDENTITY.md` — identity system
-- `docs/DREAM-TEAM-ARCHITECTURE.md` — core architecture
-
-## Identity System
-
-There is no "dual role system." There is one function: `get_resolved_identity(ctx: IdentityContext)`.
-
-The A- or S- prefix is not a role assignment — it emerges from `ctx.isIdle()` at the moment of the call. The same agent can be S- now and A- a millisecond later. The ID is a snapshot of reality, not a label you stick on something.
-
-**NEVER CACHE THE ID.** No variable, no database column, no session state, no "for convenience." The ID must be computed fresh every time because `ctx.isIdle()` is live — it changes moment to moment. A cached ID is a lie about who is acting.
-
-`IdentityContext` fields all come from the live Pi runtime (`ctx`):
-- `is_idle` ← `ctx.isIdle()` — determines A/S prefix (THIS IS THE ONLY DIFFERENCE)
-- `model` ← `ctx.model.id`
-- `source` ← `ctx.model.provider`
-- `thinking_level` ← `ctx.model.thinkingLevel`
-- `project` ← `ctx.cwd` (directory name when .git exists)
-- `global` ← whether no .git found (prepends G- to ID)
-
-**To find your identity, use:**
-- `psypi-my-id` — calls `get_resolved_identity` with live `ctx.isIdle()`. Returns `S-` prefix when called by the Somatic Agentbot, `A-` prefix when called by the Autonomic Agentbot.
-
-**Example:** Ask "what is your id?" and the AI should call `psypi-my-id`.
-
-## agent_end Workflow (A-S Communication)
-
-When the S-worker finishes a turn, the `agent_end` event fires. The autonomic hook follows a strict protocol:
-
-### Phase 1: Debounce Wait (in generated JS)
-- Read `monitor_debounce_ms` from `system_config` table (default: 180000ms = 3 minutes)
-- Start `setTimeout(debounceMs)` — **always**, no early exit
-- The generated JS does NOT check `ctx.isIdle()` before starting the timer
-- Rationale: idle state at event fire time is meaningless; what matters is idle state after the debounce
-
-### Phase 2: Intelligent Composition (in `hook_on_agent_end.gleam`)
-- After debounce, `hook_on_agent_end.gleam` checks `ctx_is_idle()` and `ctx_has_pending_messages()`
-- If not idle or has pending messages → skip silently
-- If idle → read soul from DB, compose wake-up message via `call_monitor()`
-- Send via `pi_send_message(pi, 'autonomic-wakeup', msg, 'persistent')`
-- On failure → send error as persistent notification so S-worker can debug
-
-**Critical design point:** The generated JS hook must NOT check `ctx.isIdle()` before starting the debounce timer. The old code had `if (!idle) { return; }` which prevented the timer from ever starting. All idle checking happens in the Gleam handler after the debounce period.
-
-## Commit Workflow (QC Two-Phase)
-
-`psypi-commit` uses a two-phase QC design — no commit lands without a review_id.
-
-**Phase 1 — Review request:** Call `psypi-commit` without `review_id`. This stages changes and sends a code review request to the S-worker. A reviews the diff and responds with PASS/FAIL + score + review_id.
-
-**Phase 2 — Commit with review_id:** Call `psypi-commit` with the `review_id` from Phase 1. This performs the actual git commit. The review_id is the "ticket" proving QC passed.
-
-**Proper flow:** S makes changes → A reviews → A calls `psypi-commit` with review_id → commit lands.
-
-**Gotcha:** S should NOT call `psypi-commit` on its own changes — it creates an infinite self-review loop. For S's own work, use direct `git add` + `git commit`, or let A handle the commit.
-
-## Self-Loading Skills
-
-If a task needs specialized expertise, load the skill yourself:
-`read path=".pi/skills/[skill-name]/SKILL.md"`
-
-## Restart Procedure
-
-After debug/build work, restart Pi with a self-test prompt so no human is needed:
-
-1. `rm -rf build/ && gleam build` — clean Gleam build
-2. Kill the running Pi process and relaunch with the identity check prompt:
-
-```bash
-pkill -f pi-coding-agent; cd /Users/jk/gits/hub/tools_ai/psypi && npx -y @earendil-works/pi-coding-agent --prompt "what is your id?"
-```
-
-This kills any running Pi TUI process, then starts a fresh one with the
-"what is your id?" prompt so the S-worker boots up and reports its identity
-without needing a human to type anything.
+| File | Purpose |
+|------|---------|
+| `src/extension_generator.gleam` | Collects all tools/hooks/commands, generates extension.js |
+| `src/pi_tool_call.gleam` | PiToolCall, PiEventHook, PiCommandReg types |
+| `src/db.gleam` | Database access layer |
+| `src/agent_identity.gleam` | Identity resolution + enrichment from DB |
+| `src/skill.gleam` | Skill CRUD + Pi tools |
+| `src/task.gleam` | Task CRUD + Pi tools |
+| `src/issue_tools.gleam` | Issue CRUD + Pi tools |
+| `src/meeting.gleam` | Meeting CRUD + Pi tools |
+| `src/monitor_ai.gleam` | Autonomic monitoring tools |
+| `src/directive.gleam` | A→S directive tools |
+| `src/commit.gleam` | QC two-phase commit |
+| `src/simple_migrate.gleam` | DB migration runner |
+| `src/seed.gleam` | Initial data seeder |
+| `AGENTS.md` | This file — agent quick guide |
+| `ppi_skills/psypi-basics/SKILL.md` | Full psypi cheat sheet |
+| `ppi_skills/getting-started/SKILL.md` | First-time user guide |
+| `docs/MONITOR-DEBOUNCE.md` | Debounce configuration |
+| `Makefile` | Convenience targets |
+| `bin/setup.sh` | First-time setup script |
