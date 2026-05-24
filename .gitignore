@@ -23,6 +23,9 @@ node_modules/
 .tmp/
 .trae/
 
+# Pending deletion review
+to_be_deleted/
+
 # Skills (managed globally at ~/.agents/skills/, project copy in .pi/project-skills/)
 .pi/skills/
 
