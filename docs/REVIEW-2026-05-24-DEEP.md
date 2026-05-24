@@ -481,44 +481,54 @@ pi.sendMessage({...}, { triggerTurn: true, deliverAs: 'steer' });
 
 ## 7. SUMMARY SCORECARD
 
-| Category           | Rating | Notes                                                                                                |
-| ------------------ | ------ | ---------------------------------------------------------------------------------------------------- |
-| **Architecture**   | B-     | Sound typed pipeline design, violated by PiRawHook/PiRawCommand escape hatches and inline JS helpers |
-| **Database Layer** | F      | 10+ missing table migrations, broken code_version functions                                          |
-| **Code Quality**   | D      | 30+ dead modules, duplicate implementations, excessive nesting                                       |
-| **FFI Layer**      | B+     | Proper Ok/Error pattern, well-isolated, but excessive diagnostics                                    |
-| **Test Coverage**  | F      | 3 test functions, 0% coverage of DB/hooks/tools                                                      |
-| **Documentation**  | D      | Many docs describe aspirational or outdated architecture                                             |
-| **Security**       | C      | SQL injection in db.gleam, shell escaping concerns in tool_commit                                    |
+| Category           | Rating | Notes                                                                                                                      |
+| ------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| **Architecture**   | A-     | Typed pipeline fully restored; PiRawHook/PiRawCommand eliminated; runtime helpers in FFI; all hooks use typed constructors |
+| **Database Layer** | B      | 14 missing migrations created (011-024); code_version PL/pgSQL functions added; SQL injection fixed                        |
+| **Code Quality**   | C+     | 30 dead modules moved to to_be_deleted/; duplicate implementations still exist; excessive nesting in hook_on_agent_end     |
+| **FFI Layer**      | B+     | Proper Ok/Error pattern, well-isolated, but excessive diagnostics                                                          |
+| **Test Coverage**  | F      | 3 test functions, 0% coverage of DB/hooks/tools                                                                            |
+| **Documentation**  | D      | Many docs describe aspirational or outdated architecture                                                                   |
+| **Security**       | B      | SQL injection in db.gleam fixed (parameterized query); shell escaping concerns in tool_commit remain                       |
 
 ---
 
 ## 8. RECOMMENDED ACTION PLAN
 
-### Priority 0 — Critical (system design violation)
-0. **Restore the typed pipeline** — (a) move generator functions back to `pi_tool_call.gleam` (their Phase 2H home), (b) move `unwrapGleamResult` to FFI, (c) replace `gleamValueToJson` with `gleam_json` encoders, (d) convert `before_agent_start_body_js()` to proper `PiEventHook` with module/fn_name, (e) move `autonomic_wakeup_renderer_js()` to FFI, (f) eliminate `PiRawHook`/`PiRawCommand` escape hatches
+### Priority 0 — Critical (system design violation) ✅ COMPLETED 2026-05-25
+0. **Restore the typed pipeline** — ✅ ALL DONE:
+   - (a) ✅ Generator functions moved back to `pi_tool_call.gleam` (their Phase 2H home)
+   - (b) ✅ `unwrapGleamResult` moved to `pi_extension_ffi.mjs` (proper FFI)
+   - (c) ✅ `gleamValueToJson` moved to `pi_extension_ffi.mjs` (proper FFI)
+   - (d) ✅ `before_agent_start` converted to `PiSystemPromptHook` with proper Gleam handler `hook_on_before_agent_start.gleam`
+   - (e) ✅ `autonomic_wakeup_renderer` moved to `pi_extension_ffi.mjs` as `registerAutonomicWakeupRenderer`
+   - (f) ✅ `PiRawHook`/`PiRawCommand` types and constructors completely removed from `pi_tool_call.gleam`
+   - ✅ `agent_start` converted to proper `PiEventHook` with Gleam handler `hook_on_agent_start.gleam`
+   - ✅ `extension_generator.gleam` reduced from 726 → 299 lines (59% reduction)
+   - ✅ Zero raw JS strings remain in `extension_generator.gleam`
+   - ✅ All hooks/commands now go through the typed pipeline
 
-### Priority 1 — Critical (blocks deployment)
-1. Create missing migrations for all 14 tables without CREATE TABLE
-2. Create PostgreSQL function migrations for `code_version.gleam` (save_code_version, get_code_versions, restore_code_version)
-3. Fix SQL injection in `db.gleam` SET statement
+### Priority 1 — Critical (blocks deployment) ✅ COMPLETED 2026-05-25
+1. ✅ Created 14 missing migrations (011-024): agent_identities, agent_prefixes, agent_sessions, code_versions (with PL/pgSQL functions), issues, learning_insights, memory, notifications, provider_api_keys, skills, meetings + meeting_opinions, project_communications, activity_log, inter_reviews
+2. ✅ Created PostgreSQL function migrations for `code_version.gleam` (save_code_version, get_code_versions, restore_code_version) in migration 014
+3. ✅ Fixed SQL injection in `db.gleam` — changed `SET app.current_project_id = '" <> project_id <> "'"` to parameterized `$1`
 
-### Priority 2 — Major (code health)
-4. Delete 30 dead utility modules
-5. Consolidate duplicate modules (identity, monitor, config)
-6. Fix `parse_context_window` to use `gleam_json` decoder
-7. Remove or flag diagnostic logging in `call_monitor`
-8. Fix `memory.gleam` tags handling
-9. Fix `tasks` table schema mismatch (`is_stuck` column, `priority` type)
-10. Fix `simple_migrate.gleam` to propagate errors instead of swallowing them
+### Priority 2 — Major (code health) — IN PROGRESS
+4. ✅ Moved 30 dead utility modules to `to_be_deleted/` with `.del` suffix
+5. Consolidate duplicate modules (identity, monitor, config) — PENDING
+6. Fix `parse_context_window` to use `gleam_json` decoder — PENDING
+7. Remove or flag diagnostic logging in `call_monitor` — PENDING
+8. ✅ Fixed `memory.gleam` tags handling — now uses `format_pg_array()` for proper PostgreSQL TEXT[] format; migration 017 updated to TEXT[]
+9. ✅ Fixed `tasks` table schema — added lowercase + FAKE_COMPLETE to CHECK constraint; standardized `monitor_ai.gleam` queries to uppercase
+10. ✅ Fixed `simple_migrate.gleam` — now returns `Error()` instead of swallowing errors with `Ok(Nil)`
 
-### Priority 3 — Moderate (quality)
-11. Update all documentation to match actual code
-12. Add tests for DB operations, hook logic, extension generator
-13. Add connection pooling to `db.gleam`
-14. Use `DATABASE_URL` env var instead of hardcoded connection params
-15. Split `hook_on_agent_end.gleam` into smaller functions
-16. Split `extension_generator.gleam` into separate concerns
+### Priority 3 — Moderate (quality) — IN PROGRESS
+11. Update all documentation to match actual code — PENDING
+12. Add tests for DB operations, hook logic, extension generator — PENDING
+13. Add connection pooling to `db.gleam` — PENDING
+14. ✅ Use `DATABASE_URL` env var instead of hardcoded connection params — `db.gleam` now reads `DATABASE_URL` via FFI, falls back to localhost defaults
+15. Split `hook_on_agent_end.gleam` into smaller functions — PENDING
+16. Split `extension_generator.gleam` into separate concerns — PENDING
 
 ### Priority 4 — Nice to have
 17. Implement `compaction_history` table and session_compact hook
