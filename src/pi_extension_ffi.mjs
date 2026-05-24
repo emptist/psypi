@@ -88,43 +88,41 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
     let result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'medium' });
     ctx.ui.notify('[DIAG] call_monitor: completeSimple returned. stopReason=' + (result?.stopReason || 'none') + ' hasContent=' + (Array.isArray(result?.content)) + ' contentType=' + (typeof result?.content) + ' hasText=' + (typeof result?.text) + ' errorMessage=' + (result?.errorMessage || 'none'), 'info');
 
-    if (result?.errorMessage) {
-      return new Error('LLM error: ' + result.errorMessage);
-    }
+    // Extract text from result (same for both initial call and retries)
+    const extractText = (r) => {
+      let t = '';
+      if (Array.isArray(r?.content)) {
+        t = r.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
+      }
+      if (!t && typeof r?.text === 'string') {
+        t = r.text;
+      }
+      return t;
+    };
+
+    let hasThinking = Array.isArray(result?.content) && result.content.some(c => c.type === 'thinking');
+    let text = extractText(result);
 
     // DIAGNOSTIC: log raw content structure
     if (Array.isArray(result?.content)) {
       ctx.ui.notify('[DIAG] call_monitor: content is array, length=' + result.content.length + ' types=' + result.content.map(c => c.type).join(','), 'info');
     }
-
-    let text = '';
-    let hasThinking = false;
-    if (Array.isArray(result?.content)) {
-      text = result.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
-      hasThinking = result.content.some(c => c.type === 'thinking');
-    }
-    if (!text && typeof result?.text === 'string') {
-      text = result.text;
-    }
-
-    // DIAGNOSTIC: text extraction result
     ctx.ui.notify('[DIAG] call_monitor: extracted text length=' + text.length + ' hasThinking=' + hasThinking, 'info');
 
-    if (!text && hasThinking) {
-      // Retry without reasoning if only thinking was returned
-      ctx.ui.notify('[DIAG] call_monitor: retrying with reasoning=none...', 'info');
+    // Retry if: no text (terminated, thinking-only, empty, or provider error)
+    const shouldRetry = !text || (result?.errorMessage && (result.errorMessage === 'terminated' || result.errorMessage.includes('rate')));
+    if (shouldRetry) {
+      ctx.ui.notify('[DIAG] call_monitor: retrying with reasoning=none (reason=' + (result?.errorMessage || 'empty/thinking only') + ')...', 'info');
       result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'none' });
-      ctx.ui.notify('[DIAG] call_monitor: retry returned. stopReason=' + (result?.stopReason || 'none') + ' hasContent=' + (Array.isArray(result?.content)), 'info');
-      if (result?.errorMessage) {
-        return new Error('LLM error (retry): ' + result.errorMessage);
-      }
-      if (Array.isArray(result?.content)) {
-        text = result.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
-      }
-      if (!text && typeof result?.text === 'string') {
-        text = result.text;
-      }
+      ctx.ui.notify('[DIAG] call_monitor: retry returned. stopReason=' + (result?.stopReason || 'none') + ' hasContent=' + (Array.isArray(result?.content)) + ' errorMessage=' + (result?.errorMessage || 'none'), 'info');
+      hasThinking = Array.isArray(result?.content) && result.content.some(c => c.type === 'thinking');
+      text = extractText(result);
       ctx.ui.notify('[DIAG] call_monitor: retry extracted text length=' + text.length, 'info');
+    }
+
+    // Final check after any retry — if still errored, return the error
+    if (result?.errorMessage && !text) {
+      return new Error('LLM error: ' + result.errorMessage);
     }
     if (!text) {
       if (hasThinking) {

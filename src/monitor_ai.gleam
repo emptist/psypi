@@ -86,35 +86,11 @@ pub fn check_system_health() -> promise.Promise(
   )
 }
 
-/// Housekeeping - auto-backup before edits!
-pub fn housekeeping(
-  agent_id: String,
-) -> promise.Promise(Result(Nil, MonitorError)) {
-  db.with_connection(
-    fn(conn) {
-      // CORRECT: Use saved_at (not created_at!)
-      let sql =
-        "
-      INSERT INTO code_versions (file_path, content, saved_by, reason, version_hash)
-      VALUES ($1, $2, $3, $4, $5)
-    "
-      let params = [
-        dynamic.string("monitor_ai_auto_backup"),
-        dynamic.string("test content"),
-        dynamic.string(agent_id),
-        dynamic.string("auto-backup"),
-        dynamic.string("dummy_hash"),
-      ]
-
-      promise.map(db.query(conn, sql, params), fn(result) {
-        case result {
-          Ok(_) -> Ok(Nil)
-          Error(e) -> Error(db_error_to_monitor_error(e))
-        }
-      })
-    },
-    db_error_to_monitor_error,
-  )
+/// Housekeeping — reset stale state.
+/// Currently a no-op; previously inserted test stub data into code_versions.
+/// TODO: Implement proper housekeeping (e.g. archive old versions, clean stale config).
+pub fn housekeeping(_agent_id: String) -> promise.Promise(Result(Nil, MonitorError)) {
+  promise.resolve(Ok(Nil))
 }
 
 /// Decoder for context rows (CORRECTED column names!)
