@@ -1,18 +1,47 @@
-// agent_identity.gleam — Agent identity resolution
-//
-// Resolves the current agent's identity (S-bot or A-bot) from context.
-// Project detection and filesystem checks are done in Gleam, not in
-// hand-written JS strings.
+// agent_identity.gleam — Agent identity resolution + enrichment from DB
 
 import agent_identity_types.{
-  type AgentIdentity, type IdentityContext, type IdentityError,
-  resolved_identity,
+  type IdentityContext, type IdentityError, ConnectionError, QueryError, NotFound,
 }
+import db
+import gleam/dynamic
+import gleam/dynamic/decode
+import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import pi_tool_call.{type PiToolCall, PiToolCall, lit, raw_json}
 
-/// Resolve project name from cwd by taking the last path component
+// -------------------------------------------------------------------
+// Types
+// -------------------------------------------------------------------
+
+pub type AgentTask {
+  AgentTask(id: String, task: String, priority: Int, category: String, is_active: Bool)
+}
+
+pub type EnrichedIdentity {
+  EnrichedIdentity(
+    id: String,
+    prefix: String,
+    role: String,
+    name: String,
+    domain: String,
+    responsibilities: String,
+    trigger_type: String,
+    drive_mode: String,
+    activation: String,
+    project: String,
+    model: String,
+    source: String,
+    thinking_level: String,
+    tasks: List(AgentTask),
+  )
+}
+
+// -------------------------------------------------------------------
+// Project & globals
+// -------------------------------------------------------------------
+
 fn resolve_project(cwd: String) -> String {
   case cwd {
     "" -> "non-project"
@@ -26,39 +55,216 @@ fn resolve_project(cwd: String) -> String {
   }
 }
 
-/// Check if cwd is a project directory (has .git subdirectory)
 @external(javascript, "./agent_identity_ffi.mjs", "check_git_exists")
 fn check_git_exists(cwd: String) -> Bool
 
-/// Get the resolved agent identity from context
-pub fn get_resolved_identity(
+// -------------------------------------------------------------------
+// Semantic ID
+// -------------------------------------------------------------------
+
+fn semantic_id(ctx: IdentityContext) -> Result(String, IdentityError) {
+  let prefix = case ctx.is_idle {
+    True -> "A"
+    False -> "S"
+  }
+
+  let global_prefix = case ctx.global {
+    True -> "G-"
+    False -> ""
+  }
+
+  case ctx.model {
+    "" -> Error(NotFound("missing model id"))
+    _ -> {
+      let base =
+        global_prefix
+        <> prefix
+        <> "-"
+        <> ctx.project
+        <> "-"
+        <> ctx.source
+        <> "-"
+        <> ctx.model
+
+      case ctx.thinking_level {
+        "" -> Ok(base)
+        tl -> Ok(base <> "-" <> tl)
+      }
+    }
+  }
+}
+
+// -------------------------------------------------------------------
+// DB helpers
+// -------------------------------------------------------------------
+
+fn db_error_to_identity_error(e: db.DbError) -> IdentityError {
+  case e {
+    db.ConnectionError(msg) -> ConnectionError(msg)
+    db.QueryError(msg) -> QueryError(msg)
+  }
+}
+
+fn soul_decoder() -> decode.Decoder(#(String, String, String, String, String, String, String)) {
+  use id <- decode.field("id", decode.string)
+  use name <- decode.field("name", decode.string)
+  use domain <- decode.field("domain", decode.string)
+  use responsibility <- decode.field("responsibility", decode.string)
+  use trigger_type <- decode.field("trigger_type", decode.string)
+  use drive_mode <- decode.field("drive_mode", decode.string)
+  use activation <- decode.field("activation", decode.string)
+  decode.success(#(id, name, domain, responsibility, trigger_type, drive_mode, activation))
+}
+
+fn agent_task_decoder() -> decode.Decoder(AgentTask) {
+  use id <- decode.field("id", decode.string)
+  use task <- decode.field("task", decode.string)
+  use priority <- decode.field("priority", decode.int)
+  use category <- decode.field("category", decode.string)
+  use is_active <- decode.field("is_active", decode.string)
+  let active = case is_active {
+    "true" -> True
+    "t" -> True
+    _ -> False
+  }
+  decode.success(AgentTask(id: id, task: task, priority: priority, category: category, is_active: active))
+}
+
+fn fetch_soul_by_prefix(
+  prefix: String,
+) -> promise.Promise(Result(#(String, String, String, String, String, String, String), IdentityError)) {
+  db.with_connection(fn(conn) {
+    let sql = "SELECT id, name, domain, responsibility, trigger_type, drive_mode, activation FROM agent_souls WHERE id_prefix = $1 AND is_active = true LIMIT 1"
+    let params = [dynamic.string(prefix)]
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_identity_error(e))
+        Ok(result) ->
+          case result.rows {
+            [row, ..] ->
+              case decode.run(row, soul_decoder()) {
+                Ok(s) -> Ok(s)
+                Error(_) -> Error(QueryError("Failed to decode soul"))
+              }
+            _ -> Error(NotFound("No soul found for prefix: " <> prefix))
+          }
+      }
+    })
+  }, db_error_to_identity_error)
+}
+
+fn fetch_tasks_by_soul(
+  soul_id: String,
+) -> promise.Promise(Result(List(AgentTask), IdentityError)) {
+  db.with_connection(fn(conn) {
+    let sql = "SELECT id, task, priority, category, is_active FROM agent_tasks WHERE soul_id = $1 AND is_active = true ORDER BY priority ASC"
+    let params = [dynamic.string(soul_id)]
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_identity_error(e))
+        Ok(result) ->
+          result.rows
+          |> list.map(fn(row) { decode.run(row, agent_task_decoder()) })
+          |> list.filter(fn(r) {
+            case r {
+              Ok(_) -> True
+              Error(_) -> False
+            }
+          })
+          |> list.map(fn(r) {
+            case r {
+              Ok(t) -> t
+              Error(_) -> AgentTask(id: "", task: "", priority: 0, category: "", is_active: False)
+            }
+          })
+          |> fn(tasks) { Ok(tasks) }
+      }
+    })
+  }, db_error_to_identity_error)
+}
+
+// -------------------------------------------------------------------
+// Enriched identity: semantic ID + DB soul + tasks
+// -------------------------------------------------------------------
+
+pub fn get_enriched_identity(
   ctx: IdentityContext,
-) -> Result(AgentIdentity, IdentityError) {
+) -> promise.Promise(Result(EnrichedIdentity, IdentityError)) {
   let project = resolve_project(ctx.cwd)
-  let global = case check_git_exists(ctx.cwd) {
+  let _global = case check_git_exists(ctx.cwd) {
     True -> False
     False -> True
   }
-  let ctx_with_project = agent_identity_types.IdentityContext(
-    is_idle: ctx.is_idle,
-    project: project,
-    source: ctx.source,
-    model: ctx.model,
-    thinking_level: ctx.thinking_level,
-    global: global,
-    cwd: ctx.cwd,
-  )
-  resolved_identity(ctx_with_project)
+
+  case semantic_id(ctx) {
+    Ok(id) -> {
+      let prefix = case string.contains(id, "A-") || ctx.is_idle {
+        True -> "A"
+        False -> "S"
+      }
+
+      promise.await(fetch_soul_by_prefix(prefix), fn(soul_result) {
+        case soul_result {
+          Ok(#(soul_id, name, domain, responsibility, trigger_type, drive_mode, activation)) -> {
+            promise.await(fetch_tasks_by_soul(soul_id), fn(tasks_result) {
+              let tasks = case tasks_result {
+                Ok(t) -> t
+                Error(_) -> []
+              }
+              promise.resolve(Ok(EnrichedIdentity(
+                id: id,
+                prefix: prefix,
+                role: name,
+                name: name,
+                domain: domain,
+                responsibilities: responsibility,
+                trigger_type: trigger_type,
+                drive_mode: drive_mode,
+                activation: activation,
+                project: project,
+                model: ctx.model,
+                source: ctx.source,
+                thinking_level: ctx.thinking_level,
+                tasks: tasks,
+              )))
+            })
+          }
+          Error(_) ->
+            promise.resolve(Ok(EnrichedIdentity(
+              id: id,
+              prefix: prefix,
+              role: prefix <> "-bot",
+              name: prefix <> " Agentbot",
+              domain: "unknown",
+              responsibilities: "",
+              trigger_type: "",
+              drive_mode: "",
+              activation: "",
+              project: project,
+              model: ctx.model,
+              source: ctx.source,
+              thinking_level: ctx.thinking_level,
+              tasks: [],
+            )))
+        }
+      })
+    }
+    Error(e) -> promise.resolve(Error(e))
+  }
 }
 
-/// Pi tool: psypi-my-id — get the calling agent's ID
+// -------------------------------------------------------------------
+// Pi tool
+// -------------------------------------------------------------------
+
+/// Pi tool: psypi-my-id — get the calling agent's full identity (ID, role, responsibilities, tasks)
 pub fn my_id_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-my-id",
-    description: "Get the calling agent's ID. Returns S- prefix when called by the Somatic Agentbot (prompt-driven), A- prefix when called by the Autonomic Agentbot (event-driven). ID includes model and thinking level from live ctx.",
+    description: "Get the calling agent's full identity. Returns ID, prefix, role, name, domain, responsibilities, trigger_type, drive_mode, activation, project, model, source, thinking_level, and defined tasks.",
     params: [],
     module: "agent_identity",
-    fn_name: "get_resolved_identity",
+    fn_name: "get_enriched_identity",
     args: [
       lit(
         "({ is_idle: ctx.isIdle(), source: (ctx.model?.provider || ''), "
