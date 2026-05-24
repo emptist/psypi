@@ -164,3 +164,54 @@ export function exec_sync(command) {
     return new Error(msg);
   }
 }
+
+export function unwrapGleamResult(result) {
+  if (!result) return { ok: false, error: 'null result' };
+  const typeName = result.constructor?.name || '';
+  if (typeName === 'Ok') return { ok: true, value: result['0'] };
+  if (typeName === 'Error') return { ok: false, error: JSON.stringify(gleamValueToJson(result['0'])) || 'Unknown' };
+  return { ok: true, value: result };
+}
+
+export function gleamValueToJson(val) {
+  if (val === null || val === undefined) return val;
+  if (typeof val !== 'object') return val;
+  const name = val.constructor?.name || '';
+  if (name === 'NonEmpty') {
+    const arr = [];
+    let cur = val;
+    while (cur && cur.constructor?.name === 'NonEmpty') {
+      arr.push(gleamValueToJson(cur.head));
+      cur = cur.tail;
+    }
+    return arr;
+  }
+  if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || name.startsWith('Meeting$Meeting') || name.startsWith('Skill$Skill') || name.startsWith('Opinion$Opinion') || name.startsWith('Broadcast$Broadcast') || name.startsWith('Learning$Learning') || name.startsWith('Memory$Memory') || name.startsWith('AgentIdentity$AgentIdentity') || name.startsWith('Directive$Directive') || name.startsWith('InterReview$InterReview') || name.startsWith('CodeVersion$CodeVersion') || name.startsWith('ActivityLog$ActivityLog') || name.startsWith('Config$Config') || name.startsWith('Stats$Stats')) {
+    return Object.fromEntries(Object.entries(val).map(([k, v]) => [k, gleamValueToJson(v)]));
+  }
+  if (name === 'Some') return gleamValueToJson(val['0'] ?? val[0]);
+  if (name === 'None') return null;
+  if (name === 'Ok') return { ok: true, value: gleamValueToJson(val['0'] ?? val[0]) };
+  if (name === 'Error') return { ok: false, error: gleamValueToJson(val['0'] ?? val[0]) };
+  if (name.includes('$') && !name.startsWith('_')) {
+    const variantName = name.split('$').pop();
+    const fields = Object.entries(val).map(([k, v]) => gleamValueToJson(v));
+    if (fields.length === 0) return variantName;
+    if (fields.length === 1) return { type: variantName, value: fields[0] };
+    return { type: variantName, fields: fields };
+  }
+  if (Array.isArray(val)) return val.map(gleamValueToJson);
+  return Object.fromEntries(Object.entries(val).map(([k, v]) => [k, gleamValueToJson(v)]));
+}
+
+export function registerAutonomicWakeupRenderer(pi) {
+  pi.registerMessageRenderer('autonomic-wakeup', (message, options, theme) => {
+    const { expanded } = options;
+    let text = theme.fg('accent', '[A-agentbot] ');
+    text += theme.fg('warning', message.content);
+    if (expanded && message.details) {
+      text += '\n' + theme.fg('dim', JSON.stringify(message.details, null, 2));
+    }
+    return new Text(text, 0, 0);
+  });
+}

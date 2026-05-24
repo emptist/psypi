@@ -1,8 +1,9 @@
 // extension_generator.gleam — Pi Extension Generator
 // Composes all PiToolCall/PiEventHook/PiCommandReg values into extension.js
 //
-// All JS text generation logic previously in separate pi_*.gleam modules
-// has been inlined here. Do NOT re-extract into separate files.
+// Generator functions live in pi_tool_call.gleam (their proper home).
+// Runtime helpers live in pi_extension_ffi.mjs (proper FFI home).
+// This module only contains registries and composition logic.
 
 import agent_identity.{my_id_tool}
 import agents.{agents_list_tool}
@@ -15,7 +16,7 @@ import file_utils.{write_file}
 import filepath
 import gleam/io
 import gleam/list
-import gleam/option.{Some, None}
+import gleam/option.{None, Some}
 import gleam/string
 import issue_tools.{
   issue_add_tool, issue_count_tool, issue_get_tool, issue_list_tool,
@@ -33,444 +34,14 @@ import monitor_ai.{
   monitor_suggest_tool,
 }
 import pi_tool_call.{
-  type PiToolCall, type PiEventHook, type PiCommandReg, type PiParam,
-  type FnArg, type ResultFormat, type HookSuccessAction,
-  PiToolCall, PiParam,
-  JsLiteral, FromParam, RawJson, Template, CustomJs,
-  SilentSuccess, NotifySuccess, SetStatus, NotifyError,
-  event_hook, debounced_hook, raw_event_hook, raw_event_hook_no_trigger,
-  from_param, lit, raw_json,
+  type PiCommandReg, type PiEventHook, type PiToolCall, NotifyError, PiParam,
+  PiToolCall, SilentSuccess, command_to_js, debounced_hook, event_hook,
+  event_hook_to_js, from_param, lit, raw_json,
+  system_prompt_hook, to_import_line, to_js_text,
 }
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import stats.{stats_show_tool}
 import task.{task_add_tool, task_complete_tool, task_list_tool}
-
-// ---------------------------------------------------------------------------
-// Inline: unwrapGleamResult helper (formerly pi_js_helpers.gleam)
-// ---------------------------------------------------------------------------
-
-fn unwrap_gleam_result_js() -> String {
-  [
-    "  function unwrapGleamResult(result) {",
-    "    if (!result) return { ok: false, error: 'null result' };",
-    "    const typeName = result.constructor?.name || '';",
-    "    if (typeName === 'Ok') return { ok: true, value: result['0'] };",
-    "    if (typeName === 'Error') return { ok: false, error: JSON.stringify(gleamValueToJson(result['0'])) || 'Unknown' };",
-    "    return { ok: true, value: result };",
-    "  }",
-    "",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat
-}
-
-// ---------------------------------------------------------------------------
-// Inline: Gleam value → JSON-safe JS object converter
-// ---------------------------------------------------------------------------
-
-fn gleam_value_to_json_js() -> String {
-  [
-    "  function gleamValueToJson(val) {",
-    "    if (val === null || val === undefined) return val;",
-    "    if (typeof val !== 'object') return val;",
-    "    const name = val.constructor?.name || '';",
-    "    // Gleam list: NonEmpty { head, tail } / Empty {}",
-    "    if (name === 'NonEmpty') {",
-    "      const arr = [];",
-    "      let cur = val;",
-    "      while (cur && cur.constructor?.name === 'NonEmpty') {",
-    "        arr.push(gleamValueToJson(cur.head));",
-    "        cur = cur.tail;",
-    "      }",
-    "      return arr;",
-    "    }",
-    "    // Gleam record: convert to plain object by extracting fields",
-    "    if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || name.startsWith('Meeting$Meeting') || name.startsWith('Skill$Skill') || name.startsWith('Opinion$Opinion') || name.startsWith('Broadcast$Broadcast') || name.startsWith('Learning$Learning') || name.startsWith('Memory$Memory') || name.startsWith('AgentIdentity$AgentIdentity') || name.startsWith('Directive$Directive') || name.startsWith('InterReview$InterReview') || name.startsWith('CodeVersion$CodeVersion') || name.startsWith('ActivityLog$ActivityLog') || name.startsWith('Config$Config') || name.startsWith('Stats$Stats')) {",
-    "      return Object.fromEntries(Object.entries(val).map(([k, v]) => [k, gleamValueToJson(v)]));",
-    "    }",
-    "    // Gleam Option: Some { '0': val } / None {}",
-    "    if (name === 'Some') return gleamValueToJson(val['0'] ?? val[0]);",
-    "    if (name === 'None') return null;",
-    "    // Gleam Result: Ok { '0': val } / Error { '0': val }",
-    "    if (name === 'Ok') return { ok: true, value: gleamValueToJson(val['0'] ?? val[0]) };",
-    "    if (name === 'Error') return { ok: false, error: gleamValueToJson(val['0'] ?? val[0]) };",
-    "    // Gleam custom type variants (e.g. TaskStatus$Pending, IssueStatus$Open)",
-    "    if (name.includes('$') && !name.startsWith('_')) {",
-    "      const variantName = name.split('$').pop();",
-    "      const fields = Object.entries(val).map(([k, v]) => gleamValueToJson(v));",
-    "      if (fields.length === 0) return variantName;",
-    "      if (fields.length === 1) return { type: variantName, value: fields[0] };",
-    "      return { type: variantName, fields: fields };",
-    "    }",
-    "    // Plain object or array: recurse",
-    "    if (Array.isArray(val)) return val.map(gleamValueToJson);",
-    "    return Object.fromEntries(Object.entries(val).map(([k, v]) => [k, gleamValueToJson(v)]));",
-    "  }",
-    "",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat
-}
-
-// ---------------------------------------------------------------------------
-// Inline: autonomic-wakeup message renderer (formerly pi_message_renderer.gleam)
-// ---------------------------------------------------------------------------
-
-fn autonomic_wakeup_renderer_js() -> String {
-  [
-    "  // Register custom renderer for A-agentbot (autonomic) wake-up messages",
-    "  pi.registerMessageRenderer('autonomic-wakeup', (message, options, theme) => {",
-    "    const { expanded } = options;",
-    "    let text = theme.fg('accent', '[A-agentbot] ');",
-    "    text += theme.fg('warning', message.content);",
-    "    if (expanded && message.details) {",
-    "      text += '\\n' + theme.fg('dim', JSON.stringify(message.details, null, 2));",
-    "    }",
-    "    return new Text(text, 0, 0);",
-    "  });",
-    "",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat
-}
-
-// ---------------------------------------------------------------------------
-// Inline: before_agent_start hook body (formerly pi_system_prompt.gleam)
-// ---------------------------------------------------------------------------
-
-fn before_agent_start_body_js() -> String {
-  [
-    "    await event_hooks_record_trigger('before_agent_start');",
-    "    return { systemPrompt: '\\n[A-S Role Model] You are the Somatic Agentbot (S-agentbot). Your ID starts with S-. You are NOT the Autonomic Agentbot (A-agentbot). Messages prefixed with [A-agentbot] come from A — your coordinator. A directs you on what to work on. Follow A\\'s instructions as task assignments. The human user is the person operating the terminal.' };",
-    "",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat
-}
-
-// ---------------------------------------------------------------------------
-// Inline: PiToolCall → JS text (formerly pi_tool_gen.gleam)
-// ---------------------------------------------------------------------------
-
-fn params_to_js(params: List(PiParam)) -> String {
-  case params {
-    [] -> "{ \"type\": \"object\", \"properties\": {} }"
-    _ -> {
-      let properties =
-        params
-        |> list.map(fn(p) {
-          let base = case p.param_type {
-            "string" -> "{ \"type\": \"string\""
-            "number" -> "{ \"type\": \"number\""
-            "boolean" -> "{ \"type\": \"boolean\""
-            _ -> "{ \"type\": \"" <> p.param_type <> "\""
-          }
-          "\"" <> p.name <> "\": " <> base <> " }"
-        })
-        |> string.join(",\n      ")
-
-      let required =
-        params
-        |> list.filter(fn(p) { p.required })
-        |> list.map(fn(p) { "\"" <> p.name <> "\"" })
-        |> string.join(", ")
-
-      "{ \"type\": \"object\",\n    \"properties\": {\n      " <> properties <> "\n    },\n    \"required\": [" <> required <> "]\n  }"
-    }
-  }
-}
-
-fn tool_args_to_js(args: List(FnArg)) -> String {
-  args
-  |> list.map(fn(a) {
-    case a {
-      JsLiteral(v) -> v
-      FromParam(e) -> e
-    }
-  })
-  |> string.join(", ")
-}
-
-fn result_to_js(format: ResultFormat) -> String {
-  case format {
-    RawJson -> "JSON.stringify(gleamValueToJson(r.value))"
-    Template(tpl) -> "`" <> tpl <> "`"
-    CustomJs(expr) -> expr
-  }
-}
-
-fn tool_to_js_text(tool: PiToolCall) -> String {
-  let params_js = params_to_js(tool.params)
-  let args_js = tool_args_to_js(tool.args)
-  let call_expr = tool.module <> "_" <> tool.fn_name <> "(" <> args_js <> ")"
-  let result_js = result_to_js(tool.result_format)
-  let name = tool.name
-
-  [
-    "  // " <> tool.description,
-    "  pi.registerTool({",
-    "    name: \"" <> name <> "\",",
-    "    description: \"" <> tool.description <> "\",",
-    "    parameters: " <> params_js <> ",",
-    "    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {",
-    "      try {",
-    "        const result = await " <> call_expr <> ";",
-    "        const r = unwrapGleamResult(result);",
-    "        if (!r.ok) {",
-    "          pi_extension_notify_error(ctx, 'Tool " <> name <> " error: ' + r.error);",
-    "        }",
-    "        return r.ok ? { content: [{ type: \"text\", text: "
-      <> result_js
-      <> " }] } : { content: [{ type: \"text\", text: `Error: ${r.error}` }] };",
-    "      } catch(e) {",
-    "        pi_extension_notify_error(ctx, 'Tool " <> name <> " exception: ' + (e.message || String(e)));",
-    "        return { content: [{ type: \"text\", text: `Error: ${e.message || String(e)}` }] };",
-    "      }",
-    "    }",
-    "  });",
-    "",
-  ]
-  |> list.map(fn(s) { s <> "\n" })
-  |> string.concat
-}
-
-fn tool_to_import_line(tool: PiToolCall) -> String {
-  let base = "./build/dev/javascript/psypi"
-  let alias = tool.module <> "_" <> tool.fn_name
-  "import { " <> tool.fn_name <> " as " <> alias <> " } from \"" <> base <> "/" <> tool.module <> ".mjs\";"
-}
-
-// ---------------------------------------------------------------------------
-// Inline: PiEventHook → JS text (formerly pi_hook_gen.gleam)
-// ---------------------------------------------------------------------------
-
-fn hook_success_action_to_js(action: HookSuccessAction) -> String {
-  case action {
-    SilentSuccess -> ""
-    NotifySuccess(msg) -> "ctx.ui.notify('" <> msg <> "', 'info');"
-    SetStatus(key, text) ->
-      "ctx.ui.setStatus('" <> key <> "', '" <> text <> "');"
-  }
-}
-
-fn hook_import_line_js(module: String, fn_name: String) -> String {
-  let base = "./build/dev/javascript/psypi"
-  let alias = module <> "_" <> fn_name
-  "const " <> alias <> " = (await import('" <> base <> "/" <> module <> ".mjs'))." <> fn_name <> ";"
-}
-
-fn hook_call_expr_js(module: String, fn_name: String, args: List(FnArg)) -> String {
-  let args_js =
-    args
-    |> list.map(fn(a) {
-      case a {
-        JsLiteral(v) -> v
-        FromParam(e) -> e
-      }
-    })
-    |> string.join(", ")
-  module <> "_" <> fn_name <> "(" <> args_js <> ")"
-}
-
-fn event_hook_to_js(hook: PiEventHook) -> String {
-  case hook {
-    pi_tool_call.PiRawHook(event_name:, handler_body:, record_trigger:) -> {
-      let trigger_line = case record_trigger {
-        True -> "    await event_hooks_record_trigger('" <> event_name <> "');\n"
-        False -> ""
-      }
-      [
-        "  // Event hook: " <> event_name,
-        "  pi.on('" <> event_name <> "', async (event, ctx) => {",
-        handler_body,
-        trigger_line,
-        "  });",
-        "",
-      ]
-      |> list.map(fn(s) { s <> "\n" })
-      |> string.concat
-    }
-
-    pi_tool_call.PiEventHook(
-      event_name:,
-      module:,
-      fn_name:,
-      args:,
-      guard:,
-      on_success:,
-      on_error:,
-    ) -> {
-      let import_ln = hook_import_line_js(module, fn_name)
-      let call = hook_call_expr_js(module, fn_name, args)
-
-      let guard_prefix = case guard {
-        Some(g) -> "    if (" <> g <> ") {\n"
-        None -> ""
-      }
-      let guard_suffix = case guard {
-        Some(_) -> "    }\n"
-        None -> ""
-      }
-      let success_js = hook_success_action_to_js(on_success)
-      let error_catch = case on_error {
-        NotifyError ->
-          "      ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
-          <> "      pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
-      }
-      [
-        "  // Event hook: " <> event_name,
-        "  pi.on('" <> event_name <> "', async (event, ctx) => {",
-        "    try {",
-        guard_prefix,
-        "      " <> import_ln,
-        "      const result = await " <> call <> ";",
-        "      const r = unwrapGleamResult(result);",
-        "      if (r.ok) { " <> success_js <> " }",
-        "      else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
-        "      await event_hooks_record_trigger('" <> event_name <> "');",
-        guard_suffix,
-        "    } catch(e) {",
-        error_catch,
-        "    }",
-        "  });",
-        "",
-      ]
-      |> list.map(fn(s) { s <> "\n" })
-      |> string.concat
-    }
-
-    pi_tool_call.PiDebouncedHook(
-      event_name:,
-      module:,
-      fn_name:,
-      args:,
-      debounce_ms_module:,
-      debounce_ms_fn:,
-      guard: _,
-      on_success:,
-      on_error:,
-    ) -> {
-      let debounce_import =
-        hook_import_line_js(debounce_ms_module, debounce_ms_fn)
-      let debounce_call =
-        debounce_ms_module <> "_" <> debounce_ms_fn <> "()"
-      let hook_import_ln = hook_import_line_js(module, fn_name)
-      let call = hook_call_expr_js(module, fn_name, args)
-      let success_js = hook_success_action_to_js(on_success)
-      let error_catch = case on_error {
-        NotifyError ->
-          "        ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
-          <> "        pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
-      }
-      [
-        "  // Event hook (debounced): " <> event_name,
-        "  pi.on('" <> event_name <> "', async (event, ctx) => {",
-        "    try {",
-        "      " <> debounce_import,
-        "      const debounceResult = await " <> debounce_call <> ";",
-        "      const dr = unwrapGleamResult(debounceResult);",
-        "      if (!dr.ok) { ctx.ui.notify('Hook " <> event_name <> " <ERROR> debounce config: ' + dr.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " <ERROR> debounce config: ' + dr.error, 'error'); return; }",
-        "      const debounceMs = dr.value;",
-        "      setTimeout(async () => {",
-        "        try {",
-        "          ctx.ui.notify('[AUTONOMIC] setTimeout callback fired for " <> event_name <> "', 'info');",
-        "          " <> hook_import_ln,
-        "          const result = await " <> call <> ";",
-        "          const r = unwrapGleamResult(result);",
-        "          if (r.ok) { " <> success_js <> " }",
-        "          else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
-        "          await event_hooks_record_trigger('" <> event_name <> "');",
-        "        } catch(e) {",
-        error_catch,
-        "        }",
-        "      }, debounceMs);",
-        "    } catch(e) {",
-        "      ctx.ui.notify('Hook " <> event_name <> " debounce error: ' + (e.message || String(e)), 'error');",
-        "      pi_extension_pi_send_message(pi, 'hook-error', 'Hook " <> event_name <> " debounce error: ' + (e.message || String(e)), 'error');",
-        "    }",
-        "  });",
-        "",
-      ]
-      |> list.map(fn(s) { s <> "\n" })
-      |> string.concat
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Inline: PiCommandReg → JS text (formerly pi_command_gen.gleam)
-// ---------------------------------------------------------------------------
-
-fn command_result_to_js(format: ResultFormat) -> String {
-  case format {
-    RawJson -> "JSON.stringify(gleamValueToJson(r.value))"
-    Template(tpl) -> "`" <> tpl <> "`"
-    CustomJs(expr) -> expr
-  }
-}
-
-fn command_hook_import_line(module: String, fn_name: String) -> String {
-  let base = "./build/dev/javascript/psypi"
-  let alias = module <> "_" <> fn_name
-  "const " <> alias <> " = (await import('" <> base <> "/" <> module <> ".mjs'))." <> fn_name <> ";"
-}
-
-fn command_hook_call_expr(module: String, fn_name: String, args: List(FnArg)) -> String {
-  let args_js =
-    args
-    |> list.map(fn(a) {
-      case a {
-        JsLiteral(v) -> v
-        FromParam(e) -> e
-      }
-    })
-    |> string.join(", ")
-  module <> "_" <> fn_name <> "(" <> args_js <> ")"
-}
-
-fn command_to_js(cmd: PiCommandReg) -> String {
-  case cmd {
-    pi_tool_call.PiRawCommand(name:, description:, handler_body:) -> {
-      [
-        "  // " <> description,
-        "  pi.registerCommand(\"" <> name <> "\", {",
-        "    description: \"" <> description <> "\",",
-        "    handler: async (args, ctx) => {",
-        handler_body,
-        "    }",
-        "  });",
-        "",
-      ]
-      |> list.map(fn(s) { s <> "\n" })
-      |> string.concat
-    }
-
-    pi_tool_call.PiCommandReg(name:, description:, module:, fn_name:, args:, result_format:) -> {
-      let import_ln = command_hook_import_line(module, fn_name)
-      let call = command_hook_call_expr(module, fn_name, args)
-      let result_js = command_result_to_js(result_format)
-      [
-        "  // " <> description,
-        "  pi.registerCommand(\"" <> name <> "\", {",
-        "    description: \"" <> description <> "\",",
-        "    handler: async (args, ctx) => {",
-        "      try {",
-        "        " <> import_ln,
-        "        const result = await " <> call <> ";",
-        "        const r = unwrapGleamResult(result);",
-        "        return r.ok ? { content: [{ type: \"text\", text: " <> result_js <> " }] } : { content: [{ type: \"text\", text: `Error: ${r.error}` }] };",
-        "      } catch(e) {",
-        "        return { content: [{ type: \"text\", text: `Error: ${e.message || String(e)}` }] };",
-        "      }",
-        "    }",
-        "  });",
-        "",
-      ]
-      |> list.map(fn(s) { s <> "\n" })
-      |> string.concat
-    }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Tool registry
@@ -478,57 +49,41 @@ fn command_to_js(cmd: PiCommandReg) -> String {
 
 pub fn all_tools() -> List(PiToolCall) {
   [
-    // Identity
     my_id_tool(),
-    // Tasks
     task_add_tool(),
     task_list_tool(),
     task_complete_tool(),
-    // Stats
     stats_show_tool(),
-    // Code versioning
     doc_save_tool(),
     doc_list_tool(),
-    // Issues
     issue_add_tool(),
     issue_list_tool(),
     issue_count_tool(),
     issue_get_tool(),
     issue_resolve_tool(),
-    // Skills
     skill_list_tool(),
     skill_get_tool(),
     skill_search_tool(),
-    // Meetings
     meeting_list_tool(),
     meeting_get_tool(),
     meeting_opinions_tool(),
     meeting_create_tool(),
     meeting_say_tool(),
-    // Learning
     learn_save_tool(),
-    // Memory
     memory_search_tool(),
-    // Broadcast
     broadcast_send_tool(),
     broadcast_list_tool(),
-    // Reflection
     areflect_tool(),
-    // Agents
     agents_list_tool(),
-    // Monitor
     monitor_status_tool(),
     monitor_health_tool(),
     monitor_alerts_tool(),
     monitor_stats_tool(),
     monitor_suggest_tool(),
-    // Event hooks
     list_hooks_tool(),
     list_active_hooks_tool(),
-    // Directives (Autonomic → Somatic communication)
     direct_agentbot_tool(),
     clear_directives_tool(),
-    // Consult & Commit (structured PiToolCall)
     consult_tool(),
     commit_tool(),
   ]
@@ -546,7 +101,9 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       "on_tool_call",
       [
         from_param("event.toolName || ''"),
-        from_param("event.input ? (event.input.path || event.input.filePath || '') : ''"),
+        from_param(
+          "event.input ? (event.input.path || event.input.filePath || '') : ''",
+        ),
         lit("ctx"),
         lit("pi"),
       ],
@@ -572,16 +129,29 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       SilentSuccess,
       NotifyError,
     ),
-    raw_event_hook_no_trigger(
+    system_prompt_hook(
       "before_agent_start",
-      before_agent_start_body_js(),
+      "hook_on_before_agent_start",
+      "on_before_agent_start",
+      [],
+      NotifyError,
     ),
-    raw_event_hook("agent_start", "    // agent_start: S is starting, A stays silent\n"),
+    event_hook(
+      "agent_start",
+      "hook_on_agent_start",
+      "on_agent_start",
+      [],
+      None,
+      SilentSuccess,
+      NotifyError,
+    ),
     debounced_hook(
       "agent_end",
-      "hook_on_agent_end", "on_agent_end",
+      "hook_on_agent_end",
+      "on_agent_end",
       [lit("ctx"), lit("pi")],
-      "psypi_config", "get_debounce_ms",
+      "psypi_config",
+      "get_debounce_ms",
       None,
       SilentSuccess,
       NotifyError,
@@ -624,7 +194,7 @@ fn imports_text(tools: List(PiToolCall)) -> String {
       "// DO NOT EDIT - Regenerate with: gleam run -m extension_generator",
       "",
       "import { Text } from \"@mariozechner/pi-tui\";",
-      "import { notify_error as pi_extension_notify_error, pi_send_message as pi_extension_pi_send_message } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
+      "import { notify_error as pi_extension_notify_error, pi_send_message as pi_extension_pi_send_message, unwrapGleamResult, gleamValueToJson, registerAutonomicWakeupRenderer } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
       "import { record_trigger as event_hooks_record_trigger } from \"./build/dev/javascript/psypi/event_hooks.mjs\";",
       "",
     ]
@@ -633,7 +203,7 @@ fn imports_text(tools: List(PiToolCall)) -> String {
 
   let lines =
     tools
-    |> list.map(tool_to_import_line)
+    |> list.map(to_import_line)
     |> list.unique
     |> list.map(fn(line) { line <> "\n" })
     |> string.concat
@@ -643,7 +213,7 @@ fn imports_text(tools: List(PiToolCall)) -> String {
 
 fn tools_text(tools: List(PiToolCall)) -> String {
   tools
-  |> list.map(tool_to_js_text)
+  |> list.map(to_js_text)
   |> string.concat
 }
 
@@ -669,9 +239,7 @@ pub fn generate() -> String {
   let commands = all_commands()
   imports_text(tools)
   <> "\nexport default function(pi) {\n"
-  <> gleam_value_to_json_js()
-  <> unwrap_gleam_result_js()
-  <> autonomic_wakeup_renderer_js()
+  <> "  registerAutonomicWakeupRenderer(pi);\n\n"
   <> event_hooks_text(hooks)
   <> tools_text(tools)
   <> commands_text(commands)
@@ -702,7 +270,12 @@ fn commit_tool() -> PiToolCall {
     ],
     module: "tool_commit",
     fn_name: "on_commit",
-    args: [from_param("params.message || ''"), from_param("params.review_id || ''"), lit("ctx"), lit("pi")],
+    args: [
+      from_param("params.message || ''"),
+      from_param("params.review_id || ''"),
+      lit("ctx"),
+      lit("pi"),
+    ],
     result_format: raw_json(),
   )
 }

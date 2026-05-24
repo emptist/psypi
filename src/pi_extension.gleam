@@ -52,3 +52,12 @@ pub fn ctx_reload(ctx: a) -> promise.Promise(Nil)
 
 @external(javascript, "./pi_extension_ffi.mjs", "exec_sync")
 pub fn exec_sync(command: String) -> Result(String, String)
+
+@external(javascript, "./pi_extension_ffi.mjs", "unwrapGleamResult")
+pub fn unwrap_gleam_result(result: a) -> b
+
+@external(javascript, "./pi_extension_ffi.mjs", "gleamValueToJson")
+pub fn gleam_value_to_json(val: a) -> b
+
+@external(javascript, "./pi_extension_ffi.mjs", "registerAutonomicWakeupRenderer")
+pub fn register_autonomic_wakeup_renderer(pi: a) -> Nil
