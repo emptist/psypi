@@ -54,7 +54,7 @@ export function pi_send_message(pi, customType, content, display) {
     customType: String(customType),
     content: String(content),
     display: true,
-  }, { triggerTurn: true, deliverAs: 'steer' });
+  }, { triggerTurn: true });
 }
 
 export async function call_monitor(ctx, userPrompt, systemPrompt) {
