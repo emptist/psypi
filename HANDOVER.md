@@ -1,82 +1,105 @@
-# Handover — 2026-05-30 (fresh session)
+# Handover — 2026-05-30 (fresh session, post-Pi-restart)
 
-## Current State
+## ✅ All Fixes Built and Committed
 
-Pi has been restarted with the new extension.js. **Some fixes are now active**, but there's a bug to fix first.
+All fixes below are in `extension.js` and ready to test after Pi restart.
 
-## ✅ Confirmed Working
+### 1. psypi-task-add project_id fix (f6c7d2b, 798a722)
+- Added `project_id` parameter to `add()` function
+- Default project UUID: `0d324e68-b399-4b85-bd8a-6b1ef7b46168`
+- DB column has DEFAULT set to same UUID
+- **Tested:** ✅ Creates tasks successfully
 
-- **psypi-task-add** — Creates tasks successfully (project_id UUID fix works)
-  - Test: `psypi-task-add title="Test"` → `Task: 897ec562-f080-4873-9a40-fa4d4a43ed54` ✅
+### 2. psypi-tasks list decoder fix (d13aca9)
+- Added `project_id: Option(String)` to `Task` type
+- Added `project_id` to `task_decoder()`
+- Added `project_id::text` to SELECT query
+- **Status:** Built, 87 tests pass, needs Pi restart to verify
 
-## 🐛 Bug Found: psypi-tasks list fails
+### 3. Debounce timer dedup + idle_since tracking (f6c7d2b)
+- Timer dedup via `clearTimeout` + module-level `_debounceTimerId`
+- debounceMs cached at module level (`_debounceMs`)
+- `idle_since` time-based gating in `hook_on_agent_end.gleam`
+- `now_ms`, `get_config`, `set_config` FFI functions added
 
-**Error:** `{"0":"Failed to decode task row"}`
+### 4. A-bot re-enabled (ae0adda, 79231eb)
+- `fully_functional = True` in `a_orchestrator.gleam`
+- Dead code gate removed
+- Inter-review detection in `a_prompt_builder.gleam`
 
-**Root cause:** The `task_decoder()` in `src/task.gleam` doesn't include `project_id` field, but the `list()` SQL query selects all columns including `project_id`. The decoder fails because the row has an unexpected column.
+### 5. DecodeError priority fix (built in earlier session)
+- `a_db_reader.gleam`: priority decoder uses `decode.int`
+- `s_db_reader.gleam`: priority decoder uses `decode.int`
 
-**Fix needed:** Either:
-1. Add `project_id` to the `task_decoder()` and `Task` type, OR
-2. Explicitly list columns in the `list()` SQL query instead of relying on `SELECT *`
+### 6. inter_review NULL params fix (5aea9d1)
+- `request_review` passes `dynamic.nil()` instead of `dynamic.string("")` for nullable UUID params
+- Fixes `"invalid input syntax for type uuid"` error
 
-**File:** `src/task.gleam` — `task_decoder()` function and `sql_with_filters()` SQL query
+### 7. DB indexes + migration (0920ec1, 025)
+- `idx_tasks_project_id` and `idx_tasks_status` indexes
+- Migration `025_add_tasks_project_id.sql`
 
-## ⏳ Fixes Still Pending (built but untested)
+### 8. Docs + tests
+- README.md, ARCHITECTURE.md updated
+- 87 tests passing (up from 82)
+- Skills reviewed and fixed
 
-These are built into extension.js and should work after the list() bug is fixed:
+## ⚠️ Critical Lesson
 
-1. **Debounce timer dedup + idle_since tracking** — Pi should no longer fire A-bot during active work
-2. **A-bot fully_functional=True** — A-bot should run full workflow (DB reads + LLM call)
-3. **DecodeError priority fix** — priority field decoders use `decode.int` instead of `decode.string`
-4. **inter_review NULL params** — `request_review` passes `dynamic.nil()` instead of `dynamic.string("")` for nullable UUID params
+**NEVER call psypi tools from inside Pi to test them.** A tool crash kills the entire Pi session with `ERR_HTTP2_INVALID_SESSION`. Always verify through `gleam build` and `gleam test` first.
 
-## ⚠️ Critical Lesson Learned
+## Inter-Review Flow
 
-**NEVER call psypi tools from inside Pi to test them.** A tool crash kills the entire Pi session with `ERR_HTTP2_INVALID_SESSION`. Always verify code correctness through `gleam build` and `gleam test` first.
+A-bot does NOT review immediately. The flow is:
+1. S calls `psypi-commit` (no review_id) → creates `inter_reviews` record with status `pending`
+2. S goes idle → `agent_end` fires → debounce → A-bot picks up pending review
+3. A-bot reviews, updates `inter_reviews` with score/response, sets status `completed`
+4. S calls `psypi-commit` with `review_id` → validates score ≥ 50 → git commit
 
-## What To Do Next (Priority Order)
+**Key insight:** A-bot only reviews when S is idle (after debounce). If S keeps working, review stays `pending`.
 
-### 1. Fix psypi-tasks list decoder bug
-- Add `project_id` to `Task` type and `task_decoder()`, OR
-- Change SQL to explicitly list columns
-- Rebuild: `gleam clean && gleam build && gleam run -m extension_generator`
-- Restart Pi and test
+## Pending Inter-Review
 
-### 2. Test A-bot workflow
-- After list() fix, verify A-bot fires correctly when S goes idle
-- Check that debounce + idle_since gating works (A shouldn't fire during active work)
-- Check that inter-review prompt detection works
+Review ID: `df31f009-7f00-4b91-8eec-e6c1c832af24` (status: pending)
+- Triggered by `psypi-commit` for HANDOVER.md update
+- Waiting for S to go idle so A-bot can review
 
-### 3. Test psypi-commit inter-review flow
-- The `request_review` fix (NULL instead of empty string for UUID params) needs testing
-- Phase 1: `psypi-commit message="test"` should create inter-review record
-- Phase 2: `psypi-commit message="test" review_id="<uuid>"` should commit after review
+## What To Test After Pi Restart
 
-## Key Files
+### Priority 1: Basic tool verification
+- `psypi-task-add title="test"` → should return task UUID ✅ (already tested)
+- `psypi-tasks` → should list tasks without decode error
+- `psypi-task-complete task_id="<uuid>"` → should complete task
 
-| File | Status |
-|------|--------|
-| `src/task.gleam` | **BUG:** task_decoder missing project_id field |
-| `src/a_orchestrator.gleam` | ✅ fully_functional=True, dead code removed |
-| `src/pi_tool_call.gleam` | ✅ Timer dedup + debounceMs caching |
-| `src/hook_on_agent_end.gleam` | ✅ idle_since time-based gating |
-| `src/pi_extension_ffi.mjs` | ✅ now_ms, get_config, set_config |
-| `src/inter_review.gleam` | ✅ NULL params for nullable UUIDs |
-| `src/a_db_reader.gleam` | ✅ priority decoder uses decode.int |
-| `src/s_db_reader.gleam` | ✅ priority decoder uses decode.int |
+### Priority 2: A-bot workflow
+- Let S go idle → A-bot should fire after debounce period
+- A-bot should review pending inter-review records
+- Check `psypi-autonomic-health` for system status
+
+### Priority 3: Complete inter-review flow
+- After A-bot reviews, call `psypi-commit` with review_id to finalize commit
+
+### Priority 4: psypi-areflect, psypi-learn-save
+- Test that `[object Object]` error is fixed
+
+## Open Issues
+
+| Issue | Status |
+|-------|--------|
+| 6cf92c87 — A-bot inter-review | Fixes built, needs testing after restart |
+| cc64c9f5 — DecodeError priority | Fix built, needs testing after restart |
+| TBD — Inter-review system fundamentally broken | **NEW** — see investigation task |
+
+## Pending Tasks
+
+| Task | Description |
+|------|-------------|
+| d02f8a8b | Review inter-review process and logic — deep investigation |
 
 ## Build & Deploy
 
 ```bash
 gleam clean && gleam build
 gleam run -m extension_generator
-gleam test  # 87 tests, all should pass
-# Then restart Pi
+gleam test  # 87 tests
 ```
-
-## Open Issues
-
-| Issue | Status |
-|-------|--------|
-| 6cf92c87 — A-bot inter-review | Fixes built, needs Pi testing |
-| cc64c9f5 — DecodeError priority | Fix built, needs Pi testing |
