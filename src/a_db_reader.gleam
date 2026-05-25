@@ -166,7 +166,7 @@ fn task_row_decoder() -> decode.Decoder(String) {
   use id <- decode.field("id", decode.string)
   use title <- decode.field("title", decode.string)
   use status <- decode.field("status", decode.string)
-  use priority <- decode.field("priority", decode.string)
+  use priority <- decode.field("priority", decode.int)
   use is_stuck <- decode.field("is_stuck", decode.string)
   let prefix = case is_stuck == "true" {
     True -> "[STUCK] "
@@ -178,7 +178,7 @@ fn task_row_decoder() -> decode.Decoder(String) {
     <> "["
     <> status
     <> " p"
-    <> priority
+    <> int.to_string(priority)
     <> "] "
     <> title
     <> " (id: "
@@ -223,11 +223,7 @@ pub fn read_a_jobs_from_db() -> promise.Promise(Result(String, String)) {
 
 fn a_job_row_decoder() -> decode.Decoder(String) {
   use job <- decode.field("job", decode.string)
-  use priority <- decode.field("priority", decode.string)
+  use priority <- decode.field("priority", decode.int)
   use category <- decode.field("category", decode.string)
-  let p = case int.parse(priority) {
-    Ok(n) -> int.to_string(n)
-    Error(_) -> priority
-  }
-  decode.success("  " <> p <> ". [" <> category <> "] " <> job)
+  decode.success("  " <> int.to_string(priority) <> ". [" <> category <> "] " <> job)
 }

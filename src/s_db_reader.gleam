@@ -88,11 +88,7 @@ fn decode_rows(
 
 fn s_job_row_decoder() -> decode.Decoder(String) {
   use job <- decode.field("job", decode.string)
-  use priority <- decode.field("priority", decode.string)
+  use priority <- decode.field("priority", decode.int)
   use category <- decode.field("category", decode.string)
-  let p = case int.parse(priority) {
-    Ok(n) -> int.to_string(n)
-    Error(_) -> priority
-  }
-  decode.success("  " <> p <> ". [" <> category <> "] " <> job)
+  decode.success("  " <> int.to_string(priority) <> ". [" <> category <> "] " <> job)
 }
