@@ -1,5 +1,19 @@
 # Handover — 2026-05-26 (updated 2026-05-27)
 
+## What was done this session (2026-05-28, continued)
+
+### Committed (79231eb)
+- `src/a_orchestrator.gleam` — removed `fully_functional` dead code gate. The `False` branch (simple greeting fallback) was unreachable since `fully_functional = True`. Replaced `run_a_workflow` body with direct call to `run_full_workflow`.
+- `src/task.gleam` — improved `psypi-task-add` description to mention project_id parameter
+- `extension.js` — regenerated
+
+### Code quality notes
+- Full clean build with zero warnings
+- No deprecated source files in src/
+- Two minor TODOs found: inter_review.gleam (get branch from git), monitor_ai.gleam (housekeeping) — both non-critical
+
+---
+
 ## What was done this session (2026-05-28)
 
 ### Committed (ae0adda)
