@@ -53,11 +53,8 @@ pub fn is_s_still_idle() -> promise.Promise(Result(Bool, String)) {
 }
 
 fn count_decoder() -> decode.Decoder(Int) {
-  use cnt <- decode.field("cnt", decode.string)
-  case int.parse(cnt) {
-    Ok(n) -> decode.success(n)
-    Error(_) -> decode.success(0)
-  }
+  use cnt <- decode.field("cnt", decode.int)
+  decode.success(cnt)
 }
 
 pub fn read_soul_from_db() -> promise.Promise(Result(String, String)) {
@@ -167,8 +164,8 @@ fn task_row_decoder() -> decode.Decoder(String) {
   use title <- decode.field("title", decode.string)
   use status <- decode.field("status", decode.string)
   use priority <- decode.field("priority", decode.int)
-  use is_stuck <- decode.field("is_stuck", decode.string)
-  let prefix = case is_stuck == "true" {
+  use is_stuck <- decode.field("is_stuck", decode.bool)
+  let prefix = case is_stuck {
     True -> "[STUCK] "
     False -> ""
   }

@@ -33,38 +33,38 @@ Inside Pi TUI, use `/psypi-my-id` to verify identity.
 
 **PostgreSQL** is the source of truth. All state lives here: tasks, issues, skills, meetings, agent identity, memory, directives.
 
-| Key | Value |
-|-----|-------|
-| **Host** | `localhost` |
-| **Port** | `5432` |
-| **Database** | `psypi` |
-| **User** | `postgres` |
-| **Driver** | `node_pg` (Gleam FFI to Node.js `pg`) |
+| Key              | Value                                                      |
+| ---------------- | ---------------------------------------------------------- |
+| **Host**         | `localhost`                                                |
+| **Port**         | `5432`                                                     |
+| **Database**     | `psypi`                                                    |
+| **User**         | `postgres`                                                 |
+| **Driver**       | `node_pg` (Gleam FFI to Node.js `pg`)                      |
 | **Access layer** | `src/db.gleam` — all DB ops go through `with_connection()` |
 
 Connect manually: `psql -d psypi`
 
 ### Key Tables
 
-| Table | Purpose |
-|-------|---------|
-| `agent_souls` | Agent identity. `id_prefix` = `'A'` or `'S'` |
-| `agent_jobs` | Prioritized work items per agent soul (NOT the same as user-facing `tasks` table!) |
-| `agent_identities` | Agent identity records |
-| `agent_prefixes` | Valid prefixes: A, S, G |
-| `tasks` | Task queue (PENDING/RUNNING/COMPLETED/FAILED) |
-| `issues` | Bug tracker |
-| `skills` | Skill registry (name, status, safety_score, content) |
-| `meetings` | A↔S structured discussions |
-| `memory` | Stored agent memories |
-| `learning_insights` | Learned knowledge |
-| `code_versions` | File version history (auto-backup before edits) |
-| `psypi_config` | Key-value config (`monitor_debounce_ms` default 300000) |
-| `system_directives` | ~~A→S injected directives~~ (DEPRECATED — anti-pattern, use sendMessage instead) |
-| `system_config` | Legacy config table |
-| `compaction_history` | Context compaction summaries |
-| `event_hooks` | Hook registry |
-| `table_documentation` | Meta-table documenting schema (outdated, 24 rows) |
+| Table                 | Purpose                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| `agent_souls`         | Agent identity. `id_prefix` = `'A'` or `'S'`                                       |
+| `agent_jobs`          | Prioritized work items per agent soul (NOT the same as user-facing `tasks` table!) |
+| `agent_identities`    | Agent identity records                                                             |
+| `agent_prefixes`      | Valid prefixes: A, S, G                                                            |
+| `tasks`               | Task queue (PENDING/RUNNING/COMPLETED/FAILED)                                      |
+| `issues`              | Bug tracker                                                                        |
+| `skills`              | Skill registry (name, status, safety_score, content)                               |
+| `meetings`            | A↔S structured discussions                                                         |
+| `memory`              | Stored agent memories                                                              |
+| `learning_insights`   | Learned knowledge                                                                  |
+| `code_versions`       | File version history (auto-backup before edits)                                    |
+| `psypi_config`        | Key-value config (`monitor_debounce_ms` default 300000)                            |
+| `system_directives`   | ~~A→S injected directives~~ (DEPRECATED — anti-pattern, use sendMessage instead)   |
+| `system_config`       | Legacy config table                                                                |
+| `compaction_history`  | Context compaction summaries                                                       |
+| `event_hooks`         | Hook registry                                                                      |
+| `table_documentation` | Meta-table documenting schema (outdated, 24 rows)                                  |
 
 ### `id_prefix`
 
@@ -98,32 +98,32 @@ Use `psypi-my-id` to get your current identity.
 All tools are defined as `PiToolCall` values in Gleam source. Source of truth: grep for `pub fn.*tool()` in `src/`.
 
 ### Agent Identity
-| Tool | Module | Description |
-|------|--------|-------------|
-| `psypi-my-id` | `agent_identity` | Get calling agent's full identity (ID, role, tasks) |
-| `psypi-agents` | `agents` | List all registered agents |
+| Tool           | Module           | Description                                         |
+| -------------- | ---------------- | --------------------------------------------------- |
+| `psypi-my-id`  | `agent_identity` | Get calling agent's full identity (ID, role, tasks) |
+| `psypi-agents` | `agents`         | List all registered agents                          |
 
 ### Tasks
-| Tool | Module | Description |
-|------|--------|-------------|
-| `psypi-task-add` | `task` | Create a task (title required) |
-| `psypi-tasks` | `task` | List tasks (filter by status, project_id) |
-| `psypi-task-complete` | `task` | Mark task completed by UUID |
+| Tool                  | Module | Description                               |
+| --------------------- | ------ | ----------------------------------------- |
+| `psypi-task-add`      | `task` | Create a task (title required)            |
+| `psypi-tasks`         | `task` | List tasks (filter by status, project_id) |
+| `psypi-task-complete` | `task` | Mark task completed by UUID               |
 
 ### Issues
-| Tool | Module | Description |
-|------|--------|-------------|
-| `psypi-issue-add` | `issue_tools` | Create issue (title, description, severity, type) |
-| `psypi-issues` | `issue_tools` | List issues (filter by status, severity, type) |
-| `psypi-issue-count` | `issue_tools` | Count issues matching filters |
-| `psypi-issue-get` | `issue_tools` | Get single issue by ID |
-| `psypi-issue-resolve` | `issue_tools` | Resolve issue by ID |
+| Tool                  | Module        | Description                                       |
+| --------------------- | ------------- | ------------------------------------------------- |
+| `psypi-issue-add`     | `issue_tools` | Create issue (title, description, severity, type) |
+| `psypi-issues`        | `issue_tools` | List issues (filter by status, severity, type)    |
+| `psypi-issue-count`   | `issue_tools` | Count issues matching filters                     |
+| `psypi-issue-get`     | `issue_tools` | Get single issue by ID                            |
+| `psypi-issue-resolve` | `issue_tools` | Resolve issue by ID                               |
 
 ### Skills
-| Tool | Module | Description |
-|------|--------|-------------|
-| `psypi-skill-list` | `skill` | List skills (filter by status) |
-| `psypi-skill-get` | `skill` | Get skill by name |
+| Tool                 | Module  | Description                               |
+| -------------------- | ------- | ----------------------------------------- |
+| `psypi-skill-list`   | `skill` | List skills (filter by status)            |
+| `psypi-skill-get`    | `skill` | Get skill by name                         |
 | `psypi-skill-search` | `skill` | Search skills by name/description (ILIKE) |
 
 Skills are stored in the `skills` table. Key fields: `name`, `status` (pending/approved/rejected/blocked/installed/uninstalled), `source` (clawhub/local/generated/imported), `safety_score`, `content` (jsonb with markdown body).
@@ -131,68 +131,68 @@ Skills are stored in the `skills` table. Key fields: `name`, `status` (pending/a
 To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 
 ### Meetings (A↔S discussions)
-| Tool | Module | Description |
-|------|--------|-------------|
-| `psypi-meeting-add` | `meeting` | Create meeting (topic, created_by) |
-| `psypi-meetings` | `meeting` | List meetings (filter by status) |
-| `psypi-meeting-get` | `meeting` | Get meeting by ID |
-| `psypi-meeting-say` | `meeting` | Add opinion to meeting |
-| `psypi-meeting-opinions` | `meeting` | List opinions for meeting |
+| Tool                     | Module    | Description                        |
+| ------------------------ | --------- | ---------------------------------- |
+| `psypi-meeting-add`      | `meeting` | Create meeting (topic, created_by) |
+| `psypi-meetings`         | `meeting` | List meetings (filter by status)   |
+| `psypi-meeting-get`      | `meeting` | Get meeting by ID                  |
+| `psypi-meeting-say`      | `meeting` | Add opinion to meeting             |
+| `psypi-meeting-opinions` | `meeting` | List opinions for meeting          |
 
 ### Memory & Learning
-| Tool | Module | Description |
-|------|--------|-------------|
-| `psypi-learn-save` | `learning` | Save learning to memory (content, tags, importance) |
-| `psypi-memory-search` | `memory` | Search memories by keyword |
+| Tool                  | Module     | Description                                         |
+| --------------------- | ---------- | --------------------------------------------------- |
+| `psypi-learn-save`    | `learning` | Save learning to memory (content, tags, importance) |
+| `psypi-memory-search` | `memory`   | Search memories by keyword                          |
 
 ### Code Versioning
-| Tool | Module | Description |
-|------|--------|-------------|
+| Tool             | Module         | Description                                     |
+| ---------------- | -------------- | ----------------------------------------------- |
 | `psypi-doc-save` | `code_version` | Save file version (auto-backup before AI edits) |
-| `psypi-doc-list` | `code_version` | List version history for a file |
+| `psypi-doc-list` | `code_version` | List version history for a file                 |
 
 ### Commit (QC Two-Phase)
-| Tool | Module | Description |
-|------|--------|-------------|
+| Tool           | Module   | Description                                     |
+| -------------- | -------- | ----------------------------------------------- |
 | `psypi-commit` | `commit` | Commit with Monitor review (see workflow below) |
 
 ### Reflection
-| Tool | Module | Description |
-|------|--------|-------------|
+| Tool             | Module     | Description                                                               |
+| ---------------- | ---------- | ------------------------------------------------------------------------- |
 | `psypi-areflect` | `areflect` | Parse [LEARN], [ISSUE], [TASK], [ISSUELIST] markers from text, save to DB |
 
 ### Broadcast
-| Tool | Module | Description |
-|------|--------|-------------|
+| Tool                   | Module      | Description                                            |
+| ---------------------- | ----------- | ------------------------------------------------------ |
 | `psypi-broadcast-send` | `broadcast` | Send broadcast message (message, priority, project_id) |
-| `psypi-broadcasts` | `broadcast` | List recent broadcasts |
+| `psypi-broadcasts`     | `broadcast` | List recent broadcasts                                 |
 
 ### Monitor / Autonomic
-| Tool | Module | Description |
-|------|--------|-------------|
-| `psypi-autonomic-status` | `monitor_ai` | Monitor status and capabilities |
-| `psypi-autonomic-health` | `monitor_ai` | System health (failed tasks, open issues, activity) |
-| `psypi-autonomic-alerts` | `monitor_ai` | Active alerts |
-| `psypi-autonomic-stats` | `monitor_ai` | Statistics (review scores, response times, failure rate) |
+| Tool                      | Module       | Description                                                 |
+| ------------------------- | ------------ | ----------------------------------------------------------- |
+| `psypi-autonomic-status`  | `monitor_ai` | Monitor status and capabilities                             |
+| `psypi-autonomic-health`  | `monitor_ai` | System health (failed tasks, open issues, activity)         |
+| `psypi-autonomic-alerts`  | `monitor_ai` | Active alerts                                               |
+| `psypi-autonomic-stats`   | `monitor_ai` | Statistics (review scores, response times, failure rate)    |
 | `psypi-autonomic-suggest` | `monitor_ai` | Work suggestions (open issues, stale tasks, pending skills) |
 
 ### Directives (REMOVED — anti-pattern)
 ~~`psypi-direct-agentbot` and `psypi-clear-directives`~~ have been removed. A communicates with S via `sendMessage()` — S is an LLM that reads and understands natural language. No database intermediary needed. See "Lessons Learned" below.
 
 ### Consult
-| Tool | Module | Description |
-|------|--------|-------------|
+| Tool                      | Module         | Description         |
+| ------------------------- | -------------- | ------------------- |
 | `psypi-consult-autonomic` | `tool_consult` | S asks A for advice |
 
 ### Event Hooks
-| Tool | Module | Description |
-|------|--------|-------------|
-| `psypi-hooks-list` | `event_hooks` | List all hooks and status |
-| `psypi-hooks-active` | `event_hooks` | List only active hooks |
+| Tool                 | Module        | Description               |
+| -------------------- | ------------- | ------------------------- |
+| `psypi-hooks-list`   | `event_hooks` | List all hooks and status |
+| `psypi-hooks-active` | `event_hooks` | List only active hooks    |
 
 ### Stats
-| Tool | Module | Description |
-|------|--------|-------------|
+| Tool               | Module  | Description                                                 |
+| ------------------ | ------- | ----------------------------------------------------------- |
 | `psypi-stats-show` | `stats` | Project statistics (tasks, issues, skills, meetings counts) |
 
 ## Commit Workflow (QC Two-Phase)
@@ -203,9 +203,9 @@ To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 
 **Phase 2:** Call `psypi-commit` with `review_id` → performs actual git commit.
 
-**Proper flow:** S makes changes → A reviews → A calls `psypi-commit` with review_id.
+**Proper flow:** S makes changes → S calls `psypi-commit` (no review_id) → A reviews diff → A responds with review_id → S calls `psypi-commit` with review_id → commit lands.
 
-**Gotcha:** S should NOT call `psypi-commit` on own changes (infinite self-review loop). For S's own work, use direct `git add` + `git commit`.
+**Note:** S MUST use `psypi-commit` for all commits. The two-phase review ensures A reviews S's work before it lands. There is no self-review loop — A is the reviewer, not S.
 
 **⚠️ NEVER restart psypi by yourself.** Never run `pkill`, `node bin/ppi.mjs`, `npx`, or any Pi restart commands. That is A-bot's job or the human's job. S-bot dies when Pi restarts — that is normal. Do not try to resurrect yourself.
 
@@ -293,23 +293,23 @@ The `system_directives` table, `psypi-direct-agentbot` tool, `psypi-clear-direct
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `src/extension_generator.gleam` | Collects all tools/hooks/commands, generates extension.js |
-| `src/pi_tool_call.gleam` | PiToolCall, PiEventHook, PiCommandReg types |
-| `src/db.gleam` | Database access layer |
-| `src/agent_identity.gleam` | Identity resolution + enrichment from DB |
-| `src/skill.gleam` | Skill CRUD + Pi tools |
-| `src/task.gleam` | Task CRUD + Pi tools |
-| `src/issue_tools.gleam` | Issue CRUD + Pi tools |
-| `src/meeting.gleam` | Meeting CRUD + Pi tools |
-| `src/monitor_ai.gleam` | Autonomic monitoring tools |
-| `src/commit.gleam` | QC two-phase commit |
-| `src/simple_migrate.gleam` | DB migration runner |
-| `src/seed.gleam` | Initial data seeder |
-| `AGENTS.md` | This file — agent quick guide |
-| `ppi_skills/psypi-basics/SKILL.md` | Full psypi cheat sheet |
-| `ppi_skills/getting-started/SKILL.md` | First-time user guide |
-| `docs/MONITOR-DEBOUNCE.md` | Debounce configuration |
-| `Makefile` | Convenience targets |
-| `bin/setup.sh` | First-time setup script |
+| File                                  | Purpose                                                   |
+| ------------------------------------- | --------------------------------------------------------- |
+| `src/extension_generator.gleam`       | Collects all tools/hooks/commands, generates extension.js |
+| `src/pi_tool_call.gleam`              | PiToolCall, PiEventHook, PiCommandReg types               |
+| `src/db.gleam`                        | Database access layer                                     |
+| `src/agent_identity.gleam`            | Identity resolution + enrichment from DB                  |
+| `src/skill.gleam`                     | Skill CRUD + Pi tools                                     |
+| `src/task.gleam`                      | Task CRUD + Pi tools                                      |
+| `src/issue_tools.gleam`               | Issue CRUD + Pi tools                                     |
+| `src/meeting.gleam`                   | Meeting CRUD + Pi tools                                   |
+| `src/monitor_ai.gleam`                | Autonomic monitoring tools                                |
+| `src/commit.gleam`                    | QC two-phase commit                                       |
+| `src/simple_migrate.gleam`            | DB migration runner                                       |
+| `src/seed.gleam`                      | Initial data seeder                                       |
+| `AGENTS.md`                           | This file — agent quick guide                             |
+| `ppi_skills/psypi-basics/SKILL.md`    | Full psypi cheat sheet                                    |
+| `ppi_skills/getting-started/SKILL.md` | First-time user guide                                     |
+| `docs/MONITOR-DEBOUNCE.md`            | Debounce configuration                                    |
+| `Makefile`                            | Convenience targets                                       |
+| `bin/setup.sh`                        | First-time setup script                                   |

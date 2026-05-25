@@ -63,9 +63,8 @@ The prefix is determined by `ctx.isIdle()` at the moment of the call: `S-` when 
     → Phase 2: commits with review_id as proof of QC approval.
       The review_id is the "ticket" — no ticket, no commit.
 ```
-**Important:** S should NOT call psypi-commit on its own changes (infinite self-review loop).
-Proper flow: S makes changes → A reviews → A calls psypi-commit with review_id.
-For S's own work, use direct `git add` + `git commit` instead.
+**Important:** S MUST use `psypi-commit` for all commits. The two-phase review ensures A reviews S's work before it lands. There is no self-review loop — A is the reviewer, not S.
+Proper flow: S makes changes → S calls psypi-commit (no review_id) → A reviews diff → A responds with review_id → S calls psypi-commit with review_id → commit lands.
 
 ### Meetings (discussion between Somatic and Autonomic workers)
 ```

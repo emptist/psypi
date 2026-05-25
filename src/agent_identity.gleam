@@ -30,6 +30,7 @@ pub type EnrichedIdentity {
     model: String,
     source: String,
     thinking_level: String,
+    jobs: List(String),
   )
 }
 
