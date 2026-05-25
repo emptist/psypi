@@ -69,8 +69,10 @@ Connect manually: `psql -d psypi`
 ### `id_prefix`
 
 Field in `agent_souls` table (`text UNIQUE NOT NULL`):
-- `'A'` — Autonomic Agentbot (event-driven, monitors system)
-- `'S'` — Somatic Agentbot (prompt-driven, executes tasks)
+- `'A'` — Autonomic Agentbot (quality guardian: reviews S behavior and work, inter-reviews code changes, anti-stupidity enforcement)
+- `'S'` — Somatic Agentbot (the doer: prompt-driven task execution, considers A suggestions thoughtfully)
+
+A and S work like **alternating current** — never active simultaneously. When S finishes and goes idle, A wakes up and reviews. When A finishes, S may be woken. They alternate, never overlap. See README.md "The A/S Dialogue Model" for full details.
 
 Used throughout hooks, seed, and directives to look up agent identity.
 
@@ -98,10 +100,10 @@ Use `psypi-my-id` to get your current identity.
 All tools are defined as `PiToolCall` values in Gleam source. Source of truth: grep for `pub fn.*tool()` in `src/`.
 
 ### Agent Identity
-| Tool           | Module           | Description                                         |
-| -------------- | ---------------- | --------------------------------------------------- |
+| Tool           | Module           | Description                                        |
+| -------------- | ---------------- | -------------------------------------------------- |
 | `psypi-my-id`  | `agent_identity` | Get calling agent's full identity (ID, role, jobs) |
-| `psypi-agents` | `agents`         | List all registered agents                          |
+| `psypi-agents` | `agents`         | List all registered agents                         |
 
 ### Tasks
 | Tool                  | Module | Description                               |
