@@ -142,6 +142,21 @@ export function exec_sync(command) {
   }
 }
 
+export function now_ms() {
+  return Date.now();
+}
+
+// Simple in-memory config store for idle_since tracking
+let _configStore = {};
+
+export function get_config(key) {
+  return _configStore[key] || null;
+}
+
+export function set_config(key, value) {
+  _configStore[key] = value;
+}
+
 export function unwrapGleamResult(result) {
   if (!result) return { ok: false, error: 'null result' };
   const typeName = result.constructor?.name || '';

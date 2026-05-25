@@ -1,166 +1,60 @@
-# HANDOVER — Fake Gleam Bug Hunt & Critical Fixes
+# Handover — 2026-05-26
 
-**Date**: 2026-05-23
-**Session**: S-bot investigating psypi-commit bugs and fake Gleam modules
+## What was done this session
 
----
+### Committed (49dc6a7)
+- `src/a_orchestrator.gleam` — added `fully_functional = False` gate that bypasses A's full workflow (DB reads + LLM call) and sends a simple greeting instead
+- `src/a_prompt_builder.gleam` — added inter-review detection in `build_user_prompt` + "Inter-Review" section in A's identity prompt
+- `AGENTS.md`, `README.md`, `ppi_skills/psypi-basics/SKILL.md` — fixed `rm -rf build/` → `gleam clean && gleam build`
+- `docs/REVIEW-A-BOT-DEBOUNCE.md` — full root cause analysis of 3 debounce bugs
 
-## 1. CRITICAL: Fake Gleam Modules (MUST DELETE)
+### Issues filed
+- **16ef800a** — CONSOLIDATED: agent_end debounce (timer stacking + no idle_since + fires wrong time)
+- **6cf92c87** — A-bot can't do inter-review: drifts to tangents
+- **0c5022df** — psypi-task-add fails: project_id NOT NULL constraint violation
 
-Six `pi_*.gleam` modules are "fake Gleam" — they emit JavaScript source code as Gleam string literals instead of doing real Gleam work. They cause 99% of all bugs.
+### Issues resolved (consolidated)
+- b9ea707f, f0c389d5, 0bd23575 → consolidated into 16ef800a
 
-### Banned Modules Table
+### Rebuilt
+- `gleam clean && gleam build` — DecodeError fix (cc64c9f5) now in compiled .mjs files
 
-| Module | File | Issue ID | Status |
-|--------|------|----------|--------|
-| `pi_js_helpers.gleam` | ~~deleted~~ | #f8ea3f97 | ✅ RESOLVED — `unwrapGleamResult` inlined into `extension_generator.gleam` |
-| `pi_tool_gen.gleam` | ~~deleted~~ | #bbdc5fd0 | ✅ RESOLVED — `to_js_text`, `to_import_line` inlined into `extension_generator.gleam` |
-| `pi_hook_gen.gleam` | ~~deleted~~ | #96fc8a50 | ✅ RESOLVED — `event_hook_to_js` inlined into `extension_generator.gleam` |
-| `pi_command_gen.gleam` | ~~deleted~~ | #fa0e3357 | ✅ RESOLVED — `command_to_js` inlined into `extension_generator.gleam` |
-| `pi_message_renderer.gleam` | ~~deleted~~ | #0b0974bc | ✅ RESOLVED — renderer inlined into `extension_generator.gleam` |
-| `pi_system_prompt.gleam` | ~~deleted~~ | #be445168 | ✅ RESOLVED — `before_agent_start` body inlined into `extension_generator.gleam` |
+## Current state of A-bot
+- `fully_functional = False` in a_orchestrator.gleam — A sends only a simple greeting, no DB/LLM
+- This is intentional — prevents A from disturbing S while we debug
+- To re-enable: change `False` to `True` in a_orchestrator.gleam, rebuild
 
-### Allowed Modules (DO NOT DELETE)
+## What to do next
 
-| Module | Why it's OK |
-|--------|------------|
-| `src/pi_tool_call.gleam` | Real Gleam types (PiToolCall, PiParam) — no JS generation |
-| `src/pi_extension.gleam` | Real Gleam FFI declarations (`@external`) — no JS generation |
-| `src/extension_generator.gleam` | The ONE legitimate generator — composes everything into `extension.js` |
+### Priority 1: Fix psypi-task-add (issue 0c5022df)
+- Small fix: add `project_id` to the INSERT in `src/task.gleam` `add()` function
+- Or make the column nullable / add default
+- This is blocking task management
 
-### Action Plan
-1. Delete all 6 banned modules
-2. Move `unwrapGleamResult` helper to `src/pi_extension_ffi.mjs`
-3. Merge tool/hook/command generation logic into `extension_generator.gleam`
-4. Run: `rm -rf build/ && gleam build && gleam run -m extension_generator`
-5. Verify `extension.js` regenerates correctly
+### Priority 2: Test A-bot with fully_functional = True
+- After the prompt fix (inter-review detection), test if A can actually do focused review
+- If A still drifts, the prompt fix may need strengthening
+- If A works, set `fully_functional = True` and rebuild
 
----
+### Priority 3: Implement debounce fix (issue 16ef800a)
+- Timer dedup in `pi_tool_call.gleam` `event_hook_to_js()` for PiDebouncedHook
+- idle_since tracking in `hook_on_agent_end.gleam`
+- debounceMs caching
+- Full plan in `docs/REVIEW-A-BOT-DEBOUNCE.md`
 
-## 2. Previously Fixed Bugs (Verify After Restart)
+### Priority 4: Docs review (original task from user)
+- Compare all docs to codebase, fix gaps
+- README.md and ARCHITECTURE.md have known gaps (see REVIEW-A-BOT-DEBOUNCE.md section 3)
+- agent_soul DB content still references old table names (issue 22261e08)
 
-### Issue #4fed2c60 — Truncated "Error: F" Error
-- **File**: `src/pi_js_helpers.gleam`
-- **Fix**: Changed `result['0']?.['0']` → `result['0']` in `unwrapGleamResult`
-- **Root cause**: `['0']?.['0']` indexed into the first character of the error string
-- **Extension.js regenerated**: YES
+## Key files modified this session
+- `src/a_orchestrator.gleam` — fully_functional gate
+- `src/a_prompt_builder.gleam` — inter-review detection + focus prompt
 
-### Issue #d85dd53d — Insufficient Commit Message Escaping
-- **File**: `src/tool_commit.gleam`
-- **Fix**: Added `shell_escape()` function (escapes `\`, `"`, `` ` ``, `$`)
-- **Extension.js regenerated**: YES
+## Key files to modify next
+- `src/task.gleam` — fix project_id INSERT
+- `src/pi_tool_call.gleam` — timer dedup in PiDebouncedHook generation
+- `src/hook_on_agent_end.gleam` — idle_since tracking
 
----
-
-## 3. Hook Bridge Issue (#8b3786b7) — RESOLVED
-
-The "all hooks have trigger_count=0" issue is **outdated**. Database shows active hooks have significant counts:
-- `tool_call`: 769 triggers
-- `tool_result`: 766 triggers
-- `agent_end`: 214 triggers
-
-This issue can be closed.
-
----
-
-## 4. Agent Tasks Added
-
-### For A (Autonomic Bot) — soul_id: `bc956b52-bcc7-4308-aa7e-92477007a2b1`
-1. **Priority 1, cleanup**: Delete all 6 fake Gleam modules
-2. **Priority 2, cleanup**: Rebuild after deletion
-3. **Priority 1, quality**: During inter-reviews, flag any new `pi_*.gleam` files
-
-### For S (Somatic Bot) — soul_id: `c3d4c8f2-50cd-47fd-9bc4-b4b73a9e6fe4`
-1. **Priority 1, quality**: Never create `pi_*.gleam` modules
-
----
-
-## 5. AGENTS.md Changes
-
-- Added **Critical Rule #8**: `☠️ NO FAKE GLEAM`
-- Replaced "Code Generator Rules" section with **☠️ DEATH PENALTY** section
-- All 6 banned modules listed with issue IDs
-
----
-
-## 6. Build Commands (After Any Gleam Changes)
-
-```bash
-cd /Users/jk/gits/hub/tools_ai/psypi
-rm -rf build/ && gleam build
-gleam run -m extension_generator
-```
-
----
-
-## 7. Database Quick Reference
-
-```bash
-# Connect to DB
-psql -d psypi
-
-# Check agent tasks
-SELECT id, soul_id, task, priority, category, is_active FROM agent_tasks WHERE priority = 1 ORDER BY id;
-
-# Check agent souls (id_prefix)
-SELECT id_prefix, role, domain, responsibility FROM agent_souls WHERE is_active = true;
-
-# Check hook trigger counts
-SELECT event_name, hook_status, trigger_count, last_triggered FROM psypi_event_hooks WHERE hook_status = 'active' ORDER BY event_name;
-```
-
----
-
-## 8. Key File Locations
-
-| File | Purpose |
-|------|---------|
-| `src/extension_generator.gleam` | ONLY legitimate generator — composes extension.js |
-| `src/pi_tool_call.gleam` | Real Gleam types for tool registration |
-| `src/pi_extension.gleam` | Real Gleam FFI declarations |
-| `src/pi_extension_ffi.mjs` | JS implementations for FFI functions |
-| `src/tool_commit.gleam` | Commit tool logic (partially fixed) |
-| `src/pi_js_helpers.gleam` | **DELETE** — fake Gleam |
-| `extension.js` | Auto-generated — NEVER hand-edit |
-
----
-
-## 9. Forbidden Patterns (NEVER DO)
-
-```gleam
-// ❌ NEVER: JS string generation in Gleam
-pub fn some_helper() -> String [
-  "  function jsHelper() {",
-  "    const x = ...",
-    // ... more JS code
-  ]
-  |> string.concat
-
-// ❌ NEVER: Create pi_*.gleam modules
-src/pi_something_new.gleam  // FORBIDDEN
-
-// ❌ NEVER: Hand-edit extension.js
-// It's auto-generated. Edit Gleam source instead.
-
-// ✅ CORRECT: Real Gleam FFI
-@external(javascript, "./module_ffi.mjs", "fn_name")
-pub fn my_function(arg: String) -> Result(String, String)
-
-// ✅ CORRECT: Standalone .mjs file for JS logic
-// Create src/my_helper.mjs directly
-```
-
----
-
-## 10. Next Priority After Restart
-
-~~1. **Delete all 6 fake Gleam modules**~~ ✅ DONE — All 6 deleted, inlined into extension_generator.gleam
-~~2. **Merge functionality**~~ ✅ DONE — JS text generation logic inlined into extension_generator.gleam
-~~3. **Rebuild and verify**~~ ✅ DONE — Build clean, extension.js regenerates at 1107 lines
-~~4. **Close issue #8b3786b7**~~ ✅ DONE — Hook bridge resolved, all hooks triggering normally
-
-### Remaining Known Issues (Updated 2026-05-23)
-- `psypi-tasks` returns `[object Object]` — serialization/error propagation bug (pre-existing)
-- `build_where` parameter reversal in `issue_db.gleam` — filter indices may be wrong
-- `issue_types.gleam:string_to_status()` only handles lowercase — add uppercase for robustness
-- `tool_commit.gleam` has unused function arguments (minor warnings)
+## Build command
+Always use: `gleam clean && gleam build` (NOT `rm -rf build/`)

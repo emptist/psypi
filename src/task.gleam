@@ -113,11 +113,12 @@ pub fn add(
   description: String,
   priority: Int,
   created_by: String,
+  project_id: String,
 ) -> promise.Promise(Result(String, TaskError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      INSERT INTO tasks (title, description, priority, created_by)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO tasks (title, description, priority, created_by, project_id)
+      VALUES ($1, $2, $3, $4, $5)
       RETURNING id
     "
     let params = [
@@ -125,6 +126,7 @@ pub fn add(
       dynamic.string(description),
       dynamic.int(priority),
       dynamic.string(created_by),
+      dynamic.string(project_id),
     ]
 
     promise.map(db.query(conn, sql, params), fn(query_result) {
@@ -266,7 +268,7 @@ pub fn task_add_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-task-add",
     description: "Add a new task",
-    params: [string_param("title")],
+    params: [string_param("title"), opt_string_param("project_id")],
     module: "task",
     fn_name: "add",
     args: [
@@ -274,6 +276,7 @@ pub fn task_add_tool() -> PiToolCall {
       lit("\"\""),
       lit("5"),
       lit("\"cli\""),
+      from_param("params?.project_id || 'psypi'"),
     ],
     result_format: template("Task: ${r.value}"),
   )
