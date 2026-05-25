@@ -36,22 +36,72 @@ IdentityContext:
 ```bash
 gleam clean && gleam build
 gleam run -m simple_migrate      # DB migrations
+gleam run -m seed                # seed data
 gleam run -m extension_generator # regenerate extension.js
+```
+
+After any Gleam source change, rebuild and restart Pi:
+```bash
+gleam clean && gleam build
+gleam run -m extension_generator
+# Then restart Pi to load the new extension.js
 ```
 
 ## Pi Tools
 
 All functionality is exposed as Pi tools — use them inside the TUI, never from shell.
 
-| Tool                    | Description                 |
-| ----------------------- | --------------------------- |
-| `psypi-my-id`           | Get the calling agent's ID (S- or A- prefix) |
-| `psypi-task-add`        | Add a task                  |
-| `psypi-task-list`       | List tasks                  |
-| `psypi-task-complete`   | Complete a task             |
-| `psypi-doc-save`        | Save file version           |
-| `psypi-doc-list`        | List file versions          |
-| `psypi-issue-add`       | Report an issue             |
+| Tool | Description |
+| --- | --- |
+| **Identity** | |
+| `psypi-my-id` | Get the calling agent's full identity |
+| **Tasks** | |
+| `psypi-task-add` | Add a new task |
+| `psypi-tasks` | List tasks (filter by status/project_id) |
+| `psypi-task-complete` | Mark a task as completed |
+| **Issues** | |
+| `psypi-issue-add` | File a new issue |
+| `psypi-issues` | List issues |
+| `psypi-issue-count` | Count issues |
+| `psypi-issue-get` | Get a single issue by ID |
+| `psypi-issue-resolve` | Resolve an issue |
+| **Docs/Versions** | |
+| `psypi-doc-save` | Save a file version |
+| `psypi-doc-list` | List version history |
+| **Skills** | |
+| `psypi-skill-list` | List skills |
+| `psypi-skill-get` | Get a skill by ID |
+| `psypi-skill-search` | Search skills by name |
+| **Meetings** | |
+| `psypi-meetings` | List meetings |
+| `psypi-meeting-get` | Get a meeting by ID |
+| `psypi-meeting-opinions` | List opinions for a meeting |
+| `psypi-meeting-add` | Create a new meeting |
+| `psypi-meeting-say` | Add an opinion to a meeting |
+| **Learning/Memory** | |
+| `psypi-learn-save` | Save a learning to memory |
+| `psypi-memory-search` | Search memories by keyword |
+| **Broadcast** | |
+| `psypi-broadcast-send` | Send a broadcast message |
+| `psypi-broadcasts` | List broadcast messages |
+| **Reflection** | |
+| `psypi-areflect` | Extract [LEARN], [ISSUE], [TASK] markers from text |
+| **Autonomic** | |
+| `psypi-autonomic-status` | Get Monitor status |
+| `psypi-autonomic-health` | Get system health metrics |
+| `psypi-autonomic-alerts` | Get active alerts |
+| `psypi-autonomic-stats` | Get Monitor statistics |
+| `psypi-autonomic-suggest` | Get work suggestions |
+| **Hooks** | |
+| `psypi-hooks-list` | List all event hooks |
+| `psypi-hooks-active` | List active hooks |
+| **Agents** | |
+| `psypi-agents` | List all registered agents |
+| **Stats** | |
+| `psypi-stats-show` | Show project statistics |
+| **Other** | |
+| `psypi-consult-autonomic` | Consult A-bot for difficult decisions |
+| `psypi-commit` | Commit with Monitor inter-review |
 
 ## Adding a Pi Tool
 
@@ -151,10 +201,18 @@ Do not confuse them. The database had them mixed up — S's "system-review" job 
 ## Key Files
 
 - `src/extension_generator.gleam` — collects tools/hooks/commands, generates extension.js
-- `src/pi_tool_call.gleam` — PiToolCall, PiEventHook, PiCommandReg types
+- `src/pi_tool_call.gleam` — PiToolCall, PiEventHook, PiCommandReg types + JS code generators
+- `src/pi_extension.gleam` — FFI imports for ctx, notify, config, time
+- `src/pi_extension_ffi.mjs` — runtime FFI: call_monitor, sendMessage, notify, now_ms, get/set_config
 - `src/agent_identity.gleam` — identity resolution (single source of truth)
 - `src/agent_identity_types.gleam` — IdentityContext, AgentIdentity types
 - `src/db.gleam` — database access layer (all DB ops go through here)
+- `src/a_orchestrator.gleam` — A-bot workflow orchestrator (fully_functional gate + full workflow)
+- `src/a_prompt_builder.gleam` — A-bot system/user prompt composition + inter-review detection
+- `src/hook_on_agent_end.gleam` — agent_end hook: idle_since gating + debounce + A-bot trigger
+- `src/hook_on_before_agent_start.gleam` — S system prompt from DB
+- `src/psypi_config.gleam` — psypi_config table reads/writes (debounce_ms, etc.)
+- `src/system_prompt_types.gleam` — PromptComposition with context window budget
 
 ## agent_end Workflow (A-S Communication)
 
@@ -166,21 +224,23 @@ When the S-worker finishes a turn, the `agent_end` event fires. The autonomic ho
 - This gives the user instant visual feedback that the autonomic worker detected the idle state
 - **This is the debugging phase** — it confirms the hook fired and idle was detected
 
-### Phase 2: Debounce Wait
-- Read `monitor_debounce_ms` from `system_config` table (default: 300000ms = 5 minutes)
-- Wait via `setTimeout(debounceMs)`
+### Phase 2: Debounce Wait + Timer Dedup
+- Read `monitor_debounce_ms` from `psypi_config` table (default: 300000ms = 5 minutes) — cached at module level (DB read once)
+- Start `setTimeout(debounceMs)` — but first `clearTimeout` any existing timer (prevents timer stacking)
+- The `idle_since` timestamp is recorded when S first becomes idle, ensuring the debounce measures from the first idle moment, not the last
 - Rationale: S-worker might receive a new prompt immediately. No need to wake it if it's already busy.
 
 ### Phase 3: Intelligent Composition
-- After debounce, check `ctx.isIdle()` again
+- After debounce, the Gleam handler checks `idle_since`: only proceeds if elapsed idle time >= debounce_ms
+- Check `ctx.isIdle()` again
 - If `False` → S-worker is busy, skip silently
-- If `True` → call Monitor LLM via `callMonitor()` to compose a wake-up message
+- If `True` → clear `idle_since`, then call Monitor LLM via `callMonitor()` to compose a wake-up message
 - Send via `pi_send_message(pi, 'autonomic-wakeup', msg, 'persistent')` with `triggerTurn: true`
 - On LLM failure → send error message as persistent notification so S-worker can debug
 
-**Key insight:** Phase 1 uses `ctx.ui.notify()` (transient toast) for immediate human feedback. Phase 3 uses `pi_send_message()` (persistent message) because by then the TUI session may be dormant and transient toasts are invisible.
+**Key insight:** `setTimeout` callback uses `pi_send_message()` (persistent) because the TUI session may be dormant.
 
-**Current bug:** Phase 1 is missing from the code. The hook jumps straight to Phase 2 (debounce), so there's no immediate feedback. Additionally, `ctx.ui.notify()` calls in Phase 3 fire when the TUI is already dormant, making them invisible. The `pi_send_message` persistent messages still work but the LLM call (`callMonitor`) is returning empty output.
+**Note:** A-bot is currently gated behind `fully_functional = False` in `a_orchestrator.gleam`. It sends only a simple greeting. To enable full A-bot workflow, change to `True` and rebuild.
 
 ## Lesson: The `system_directives` Anti-Pattern
 

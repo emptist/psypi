@@ -44,19 +44,48 @@ System prompt is bounded by context window. `system_prompt_types.gleam` provides
 src/
   agent_identity.gleam          -- semantic_id computation + DB soul reader
   agent_identity_types.gleam    -- IdentityContext, AgentIdentity, IdentityError
-  hook_on_agent_end.gleam       -- A-S coordination: debounce + call_monitor
-  hook_on_before_agent_start.gleam -- S system prompt from DB
+  agents.gleam                  -- psypi-agents tool
+  areflect.gleam                -- psypi-areflect: extract markers from text
+  broadcast.gleam               -- psypi-broadcast-send/list
+  code_version.gleam            -- psypi-doc-save/list
+  command_listen.gleam          -- autonomic-listen command
+  command_reload.gleam          -- autonomic-reload command
+  db.gleam                      -- PostgreSQL connection pool (node_pg FFI)
+  event_hooks.gleam             -- Hook trigger recording
+  extension_generator.gleam     -- Generates extension.js from Gleam typed values
+  file_utils.gleam              -- File read/write helpers
+  hook_on_agent_end.gleam       -- A-S coordination: debounce + idle_since gating + call_monitor
   hook_on_agent_start.gleam     -- S session start event
+  hook_on_before_agent_start.gleam -- S system prompt from DB
   hook_on_tool_call.gleam       -- tool call event
   hook_on_tool_result.gleam     -- tool result event
-  a_db_reader.gleam             -- A's DB reads: soul, jobs, project state (id_prefix='A')
-  a_prompt_builder.gleam        -- A's system/user prompt composition
-  a_context_utils.gleam         -- Context window parsing, time utilities
+  inter_review.gleam            -- Inter-review meeting creation
+  issue_db.gleam                -- Issue DB operations
+  issue_tools.gleam             -- psypi-issue-* tools
+  issue_types.gleam             -- Issue type definitions
+  learning.gleam                -- psypi-learn-save
+  main.gleam                    -- Entry point
+  meeting.gleam                 -- psypi-meeting-* tools
+  memory.gleam                  -- psypi-memory-search
+  monitor.gleam                 -- Model recording
+  monitor_ai.gleam              -- psypi-autonomic-* tools
+  pi_extension.gleam            -- FFI imports: notify, ctx_*, now_ms, get/set_config
+  pi_extension_ffi.mjs          -- FFI: call_monitor, sendMessage, notify, now_ms, get/set_config
+  pi_tool_call.gleam            -- PiToolCall, PiEventHook, PiCommandReg types + JS generators
+  psypi_config.gleam            -- psypi_config table reads/writes
   s_db_reader.gleam             -- S's DB reads: soul (id_prefix='S')
-  pi_tool_call.gleam            -- PiToolCall, PiEventHook, PiCommandReg types + generators
-  extension_generator.gleam     -- Generates extension.js from Gleam typed values
-  pi_extension_ffi.mjs          -- FFI: call_monitor, sendMessage, notify, renderers
+  seed.gleam                    -- DB seed data
+  simple_migrate.gleam          -- Migration runner
+  skill.gleam                   -- psypi-skill-* tools
+  stats.gleam                   -- psypi-stats-show
   system_prompt_types.gleam     -- PromptComposition with context window budget
+  task.gleam                    -- psypi-task-add/list/complete
+  tool_commit.gleam             -- psypi-commit tool
+  tool_consult.gleam            -- psypi-consult-autonomic tool
+  a_context_utils.gleam         -- Context window parsing, time utilities
+  a_db_reader.gleam             -- A's DB reads: soul, jobs, project state (id_prefix='A')
+  a_orchestrator.gleam          -- A's workflow: fully_functional gate + full workflow
+  a_prompt_builder.gleam        -- A's system/user prompt composition + inter-review detection
 ```
 
 ## Typed Pipeline: Gleam → JS

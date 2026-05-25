@@ -16,9 +16,9 @@ pub fn run_a_workflow(
   cwd: String,
   context_window: Int,
 ) -> promise.Promise(Result(Nil, String)) {
-  // Debug flag: when false, A-bot sends only a simple greeting to avoid disturbing S.
-  // Remove this gate once the debounce + focus issues are fixed.
-  let fully_functional = False
+  // Set to True to enable A-bot's full workflow (DB reads + LLM call).
+  // Set to False to send only a simple greeting (debugging/safety gate).
+  let fully_functional = True
   case fully_functional {
     False -> {
       notify_info(ctx, "[AUTONOMIC] fully_functional=False — skipping full workflow")

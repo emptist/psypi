@@ -1,4 +1,36 @@
-# Handover — 2026-05-26
+# Handover — 2026-05-26 (updated 2026-05-27)
+
+## What was done this session (2026-05-27)
+
+### Committed (f6c7d2b)
+- `src/task.gleam` — added `project_id` parameter to `add()` function, included in SQL INSERT, updated `task_add_tool()` to accept optional `project_id`
+- `src/pi_tool_call.gleam` — PiDebouncedHook now generates timer-dedup code (`clearTimeout` + module-level `_debounceTimerId`), debounceMs cached at module level (`_debounceMs`)
+- `src/pi_extension.gleam` — added `now_ms`, `get_config`, `set_config` FFI imports + `gleam/option` import
+- `src/pi_extension_ffi.mjs` — added `now_ms()`, `get_config()`, `set_config()` runtime helpers
+- `src/hook_on_agent_end.gleam` — added `idle_since` time-based gating: records timestamp when S first becomes idle, only proceeds if elapsed >= debounce_ms
+- `extension.js` — regenerated with all fixes
+
+### Issues fixed
+- **0c5022df** — psypi-task-add project_id NOT NULL constraint violation → FIXED
+- **16ef800a** — Debounce timer stacking + no idle_since → FIXED (timer dedup + idle_since gating)
+- **b9ea707f, f0c389d5, 0bd23575** — consolidated into 16ef800a → FIXED
+
+### Remaining open issues
+- **6cf92c87** — A-bot can't do inter-review (prompt fix already in place in a_prompt_builder.gleam, needs testing with fully_functional=True + Pi restart)
+- **cc64c9f5** — DecodeError priority field (fix built and in extension.js, needs Pi restart to take effect)
+
+### Action required: Pi restart
+All fixes from this session are built into extension.js but the Pi process is still running stale code.
+Restart command: pkill -f pi-coding-agent 2>/dev/null; cd /Users/jk/gits/hub/tools_ai/psypi && node bin/ppi.mjs
+After restart:
+- psypi-task-add will work (project_id fix)
+- Debounce will work correctly (timer dedup + idle_since)
+- DecodeError priority fix will take effect
+- Then set fully_functional = True in a_orchestrator.gleam, rebuild, restart to test A-bot inter-review
+
+---
+
+# Handover — 2026-05-26 (original)
 
 ## What was done this session
 
