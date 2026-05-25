@@ -1,5 +1,22 @@
 # Handover — 2026-05-26 (updated 2026-05-27)
 
+## What was done this session (2026-05-29)
+
+### Committed (6e76948, 0920ec1)
+- `ppi_skills/psypi-basics/SKILL.md` — fixed outdated `system_config` → `psypi_config` reference
+- DB: added `idx_tasks_project_id` and `idx_tasks_status` indexes on tasks table
+- `src/migrations/025_add_tasks_project_id.sql` — new migration to formalize project_id column
+
+### Code quality
+- Full clean build, zero warnings
+- All skills reviewed, only one outdated reference found and fixed
+- DB indexes added for task filtering performance
+
+### Still blocked on Pi restart
+- 6cf92c87 (A-bot inter-review), cc64c9f5 (DecodeError priority) — fixes built, need Pi restart
+
+---
+
 ## What was done this session (2026-05-28, continued)
 
 ### Committed (79231eb)
