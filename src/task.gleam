@@ -267,7 +267,7 @@ pub fn get(
 pub fn task_add_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-task-add",
-    description: "Add a new task. project_id optional (defaults to 'psypi').",
+    description: "Add a new task. project_id optional (defaults to default project).",
     params: [string_param("title"), opt_string_param("project_id")],
     module: "task",
     fn_name: "add",
@@ -276,7 +276,7 @@ pub fn task_add_tool() -> PiToolCall {
       lit("\"\""),
       lit("5"),
       lit("\"cli\""),
-      from_param("params?.project_id || 'psypi'"),
+      from_param("params?.project_id || '0d324e68-b399-4b85-bd8a-6b1ef7b46168'"),
     ],
     result_format: template("Task: ${r.value}"),
   )
