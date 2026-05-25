@@ -78,22 +78,22 @@ fn coordinate_when_idle(
             let msg =
               "[A-agentbot] <ERROR> read_soul_from_db failed: "
               <> e
-              <> ". Check agent_souls table in psypi DB: SELECT * FROM agent_souls WHERE id_prefix='A'"
+              <> ". Check agent_souls table: SELECT * FROM agent_souls WHERE id_prefix='A'"
             pi_send_message(pi, "autonomic-error", msg, "persistent")
             promise.resolve(Ok(Nil))
           }
           Ok(soul_content) ->
-            promise.await(a_db_reader.read_directives_from_db(), fn(directives_result) {
-              case directives_result {
+            promise.await(a_db_reader.read_a_jobs_from_db(), fn(jobs_result) {
+              case jobs_result {
                 Error(e) -> {
                   let msg =
-                    "[A-agentbot] <ERROR> read_directives_from_db failed: "
+                    "[A-agentbot] <ERROR> read_a_jobs_from_db failed: "
                     <> e
-                    <> ". Check system_directives table: SELECT * FROM system_directives WHERE is_active=true"
+                    <> ". Check agent_jobs table: SELECT j.* FROM agent_jobs j JOIN agent_souls s ON j.soul_id = s.id WHERE s.id_prefix='A'"
                   pi_send_message(pi, "autonomic-error", msg, "persistent")
                   promise.resolve(Ok(Nil))
                 }
-                Ok(directives) ->
+                Ok(a_jobs) ->
                   promise.await(a_db_reader.read_project_state_from_db(), fn(state_result) {
                     let project_state = case state_result {
                       Ok(s) -> s
@@ -102,7 +102,7 @@ fn coordinate_when_idle(
                     let system_prompt =
                       compose(a_prompt_builder.build_system_prompt(
                         soul_content,
-                        directives,
+                        a_jobs,
                         context_window,
                       ))
                     let user_prompt =

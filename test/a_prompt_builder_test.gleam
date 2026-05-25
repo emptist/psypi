@@ -9,29 +9,47 @@ pub fn main() {
 }
 
 pub fn build_system_prompt_contains_identity_test() {
-  let comp = a_prompt_builder.build_system_prompt("", [], 128000)
+  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
   let text = compose(comp)
   should.be_true(string.contains(text, "Autonomic Agentbot"))
   should.be_true(string.contains(text, "A-agentbot"))
 }
 
 pub fn build_system_prompt_contains_soul_test() {
-  let comp = a_prompt_builder.build_system_prompt("Review code carefully", [], 128000)
+  let comp = a_prompt_builder.build_system_prompt("Review code carefully", "", 128000)
   let text = compose(comp)
   should.be_true(string.contains(text, "Review code carefully"))
 }
 
 pub fn build_system_prompt_empty_soul_test() {
-  let comp = a_prompt_builder.build_system_prompt("", [], 128000)
+  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
   let text = compose(comp)
   should.be_true(string.contains(text, "Autonomic Agentbot"))
 }
 
-pub fn build_system_prompt_with_directives_test() {
-  let comp = a_prompt_builder.build_system_prompt("", ["Fix bug #42", "Review PR"], 128000)
+pub fn build_system_prompt_with_jobs_test() {
+  let comp = a_prompt_builder.build_system_prompt(
+    "",
+    "1. [review] Inter-review S code changes\n2. [unblock] Unblock stuck S jobs",
+    128000,
+  )
   let text = compose(comp)
-  should.be_true(string.contains(text, "Fix bug #42"))
-  should.be_true(string.contains(text, "Review PR"))
+  should.be_true(string.contains(text, "Inter-review S code changes"))
+  should.be_true(string.contains(text, "Unblock stuck S jobs"))
+  should.be_true(string.contains(text, "Your Jobs"))
+}
+
+pub fn build_system_prompt_no_jobs_test() {
+  let comp = a_prompt_builder.build_system_prompt("", "  (no active jobs)", 128000)
+  let text = compose(comp)
+  should.be_false(string.contains(text, "Your Jobs"))
+}
+
+pub fn build_system_prompt_polite_reminder_test() {
+  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
+  let text = compose(comp)
+  should.be_true(string.contains(text, "polite reminder"))
+  should.be_true(string.contains(text, "Would you consider"))
 }
 
 pub fn build_user_prompt_with_cwd_test() {
@@ -100,4 +118,15 @@ pub fn build_user_prompt_truncates_long_entries_test() {
   let long_entries = string.repeat("x", 5000)
   let text = a_prompt_builder.build_user_prompt("{}", long_entries, "/cwd", "state")
   should.be_true(string.contains(text, "..."))
+}
+
+pub fn build_user_prompt_no_detailed_instructions_test() {
+  let text = a_prompt_builder.build_user_prompt(
+    "{}",
+    "entries...",
+    "/cwd",
+    "No tasks",
+  )
+  should.be_true(string.contains(text, "polite reminder"))
+  should.be_true(string.contains(text, "Do NOT give detailed"))
 }

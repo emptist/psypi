@@ -228,3 +228,41 @@ fn issue_row_decoder() -> decode.Decoder(String) {
   use severity <- decode.field("severity", decode.string)
   decode.success("  - [" <> severity <> "] " <> title <> " (id: " <> id <> ")")
 }
+
+pub fn read_a_jobs_from_db() -> promise.Promise(Result(String, String)) {
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "SELECT j.job, j.priority, j.category "
+        <> "FROM agent_jobs j "
+        <> "JOIN agent_souls s ON j.soul_id = s.id "
+        <> "WHERE s.id_prefix = 'A' AND j.is_active = true "
+        <> "ORDER BY j.priority ASC"
+      promise.map(db.query(conn, sql, []), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_string(e))
+          Ok(result) ->
+            case result.rows {
+              [] -> Ok("  (no active jobs)")
+              rows ->
+                rows
+                |> decode_rows(a_job_row_decoder())
+                |> result.map(fn(lines) { string.join(lines, "\n") })
+            }
+        }
+      })
+    },
+    db_error_to_string,
+  )
+}
+
+fn a_job_row_decoder() -> decode.Decoder(String) {
+  use job <- decode.field("job", decode.string)
+  use priority <- decode.field("priority", decode.string)
+  use category <- decode.field("category", decode.string)
+  let p = case int.parse(priority) {
+    Ok(n) -> int.to_string(n)
+    Error(_) -> priority
+  }
+  decode.success("  " <> p <> ". [" <> category <> "] " <> job)
+}

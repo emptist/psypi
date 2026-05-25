@@ -1,4 +1,3 @@
-import gleam/list
 import gleam/string
 import system_prompt_types.{
   type PromptComposition, High, add_component, directive_component,
@@ -7,14 +6,14 @@ import system_prompt_types.{
 
 pub fn build_system_prompt(
   soul_content: String,
-  directives: List(String),
+  a_jobs: String,
   context_window: Int,
 ) -> PromptComposition {
   let budget = context_window / 4
   new_composition(budget)
   |> add_component(soul_component(a_identity_prompt()))
   |> add_soul_content(soul_content)
-  |> add_directives(directives)
+  |> add_a_jobs(a_jobs)
 }
 
 fn a_identity_prompt() -> String {
@@ -22,23 +21,17 @@ fn a_identity_prompt() -> String {
   <> "You are NOT the Somatic Agentbot (S-agentbot). "
   <> "You are NOT the human user. "
   <> "Psypi is the personal assistant — you and S together form it.\n\n"
-  <> "## Your Role\n"
-  <> "Your PRIMARY job is to help S finish S's CURRENT work, not to redirect S to unrelated tasks.\n\n"
-  <> "### Priority Order:\n"
-  <> "1. **Inter-review**: Review S's recent work for quality, bugs, missing edge cases, better approaches.\n"
-  <> "2. **Unblock**: If S is stuck, provide the specific information, context, or suggestion to unblock.\n"
-  <> "3. **Continue**: Help S continue the current task — suggest next steps, point out what's missing.\n"
-  <> "4. **New task ONLY if idle**: Only suggest a new task if S has NO in-progress work and is truly idle.\n\n"
-  <> "### Rules:\n"
-  <> "- NEVER distract S from in-progress work with unrelated tasks.\n"
-  <> "- NEVER ask S to 'check' or 'review' things as a busywork task.\n"
-  <> "- NEVER repeat the same directive twice.\n"
-  <> "- ALWAYS check if S has a RUNNING or in-progress task before suggesting new work.\n"
-  <> "- When doing inter-review, be specific: point to exact files, lines, or decisions.\n"
-  <> "- Keep messages short and actionable. One focused message per turn.\n"
-  <> "- Never say SKIP or that there is nothing to do.\n"
+  <> "## Your Behavior\n"
+  <> "- You observe what S has been doing and give gentle, polite reminders.\n"
+  <> "- You speak as a colleague, not a commander. Say things like:\n"
+  <> "  'Would you consider updating the docs?' or 'Mind checking the open issues?'\n"
+  <> "- Give GENERAL reminders about jobs S could do — never detailed step-by-step instructions.\n"
+  <> "- Think carefully about what S needs, but do NOT send your thinkings to S.\n"
+  <> "  Only send the final polite prompt/reminder for S.\n"
   <> "- Never introduce yourself or state your identifier.\n"
-  <> "- Output ONLY the instruction for S — no preamble, no self-intro."
+  <> "- Keep messages short — one focused reminder per turn.\n"
+  <> "- Never say SKIP or that there is nothing to do.\n"
+  <> "- Your role and jobs are defined in the database — follow them, not hardcoded rules."
 }
 
 fn add_soul_content(
@@ -51,13 +44,21 @@ fn add_soul_content(
   }
 }
 
-fn add_directives(
+fn add_a_jobs(
   comp: PromptComposition,
-  directives: List(String),
+  jobs: String,
 ) -> PromptComposition {
-  list.fold(directives, comp, fn(acc, dir) {
-    add_component(acc, directive_component(dir, High))
-  })
+  case jobs == "" || jobs == "  (no active jobs)" {
+    True -> comp
+    False ->
+      add_component(
+        comp,
+        directive_component(
+          "## Your Jobs (from database, ordered by priority):\n" <> jobs,
+          High,
+        ),
+      )
+  }
 }
 
 pub fn build_user_prompt(
@@ -79,10 +80,9 @@ pub fn build_user_prompt(
     <> project_state <> "\n\n"
   let recent_section =
     "## S's Recent Conversation (most recent at the end):\n"
-    <> "Analyze what S was LAST doing. "
-    <> "If S has in-progress work, help FINISH it — do NOT redirect to something else. "
-    <> "If S just completed something, offer an inter-review or suggest the next logical step. "
-    <> "Only propose a completely new task if S is truly idle with no in-progress work.\n\n"
+    <> "Based on your jobs and what S was doing, compose a brief, polite reminder. "
+    <> "Do NOT give detailed instructions. Do NOT include your reasoning. "
+    <> "Just a gentle nudge like 'Would you continue with X?' or 'Mind checking Y?'\n\n"
     <> truncate(entries_json, 2000)
   context_section <> usage_section <> state_section <> recent_section
 }
