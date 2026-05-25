@@ -100,7 +100,7 @@ All tools are defined as `PiToolCall` values in Gleam source. Source of truth: g
 ### Agent Identity
 | Tool           | Module           | Description                                         |
 | -------------- | ---------------- | --------------------------------------------------- |
-| `psypi-my-id`  | `agent_identity` | Get calling agent's full identity (ID, role, tasks) |
+| `psypi-my-id`  | `agent_identity` | Get calling agent's full identity (ID, role, jobs) |
 | `psypi-agents` | `agents`         | List all registered agents                          |
 
 ### Tasks

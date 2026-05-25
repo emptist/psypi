@@ -6,6 +6,7 @@ import agent_identity_types.{
 import db
 import gleam/dynamic
 import gleam/dynamic/decode
+import gleam/int
 import gleam/javascript/promise
 import gleam/list
 import gleam/string
@@ -136,7 +137,49 @@ fn fetch_soul_by_prefix(
 }
 
 // -------------------------------------------------------------------
-// Enriched identity: semantic ID + DB soul + tasks
+// Jobs query (shared by both agents)
+// -------------------------------------------------------------------
+
+fn job_row_decoder() -> decode.Decoder(String) {
+  use job <- decode.field("job", decode.string)
+  use priority <- decode.field("priority", decode.int)
+  use category <- decode.field("category", decode.string)
+  decode.success(int.to_string(priority) <> ". [" <> category <> "] " <> job)
+}
+
+fn fetch_jobs_by_prefix(prefix: String) -> promise.Promise(Result(List(String), IdentityError)) {
+  db.with_connection(fn(conn) {
+    let sql =
+      "SELECT j.job, j.priority, j.category "
+      <> "FROM agent_jobs j "
+      <> "JOIN agent_souls s ON j.soul_id = s.id "
+      <> "WHERE s.id_prefix = $1 AND j.is_active = true "
+      <> "ORDER BY j.priority ASC"
+    let params = [dynamic.string(prefix)]
+    promise.map(db.query(conn, sql, params), fn(query_result) {
+      case query_result {
+        Error(e) -> Error(db_error_to_identity_error(e))
+        Ok(result) ->
+          case result.rows {
+            [] -> Ok([])
+            rows ->
+              rows
+              |> list.map(fn(row) { decode.run(row, job_row_decoder()) })
+              |> list.filter_map(fn(r) {
+                case r {
+                  Ok(v) -> Ok(v)
+                  Error(_) -> Error(Nil)
+                }
+              })
+              |> Ok
+          }
+      }
+    })
+  }, db_error_to_identity_error)
+}
+
+// -------------------------------------------------------------------
+// Enriched identity: semantic ID + DB soul + jobs
 // -------------------------------------------------------------------
 
 pub fn get_enriched_identity(
@@ -156,41 +199,49 @@ pub fn get_enriched_identity(
       }
 
       promise.await(fetch_soul_by_prefix(prefix), fn(soul_result) {
-        case soul_result {
-          Ok(#(_soul_id, name, domain, responsibility, trigger_type, drive_mode, activation)) -> {
-            promise.resolve(Ok(EnrichedIdentity(
+        promise.await(fetch_jobs_by_prefix(prefix), fn(jobs_result) {
+          let jobs = case jobs_result {
+            Ok(j) -> j
+            Error(_) -> []
+          }
+          case soul_result {
+            Ok(#(_soul_id, name, domain, responsibility, trigger_type, drive_mode, activation)) -> {
+              promise.resolve(Ok(EnrichedIdentity(
+                  id: id,
+                  prefix: prefix,
+                  role: name,
+                  name: name,
+                  domain: domain,
+                  responsibilities: responsibility,
+                  trigger_type: trigger_type,
+                  drive_mode: drive_mode,
+                  activation: activation,
+                  project: project,
+                  model: ctx.model,
+                  source: ctx.source,
+                  thinking_level: ctx.thinking_level,
+                  jobs: jobs,
+                )))
+            }
+            Error(_) ->
+              promise.resolve(Ok(EnrichedIdentity(
                 id: id,
                 prefix: prefix,
-                role: name,
-                name: name,
-                domain: domain,
-                responsibilities: responsibility,
-                trigger_type: trigger_type,
-                drive_mode: drive_mode,
-                activation: activation,
+                role: prefix <> "-bot",
+                name: prefix <> " Agentbot",
+                domain: "unknown",
+                responsibilities: "",
+                trigger_type: "",
+                drive_mode: "",
+                activation: "",
                 project: project,
                 model: ctx.model,
                 source: ctx.source,
                 thinking_level: ctx.thinking_level,
+                jobs: jobs,
               )))
           }
-          Error(_) ->
-            promise.resolve(Ok(EnrichedIdentity(
-              id: id,
-              prefix: prefix,
-              role: prefix <> "-bot",
-              name: prefix <> " Agentbot",
-              domain: "unknown",
-              responsibilities: "",
-              trigger_type: "",
-              drive_mode: "",
-              activation: "",
-              project: project,
-              model: ctx.model,
-              source: ctx.source,
-              thinking_level: ctx.thinking_level,
-            )))
-        }
+        })
       })
     }
     Error(e) -> promise.resolve(Error(e))
@@ -201,11 +252,11 @@ pub fn get_enriched_identity(
 // Pi tool
 // -------------------------------------------------------------------
 
-/// Pi tool: psypi-my-id — get the calling agent's full identity (ID, role, responsibilities, tasks)
+/// Pi tool: psypi-my-id — get the calling agent's full identity (ID, role, responsibilities, jobs)
 pub fn my_id_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-my-id",
-    description: "Get the calling agent's full identity. Returns ID, prefix, role, name, domain, responsibilities, trigger_type, drive_mode, activation, project, model, source, and thinking_level.",
+    description: "Get the calling agent's full identity. Returns ID, prefix, role, name, domain, responsibilities, trigger_type, drive_mode, activation, project, model, source, thinking_level, and jobs.",
     params: [],
     module: "agent_identity",
     fn_name: "get_enriched_identity",
