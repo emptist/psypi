@@ -1,3 +1,4 @@
+import a_context_utils
 import agent_identity_types.{IdentityContext, MissingSessionId, semantic_id}
 import gleeunit
 import gleeunit/should
@@ -120,4 +121,28 @@ pub fn no_fallback_test() {
     cwd: "",
   ))
   |> should.equal(Error(MissingSessionId))
+}
+
+pub fn parse_context_window_valid_test() {
+  a_context_utils.parse_context_window(
+    "{\"tokens\":12345,\"contextWindow\":200000,\"percent\":6.17}",
+  )
+  |> should.equal(Ok(200000))
+}
+
+pub fn parse_context_window_null_tokens_test() {
+  a_context_utils.parse_context_window(
+    "{\"tokens\":null,\"contextWindow\":128000,\"percent\":null}",
+  )
+  |> should.equal(Ok(128000))
+}
+
+pub fn parse_context_window_missing_field_test() {
+  a_context_utils.parse_context_window("{\"tokens\":12345}")
+  |> should.be_error()
+}
+
+pub fn parse_context_window_invalid_json_test() {
+  a_context_utils.parse_context_window("not json")
+  |> should.be_error()
 }

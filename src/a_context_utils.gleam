@@ -1,55 +1,42 @@
-import gleam/int
+import gleam/dynamic/decode
+import gleam/json
 import gleam/list
 import gleam/string
 
 pub fn parse_context_window(usage_json: String) -> Result(Int, String) {
-  let key = "\"contextWindow\":"
-  case string.contains(usage_json, "contextWindow") {
-    False -> Error("contextWindow not found in usage JSON")
-    True -> {
-      let parts = string.split(usage_json, key)
-      case parts {
-        [_, rest, ..] -> {
-          let digits = rest |> string.trim_start |> extract_leading_digits
-          case digits == "" {
-            True ->
-              Error(
-                "contextWindow: no digits after "
-                <> key
-                <> " in "
-                <> string.slice(usage_json, 0, 200),
-              )
-            False ->
-              case int.parse(digits) {
-                Ok(n) -> Ok(n)
-                Error(_) ->
-                  Error("contextWindow: failed to parse digits: " <> digits)
-              }
-          }
-        }
-        _ ->
-          Error(
-            "contextWindow: split on "
-            <> key
-            <> " failed. JSON: "
-            <> string.slice(usage_json, 0, 200),
-          )
-      }
-    }
+  usage_json
+  |> json.parse(using: context_window_decoder())
+  |> map_decode_error
+}
+
+fn context_window_decoder() -> decode.Decoder(Int) {
+  use context_window <- decode.field("contextWindow", decode.int)
+  decode.success(context_window)
+}
+
+fn map_decode_error(r: Result(Int, json.DecodeError)) -> Result(Int, String) {
+  case r {
+    Ok(n) -> Ok(n)
+    Error(e) ->
+      Error("contextWindow: JSON decode failed: " <> json_decode_error_to_string(e))
   }
 }
 
-fn extract_leading_digits(s: String) -> String {
-  s
-  |> string.to_graphemes
-  |> list.take_while(is_digit)
-  |> string.concat
-}
-
-fn is_digit(c: String) -> Bool {
-  case c {
-    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> True
-    _ -> False
+fn json_decode_error_to_string(e: json.DecodeError) -> String {
+  case e {
+    json.UnexpectedEndOfInput -> "unexpected end of input"
+    json.UnexpectedByte(s) -> "unexpected byte: " <> s
+    json.UnexpectedSequence(s) -> "unexpected sequence: " <> s
+    json.UnableToDecode(errors) ->
+      errors
+      |> list.map(fn(err: decode.DecodeError) {
+        err.path |> string.join(".")
+        <> ": expected "
+        <> err.expected
+        <> ", found "
+        <> err.found
+      })
+      |> string.join(", ")
   }
 }
 
