@@ -186,11 +186,11 @@ pub fn request_review(
 
       let task_id_param = case task_id {
         Some(id) -> dynamic.string(id)
-        None -> dynamic.string("")
+        None -> dynamic.nil()
       }
       let commit_hash_param = case commit_hash {
         Some(h) -> dynamic.string(h)
-        None -> dynamic.string("")
+        None -> dynamic.nil()
       }
       // reviewer_id: 永远来自 get_resolved_identity(permanent=true)
       let reviewer_id_param = dynamic.string(reviewer_id)
