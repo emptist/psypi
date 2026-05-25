@@ -34,7 +34,7 @@ IdentityContext:
 ## Build
 
 ```bash
-rm -rf build/ && gleam build
+gleam clean && gleam build
 gleam run -m simple_migrate      # DB migrations
 gleam run -m extension_generator # regenerate extension.js
 ```
@@ -58,7 +58,7 @@ All functionality is exposed as Pi tools — use them inside the TUI, never from
 1. Define Gleam function in its module
 2. Create `PiToolCall` value in that module
 3. Import in `extension_generator.gleam`, add to `all_tools()`
-4. `rm -rf build/ && gleam build`
+4. `gleam clean && gleam build`
 5. `gleam run -m extension_generator`
 
 ## The A/S Dialogue Model

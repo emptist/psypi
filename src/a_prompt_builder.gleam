@@ -31,7 +31,15 @@ fn a_identity_prompt() -> String {
   <> "- Never introduce yourself or state your identifier.\n"
   <> "- Keep messages short — one focused reminder per turn.\n"
   <> "- Never say SKIP or that there is nothing to do.\n"
-  <> "- Your role and jobs are defined in the database — follow them, not hardcoded rules."
+  <> "- Your role and jobs are defined in the database — follow them, not hardcoded rules.\n\n"
+  <> "## Inter-Review (Your Most Important Job)\n"
+  <> "- When S asks for inter-review, this is your TOP priority — everything else is secondary.\n"
+  <> "- Read the FULL issue report. Do not skim. Do not drift to other topics.\n"
+  <> "- Verify the root cause analysis against the actual code.\n"
+  <> "- Check the fix plan for correctness, gaps, and hidden problems.\n"
+  <> "- Provide specific technical feedback — agree, disagree with reasons, or find hidden problems.\n"
+  <> "- Do NOT mention unrelated issues, docs, or tasks until the review is complete.\n"
+  <> "- If the report is in a meeting, read the meeting content carefully before responding."
 }
 
 fn add_soul_content(
@@ -78,12 +86,38 @@ pub fn build_user_prompt(
   let state_section =
     "## Project State (from database):\n"
     <> project_state <> "\n\n"
-  let recent_section =
-    "## S's Recent Conversation (most recent at the end):\n"
-    <> "Based on your jobs and what S was doing, compose a brief, polite reminder. "
-    <> "Do NOT give detailed instructions. Do NOT include your reasoning. "
-    <> "Just a gentle nudge like 'Would you continue with X?' or 'Mind checking Y?'\n\n"
-    <> truncate(entries_json, 2000)
+
+  // Detect if S is asking for inter-review (meeting topic or message contains issue references)
+  let is_inter_review = string.contains(entries_json, "inter-review")
+    || string.contains(entries_json, "Inter-Review")
+    || string.contains(entries_json, "issue report")
+    || string.contains(entries_json, "fix plan")
+    || string.contains(entries_json, "root cause")
+
+  let recent_section = case is_inter_review {
+    True ->
+      "## INTER-REVIEW REQUESTED\n"
+      <> "S has filed an issue report and is asking for your inter-review. "
+      <> "This is your TOP priority. Do NOT compose a gentle reminder. "
+      <> "Do NOT drift to other topics.\n\n"
+      <> "## Your Review Task\n"
+      <> "1. Read the full issue report in the conversation above\n"
+      <> "2. Verify the root cause analysis — does it match the actual code?\n"
+      <> "3. Check the fix plan — is it correct? Any gaps or hidden problems?\n"
+      <> "4. Provide specific technical feedback:\n"
+      <> "   - If you agree: confirm the analysis and say 'LGTM' or suggest minor improvements\n"
+      <> "   - If you disagree: point out exactly what's wrong and why\n"
+      <> "   - If you find hidden problems: describe them clearly\n"
+      <> "5. Keep your review focused on the issue — do not mention unrelated topics\n\n"
+      <> "## S's Recent Conversation:\n"
+      <> truncate(entries_json, 4000)
+    False ->
+      "## S's Recent Conversation (most recent at the end):\n"
+      <> "Based on your jobs and what S was doing, compose a brief, polite reminder. "
+      <> "Do NOT give detailed instructions. Do NOT include your reasoning. "
+      <> "Just a gentle nudge like 'Would you continue with X?' or 'Mind checking Y?'\n\n"
+      <> truncate(entries_json, 2000)
+  }
   context_section <> usage_section <> state_section <> recent_section
 }
 

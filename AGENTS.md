@@ -10,7 +10,7 @@
 make setup          # full first-time setup (deps, DB, build, migrate, seed)
 # or step by step:
 gleam deps download
-rm -rf build/ && gleam build
+gleam clean && gleam build
 gleam run -m simple_migrate
 gleam run -m seed
 node bin/ppi.mjs    # start Pi with psypi loaded
@@ -18,7 +18,7 @@ node bin/ppi.mjs    # start Pi with psypi loaded
 
 After any Gleam source change:
 ```bash
-rm -rf build/ && gleam build
+gleam clean && gleam build
 node bin/ppi.mjs --generate-only   # or: gleam run -m extension_generator
 ```
 
@@ -266,7 +266,7 @@ Hand-written JS files (only these 3):
 3. **Read files first** — `read` then `edit` with exact match
 4. **Never spawn Pi from Pi tools** — infinite loop crash
 5. **Gleam types** — Enums are source of truth. Validate at boundary via `string_to_*()` → `Result`, never pass raw strings to SQL
-6. **Clean build** — Always `rm -rf build/ && gleam build` before building
+6. **Clean build** — Always `gleam clean && gleam build` before building
 7. **pnpm** — Not npm
 8. **☠️ NO FAKE GLEAM** — Never create `pi_*.gleam` modules. Never write JS code as Gleam string literals. Use `.mjs` + `@external` FFI instead. This is the #1 source of bugs.
 

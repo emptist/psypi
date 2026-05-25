@@ -270,5 +270,5 @@ The A-bot runs as event hooks inside the Pi TUI. Key things to know:
 
 ## Quick tip
 - After any change, run `/psypi-commit` to let the Monitor review and approve the commit. This keeps the single-dreamer cycle safe and autonomous.
-- After Gleam source changes: `rm -rf build/ && gleam build` then restart Pi.
+- After Gleam source changes: `gleam clean && gleam build` then restart Pi.
 - **Restart Pi**: `pkill -f pi-coding-agent; cd /Users/jk/gits/hub/tools_ai/psypi && npx -y @earendil-works/pi-coding-agent --prompt "what is your id?"`

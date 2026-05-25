@@ -16,6 +16,33 @@ pub fn run_a_workflow(
   cwd: String,
   context_window: Int,
 ) -> promise.Promise(Result(Nil, String)) {
+  // Debug flag: when false, A-bot sends only a simple greeting to avoid disturbing S.
+  // Remove this gate once the debounce + focus issues are fixed.
+  let fully_functional = False
+  case fully_functional {
+    False -> {
+      notify_info(ctx, "[AUTONOMIC] fully_functional=False — skipping full workflow")
+      pi_send_message(
+        pi,
+        "autonomic-wakeup",
+        "Hey, it's time for you to continue your efforts to improve the project, S-bot!",
+        "persistent",
+      )
+      promise.resolve(Ok(Nil))
+    }
+    True ->
+      run_full_workflow(ctx, pi, entries_json, usage_json, cwd, context_window)
+  }
+}
+
+fn run_full_workflow(
+  ctx: a,
+  pi: b,
+  entries_json: String,
+  usage_json: String,
+  cwd: String,
+  context_window: Int,
+) -> promise.Promise(Result(Nil, String)) {
   promise.await(a_db_reader.read_soul_from_db(), fn(soul_result) {
     case soul_result {
       Error(e) -> {
