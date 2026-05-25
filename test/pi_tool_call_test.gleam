@@ -1,10 +1,11 @@
 import gleeunit
 import gleeunit/should
 import pi_tool_call.{
-  PiToolCall, args_to_js, command, command_to_js, debounced_hook, event_hook,
-  event_hook_to_js, from_param, hook_call_expr, hook_import_line, lit,
-  number_param, opt_string_param, params_to_js, raw_json, result_to_js,
-  string_param, system_prompt_hook, template, to_import_line, to_js_text,
+  PiToolCall, Accent, Error as ThemeError, args_to_js, command, command_to_js,
+  debounced_hook, event_hook, event_hook_to_js, from_param, hook_call_expr,
+  hook_import_line, lit, message_renderer, message_renderer_to_js, number_param,
+  opt_string_param, params_to_js, raw_json, result_to_js, string_param,
+  system_prompt_hook, template, to_import_line, to_js_text, Warning,
 }
 import gleam/option.{None, Some}
 import gleam/string
@@ -273,4 +274,49 @@ pub fn event_hook_set_status_test() {
   )
   let js = event_hook_to_js(hook)
   should.be_true(string.contains(js, "ctx.ui.setStatus('phase', 'reviewing')"))
+}
+
+pub fn message_renderer_to_js_wakeup_test() {
+  let renderer = message_renderer(
+    "autonomic-wakeup",
+    "[A-agentbot]",
+    Accent,
+    Warning,
+    True,
+  )
+  let js = message_renderer_to_js(renderer)
+  should.be_true(string.contains(js, "pi.registerMessageRenderer('autonomic-wakeup'"))
+  should.be_true(string.contains(js, "'accent'"))
+  should.be_true(string.contains(js, "'warning'"))
+  should.be_true(string.contains(js, "[A-agentbot]"))
+  should.be_true(string.contains(js, "message.details"))
+  should.be_true(string.contains(js, "new Box"))
+  should.be_true(string.contains(js, "customMessageBg"))
+}
+
+pub fn message_renderer_to_js_error_test() {
+  let renderer = message_renderer(
+    "autonomic-error",
+    "[A-agentbot ERROR]",
+    ThemeError,
+    ThemeError,
+    True,
+  )
+  let js = message_renderer_to_js(renderer)
+  should.be_true(string.contains(js, "pi.registerMessageRenderer('autonomic-error'"))
+  should.be_true(string.contains(js, "'error'"))
+  should.be_true(string.contains(js, "[A-agentbot ERROR]"))
+}
+
+pub fn message_renderer_no_details_test() {
+  let renderer = message_renderer(
+    "simple-msg",
+    "[Bot]",
+    Accent,
+    Warning,
+    False,
+  )
+  let js = message_renderer_to_js(renderer)
+  should.be_true(string.contains(js, "pi.registerMessageRenderer('simple-msg'"))
+  should.be_false(string.contains(js, "message.details"))
 }

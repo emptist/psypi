@@ -33,9 +33,10 @@ import monitor_ai.{
   monitor_suggest_tool,
 }
 import pi_tool_call.{
-  type PiCommandReg, type PiEventHook, type PiToolCall, NotifyError, PiParam,
-  PiToolCall, SilentSuccess, command_to_js, debounced_hook, event_hook,
-  event_hook_to_js, from_param, lit, raw_json,
+  type PiCommandReg, type PiEventHook, type PiMessageRenderer, type PiToolCall,
+  Accent, Error as ThemeError, NotifyError, PiParam, PiToolCall, SilentSuccess,
+  Warning, command_to_js, debounced_hook, event_hook, event_hook_to_js,
+  from_param, lit, message_renderer, message_renderer_to_js, raw_json,
   system_prompt_hook, to_import_line, to_js_text,
 }
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
@@ -181,6 +182,29 @@ pub fn all_commands() -> List(PiCommandReg) {
 }
 
 // ---------------------------------------------------------------------------
+// Message renderers registry
+// ---------------------------------------------------------------------------
+
+pub fn all_message_renderers() -> List(PiMessageRenderer) {
+  [
+    message_renderer(
+      "autonomic-wakeup",
+      "[A-agentbot]",
+      Accent,
+      Warning,
+      True,
+    ),
+    message_renderer(
+      "autonomic-error",
+      "[A-agentbot ERROR]",
+      ThemeError,
+      ThemeError,
+      True,
+    ),
+  ]
+}
+
+// ---------------------------------------------------------------------------
 // JS text composition
 // ---------------------------------------------------------------------------
 
@@ -191,7 +215,7 @@ fn imports_text(tools: List(PiToolCall)) -> String {
       "// DO NOT EDIT - Regenerate with: gleam run -m extension_generator",
       "",
       "import { Text, Box } from \"@mariozechner/pi-tui\";",
-      "import { notify_error as pi_extension_notify_error, unwrapGleamResult, gleamValueToJson, registerAutonomicWakeupRenderer } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
+      "import { notify_error as pi_extension_notify_error, unwrapGleamResult, gleamValueToJson } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
       "import { record_trigger as event_hooks_record_trigger } from \"./build/dev/javascript/psypi/event_hooks.mjs\";",
       "",
     ]
@@ -226,6 +250,12 @@ fn event_hooks_text(hooks: List(PiEventHook)) -> String {
   |> string.concat
 }
 
+fn message_renderers_text(renderers: List(PiMessageRenderer)) -> String {
+  renderers
+  |> list.map(message_renderer_to_js)
+  |> string.concat
+}
+
 // ---------------------------------------------------------------------------
 // Main generation
 // ---------------------------------------------------------------------------
@@ -234,9 +264,10 @@ pub fn generate() -> String {
   let tools = all_tools()
   let hooks = all_event_hooks()
   let commands = all_commands()
+  let renderers = all_message_renderers()
   imports_text(tools)
   <> "\nexport default function(pi) {\n"
-  <> "  registerAutonomicWakeupRenderer(pi);\n\n"
+  <> message_renderers_text(renderers)
   <> event_hooks_text(hooks)
   <> tools_text(tools)
   <> commands_text(commands)

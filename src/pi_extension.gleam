@@ -58,6 +58,3 @@ pub fn unwrap_gleam_result(result: a) -> b
 
 @external(javascript, "./pi_extension_ffi.mjs", "gleamValueToJson")
 pub fn gleam_value_to_json(val: a) -> b
-
-@external(javascript, "./pi_extension_ffi.mjs", "registerAutonomicWakeupRenderer")
-pub fn register_autonomic_wakeup_renderer(pi: a) -> Nil

@@ -97,6 +97,23 @@ pub type PiCommandReg {
   )
 }
 
+pub type ThemeColor {
+  Accent
+  Warning
+  Error
+  Dim
+}
+
+pub type PiMessageRenderer {
+  PiMessageRenderer(
+    custom_type: String,
+    prefix: String,
+    prefix_color: ThemeColor,
+    content_color: ThemeColor,
+    show_details: Bool,
+  )
+}
+
 // -------------------------------------------------------------------
 // PiParam helpers
 // -------------------------------------------------------------------
@@ -401,6 +418,60 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       |> string.concat
     }
   }
+}
+
+// -------------------------------------------------------------------
+// PiMessageRenderer → JS text
+// -------------------------------------------------------------------
+
+fn theme_color_to_js(color: ThemeColor) -> String {
+  case color {
+    Accent -> "'accent'"
+    Warning -> "'warning'"
+    Error -> "'error'"
+    Dim -> "'dim'"
+  }
+}
+
+pub fn message_renderer(
+  custom_type: String,
+  prefix: String,
+  prefix_color: ThemeColor,
+  content_color: ThemeColor,
+  show_details: Bool,
+) -> PiMessageRenderer {
+  PiMessageRenderer(
+    custom_type:,
+    prefix:,
+    prefix_color:,
+    content_color:,
+    show_details:,
+  )
+}
+
+pub fn message_renderer_to_js(renderer: PiMessageRenderer) -> String {
+  let prefix_color_js = theme_color_to_js(renderer.prefix_color)
+  let content_color_js = theme_color_to_js(renderer.content_color)
+  let details_block = case renderer.show_details {
+    True ->
+      "    if (expanded && message.details) {\n"
+      <> "      text += '\\n' + theme.fg('dim', JSON.stringify(message.details, null, 2));\n"
+      <> "    }\n"
+    False -> ""
+  }
+  [
+    "  pi.registerMessageRenderer('" <> renderer.custom_type <> "', (message, { expanded }, theme) => {",
+    "    let text = theme.fg(" <> prefix_color_js <> ", '" <> renderer.prefix <> " ');",
+    "    text += theme.fg(" <> content_color_js <> ", message.content);",
+    details_block,
+    "    const box = new Box(1, 1, (t) => theme.bg('customMessageBg', t));",
+    "    box.addChild(new Text(text, 0, 0));",
+    "    return box;",
+    "  });",
+    "",
+  ]
+  |> list.map(fn(s) { s <> "\n" })
+  |> string.concat
 }
 
 // -------------------------------------------------------------------

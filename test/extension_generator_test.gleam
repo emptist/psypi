@@ -47,7 +47,7 @@ pub fn generate_produces_extension_js_test() {
   should.be_true(string.contains(js, "export default function(pi)"))
   should.be_true(string.contains(js, "pi.registerTool"))
   should.be_true(string.contains(js, "pi.on("))
-  should.be_true(string.contains(js, "registerAutonomicWakeupRenderer"))
+  should.be_true(string.contains(js, "pi.registerMessageRenderer"))
 }
 
 pub fn generate_has_do_not_edit_header_test() {
