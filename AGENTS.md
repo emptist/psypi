@@ -60,7 +60,7 @@ Connect manually: `psql -d psypi`
 | `learning_insights` | Learned knowledge |
 | `code_versions` | File version history (auto-backup before edits) |
 | `psypi_config` | Key-value config (`monitor_debounce_ms` default 300000) |
-| `system_directives` | A→S injected directives |
+| `system_directives` | ~~A→S injected directives~~ (DEPRECATED — anti-pattern, use sendMessage instead) |
 | `system_config` | Legacy config table |
 | `compaction_history` | Context compaction summaries |
 | `event_hooks` | Hook registry |
@@ -176,12 +176,13 @@ To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 | `psypi-autonomic-stats` | `monitor_ai` | Statistics (review scores, response times, failure rate) |
 | `psypi-autonomic-suggest` | `monitor_ai` | Work suggestions (open issues, stale tasks, pending skills) |
 
-### Directives (A→S communication)
+### Directives (REMOVED — anti-pattern)
+~~`psypi-direct-agentbot` and `psypi-clear-directives`~~ have been removed. A communicates with S via `sendMessage()` — S is an LLM that reads and understands natural language. No database intermediary needed. See "Lessons Learned" below.
+
+### Consult
 | Tool | Module | Description |
 |------|--------|-------------|
-| `psypi-direct-agentbot` | `directive` | Inject directive into S's system prompt |
-| `psypi-clear-directives` | `directive` | Clear all active directives |
-| `psypi-consult-autonomic` | `directive` | S asks A for advice |
+| `psypi-consult-autonomic` | `tool_consult` | S asks A for advice |
 
 ### Event Hooks
 | Tool | Module | Description |
@@ -278,6 +279,18 @@ Three valid patterns:
 
 The ONLY hand-written JS files are the 4 `*_ffi.mjs` files. Everything else is auto-generated or uses proper FFI.
 
+## Lessons Learned
+
+### The `system_directives` Anti-Pattern
+
+**Mistake:** Building a database table + Pi tools + hook injection pipeline for A→S communication, when `sendMessage()` already exists.
+
+The `system_directives` table, `psypi-direct-agentbot` tool, `psypi-clear-directives` tool, and the `before_agent_start` directive-reading logic were all built to let A "inject directives into S's system prompt." This is over-engineering: S is an LLM that can read and understand messages from A directly via `sendMessage()`. No database intermediary, no special injection pipeline, no custom tool needed.
+
+**Why it happened:** An AI confused "system prompt injection" (a Pi mechanism) with "communication" (a natural language act). A doesn't need to modify S's system prompt — A just needs to talk to S.
+
+**Correct pattern:** A→S communication = `sendMessage()`. S reads A's message and decides what to do. Both bots read their own soul/jobs from DB via `id_prefix` for their identity, not for inter-agent communication.
+
 ## Key Files
 
 | File | Purpose |
@@ -291,7 +304,6 @@ The ONLY hand-written JS files are the 4 `*_ffi.mjs` files. Everything else is a
 | `src/issue_tools.gleam` | Issue CRUD + Pi tools |
 | `src/meeting.gleam` | Meeting CRUD + Pi tools |
 | `src/monitor_ai.gleam` | Autonomic monitoring tools |
-| `src/directive.gleam` | A→S directive tools |
 | `src/commit.gleam` | QC two-phase commit |
 | `src/simple_migrate.gleam` | DB migration runner |
 | `src/seed.gleam` | Initial data seeder |

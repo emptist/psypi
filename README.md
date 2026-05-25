@@ -51,7 +51,6 @@ All functionality is exposed as Pi tools — use them inside the TUI, never from
 | `psypi-task-complete`   | Complete a task             |
 | `psypi-doc-save`        | Save file version           |
 | `psypi-doc-list`        | List file versions          |
-| `psypi-direct-agentbot` | Direct the Somatic Agentbot |
 | `psypi-issue-add`       | Report an issue             |
 
 ## Adding a Pi Tool
@@ -95,6 +94,28 @@ When the S-worker finishes a turn, the `agent_end` event fires. The autonomic ho
 **Key insight:** Phase 1 uses `ctx.ui.notify()` (transient toast) for immediate human feedback. Phase 3 uses `pi_send_message()` (persistent message) because by then the TUI session may be dormant and transient toasts are invisible.
 
 **Current bug:** Phase 1 is missing from the code. The hook jumps straight to Phase 2 (debounce), so there's no immediate feedback. Additionally, `ctx.ui.notify()` calls in Phase 3 fire when the TUI is already dormant, making them invisible. The `pi_send_message` persistent messages still work but the LLM call (`callMonitor`) is returning empty output.
+
+## Lesson: The `system_directives` Anti-Pattern
+
+A previous AI built an entire communication pipeline for A→S coordination that was completely unnecessary:
+
+- **`system_directives` table** — A writes directive rows, meant to be read by S's `before_agent_start` hook
+- **`psypi-direct-agentbot` tool** — A uses this to insert directives into the table
+- **`psypi-clear-directives` tool** — Clears active directives
+- **`directive.gleam` module** — CRUD operations for the directives table
+- **`before_agent_start` hook** — Was supposed to read directives and inject them into S's system prompt
+
+**None of this was needed.** S is an LLM. It can read and understand messages from A directly via `sendMessage()`. The entire pipeline — database table, custom tools, hook injection — was over-engineering born from confusing "system prompt injection" (a Pi SDK mechanism) with "communication" (a natural language act between two LLMs).
+
+The `before_agent_start` hook never actually read directives anyway — it returned a hardcoded identity string. The write end worked (A could insert rows), but the read end was never connected. A classic case of building infrastructure nobody uses.
+
+**What replaced it:**
+- A→S communication: `sendMessage()` — A sends a polite reminder, S reads it and decides what to do
+- S's identity: `before_agent_start` now reads S's soul from `agent_souls WHERE id_prefix='S'` via `s_db_reader.gleam`
+- A's identity: `agent_end` hook reads A's soul and jobs from `agent_souls` + `agent_jobs` joined by `id_prefix='A'`
+- Both bots maintain their own soul and jobs in DB, joined by `id_prefix`, and can suggest adjustments through tasks, issues, or meetings
+
+**The principle:** When two LLMs need to coordinate, use natural language messages. Don't build database-mediated injection pipelines. The LLM is the protocol.
 
 ## Docs
 

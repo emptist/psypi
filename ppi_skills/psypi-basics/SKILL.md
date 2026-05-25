@@ -135,13 +135,9 @@ For S's own work, use direct `git add` + `git commit` instead.
     → lists only active psypi event hooks.
 ```
 
-### Directives (Autonomic → Somatic communication)
-```
-/psypi-direct-agentbot directive_text="Focus on testing" priority="high"
-    → Autonomic Agentbot injects a directive into Somatic's system prompt.
-/psypi-clear-directives
-    → clears all active system directives.
-```
+### Directives (REMOVED — use sendMessage instead)
+~~`/psypi-direct-agentbot` and `/psypi-clear-directives`~~ have been removed.
+A communicates with S via `sendMessage()` — S is an LLM that reads and understands natural language directly. No database intermediary needed.
 
 ### Consult (Somatic asks Autonomic for advice)
 ```

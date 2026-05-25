@@ -92,41 +92,6 @@ fn soul_responsibility_decoder() -> decode.Decoder(String) {
   decode.success("[" <> role <> " | " <> domain <> "] " <> responsibility)
 }
 
-pub fn read_directives_from_db() -> promise.Promise(
-  Result(List(String), String),
-) {
-  db.with_connection(
-    fn(conn) {
-      let sql =
-        "SELECT directive_text FROM system_directives
-         WHERE is_active = true
-           AND (expires_at IS NULL OR expires_at > NOW())
-           AND consumed_at IS NULL
-         ORDER BY
-           CASE priority
-             WHEN 'critical' THEN 1
-             WHEN 'high' THEN 2
-             WHEN 'medium' THEN 3
-             ELSE 4
-           END,
-           created_at ASC
-         LIMIT 3"
-      promise.map(db.query(conn, sql, []), fn(query_result) {
-        case query_result {
-          Error(e) -> Error(db_error_to_string(e))
-          Ok(result) -> decode_rows(result.rows, directive_text_decoder())
-        }
-      })
-    },
-    db_error_to_string,
-  )
-}
-
-fn directive_text_decoder() -> decode.Decoder(String) {
-  use text <- decode.field("directive_text", decode.string)
-  decode.success(text)
-}
-
 pub fn read_project_state_from_db() -> promise.Promise(Result(String, String)) {
   let tasks_promise = read_active_tasks()
   let issues_promise = read_open_issues()

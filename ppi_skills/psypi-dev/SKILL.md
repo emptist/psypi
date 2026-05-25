@@ -11,8 +11,7 @@ All mechanisms in psypi serve one purpose: **composing the system prompt that th
 
 - SOUL = content injected into system prompt
 - Skills = content injected via `<available_skills>` in system prompt
-- Directives = content injected into system prompt
-- `pi_send_message` = content injected as user message
+- `pi_send_message` = content injected as user message (A→S communication)
 
 The system prompt is the only interface to the AI. All roads lead to system prompt.
 
@@ -31,29 +30,30 @@ They **never run at the same time**. Each one's output becomes the other's input
 - Event-driven, will become fully capable like S
 - Runs via `call_monitor()` which takes `systemPrompt` parameter
 - A does NOT run through Pi agent loop — `before_agent_start` does NOT apply to A
-- A's SOUL comes from `souls` table → passed as `call_monitor` systemPrompt
-- A autonomously composes messages for S based on events and context
-- A uses tools: `psypi-direct-agentbot`, `pi_send_message`
+- A's SOUL comes from `agent_souls` table (id_prefix='A') → passed as `call_monitor` systemPrompt
+- A's jobs come from `agent_jobs` table joined via `agent_souls.id_prefix='A'`
+- A autonomously composes polite reminders for S based on events and context
+- A communicates with S via `sendMessage()` — NOT via database directives
 
 ### S-agentbot (Somatic)
 - Prompt-driven task executor
 - Runs through Pi agent loop
-- S gets system prompt through Pi standard mechanisms
-- S's SOUL + directives should be injected through these standard Pi interfaces
+- S gets system prompt through `before_agent_start` hook → reads SOUL from `agent_souls WHERE id_prefix='S'`
+- S reads A's messages directly — S is an LLM, it understands natural language
 
 ## SOUL Mechanism
 
-SOUL lives in PostgreSQL `souls` table:
-- `agent_id` (e.g., `A-psypi-psypi`, `S-psypi-psypi-unknown`)
+SOUL lives in PostgreSQL `agent_souls` table:
+- `id_prefix` (e.g., `'A'`, `'S'`) — the key field for joining with other tables
 - `name` (Autonomic, Somatic)
 - `content` (full identity definition — role, behavior, responsibilities, self-evolution, boundaries)
-- `traits` (JSON: focus, speed, quality, autonomy)
+- `role`, `domain`, `responsibility` — structured fields also available
 
 SOUL is NOT a special Pi mechanism. Pi has no concept of SOUL. SOUL is psypi's invention — content from the database that gets composed into system prompt.
 
 ### How SOUL enters system prompt
-- **A**: `call_monitor(ctx, userPrompt, soulContent)` — hook code reads SOUL from DB, passes as systemPrompt
-- **S**: Pi standard injection (before_agent_start, resources_discover, etc.) — reads SOUL from DB
+- **A**: `call_monitor(ctx, userPrompt, soulContent)` — `hook_on_agent_end` reads SOUL + jobs from DB via `a_db_reader`, composes system prompt via `a_prompt_builder`, passes as systemPrompt
+- **S**: `before_agent_start` hook reads SOUL from DB via `s_db_reader.read_s_soul_from_db()` → returns as system prompt override
 
 ## System Prompt Injection Methods (Pi Standard)
 
@@ -80,25 +80,34 @@ psypi uses database-first design so it can work across projects without filesyst
 
 **Pipeline**: DB read → compose system prompt text → inject via Pi standard interface
 
-**Current broken pipeline**: Data exists in DB (`souls`, `system_directives`) but never gets read into system prompt. The write end works (A writes directives), the read end is broken (nothing reads directives into S's system prompt).
+**Fixed pipeline**: Both A and S now read their SOUL from `agent_souls` table via `id_prefix`. A reads its jobs from `agent_jobs` joined by `id_prefix='A'`. S reads its soul via `id_prefix='S'`. No `system_directives` needed — A→S communication uses `sendMessage()`.
+
+## Lesson: The `system_directives` Anti-Pattern
+
+A previous AI built an entire pipeline for A→S communication that was completely unnecessary: `system_directives` table, `psypi-direct-agentbot` tool, `psypi-clear-directives` tool, `directive.gleam` module, and `before_agent_start` directive-reading logic. None of it was needed — S is an LLM that understands `sendMessage()`. The write end worked (A could insert rows), but the read end was never connected. The hook just returned a hardcoded string.
+
+**Why it happened:** Confusing "system prompt injection" (a Pi SDK mechanism) with "communication" (a natural language act). A doesn't need to modify S's system prompt — A just needs to talk to S.
+
+**Correct pattern:** A→S communication = `sendMessage()`. Both bots read their own soul/jobs from DB via `id_prefix` for their identity, not for inter-agent communication. **The LLM is the protocol.**
 
 ## Key Files
 
 | File | Purpose |
 |---|---|
-| `src/hook_on_agent_end.gleam` | A-S coordination: reads SOUL from DB, composes system prompt with budget, calls call_monitor for A to autonomously decide |
-| `src/directive.gleam` | Directive CRUD + SOUL prefix (write end works) |
+| `src/hook_on_agent_end.gleam` | A-S coordination: reads SOUL + jobs from DB, composes system prompt with budget, calls call_monitor for A to autonomously decide |
+| `src/hook_on_before_agent_start.gleam` | S's system prompt: reads SOUL from DB via s_db_reader |
+| `src/a_db_reader.gleam` | A's DB reads: soul, jobs, project state (all joined by id_prefix='A') |
+| `src/s_db_reader.gleam` | S's DB reads: soul, jobs (all joined by id_prefix='S') |
+| `src/a_prompt_builder.gleam` | A's system/user prompt composition with polite reminder style |
+| `src/a_context_utils.gleam` | Context window parsing utilities |
 | `src/pi_extension_ffi.mjs` | FFI: call_monitor, pi_send_message, notify_info |
 | `src/extension_generator.gleam` | Generates extension.js from Gleam modules |
-| `src/ppi_gen.gleam` | Generates bin/ppi.mjs entry point |
-| `src/agent_identity_types.gleam` | IdentityContext, AgentIdentity types |
 | `src/agent_identity.gleam` | Identity computation (pure function) |
 | `src/system_prompt_types.gleam` | System prompt types with context window budget |
-| `docs/MONITOR-BRIEF.md` | A-agentbot's operating manual (content now in DB SOUL too) |
 
 ## Context Window Constraint
 
-System prompt is bounded by context window. Every component (SOUL, directives, skills, context files) consumes tokens.
+System prompt is bounded by context window. Every component (SOUL, jobs, skills, context files) consumes tokens.
 
 ### Pi's ContextUsage interface
 ```typescript
@@ -116,7 +125,7 @@ System prompt types MUST carry token budget awareness:
 - `ContextBudget` — total_tokens, used_tokens
 - `PromptComposition` — list of components + budget
 - `compose_within_budget()` — sorts by priority, keeps components until budget exhausted
-- Priority order: Critical (SOUL) > High (directives) > Medium (skills) > Low (context files)
+- Priority order: Critical (SOUL) > High (jobs) > Medium (skills) > Low (context files)
 - Token estimation: `string.length(text) / 4 + 1`
 
 ### Token estimation
@@ -127,11 +136,12 @@ Gleam types should include `estimated_tokens: Int` field for each component.
 
 1. **Never invent custom injection mechanisms** — use Pi standard interfaces only
 2. **Never hardcode SKIP/STANDBY logic** — A decides autonomously based on SOUL
-3. **Database is the bridge** — A writes, S reads, via standard Pi interfaces
+3. **A→S communication = `sendMessage()`** — S is an LLM, it reads natural language. No database intermediary needed.
 4. **Hooks are THIN** — just record events and trigger coordination, no blocking logic
 5. **Intelligence is in the LLM** — not in JavaScript regex or hardcoded prompts
-6. **`before_agent_start` is for S only** — A does not run through Pi agent loop
+6. **`before_agent_start` is for S only** — reads S's SOUL from DB via `id_prefix='S'`
 7. **`call_monitor` is for A** — A's system prompt comes via this function's systemPrompt parameter
+8. **Tables joined by `id_prefix`** — `agent_souls`, `agent_jobs` use `id_prefix` ('A' or 'S') as the key, not agent_id or other fields
 
 ## Pi Source Code Reference
 

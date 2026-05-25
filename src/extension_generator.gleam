@@ -10,7 +10,6 @@ import agents.{agents_list_tool}
 import areflect.{areflect_tool}
 import broadcast.{broadcast_list_tool, broadcast_send_tool}
 import code_version.{doc_list_tool, doc_save_tool}
-import directive.{clear_directives_tool, direct_agentbot_tool}
 import event_hooks.{list_active_hooks_tool, list_hooks_tool}
 import file_utils.{write_file}
 import filepath
@@ -82,8 +81,6 @@ pub fn all_tools() -> List(PiToolCall) {
     monitor_suggest_tool(),
     list_hooks_tool(),
     list_active_hooks_tool(),
-    direct_agentbot_tool(),
-    clear_directives_tool(),
     consult_tool(),
     commit_tool(),
   ]
