@@ -265,7 +265,7 @@ The A-bot runs as event hooks inside the Pi TUI. Key things to know:
 - **No early exit before debounce**: The generated JS does NOT check `ctx.isIdle()` before starting the timer. All idle checking happens in Gleam after the debounce period
 - **call_monitor**: The FFI function that calls the LLM. Uses `completeSimple` from `@earendil-works/pi-ai`
 - **Wake-up messages**: Sent via `pi_send_message` with custom type `autonomic-wakeup`. Appear as `[A-agentbot]` prefix in session
-- **Debugging**: If A-bot seems inactive, check: (1) `system_config` table has `monitor_debounce_ms`, (2) `ctx.model` is available, (3) API key is valid, (4) hook modules exist in build output
+- **Debugging**: If A-bot seems inactive, check: (1) `psypi_config` table has `monitor_debounce_ms`, (2) `ctx.model` is available, (3) API key is valid, (4) hook modules exist in build output
 - **Stats all zeros**: `psypi-autonomic-stats` shows zeros because inter_review system hasn't been used yet
 
 ## Quick tip
