@@ -3,21 +3,23 @@
 ## One Function, One Argument
 
 ```gleam
-get_resolved_identity(ctx: Context) -> Result(AgentIdentity, IdentityError)
+semantic_id(ctx: IdentityContext) -> Result(String, IdentityError)
 ```
 
 That's it. One argument. Everything comes from `ctx`.
 
-## Context Type
+## IdentityContext Type
 
 ```gleam
-pub type Context {
-  Context(
-    is_idle: Bool,        // ctx.isIdle() — determines A/S prefix
-    model_id: String,     // ctx.model?.id
-    provider: String,     // ctx.model?.provider
-    thinking_level: String, // ctx.model?.thinkingLevel
-    cwd: String,          // ctx.cwd — determines project/global
+pub type IdentityContext {
+  IdentityContext(
+    is_idle: Bool,
+    project: String,
+    source: String,
+    model: String,
+    thinking_level: String,
+    global: Bool,
+    cwd: String,
   )
 }
 ```
@@ -25,43 +27,52 @@ pub type Context {
 ## How It Works
 
 ```gleam
-pub fn get_resolved_identity(ctx: Context) -> Result(AgentIdentity, IdentityError) {
-  let autonomous = ctx.is_idle  // idle → A-agentbot, busy → S-agentbot
-  // ... build ID from ctx fields
+pub fn semantic_id(ctx: IdentityContext) -> Result(String, IdentityError) {
+  let prefix = case ctx.is_idle {
+    True -> "A"
+    False -> "S"
+  }
+  // ... build ID: "A-tools_ai-openrouter-owl-alpha-high"
 }
 ```
 
 ## Call Sites
 
-### S-agentbot tool (always autonomous=false)
+### S-agentbot (always is_idle=false)
 ```javascript
-agent_identity_get_resolved_identity({
-    is_idle: false,           // S-agentbot is never "idle" when it's working
-    model_id: ctx.model?.id,
-    provider: ctx.model?.provider,
+agent_identity_types_semantic_id({
+    is_idle: false,
+    project: "tools_ai",
+    source: ctx.model?.provider,
+    model: ctx.model?.id,
     thinking_level: ctx.model?.thinkingLevel,
+    global: false,
     cwd: ctx.cwd
 })
 ```
 
-### A-agentbot tool (always autonomous=true)
+### A-agentbot (always is_idle=true)
 ```javascript
-agent_identity_get_resolved_identity({
-    is_idle: true,            // A-agentbot is always "idle" (event-driven)
-    model_id: ctx.model?.id,
-    provider: ctx.model?.provider,
+agent_identity_types_semantic_id({
+    is_idle: true,
+    project: "tools_ai",
+    source: ctx.model?.provider,
+    model: ctx.model?.id,
     thinking_level: ctx.model?.thinkingLevel,
+    global: false,
     cwd: ctx.cwd
 })
 ```
 
 ### agent_end coordination (dynamic)
 ```javascript
-agent_identity_get_resolved_identity({
+agent_identity_types_semantic_id({
     is_idle: ctx.isIdle(),    // DYNAMIC — depends on S-agentbot state
-    model_id: ctx.model?.id,
-    provider: ctx.model?.provider,
+    project: "tools_ai",
+    source: ctx.model?.provider,
+    model: ctx.model?.id,
     thinking_level: ctx.model?.thinkingLevel,
+    global: false,
     cwd: ctx.cwd
 })
 ```
@@ -69,30 +80,23 @@ agent_identity_get_resolved_identity({
 ## Key Insight
 
 The `is_idle` field means different things in different contexts:
-- **S-agentbot tool**: always `false` (S-agentbot is working when it calls this)
-- **A-agentbot tool**: always `true` (A-agentbot is always idle/event-driven)
-- **agent_end**: `ctx.isIdle()` (dynamic — is S-agentbot still idle?)
+- **S-agentbot**: always `false` (S is working when it calls this)
+- **A-agentbot**: always `true` (A is always idle/event-driven)
+- **agent_end**: `ctx.isIdle()` (dynamic — is S still idle?)
 
 The function doesn't care WHAT `is_idle` means. It just builds the ID. The caller decides.
 
 ## Benefits
 
 1. **One function signature** — no more 6 arguments
-2. **Type-safe** — `Context` type ensures all fields are present
-3. **Composable** — construct `Context` once, pass to function
-4. **Testable** — create a `Context` value in tests, no mock `ctx` needed
+2. **Type-safe** — `IdentityContext` type ensures all fields are present
+3. **Composable** — construct `IdentityContext` once, pass to function
+4. **Testable** — create an `IdentityContext` value in tests, no mock `ctx` needed
 5. **Clear** — the function signature shows exactly what it needs
 
-## Migration
+## Files
 
-Old:
-```gleam
-get_resolved_identity(autonomous, project, source, model, thinking_level, global)
-```
-
-New:
-```gleam
-get_resolved_identity(ctx: Context)
-```
-
-All callers construct a `Context` value and pass it. The function stays pure.
+| File | Role |
+|------|------|
+| `src/agent_identity_types.gleam` | `IdentityContext`, `semantic_id()`, `IdentityError` |
+| `src/agent_identity.gleam` | `get_enriched_identity()`, `my_id_tool()` |

@@ -4,19 +4,11 @@
 
 The Autonomic Agentbot (A-agentbot) was sending messages via `ctx.ui.notify()`. These are **fire-and-forget UI-only notifications** — the S-agentbot (LLM) never sees them in its conversation context.
 
-```
-agent_end hook:
-  ctx.ui.notify("What should we do next?", "info")  ← S-agentbot never sees this
-
-tool_result hook:
-  ctx.ui.notify("Tool error: ...", "error")          ← S-agentbot never sees this
-```
-
 ## Solution
 
 Use `pi.sendMessage()` — a native Pi SDK method that injects a `CustomMessage` into the session, visible to the LLM on the next turn.
 
-### Pi SDK API (from extensions docs)
+### Pi SDK API
 
 ```typescript
 pi.sendMessage({
@@ -25,7 +17,7 @@ pi.sendMessage({
   display: "persistent",
   details: { ... },
 }, {
-  deliverAs: "nextTurn"  // Queue for next user prompt
+  deliverAs: "nextTurn"
 });
 ```
 
@@ -34,19 +26,13 @@ Options for `deliverAs`:
 - `"followUp"` — deliver when agent is fully idle
 - `"nextTurn"` — queue for next user prompt (non-interrupting)
 
-### What Changed
-
-| Hook          | Before                                  | After                                                                                |
-| ------------- | --------------------------------------- | ------------------------------------------------------------------------------------ |
-| `agent_end`   | `ctx.ui.notify(msg, 'info')` only       | `ctx.ui.notify(msg, 'info')` (debug) + `pi.sendMessage(...)` (visible to S-agentbot) |
-| `tool_result` | `ctx.ui.notify('Tool error: ...')` only | `ctx.ui.notify(...)` (debug) + `pi.sendMessage(...)` (visible to S-agentbot)         |
-
 ### Flow
 
 ```
-A-agentbot (agent_end)
-  ├── ctx.ui.notify(msg, 'info')     ← UI debug message (unchanged)
-  └── pi.sendMessage({...}, {deliverAs: 'nextTurn'})
+A-agentbot (agent_end hook)
+  ├── call_monitor() calls LLM with A's system prompt
+  │   LLM returns polite reminder text
+  └── pi.sendMessage({customType: 'autonomic-wakeup', content: msg})
         ↓
       CustomMessage queued in session
         ↓
@@ -55,22 +41,24 @@ A-agentbot (agent_end)
 
 ### Custom Message Types
 
-- `autonomic-message` — from `agent_end` (context usage, git status reminders)
-- `autonomic-error` — from `tool_result` (tool execution errors)
+- `autonomic-wakeup` — A's polite reminder to S (rendered with `[A-agentbot]` prefix)
+- `autonomic-error` — error notifications from A (rendered with `[A-agentbot ERROR]` prefix)
 
-### Files Changed
-
-| File                                  | Change                                                             |
-| ------------------------------------- | ------------------------------------------------------------------ |
-| `src/generator/agent_lifecycle.gleam` | Added `pi.sendMessage()` call alongside existing `ctx.ui.notify()` |
-| `src/generator/tool_result.gleam`     | Added `pi.sendMessage()` call alongside existing `ctx.ui.notify()` |
+Both are rendered via `pi.registerMessageRenderer()` in `pi_extension_ffi.mjs`.
 
 ### Why Not DB (system_directives table)?
 
-First attempt used the `system_directives` DB table as a message queue with `before_agent_start` reading and injecting into system prompt. This failed because:
+The removed `system_directives` anti-pattern tried to use a database table as a message queue with `before_agent_start` reading and injecting into system prompt. This was over-engineered: S is an LLM that understands natural language. A just needs to talk to S.
 
-1. Gleam functions return `Promise(Result(T, E))` — JS needs `unwrapGleamResult()` to access `.ok`/`.value`
-2. Hook code didn't use `unwrapGleamResult()`, so `.ok` checks always failed
-3. Added unnecessary complexity (DB round-trip, identity resolution, consume tracking)
+`pi.sendMessage()` is the correct Pi SDK primitive for this — no DB intermediary, no Gleam result unwrapping, no identity lookup needed.
 
-`pi.sendMessage()` is the correct Pi SDK primitive for this — no DB, no Gleam result unwrapping, no identity lookup needed.
+See README.md "Lesson: The system_directives Anti-Pattern" for the full story.
+
+### Files
+
+| File | Role |
+|------|------|
+| `src/hook_on_agent_end.gleam` | Debounce + call_monitor coordination |
+| `src/pi_extension_ffi.mjs` | FFI: `call_monitor`, `sendMessage`, message renderers |
+| `src/a_prompt_builder.gleam` | Composes A's system/user prompts |
+| `src/a_db_reader.gleam` | Reads A's SOUL + jobs from DB |
