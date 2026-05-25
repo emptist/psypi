@@ -1,5 +1,24 @@
 # Handover — 2026-05-26 (updated 2026-05-27)
 
+## What was done this session (2026-05-30)
+
+### Committed (8f5977e)
+- `test/a_prompt_builder_test.gleam` — 3 new tests for inter-review keyword detection
+- `test/pi_tool_call_test.gleam` — 2 new tests for debounce JS generation (timer dedup + caching)
+- All 87 tests passing
+
+### Code review completed
+- Reviewed all 43 source files, 6 test files, 26 skill files
+- Verified inter_review.gleam matches DB schema
+- Verified psypi_config.gleam FFI naming has no conflicts
+- No dead code, no deprecated modules, no unused imports
+- Two minor TODOs remain (non-critical): git branch detection, housekeeping
+
+### Still blocked on Pi restart
+- 6cf92c87 (A-bot inter-review), cc64c9f5 (DecodeError priority) — fixes built, need Pi restart
+
+---
+
 ## What was done this session (2026-05-29)
 
 ### Committed (6e76948, 0920ec1)
