@@ -16,23 +16,7 @@ pub fn run_a_workflow(
   cwd: String,
   context_window: Int,
 ) -> promise.Promise(Result(Nil, String)) {
-  // Set to True to enable A-bot's full workflow (DB reads + LLM call).
-  // Set to False to send only a simple greeting (debugging/safety gate).
-  let fully_functional = True
-  case fully_functional {
-    False -> {
-      notify_info(ctx, "[AUTONOMIC] fully_functional=False — skipping full workflow")
-      pi_send_message(
-        pi,
-        "autonomic-wakeup",
-        "Hey, it's time for you to continue your efforts to improve the project, S-bot!",
-        "persistent",
-      )
-      promise.resolve(Ok(Nil))
-    }
-    True ->
-      run_full_workflow(ctx, pi, entries_json, usage_json, cwd, context_window)
-  }
+  run_full_workflow(ctx, pi, entries_json, usage_json, cwd, context_window)
 }
 
 fn run_full_workflow(

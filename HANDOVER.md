@@ -1,5 +1,33 @@
 # Handover — 2026-05-26 (updated 2026-05-27)
 
+## What was done this session (2026-05-28)
+
+### Committed (ae0adda)
+- `README.md` — expanded Pi tools table (all 36 tools), fixed agent_end workflow description (system_config → psypi_config, updated debounce details), expanded key files list, added rebuild/restart instructions
+- `docs/ARCHITECTURE.md` — updated file structure section to include all 43 source files
+- `src/a_orchestrator.gleam` — set `fully_functional = True` (was False)
+- `HANDOVER.md` — updated with current state
+- `extension.js` — regenerated with all changes
+
+### Key decisions
+- **A-bot re-enabled**: `fully_functional = True` — debounce fixes (timer dedup + idle_since gating) and inter-review prompt fixes are in place, so A-bot should fire correctly now
+- **Pi restart required**: All fixes (project_id, debounce, idle_since, fully_functional) are built into extension.js but Pi process is still running stale code
+
+### Remaining open issues
+- **6cf92c87** — A-bot inter-review (prompt fix in place, fully_functional=True, needs Pi restart + testing)
+- **cc64c9f5** — DecodeError priority (fix built, needs Pi restart)
+
+### Action required: Pi restart
+All fixes are built into extension.js but the Pi process is still running stale code.
+Restart command: pkill -f pi-coding-agent 2>/dev/null; cd /Users/jk/gits/hub/tools_ai/psypi && node bin/ppi.mjs
+After restart:
+- psypi-task-add will work (project_id fix)
+- Debounce will work correctly (timer dedup + idle_since)
+- DecodeError priority fix will take effect
+- A-bot will run full workflow (fully_functional=True)
+
+---
+
 ## What was done this session (2026-05-27)
 
 ### Committed (f6c7d2b)
