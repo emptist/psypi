@@ -4,6 +4,8 @@
 
 **The LLM is the protocol.** When two LLMs need to coordinate, use natural language messages.
 
+For the full A/S dialogue model (alternating current, quality guardian role, dialogue protocol), see **README.md → "The A/S Dialogue Model"**.
+
 A communicates with S via `sendMessage()`. S is an LLM — it reads and understands natural language directly. No database intermediary needed.
 
 ## The ID Encodes Identity
