@@ -28,6 +28,7 @@ pub type Task {
     completed_at: Option(String),
     created_by: String,
     source: Option(String),
+    project_id: Option(String),
   )
 }
 
@@ -62,9 +63,10 @@ pub fn task_decoder() -> decode.Decoder(Task) {
   use completed_at <- decode.field("completed_at", decode.optional(decode.string))
   use created_by <- decode.field("created_by", decode.string)
   use source <- decode.field("source", decode.optional(decode.string))
+  use project_id <- decode.field("project_id", decode.optional(decode.string))
 
   case string_to_status(status_str) {
-    Error(_) -> decode.failure(Task(id: id, title: title, description: description, status: Pending, priority: priority, result: result, error: error, retry_count: retry_count, created_at: created_at, updated_at: updated_at, completed_at: completed_at, created_by: created_by, source: source), "Unknown task status: " <> status_str)
+    Error(_) -> decode.failure(Task(id: id, title: title, description: description, status: Pending, priority: priority, result: result, error: error, retry_count: retry_count, created_at: created_at, updated_at: updated_at, completed_at: completed_at, created_by: created_by, source: source, project_id: project_id), "Unknown task status: " <> status_str)
     Ok(status) -> decode.success(Task(
       id: id,
       title: title,
@@ -79,6 +81,7 @@ pub fn task_decoder() -> decode.Decoder(Task) {
       completed_at: completed_at,
       created_by: created_by,
       source: source,
+      project_id: project_id,
     ))
   }
 }
@@ -177,7 +180,8 @@ fn sql_with_filters(
 ) -> #(String, List(dynamic.Dynamic)) {
   let base_sql = "
     SELECT id, title, description, status, priority, result, error, retry_count,
-           created_at::text, updated_at::text, completed_at::text, created_by, source
+           created_at::text, updated_at::text, completed_at::text, created_by, source,
+           project_id::text
     FROM tasks
   "
   let order_limit = " ORDER BY priority DESC, created_at ASC LIMIT 100 "
