@@ -219,6 +219,42 @@ pub fn debounced_hook_to_js_test() {
   should.be_true(string.contains(js, "Event hook (debounced)"))
 }
 
+pub fn debounced_hook_timer_dedup_test() {
+  let hook = debounced_hook(
+    "agent_end",
+    "hook_on_agent_end",
+    "on_agent_end",
+    [],
+    "psypi_config",
+    "get_debounce_ms",
+    None,
+    pi_tool_call.SilentSuccess,
+    pi_tool_call.NotifyError,
+  )
+  let js = event_hook_to_js(hook)
+  // Timer dedup: clearTimeout before starting new timer
+  should.be_true(string.contains(js, "clearTimeout"))
+  should.be_true(string.contains(js, "_debounceTimerId"))
+}
+
+pub fn debounced_hook_debounce_caching_test() {
+  let hook = debounced_hook(
+    "agent_end",
+    "hook_on_agent_end",
+    "on_agent_end",
+    [],
+    "psypi_config",
+    "get_debounce_ms",
+    None,
+    pi_tool_call.SilentSuccess,
+    pi_tool_call.NotifyError,
+  )
+  let js = event_hook_to_js(hook)
+  // DebounceMs should be cached at module level (read once)
+  should.be_true(string.contains(js, "_debounceMs"))
+  should.be_true(string.contains(js, "_debounceMs == null"))
+}
+
 pub fn command_to_js_test() {
   let cmd = command(
     "compact",

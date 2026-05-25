@@ -130,3 +130,40 @@ pub fn build_user_prompt_no_detailed_instructions_test() {
   should.be_true(string.contains(text, "polite reminder"))
   should.be_true(string.contains(text, "Do NOT give detailed"))
 }
+
+pub fn build_user_prompt_inter_review_detection_test() {
+  // When entries contain inter-review keywords, prompt should switch to review mode
+  let text = a_prompt_builder.build_user_prompt(
+    "{}",
+    "User: I need inter-review for this issue report",
+    "/cwd",
+    "No tasks",
+  )
+  should.be_true(string.contains(text, "INTER-REVIEW REQUESTED"))
+  should.be_true(string.contains(text, "TOP priority"))
+  should.be_true(string.contains(text, "Do NOT drift"))
+  should.be_false(string.contains(text, "polite reminder"))
+}
+
+pub fn build_user_prompt_inter_review_fix_plan_test() {
+  let text = a_prompt_builder.build_user_prompt(
+    "{}",
+    "User: Here is my fix plan for the debounce bug",
+    "/cwd",
+    "No tasks",
+  )
+  should.be_true(string.contains(text, "INTER-REVIEW REQUESTED"))
+}
+
+pub fn build_user_prompt_normal_reminder_test() {
+  // Normal entries without inter-review keywords should get polite reminder
+  let text = a_prompt_builder.build_user_prompt(
+    "{}",
+    "User: I fixed a bug",
+    "/cwd",
+    "No tasks",
+  )
+  should.be_true(string.contains(text, "polite reminder"))
+  should.be_true(string.contains(text, "gentle nudge"))
+  should.be_false(string.contains(text, "INTER-REVIEW REQUESTED"))
+}

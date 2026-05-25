@@ -11,6 +11,7 @@
 - Full clean build, zero warnings
 - All skills reviewed, only one outdated reference found and fixed
 - DB indexes added for task filtering performance
+- Added 5 new tests (87 total, all passing): inter-review detection (3), debounce timer dedup (2)
 
 ### Still blocked on Pi restart
 - 6cf92c87 (A-bot inter-review), cc64c9f5 (DecodeError priority) — fixes built, need Pi restart
