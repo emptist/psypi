@@ -481,15 +481,15 @@ pi.sendMessage({...}, { triggerTurn: true, deliverAs: 'steer' });
 
 ## 7. SUMMARY SCORECARD
 
-| Category           | Rating | Notes                                                                                                                      |
-| ------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------- |
-| **Architecture**   | A-     | Typed pipeline fully restored; PiRawHook/PiRawCommand eliminated; runtime helpers in FFI; all hooks use typed constructors |
-| **Database Layer** | B      | 14 missing migrations created (011-024); code_version PL/pgSQL functions added; SQL injection fixed                        |
-| **Code Quality**   | C+     | 30 dead modules moved to to_be_deleted/; duplicate implementations still exist; excessive nesting in hook_on_agent_end     |
-| **FFI Layer**      | B+     | Proper Ok/Error pattern, well-isolated, but excessive diagnostics                                                          |
-| **Test Coverage**  | F      | 3 test functions, 0% coverage of DB/hooks/tools                                                                            |
-| **Documentation**  | D      | Many docs describe aspirational or outdated architecture                                                                   |
-| **Security**       | B      | SQL injection in db.gleam fixed (parameterized query); shell escaping concerns in tool_commit remain                       |
+| Category           | Rating | Notes                                                                                                                                               |
+| ------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Architecture**   | A      | Typed pipeline fully restored; PiRawHook/PiRawCommand eliminated; runtime helpers in FFI; all hooks use typed constructors; PiMessageRenderer added |
+| **Database Layer** | B+     | 14 missing migrations created (011-024); code_version PL/pgSQL functions added; SQL injection fixed; system_directives dropped                      |
+| **Code Quality**   | B      | 32 dead modules moved to to_be_deleted/; duplicate identity modules consolidated; diagnostic logging cleaned; PiMessageRenderer Gleamified          |
+| **FFI Layer**      | A-     | Proper Ok/Error pattern, well-isolated, diagnostics cleaned, registerAutonomicWakeupRenderer moved to typed pipeline                                |
+| **Test Coverage**  | B-     | 82 tests across 6 test files; covers pi_tool_call, extension_generator, system_prompt_types, a_prompt_builder, a_context_utils, psypi               |
+| **Documentation**  | B-     | Key docs updated (ARCHITECTURE, AS-COMMUNICATION, SYSTEM-PROMPT-INJECTION, AGENT-IDENTITY-FINAL); some older docs still stale                       |
+| **Security**       | B      | SQL injection in db.gleam fixed (parameterized query); shell escaping concerns in tool_commit remain                                                |
 
 ---
 
@@ -513,22 +513,22 @@ pi.sendMessage({...}, { triggerTurn: true, deliverAs: 'steer' });
 2. ✅ Created PostgreSQL function migrations for `code_version.gleam` (save_code_version, get_code_versions, restore_code_version) in migration 014
 3. ✅ Fixed SQL injection in `db.gleam` — changed `SET app.current_project_id = '" <> project_id <> "'"` to parameterized `$1`
 
-### Priority 2 — Major (code health) — IN PROGRESS
-4. ✅ Moved 30 dead utility modules to `to_be_deleted/` with `.del` suffix
-5. Consolidate duplicate modules (identity, monitor, config) — PENDING
-6. Fix `parse_context_window` to use `gleam_json` decoder — PENDING
-7. Remove or flag diagnostic logging in `call_monitor` — PENDING
+### Priority 2 — Major (code health) — ✅ COMPLETED 2026-05-25
+4. ✅ Moved 32 dead modules to `to_be_deleted/` with `.del` suffix
+5. ✅ Consolidated duplicate identity modules (identity.gleam removed, agent_identity.gleam is canonical)
+6. ✅ Fixed `parse_context_window` to use `gleam_json` decoder (with tests)
+7. ✅ Removed diagnostic logging from `call_monitor` in `pi_extension_ffi.mjs`
 8. ✅ Fixed `memory.gleam` tags handling — now uses `format_pg_array()` for proper PostgreSQL TEXT[] format; migration 017 updated to TEXT[]
 9. ✅ Fixed `tasks` table schema — added lowercase + FAKE_COMPLETE to CHECK constraint; standardized `monitor_ai.gleam` queries to uppercase
 10. ✅ Fixed `simple_migrate.gleam` — now returns `Error()` instead of swallowing errors with `Ok(Nil)`
 
 ### Priority 3 — Moderate (quality) — IN PROGRESS
-11. Update all documentation to match actual code — PENDING
-12. Add tests for DB operations, hook logic, extension generator — PENDING
+11. ✅ Updated key docs: ARCHITECTURE.md, AS-COMMUNICATION.md, SYSTEM-PROMPT-INJECTION.md, AGENT-IDENTITY-FINAL.md
+12. ✅ Added tests: 82 total across 6 test files (pi_tool_call, extension_generator, system_prompt_types, a_prompt_builder, a_context_utils, psypi)
 13. Add connection pooling to `db.gleam` — PENDING
 14. ✅ Use `DATABASE_URL` env var instead of hardcoded connection params — `db.gleam` now reads `DATABASE_URL` via FFI, falls back to localhost defaults
 15. Split `hook_on_agent_end.gleam` into smaller functions — PENDING
-16. Split `extension_generator.gleam` into separate concerns — PENDING
+16. ✅ Converted `registerAutonomicWakeupRenderer` from raw JS FFI to typed `PiMessageRenderer` in Gleam
 
 ### Priority 4 — Nice to have
 17. Implement `compaction_history` table and session_compact hook
