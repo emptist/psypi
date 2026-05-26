@@ -5960,3 +5960,588 @@ The debounce value is stored in `psypi_config` (database) but read from
 `set_config()` calls, but `psypi_config` is populated by `seed.gleam`
 and migrations. Neither system reads from the other, creating a
 configuration gap.
+
+---
+
+## 125. LIVE DATABASE vs. MIGRATIONS — CATASTROPHIC GAP
+
+### 125a. 115 Tables in Live DB, Only 21 in Migrations
+
+Live database tables: **115**
+Migration-covered tables: **21** (18%)
+**Untracked tables: 94 (82%)**
+
+The following tables are used by Gleam code but have NO migration:
+
+| Table             | Used By                   | Risk                              |
+| ----------------- | ------------------------- | --------------------------------- |
+| `projects`        | db.gleam (hardcoded UUID) | Fresh DB has no project row       |
+| `agent_identity`  | agent_identity.gleam      | Different from `agent_identities` |
+| `memories`        | memory.gleam              | Different from `memory`           |
+| `conversations`   | (future)                  | No Gleam code yet                 |
+| `reflections`     | (future)                  | No Gleam code yet                 |
+| `system_reviews`  | (future)                  | No Gleam code yet                 |
+| `scheduled_tasks` | (future)                  | No Gleam code yet                 |
+| `task_templates`  | (future)                  | No Gleam code yet                 |
+| `mcp_configs`     | (future)                  | No Gleam code yet                 |
+| `users`           | (future)                  | No Gleam code yet                 |
+| `subscriptions`   | (future)                  | No Gleam code yet                 |
+| `payments`        | (future)                  | No Gleam code yet                 |
+
+**Impact**: A fresh `psql -c "DROP DATABASE psypi; CREATE DATABASE psypi;"`
+followed by `gleam run -m simple_migrate && gleam run -m seed` will produce
+a database that is MISSING 94 tables, 336 SQL functions, and most column
+additions. The system will be completely non-functional.
+
+### 125b. `tasks` Table: 60 Columns in Live DB, 14 in Migration
+
+Migration 010 creates 14 columns. The live database has 60 columns.
+The additional 46 columns were added manually or by other AI agents.
+
+Columns used by Gleam code but NOT in migration 010:
+- `project_id` (added by migration 025, but as UUID not TEXT)
+- `is_stuck` (no migration at all)
+
+### 125c. `inter_reviews` Table: 33 Columns in Live DB, 8 in Migration
+
+Migration 024 creates 8 columns. The live database has 33 columns.
+The additional 25 columns were added manually.
+
+The `request_inter_review()` SQL function is NOT in any migration file.
+It was created manually. On a fresh database, `inter_review.gleam:request_review()`
+will fail with "function request_inter_review does not exist".
+
+### 125d. `tasks.result` Column: JSONB in Live DB, TEXT in Migration
+
+Migration 010 defines `result TEXT`. The live database has `result JSONB`.
+
+The Gleam decoder uses `decode.optional(decode.string)` for the `result`
+column. With JSONB, the pg driver returns a JavaScript object, not a string.
+`decode.string` will fail for any non-null JSONB value.
+
+This means `task.get()` and `task.list()` will fail for any task that has
+a non-null `result` value.
+
+### 125e. 339 SQL Functions in Live DB, 3 in Migrations
+
+The live database has 339 SQL functions. Only 3 are in migrations:
+- `save_code_version` (migration 014)
+- `get_code_versions` (migration 014)
+- `restore_code_version` (migration 014)
+
+Key functions used by Gleam code but NOT in migrations:
+- `request_inter_review` — used by `inter_review.gleam`
+- `respond_to_inter_review` — exists in DB but not used by current Gleam code
+- `update_inter_review` — exists in DB but not used by current Gleam code
+- `git_branch_name` — exists in DB, could replace hardcoded "main"
+
+### 125f. `agent_identity` vs `agent_identities` — Two Different Tables
+
+The live database has BOTH:
+- `agent_identity` — used by `agent_identity.gleam`
+- `agent_identities` — created by migration 011
+
+These are DIFFERENT tables with DIFFERENT schemas. The Gleam code
+references `agent_identity` (singular), but the migration creates
+`agent_identities` (plural). This means:
+1. Migration 011 creates a table that Gleam doesn't use
+2. The table Gleam DOES use has no migration
+3. On a fresh database, `agent_identity.gleam` will fail
+
+### 125g. `memory` vs `memories` — Two Different Tables
+
+Similarly, the live database has BOTH:
+- `memory` — created by migration 017, used by `memory.gleam`
+- `memories` — no migration, not used by current Gleam code
+
+The `memories` table has vector search capabilities (pgvector) that
+`memory` doesn't. This suggests a planned migration from `memory` to
+`memories` that was never completed.
+
+---
+
+## 126. TASK.RESULT JSONB DECODE FAILURE — CONFIRMED
+
+### 126a. `task.gleam` Decoder Expects String, Gets Object
+
+File: [task.gleam](src/task.gleam)
+
+```gleam
+fn task_decoder() -> decode.Decoder(Task) {
+  ...
+  use result <- decode.field("result", decode.optional(decode.string))
+  ...
+}
+```
+
+But the live database column `tasks.result` is `jsonb`. The PostgreSQL
+driver returns a JavaScript object for JSONB columns, not a string.
+`decode.string` will fail with a DecodeError for any non-null value.
+
+This affects:
+- `task.list()` — fails for any task with result
+- `task.get()` — fails for any task with result
+- `task.complete()` — only returns id, not affected
+
+### 126b. Same Issue for `inter_reviews` JSONB Columns
+
+The `inter_reviews` table has 5 JSONB columns:
+- `findings` (jsonb)
+- `suggestions` (jsonb)
+- `issues` (jsonb)
+- `praise` (jsonb)
+- `review_context` (jsonb)
+
+The Gleam `review_decoder()` doesn't decode these columns (it only
+selects `id, task_id, status, summary, overall_score, requested_at`),
+so it's not affected. But any future code that tries to read these
+columns will face the same JSONB decode issue.
+
+---
+
+## 127. REVISED BUG COUNT — FINAL v5
+
+| Category                           | Count                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------ |
+| `::text` cast missing (UUID+tstz)  | 28                                                                                   |
+| Missing NOT NULL columns in INSERT | 10                                                                                   |
+| Wrong column names                 | 4                                                                                    |
+| Decoder mismatch                   | 7 (+2: task.result JSONB decoded as string, inter_reviews JSONB columns not handled) |
+| Missing type variants              | 2                                                                                    |
+| Logic bugs                         | 11                                                                                   |
+| FFI issues                         | 8                                                                                    |
+| Config system fragmentation        | 2                                                                                    |
+| Seed/bootstrap gaps                | 9 (+1: 94 tables have no migrations, fresh DB is non-functional)                     |
+| Dead code                          | 3                                                                                    |
+| Stub implementations               | 1                                                                                    |
+| Race conditions / concurrency      | 4                                                                                    |
+| Extension generation bugs          | 6                                                                                    |
+| A/S lifecycle logic failures       | 7                                                                                    |
+| Tool execution flow bugs           | 4                                                                                    |
+| Hook module bugs                   | 7                                                                                    |
+| Command module bugs                | 2                                                                                    |
+| DB module bugs                     | 4                                                                                    |
+| A/S DB reader bugs                 | 5                                                                                    |
+| Monitor AI bugs                    | 6                                                                                    |
+| Event hooks bugs                   | 3                                                                                    |
+| Node PG FFI bugs                   | 1                                                                                    |
+| Inter-review bugs                  | 6 (+1: request_inter_review function not in migrations)                              |
+| Tool commit bugs                   | 2                                                                                    |
+| Tool consult bugs                  | 1                                                                                    |
+| Code version bugs                  | 1                                                                                    |
+| Meeting bugs                       | 2                                                                                    |
+| Agent identity bugs                | 4 (+1: agent_identity vs agent_identities table confusion)                           |
+| Task bugs                          | 4 (+1: result column JSONB vs TEXT mismatch)                                         |
+| Issue bugs                         | 3                                                                                    |
+| Broadcast bugs                     | 4                                                                                    |
+| Agents bugs                        | 2                                                                                    |
+| Stats bugs                         | 3                                                                                    |
+| Monitor module bugs                | 3                                                                                    |
+| A orchestrator bugs                | 2                                                                                    |
+| A prompt builder bugs              | 2                                                                                    |
+| Simple migrate bugs                | 4                                                                                    |
+| System prompt types bugs           | 2                                                                                    |
+| A context utils bugs               | 2                                                                                    |
+| Extension generator bugs           | 2                                                                                    |
+| FFI node_ffi.mjs bugs              | 3                                                                                    |
+| FFI pi_extension_ffi.mjs bugs      | 5                                                                                    |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                                                    |
+| FFI time_utils_ffi.mjs bugs        | 1                                                                                    |
+| Migration schema bugs              | 5 (+1: task.result TEXT vs JSONB, 94 untracked tables)                               |
+| **TOTAL CONFIRMED BUGS**           | **163**                                                                              |
+
+---
+
+## 128. ARCHITECTURE ASSESSMENT — CAN THIS SYSTEM EVER WORK?
+
+### 128a. Current State: Non-Functional
+
+Based on the evidence gathered in this review, the psypi system is
+**non-functional in its current state**. Here's why:
+
+1. **Every tool that reads a UUID column fails** — 28+ instances of
+   missing `::text` casts mean every database read returns DecodeError
+
+2. **Every tool that reads a JSONB column fails** — `task.result` is
+   JSONB but decoded as string
+
+3. **The inter-review flow is broken** — `request_inter_review` function
+   is not in migrations, `record_review_score` doesn't update status,
+   and `tool_commit` can never succeed
+
+4. **The A/S agent model is broken** — `agent_sessions` is never
+   populated, `is_s_still_idle` always returns True, identity can flip
+
+5. **Tool results are garbled** — `gleamValueToJson` produces
+   `{0: val, 1: val}` instead of named fields for all custom types
+
+6. **Fresh database setup is impossible** — 94 of 115 tables have no
+   migrations, 336 of 339 SQL functions have no migrations
+
+### 128b. What Would It Take to Fix?
+
+**Phase 1: Stop the Bleeding (Critical Path to Basic Functionality)**
+
+1. Add `::text` casts to ALL UUID and TIMESTAMPTZ columns in ALL queries
+2. Fix `gleamValueToJson` to handle Gleam custom types correctly
+3. Fix `task.result` decoder to handle JSONB
+4. Add `project_id` to all INSERT statements that need it
+5. Fix `auto_file_issue` column names (`type` → `issue_type`)
+6. Fix `issue_db.build_where` parameter reversal
+
+**Phase 2: Make Inter-Review Work**
+
+1. Add `request_inter_review` function to migrations
+2. Add `complete_review` function that updates both `overall_score` and `status`
+3. Wire `tool_commit` to call `complete_review` after A-bot responds
+4. Fix `inter_reviews` migration to include all live columns
+
+**Phase 3: Make A/S Agent Model Work**
+
+1. Populate `agent_sessions` in `hook_on_agent_start`
+2. Add `agent_type = 'S'` filter to `is_s_still_idle`
+3. Unify config systems (load `psypi_config` into `_configStore` on startup)
+4. Fix identity assignment to prevent A/S flip
+
+**Phase 4: Make Fresh Database Setup Work**
+
+1. Dump the live database schema as the authoritative migration
+2. Create a single `000_initial_schema.sql` that creates ALL 115 tables
+3. Add all 339 SQL functions to migrations
+4. Create a proper `seed.sql` with all required initial data
+
+### 128c. Root Cause: No Schema-as-Code Discipline
+
+The fundamental problem is that the database schema evolved through
+manual SQL commands and AI agent interventions, with no migration
+tracking. The Gleam code was written against the live schema, but
+the migrations only cover 18% of the tables. This means:
+
+1. No reproducible database setup
+2. No way to track schema changes
+3. No way to roll back bad changes
+4. No way to set up a test database
+5. No way to deploy to a new environment
+
+The Gleam code is effectively coupled to a specific database state
+that exists only on the developer's machine.
+
+---
+
+## 129. EMPIRICAL TYPE VERIFICATION — UUID vs TIMESTAMPTZ vs JSONB
+
+### 129a. Node-Postgres Type Parsing (Verified with Live Test)
+
+Tested against the live `psypi` database using `node -e`:
+
+| PostgreSQL Type | JS Type Returned | `decode.string` Works?   | Needs `::text`? |
+| --------------- | ---------------- | ------------------------ | --------------- |
+| UUID            | `string`         | Yes                      | No              |
+| TIMESTAMPTZ     | `Date` (object)  | No — DecodeError         | Yes             |
+| JSONB           | `Object`         | No — DecodeError         | Yes             |
+| TEXT            | `string`         | Yes                      | No              |
+| INTEGER         | `number`         | No — needs `decode.int`  | No              |
+| BOOLEAN         | `boolean`        | No — needs `decode.bool` | No              |
+| BIGINT (COUNT)  | `string`         | Yes (parse to int)       | No              |
+
+### 129b. Correction to Earlier Review
+
+Earlier sections (§113) claimed 28+ instances of missing `::text` casts
+for UUID columns. This was **incorrect**. UUID columns are returned as
+strings by node-postgres and do NOT need `::text` casts.
+
+The actual `::text` cast requirement is ONLY for:
+- **TIMESTAMPTZ columns** — 8 confirmed instances missing `::text`
+- **JSONB columns** — 3 confirmed instances missing `::text`
+
+### 129c. TIMESTAMPTZ Columns Missing `::text` Cast
+
+| File               | Column(s)                                   | Line(s)       |
+| ------------------ | ------------------------------------------- | ------------- |
+| inter_review.gleam | `requested_at`                              | 148, 283, 285 |
+| memory.gleam       | `created_at` (via `SELECT *`)               | 101           |
+| areflect.gleam     | `created_at` (in ORDER BY only, not SELECT) | 143           |
+
+### 129d. JSONB Columns Missing `::text` Cast
+
+| File        | Column(s)                                               | Line(s)  |
+| ----------- | ------------------------------------------------------- | -------- |
+| task.gleam  | `result` (decoded as `decode.string` but is JSONB)      | 63       |
+| skill.gleam | `content` (inconsistent: some queries cast, some don't) | 184, 214 |
+| skill.gleam | `reference_list` (inconsistent)                         | 184, 214 |
+
+### 129e. `memory.gleam:search()` Uses `SELECT *`
+
+The `search()` function uses `SELECT * FROM memory` which returns ALL
+columns including `created_at` (TIMESTAMPTZ). The decoder expects
+`created_at` as a string, but node-postgres returns a `Date` object.
+This will cause a DecodeError for every row.
+
+---
+
+## 130. `gleamValueToJson` — DEAD CODE AND SUBTLE BUGS
+
+### 130a. `startsWith('Type$Type')` Checks Never Match
+
+The `gleamValueToJson` function in `pi_extension_ffi.mjs` has 15
+`startsWith` checks for custom types like `Task$Task`, `Issue$Issue`,
+`Stats$Stats`, etc. But the compiled Gleam classes have constructor
+names like `Task`, `Issue`, `Stats` (without the `$Type` suffix).
+
+Verified by inspecting compiled output:
+```javascript
+// build/dev/javascript/psypi/stats.mjs
+export class Stats extends $CustomType { ... }
+// NOT: class Stats$Stats
+```
+
+The `Stats$Stats` is an alias function, not a class name:
+```javascript
+export const Stats$Stats = (tasks, issues, skills, meetings) =>
+  new Stats(tasks, issues, skills, meetings);
+```
+
+**Impact**: All 15 `startsWith` checks are dead code. They never match.
+The function falls through to the generic handler, which works
+correctly for named-field types but was not the intended behavior.
+
+### 130b. Generic Handler Works by Accident
+
+The generic handler at the bottom of `gleamValueToJson`:
+```javascript
+return Object.fromEntries(Object.entries(val).map(([k, v]) => [k, gleamValueToJson(v)]));
+```
+
+This works correctly because Gleam compiled types store fields as
+named properties (`this.tasks`, `this.issues`), not numeric indices.
+Verified: `Object.entries(new Stats(1,2,3,4))` returns
+`[['tasks',1], ['issues',2], ['skills',3], ['meetings',4]]`.
+
+So `r.value.tasks` in templates works correctly despite the dead code.
+
+### 130c. `Ok`/`Error` Name Collision with JavaScript Built-ins
+
+The Gleam `Ok` and `Error` types have constructor names `Ok` and
+`Error`. The `Error` name collides with the JavaScript built-in
+`Error` class. In `gleamValueToJson`, the check:
+```javascript
+if (name === 'Error') return { ok: false, error: gleamValueToJson(val['0'] ?? val[0]) };
+```
+
+This will match BOTH Gleam `Error` variants AND JavaScript `Error`
+objects. If a JavaScript `Error` is passed to `gleamValueToJson`, it
+will be incorrectly treated as a Gleam `Error` variant.
+
+---
+
+## 131. `areflect.gleam:save_issue()` — MISSING `project_id` (NOT NULL)
+
+### 131a. The Bug
+
+```gleam
+fn save_issue(conn, content, agent_id) {
+  let sql = "
+    INSERT INTO issues (title, description, severity, created_by)
+    VALUES ($1, $2, 'medium', $3)
+  "
+```
+
+The `issues` table has `project_id UUID NOT NULL` with no default.
+This INSERT will fail with:
+```
+null value in column "project_id" violates not-null constraint
+```
+
+### 131b. Same for `monitor_ai.gleam:auto_file_issue()`
+
+```gleam
+let sql = "
+  INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+  VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'development')
+  RETURNING id
+"
+```
+
+This INSERT also omits `project_id` AND uses `type` instead of
+`issue_type`. It will fail for TWO reasons.
+
+### 131c. `areflect.gleam:save_task()` Works by Accident
+
+The `tasks` table has `project_id UUID NOT NULL DEFAULT '0d324e68-...'`,
+so omitting `project_id` in the INSERT works because the default kicks in.
+
+---
+
+## 132. DUAL CONFIG SYSTEM — DEBOUNCE MISMATCH
+
+### 132a. Two Separate Config Stores
+
+1. **Database**: `psypi_config` table, read by `psypi_config.gleam`
+2. **In-memory**: `_configStore` object in `pi_extension_ffi.mjs`,
+   read by `pi_extension.get_config()`
+
+These two stores are NEVER synchronized. The `hook_on_agent_end`
+uses the in-memory store for `idle_since` and `monitor_debounce_ms`,
+but the database is the authoritative source.
+
+### 132b. Debounce Value Mismatch
+
+Database: `monitor_debounce_ms = 900000` (15 minutes)
+In-memory: `get_config("monitor_debounce_ms")` returns `null`
+Fallback in code: `300000` (5 minutes)
+
+The actual debounce is 5 minutes (hardcoded fallback), not 15 minutes
+(database value). The database value is completely ignored.
+
+### 132c. `idle_since` Never Persists Across Restarts
+
+The `idle_since` value is stored in `_configStore` (in-memory). When
+the Pi extension restarts, `_configStore` is reset to `{}`, and
+`idle_since` is lost. This means:
+- After restart, the A-bot debounce timer resets
+- The A-bot may wake up prematurely after a restart
+
+---
+
+## 133. `tool_commit.gleam` — INTER-REVIEW FLOW ANALYSIS
+
+### 133a. Phase 1: Trigger Review
+
+`trigger_review()` calls `inter_review.request_review()` which calls
+the `request_inter_review()` SQL function. This function:
+1. Checks for existing pending/in_progress review for the task
+2. If exists, returns existing review_id
+3. Otherwise, creates new review with `status='pending'`
+
+This part works correctly.
+
+### 133b. Phase 2: Commit if Reviewed
+
+`commit_if_reviewed()` calls `inter_review.get_review_details()` which
+queries `inter_reviews` for `id, task_id, status, summary, overall_score,
+requested_at`. It checks:
+1. If `overall_score` is `None` → "Review not yet complete"
+2. If `overall_score >= 50` → proceed with `git commit`
+3. If `overall_score < 50` → "Review score too low"
+
+### 133c. The Broken Link: Who Updates `overall_score`?
+
+The `request_inter_review()` function creates a review with
+`status='pending'` and `overall_score=NULL`. The A-bot is supposed
+to review the code and update the score. But:
+
+1. The A-bot's `a_orchestrator.run_a_workflow()` calls
+   `call_monitor()` to get LLM response
+2. The LLM response is sent via `pi_send_message()` as a message
+3. **Nobody writes the review score back to the database**
+4. `overall_score` remains NULL forever
+5. `commit_if_reviewed()` always returns "Review not yet complete"
+
+The `respond_to_inter_review()` and `update_inter_review()` SQL
+functions exist in the database but are never called by any Gleam code.
+
+### 133d. `git add` is Never Called
+
+`tool_commit.gleam` runs `git commit -m "..."` but never runs
+`git add` first. The commit will fail with "nothing to commit"
+unless the files were already staged.
+
+---
+
+## 134. `tool_consult.gleam` — STUB IMPLEMENTATION
+
+The `on_consult()` function is a stub that returns:
+```
+[Autonomic] Consult request: <question>
+The S-worker should address this in its next turn.
+```
+
+It does NOT actually consult the A-bot. The Pi tool
+`psypi-consult-autonomic` is registered and available to the S-bot,
+but it does nothing useful.
+
+---
+
+## 135. `memory.gleam:save()` — DECODER MISMATCH
+
+### 135a. `RETURNING id` vs Full Decoder
+
+```gleam
+let sql = "
+  INSERT INTO memory (content, tags, source, importance, agent_id)
+  VALUES ($1, $2, $3, $4, $5)
+  RETURNING id
+"
+// ...
+case decode.run(row, memory_decoder()) {
+  Ok(mem) -> Ok(mem.id)
+```
+
+The `RETURNING id` query returns a single column (`id`), but
+`memory_decoder()` expects 7 fields (`id, content, tags, source,
+agent_id, importance, created_at`). The decode will fail because
+the other 6 fields are missing.
+
+**Fix**: Use a simple `id_decoder()` instead of `memory_decoder()`.
+
+### 135b. `learning.gleam:save_learning()` — Audit Trigger Issue
+
+The `save_learning()` function inserts with `source='learn'`, but
+the `audit_direct_insert` trigger's `v_allowed_sources` array does
+NOT include `'learn'`. It includes `'areflect'` but not `'learn'`.
+
+This means every learning insert triggers an audit entry and
+potentially a notification to the project_communications table.
+
+---
+
+## 136. REVISED BUG COUNT — FINAL v6
+
+| Category                           | Count                                                                                          |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `::text` cast missing (TSTZ+JSONB) | 11 (8 TSTZ + 3 JSONB, corrected from 28 UUID claims)                                           |
+| Missing NOT NULL columns in INSERT | 10                                                                                             |
+| Wrong column names                 | 4                                                                                              |
+| Decoder mismatch                   | 8 (+3: task.result JSONB as string, memory.save decoder mismatch, memory.search SELECT * TSTZ) |
+| Missing type variants              | 2                                                                                              |
+| Logic bugs                         | 11                                                                                             |
+| FFI issues                         | 9 (+1: gleamValueToJson dead code — all startsWith checks never match)                         |
+| Config system fragmentation        | 3 (+1: debounce value mismatch DB vs in-memory)                                                |
+| Seed/bootstrap gaps                | 9                                                                                              |
+| Dead code                          | 4 (+1: gleamValueToJson startsWith checks are dead code)                                       |
+| Stub implementations               | 2 (+1: tool_consult is a stub)                                                                 |
+| Race conditions / concurrency      | 4                                                                                              |
+| Extension generation bugs          | 6                                                                                              |
+| A/S lifecycle logic failures       | 7                                                                                              |
+| Tool execution flow bugs           | 4                                                                                              |
+| Hook module bugs                   | 7                                                                                              |
+| Command module bugs                | 2                                                                                              |
+| DB module bugs                     | 4                                                                                              |
+| A/S DB reader bugs                 | 5                                                                                              |
+| Monitor AI bugs                    | 6                                                                                              |
+| Event hooks bugs                   | 3                                                                                              |
+| Node PG FFI bugs                   | 1                                                                                              |
+| Inter-review bugs                  | 7 (+1: nobody writes overall_score back, respond_to_inter_review never called)                 |
+| Tool commit bugs                   | 3 (+1: git add never called)                                                                   |
+| Tool consult bugs                  | 2 (+1: stub implementation)                                                                    |
+| Code version bugs                  | 1                                                                                              |
+| Meeting bugs                       | 2                                                                                              |
+| Agent identity bugs                | 4                                                                                              |
+| Task bugs                          | 4                                                                                              |
+| Issue bugs                         | 3                                                                                              |
+| Broadcast bugs                     | 4                                                                                              |
+| Agents bugs                        | 2                                                                                              |
+| Stats bugs                         | 3                                                                                              |
+| Monitor module bugs                | 3                                                                                              |
+| A orchestrator bugs                | 2                                                                                              |
+| A prompt builder bugs              | 2                                                                                              |
+| Simple migrate bugs                | 4                                                                                              |
+| System prompt types bugs           | 2                                                                                              |
+| A context utils bugs               | 2                                                                                              |
+| Extension generator bugs           | 2                                                                                              |
+| FFI node_ffi.mjs bugs              | 3                                                                                              |
+| FFI pi_extension_ffi.mjs bugs      | 6 (+1: Error name collision with JS built-in)                                                  |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                                                              |
+| FFI time_utils_ffi.mjs bugs        | 1                                                                                              |
+| Migration schema bugs              | 5                                                                                              |
+| **TOTAL CONFIRMED BUGS**           | **170**                                                                                        |
