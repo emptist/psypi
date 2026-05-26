@@ -857,3 +857,130 @@ This uses `string.contains` to detect errors in JSON. Problems:
 - **`extract_error_msg`** uses `string.split(json, "\"error\"")` which is extremely fragile — it breaks on nested JSON, escaped quotes, or any response where `"error"` appears in data.
 
 Should use proper JSON decoding via `gleam/json` instead of string matching.
+
+---
+
+## 22. INTER-REVIEW COMMIT FLOW IS PERMANENTLY STUCK
+
+### The Flow (as designed)
+
+1. S-bot calls `psypi-commit` (no review_id) → `tool_commit.trigger_review()`
+2. `trigger_review()` calls `inter_review.request_review()` → creates `inter_reviews` row with `status='pending'`, `overall_score=NULL`
+3. S-bot gets review_id, told to call `psypi-commit` again with it
+4. A-bot should review the code and set `overall_score`
+5. S-bot calls `psypi-commit` with review_id → `commit_if_reviewed()` checks `overall_score >= 50` → git commit
+
+### Where It Breaks
+
+**Step 4 never happens.** The A-bot's `agent_end` hook runs `a_orchestrator.run_a_workflow()` which:
+- Reads soul, jobs, project state from DB
+- Calls `call_monitor()` (LLM) to get a response
+- Sends the response as `pi_send_message(pi, "autonomic-wakeup", response, "persistent")`
+
+The A-bot's response is sent as a Pi message to S-bot. **It is NEVER written back to the `inter_reviews` table.**
+The `overall_score` stays NULL forever.
+
+`monitor_ai.gleam:300` defines `record_review_score()` but **it is never called by anyone**.
+
+### Evidence
+
+```sql
+SELECT id, status, overall_score, summary FROM inter_reviews ORDER BY requested_at DESC LIMIT 10;
+-- Result: 2 rows, BOTH status='pending', BOTH overall_score=NULL, BOTH summary=NULL
+```
+
+**The inter-review system has NEVER completed a review. Every commit attempt is permanently stuck.**
+
+### The `before_agent_start` Hook Also Breaks
+
+In the generated `extension.js:131-133`:
+```javascript
+if (r.ok) { return { systemPrompt: r.value }; }
+else { ctx.ui.notify('Hook before_agent_start failed: ' + r.error, 'error'); }
+await event_hooks_record_trigger('before_agent_start');
+```
+
+The `return` on success exits BEFORE `event_hooks_record_trigger` is called.
+So the `before_agent_start` event is never recorded in the database when it succeeds.
+
+---
+
+## 23. AGENT SESSIONS SYSTEM IS NON-FUNCTIONAL
+
+### No Code Creates or Maintains Sessions
+
+The `agent_sessions` table is referenced by `a_db_reader.is_s_still_idle()` but:
+- **No Gleam code INSERTs into `agent_sessions`**
+- **No code updates `last_heartbeat`**
+- **No code sets `ended_at` or `status='dead'`**
+
+The 19 existing rows were all created on 2026-05-07 (19 days ago) with `agent_type='psypi'` and `status='alive'`.
+None have been updated since.
+
+### `is_s_still_idle()` Always Returns True
+
+```sql
+SELECT COUNT(*) as cnt FROM agent_sessions
+WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+
+Since no code updates heartbeats, this query ALWAYS returns `cnt=0`, so `is_s_still_idle()` ALWAYS returns `Ok(True)`.
+
+**Impact**: The A-bot can NEVER detect that S is busy. It will always attempt to wake up,
+even if S is actively working. The debounce timer is the only thing preventing constant wake-ups.
+
+### `agent_type` Mismatch
+
+The `agent_sessions.agent_type` column stores `'psypi'`, not `'A'` or `'S'`.
+Even if someone added a filter like `WHERE agent_type = 'S'`, it would match zero rows.
+
+### Schema Drift: Migration vs Live Table
+
+| Migration 013                         | Live Table                                                     |
+| ------------------------------------- | -------------------------------------------------------------- |
+| `agent_id TEXT NOT NULL`              | `identity_id VARCHAR(100)` + `agent_type VARCHAR(50) NOT NULL` |
+| 5 columns                             | 11 columns                                                     |
+| status CHECK: `'alive','dead','idle'` | status CHECK: `'alive','dead','sleeping'`                      |
+| No FK                                 | FK to `agent_identities(id)` and `tasks(id)`                   |
+| 2 indexes                             | 6 indexes                                                      |
+
+The migration is completely out of sync with the live table. A fresh deployment would create the wrong schema.
+
+### Duplicate Heartbeat Columns
+
+Both `last_heartbeat` and `last_heartbeat_at` exist with identical values.
+No code references `last_heartbeat_at`. Likely added by an AI that didn't check existing columns.
+
+---
+
+## 24. A-BOT WAKE-UP LOGIC HAS NO GUARD AGAINST S-BUSY
+
+The full wake-up chain:
+
+```
+agent_end (Pi event)
+  → debounce (5 min timeout)
+    → hook_on_agent_end.on_agent_end(ctx, pi)
+      → check ctx_is_idle() and ctx_has_pending_messages()
+        → check_idle_since() — in-memory config store
+          → coordinate_with_s()
+            → a_db_reader.is_s_still_idle() — ALWAYS returns True (see §23)
+              → a_orchestrator.run_a_workflow()
+                → call_monitor() — LLM call
+                  → pi_send_message("autonomic-wakeup", response)
+```
+
+### Problems
+
+1. **`is_s_still_idle()` is useless** — always returns True (see §23)
+2. **`ctx_is_idle()` is the only real guard** — but it only checks the CURRENT Pi session's idle state,
+   not whether S-bot in another session is busy
+3. **No inter-session coordination** — if S-bot is busy in another terminal, A-bot has no way to know
+4. **Debounce is per-process** — `_debounceTimerId` is a JS variable, lost on restart
+5. **`idle_since` is in-memory** — `get_config/set_config` use `_configStore` object, lost on restart
+
+### The A-Bot Can Wake Up While S Is Working
+
+If S-bot is actively processing a tool call, `ctx_is_idle()` returns False and the wake-up is aborted.
+But if S-bot just finished a tool call and is waiting for the LLM response (between turns),
+`ctx_is_idle()` returns True and A-bot will send a wake-up message, interrupting S's workflow.
