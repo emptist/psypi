@@ -9532,3 +9532,144 @@ S-bot calls psypi-commit tool
 | Learning bugs                      | 1                                                                 |
 | Migration schema bugs              | 11                                                                |
 | **TOTAL CONFIRMED BUGS**           | **289**                                                           |
+
+---
+
+## 180. GLEAM TYPES vs DATABASE TABLES — COMPLETE MAPPING — v19
+
+### 180.1 Existing Gleam Types with Database Table Counterparts
+
+| Gleam Type          | DB Table                           | Match Quality | Issues                                                                        |
+| ------------------- | ---------------------------------- | ------------- | ----------------------------------------------------------------------------- |
+| `Task`              | `tasks`                            | POOR          | Missing project_id in decoder, result JSONB not cast, status variant mismatch |
+| `TaskStatus`        | `tasks.status`                     | POOR          | Has `Failed` variant but DB only has COMPLETED/PENDING                        |
+| `Issue`             | `issues`                           | POOR          | Missing 15 columns, metadata JSONB not handled                                |
+| `IssueSeverity`     | `issues.severity`                  | OK            |                                                                               |
+| `IssueStatus`       | `issues.status`                    | OK            |                                                                               |
+| `IssueType`         | `issues.issue_type`                | POOR          | Missing variants for actual DB values                                         |
+| `Skill`             | `skills`                           | POOR          | Missing 43 columns, content/reference_list JSONB not cast                     |
+| `SkillSource`       | `skills.source`                    | BROKEN        | Missing `AiBuilt` variant for 'ai-built' value                                |
+| `SkillStatus`       | `skills.status`                    | OK            |                                                                               |
+| `Meeting`           | `meetings`                         | POOR          | Missing project_id, metadata, summary, updated_at                             |
+| `MeetingStatus`     | `meetings.status`                  | OK            |                                                                               |
+| `Opinion`           | `meeting_opinions`                 | POOR          | Missing position column                                                       |
+| `Memory`            | `memory`                           | POOR          | Missing project_id, metadata, viewers, has_sensitive, embedding               |
+| `Broadcast`         | `project_communications`           | BROKEN        | References non-existent `status` column, priority type mismatch               |
+| `BroadcastPriority` | `project_communications.priority`  | BROKEN        | Enum has Int values but column is text                                        |
+| `BroadcastStatus`   | `project_communications.status`    | BROKEN        | Column doesn't exist                                                          |
+| `Agent`             | `agent_identities`                 | PARTIAL       | Only has id, name, type — missing many columns                                |
+| `AgentId`           | `agent_identities.id_prefix`       | OK            |                                                                               |
+| `AgentIdentity`     | `agent_identity`                   | PARTIAL       | Used for FFI, not DB queries                                                  |
+| `EnrichedIdentity`  | `agent_identities` + `agent_souls` | PARTIAL       | Composite, missing many fields                                                |
+| `Review`            | `inter_reviews`                    | POOR          | Missing 26 columns, requested_at not cast                                     |
+| `ReviewFinding`     | `inter_reviews.findings`           | BROKEN        | findings is JSONB, decoder assumes string                                     |
+| `Learning`          | `learning_insights`                | POOR          | Tags as string for ARRAY column                                               |
+| `IssueSummary`      | `issues` (subset)                  | OK            | Used for areflect, limited fields                                             |
+
+### 180.2 Database Tables with NO Gleam Type
+
+| DB Table                 | Used by Gleam Code?                   | Impact                                              |
+| ------------------------ | ------------------------------------- | --------------------------------------------------- |
+| `projects`               | YES — project_id UUID used everywhere | **CRITICAL**: No `Project` type, no lookup function |
+| `psypi_config`           | YES — psypi_config.gleam reads/writes | No `Config` type, uses raw key-value                |
+| `psypi_event_hooks`      | YES — event_hooks.gleam reads         | `EventHook` type exists but doesn't match schema    |
+| `agent_souls`            | YES — a_db_reader/s_db_reader read    | No `Soul` type, reads raw content string            |
+| `agent_sessions`         | YES — a_db_reader.is_s_still_idle()   | No `Session` type                                   |
+| `agent_jobs`             | YES — a_db_reader/s_db_reader read    | No `Job` type, reads raw strings                    |
+| `code_versions`          | YES — code_version.gleam reads/writes | No `CodeVersion` type                               |
+| `activity_log`           | NO                                    | Not used                                            |
+| `agent_configs`          | NO                                    | Not used                                            |
+| `agent_moods`            | NO                                    | Not used                                            |
+| `agent_prefixes`         | NO                                    | Not used                                            |
+| `agent_scores`           | NO                                    | Not used                                            |
+| `ai_capabilities`        | NO                                    | Not used                                            |
+| `api_keys`               | NO                                    | Not used                                            |
+| `archived_memory`        | NO                                    | Not used                                            |
+| `auto_category_rules`    | NO                                    | Not used                                            |
+| `auto_tag_rules`         | NO                                    | Not used                                            |
+| `bootstrap_state`        | NO                                    | Not used                                            |
+| `conversations`          | NO                                    | Not used                                            |
+| `dead_letter_queue`      | NO                                    | Not used                                            |
+| `direct_insert_audit`    | NO                                    | Not used                                            |
+| `email_verifications`    | NO                                    | Not used                                            |
+| `event_log`              | NO                                    | Not used                                            |
+| `failure_alerts`         | NO                                    | Not used                                            |
+| `failure_patterns`       | NO                                    | Not used                                            |
+| `failure_root_causes`    | NO                                    | Not used                                            |
+| `heartbeat_configs`      | NO                                    | Not used                                            |
+| `insert_reminders`       | NO                                    | Not used                                            |
+| `issue_comments`         | NO                                    | Not used                                            |
+| `issue_events`           | NO                                    | Not used                                            |
+| `issue_labels`           | NO                                    | Not used                                            |
+| `labels`                 | NO                                    | Not used                                            |
+| `knowledge_links`        | NO                                    | Not used                                            |
+| `milestones`             | NO                                    | Not used                                            |
+| `notifications`          | NO                                    | Not used                                            |
+| `password_resets`        | NO                                    | Not used                                            |
+| `payment_analytics`      | NO                                    | Not used                                            |
+| `payment_refunds`        | NO                                    | Not used                                            |
+| `payment_webhooks`       | NO                                    | Not used                                            |
+| `payments`               | NO                                    | Not used                                            |
+| `priority_learnings`     | NO                                    | Not used                                            |
+| `process_pids`           | NO                                    | Not used                                            |
+| `project_config_history` | NO                                    | Not used                                            |
+| `project_docs`           | NO                                    | Not used                                            |
+| `project_metrics`        | NO                                    | Not used                                            |
+| `project_skills`         | NO                                    | Not used                                            |
+| `project_visits`         | NO                                    | Not used                                            |
+| `prompt_suggestions`     | NO                                    | Not used                                            |
+| `provider_api_keys`      | NO                                    | Not used                                            |
+| `rate_limits`            | NO                                    | Not used                                            |
+| `reflections`            | NO                                    | Not used                                            |
+| `reminder_templates`     | NO                                    | Not used                                            |
+| `retry_learning`         | NO                                    | Not used                                            |
+| `retry_strategies`       | NO                                    | Not used                                            |
+| `review_comments`        | NO                                    | Not used                                            |
+| `review_labels`          | NO                                    | Not used                                            |
+| `scheduled_tasks`        | NO                                    | Not used                                            |
+| `skill_audit_log`        | NO                                    | Not used                                            |
+| `skill_builder_config`   | NO                                    | Not used                                            |
+| `skill_feedback`         | NO                                    | Not used                                            |
+| `skill_versions`         | NO                                    | Not used                                            |
+| `soul`                   | NO                                    | Not used (agent_souls used instead)                 |
+| `stuck_tasks_tracking`   | NO                                    | Not used                                            |
+| `subscription_plans`     | NO                                    | Not used                                            |
+| `subscriptions`          | NO                                    | Not used                                            |
+| `system_directives`      | NO                                    | Not used (migration 025 drops it)                   |
+| `system_reviews`         | NO                                    | Not used                                            |
+| `table_documentation`    | NO                                    | Not used                                            |
+| `task_audit_log`         | NO                                    | Not used                                            |
+| `task_comments`          | NO                                    | Not used                                            |
+| `task_outcome_features`  | NO                                    | Not used                                            |
+| `task_outcomes`          | NO                                    | Not used                                            |
+| `task_patterns`          | NO                                    | Not used                                            |
+| `task_results`           | NO                                    | Not used                                            |
+| `task_templates`         | NO                                    | Not used                                            |
+| `test_uuid_col`          | NO                                    | Not used (test artifact)                            |
+| `tool_definitions`       | NO                                    | Not used                                            |
+| `user_payment_methods`   | NO                                    | Not used                                            |
+| `user_profiles`          | NO                                    | Not used                                            |
+| `user_sessions`          | NO                                    | Not used                                            |
+| `users`                  | NO                                    | Not used                                            |
+
+### 180.3 Summary
+
+| Category                                      | Count              |
+| --------------------------------------------- | ------------------ |
+| Gleam types with DB table counterpart         | 23                 |
+| Gleam types that match DB schema well         | 4 (17%)            |
+| Gleam types with partial/broken match         | 19 (83%)           |
+| DB tables used by Gleam but missing type      | 8                  |
+| DB tables not used by Gleam at all            | 69                 |
+| **Total DB tables without proper Gleam type** | **77 of 96 (80%)** |
+
+### 180.4 Critical Missing Types (Priority Order)
+
+1. **`Project`** — `projects` table. Used everywhere via `project_id` UUID. No type, no lookup, no CRUD.
+2. **`Soul`** — `agent_souls` table. Read by a_db_reader/s_db_reader but only as raw content string. No structured type.
+3. **`Session`** — `agent_sessions` table. Queried by `is_s_still_idle()` but no type.
+4. **`Job`** — `agent_jobs` table. Read by a_db_reader/s_db_reader but decoded as flat strings, not structured type.
+5. **`CodeVersion`** — `code_versions` table. Written/read by code_version.gleam but no type.
+6. **`Config`** — `psypi_config` table. Read/written by psypi_config.gleam but only as key-value pairs.
+7. **`EventHook`** — `psypi_event_hooks` table. `EventHook` type exists but doesn't match DB schema.
+8. **`Notification`** — `notifications` table. `Notification` type exists in monitor.gleam but not connected to DB.
