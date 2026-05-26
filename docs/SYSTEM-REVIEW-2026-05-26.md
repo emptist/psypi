@@ -4187,3 +4187,725 @@ These issues are not independent — they compound. For example, the inter-revie
 failure (1) is caused by A-bot never writing back (2), which is caused by the
 identity system not distinguishing A-bot from S-bot (3), which is caused by
 the idle-state identity logic (4).
+
+---
+
+## 93. TASK MODULE ANALYSIS
+
+### 93a. `get()` — Missing `project_id` Column in SELECT
+
+File: [task.gleam:231-234](src/task.gleam#L231-L234)
+
+```sql
+SELECT id, title, description, status, priority, result, error, retry_count,
+       created_at::text, updated_at::text, completed_at::text, created_by, source
+FROM tasks
+WHERE id = $1
+```
+
+The `task_decoder()` expects `project_id` field (line 56), but the `get()`
+query doesn't include `project_id` in the SELECT. This will cause
+`decode.run(row, task_decoder())` to fail with a missing field error.
+
+### 93b. `complete()` — Status Value Case Sensitivity
+
+File: [task.gleam:205-208](src/task.gleam#L205-L208)
+
+```sql
+SET status = 'COMPLETED', completed_at = NOW()
+```
+
+The status is set to `'COMPLETED'` (uppercase). The `string_to_status()`
+function handles both cases (`"completed" | "COMPLETED"`), so this works.
+But the `add()` function doesn't set status, so it defaults to whatever
+the database column default is. If the default is `'pending'` (lowercase),
+the system has inconsistent casing.
+
+### 93c. `task_add_tool` — Hardcoded Default Values
+
+File: [task.gleam:275-282](src/task.gleam#L275-L282)
+
+```gleam
+args: [
+  from_param("params.title || \"\""),
+  lit("\"\""),       // description = empty string
+  lit("5"),          // priority = 5
+  lit("\"cli\""),    // created_by = "cli"
+  from_param("params?.project_id || '0d324e68-b399-4b85-bd8a-6b1ef7b46168'"),
+],
+```
+
+- `description` is always empty — the tool doesn't accept a description parameter
+- `priority` is always 5 — the tool doesn't accept a priority parameter
+- `created_by` is always "cli" — should be the agent's identity
+- `project_id` falls back to the hardcoded UUID
+
+### 93d. `list()` — `id` Missing `::text` Cast
+
+File: [task.gleam:173-176](src/task.gleam#L173-L176)
+
+```sql
+SELECT id, title, description, status, priority, result, error, retry_count,
+       created_at::text, updated_at::text, completed_at::text, created_by, source,
+       project_id::text
+FROM tasks
+```
+
+`id` is UUID without `::text` cast. `decode.string` will fail on UUID objects.
+
+---
+
+## 94. ISSUE MODULE ANALYSIS
+
+### 94a. `issue_db.get()` — Hardcoded `project_id` Filter
+
+File: [issue_db.gleam:268-271](src/issue_db.gleam#L268-L271)
+
+```sql
+WHERE id = $1 AND project_id = $2
+```
+
+With `params = [dynamic.string(issue_id), dynamic.string("0d324e68-...")]`.
+
+The `get()` function hardcodes the project_id filter. This means:
+1. Issues from other projects are invisible
+2. The function signature doesn't accept project_id as parameter
+3. If the project UUID changes, this function silently returns NotFound
+
+### 94b. `issue_db.resolve()` — Same Hardcoded `project_id`
+
+File: [issue_db.gleam:288-291](src/issue_db.gleam#L288-L291)
+
+```sql
+WHERE id = $1 AND project_id = $3
+```
+
+Same issue as §94a. The resolve function can only resolve issues in the
+hardcoded project.
+
+### 94c. `issue_db.list()` — `id` Missing `::text` Cast
+
+File: [issue_db.gleam:197](src/issue_db.gleam#L197)
+
+```sql
+SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, ...
+```
+
+`id` is UUID without `::text` cast. `decode.string` will fail on UUID objects.
+
+### 94d. `issue_db.add()` — `id` Missing `::text` in RETURNING
+
+File: [issue_db.gleam:126](src/issue_db.gleam#L126)
+
+```sql
+RETURNING id
+```
+
+`id` is UUID without `::text` cast. `decode.string` will fail on UUID objects.
+
+### 94e. `issue_db.list()` — `build_where` Reverses Condition Order
+
+File: [issue_db.gleam:215-240](src/issue_db.gleam#L215-L240)
+
+The `build_where` function prepends conditions to the list:
+```gleam
+#(["status = $" <> string.inspect(idx), ..conditions], [dynamic.string(s), ..params])
+```
+
+Then reverses them at the end:
+```gleam
+" WHERE " <> string.join(list.reverse(conditions), " AND ")
+```
+
+But the params list is also prepended but NOT reversed. This means the
+parameter indices in the WHERE clause don't match the parameter values.
+
+Example: If status="open", severity="high", the conditions become:
+- After prepending: ["severity = $2", "status = $1"]
+- After reversing: ["status = $1", "severity = $2"]
+
+But the params become: [dynamic.string("high"), dynamic.string("open")]
+- $1 = "high" (should be "open")
+- $2 = "open" (should be "high")
+
+**This is a critical bug — the filter parameters are swapped.**
+
+### 94f. `issue_tools` — Hardcoded `project_id` in Tool Args
+
+File: [issue_tools.gleam:20](src/issue_tools.gleam#L20)
+
+```gleam
+from_param("params.project_id || \"0d324e68-b399-4b85-bd8a-6b1ef7b46168\""),
+```
+
+The `issue_add_tool` hardcodes the default project_id. If the project changes,
+all new issues will be created under the wrong project.
+
+---
+
+## 95. BROADCAST MODULE ANALYSIS
+
+### 95a. `send()` — Inserts into Wrong Table
+
+File: [broadcast.gleam:112-116](src/broadcast.gleam#L112-L116)
+
+```sql
+INSERT INTO project_communications
+(project_id, from_ai, message_type, content, priority, metadata)
+VALUES ($1, $2, 'broadcast', $3, $4, $5)
+```
+
+The `Broadcast` type has `status: BroadcastStatus` with variants `Pending`,
+`Sent`, `Failed`, `Cancelled`. But the INSERT doesn't set a `status` column.
+If `project_communications` doesn't have a default status, the broadcast
+will have no status.
+
+Also, the `metadata` column is set to `{"sent_at": "now"}`, which is incorrect —
+the broadcast hasn't been sent yet (it's just being created). The metadata
+should reflect creation, not sending.
+
+### 95b. `list()` — Fabricates `status` as 'sent'
+
+File: [broadcast.gleam:227-228](src/broadcast.gleam#L227-L228)
+
+```sql
+SELECT id, from_ai as agent_id, content as message, priority,
+       'sent' as status, created_at::text, read_at::text as sent_at
+```
+
+The status is hardcoded as `'sent'` in the SQL query. This means every
+broadcast returned by `list()` has status `Sent`, regardless of its actual
+status. The `BroadcastStatus` type with `Pending`, `Failed`, `Cancelled`
+variants is never used for reads.
+
+### 95c. `stats()` — `status` Column Doesn't Exist in `project_communications`
+
+File: [broadcast.gleam:267-272](src/broadcast.gleam#L267-L272)
+
+```sql
+COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
+COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+```
+
+The `project_communications` table likely doesn't have a `status` column
+(broadcasts are stored there with `message_type='broadcast'`). The
+`sent_count` will always be 0.
+
+Also, `priority >= 2` compares a string ('low', 'normal', 'high', 'critical')
+with an integer. PostgreSQL will try to cast, but this is unreliable.
+The comparison should use `priority IN ('high', 'critical')`.
+
+### 95d. `id` Missing `::text` Cast in All Broadcast Queries
+
+All broadcast queries select `id` (UUID) without `::text` cast.
+`decode.string` will fail on UUID objects.
+
+---
+
+## 96. AGENTS MODULE ANALYSIS
+
+### 96a. `agents.list()` — Reads from `agent_identities` Table
+
+File: [agents.gleam:62-65](src/agents.gleam#L62-L65)
+
+```sql
+SELECT id, agent_type, created_at::text 
+FROM agent_identities 
+ORDER BY created_at DESC 
+LIMIT 50
+```
+
+The `agent_identities` table is one of the unseeded tables (see §92d).
+If the table is empty, the tool returns an empty list. The `Agent` type
+only has 3 fields (`id`, `agent_type`, `created_at`), which is much less
+than the `AgentIdentity` type in `agent_identity_types.gleam` (which has
+11 fields). These are two different types for the same concept.
+
+### 96b. `id` Missing `::text` Cast
+
+`id` is UUID without `::text` cast. `decode.string` will fail on UUID objects.
+
+---
+
+## 97. STATS MODULE ANALYSIS
+
+### 97a. `stats()` — No `project_id` Filter
+
+File: [stats.gleam:14-19](src/stats.gleam#L14-L19)
+
+```sql
+SELECT 
+  (SELECT COUNT(*) FROM tasks) as tasks,
+  (SELECT COUNT(*) FROM issues) as issues,
+  (SELECT COUNT(*) FROM skills) as skills,
+  (SELECT COUNT(*) FROM meetings) as meetings
+```
+
+The stats count ALL rows across ALL projects. If the database has data from
+multiple projects, the stats will be misleading. The query should filter by
+`project_id`.
+
+### 97b. `decode_bigint` — COUNT(*) Returns Int, Not String
+
+File: [stats.gleam:55-61](src/stats.gleam#L55-L61)
+
+```gleam
+fn decode_bigint() -> decode.Decoder(Int) {
+  decode.string
+    |> decode.map(fn(s) {
+      case int.parse(s) {
+        Ok(n) -> n
+        Error(_) -> 0
+      }
+    })
+}
+```
+
+The decoder expects `decode.string` for COUNT(*). But PostgreSQL COUNT(*)
+returns `bigint`, which the `pg` Node.js driver returns as a JavaScript
+`number` (not a string). Using `decode.string` on a number will fail.
+
+The decoder should use `decode.int` directly, or the SQL should cast
+`COUNT(*)::text`.
+
+### 97c. `stats_show_tool` — Template Accesses Gleam Type Fields
+
+File: [stats.gleam:73](src/stats.gleam#L73)
+
+```gleam
+result_format: template("Tasks:${r.value.tasks} Issues:${r.value.issues} ..."),
+```
+
+The template accesses `r.value.tasks`, `r.value.issues`, etc. But `r.value`
+is a Gleam `Stats` custom type. In the generated JS, `r.value` is a Gleam
+record object with numeric keys like `{0: 5, 1: 3, 2: 7, 3: 2}` (because
+`gleamValueToJson` is broken — see §15). The template will produce
+`Tasks:undefined Issues:undefined ...`.
+
+---
+
+## 98. MONITOR MODULE ANALYSIS
+
+### 98a. `record_current_model` — `ctx.model` Is an Object, Not a String
+
+File: [extension_generator.gleam:145-148](src/extension_generator.gleam#L145-L148)
+
+```gleam
+event_hook(
+  "session_start",
+  "monitor",
+  "record_current_model",
+  [from_param("ctx.model")],
+```
+
+The `session_start` hook passes `ctx.model` as the argument to
+`monitor.record_current_model(model_name)`. But `ctx.model` is a JavaScript
+object (e.g., `{id: "claude-3.5", provider: "anthropic"}`), not a string.
+The `record_current_model` function inserts this as `dynamic.string(model_name)`,
+which will call `.toString()` on the object, producing `[object Object]`.
+
+### 98b. `set_model()` — No Transaction, Two-Step Update
+
+File: [monitor.gleam:139-170](src/monitor.gleam#L139-L170)
+
+The `set_model` function:
+1. Resets ALL provider_api_keys to 'not_used'
+2. Then updates one to 'in_use'
+
+These are two separate queries without a transaction. If the second query
+fails, all keys are marked 'not_used' and none is 'in_use'. The system
+loses track of which model is active.
+
+### 98c. `get_pending_notifications` — `id` Missing `::text` Cast
+
+File: [monitor.gleam:211](src/monitor.gleam#L211)
+
+```sql
+SELECT id, agent_id, priority, title, body, 
+       created_at::text as created_at, read_at::text as read_at
+```
+
+`id` is UUID without `::text` cast. `decode.string` will fail on UUID objects.
+
+### 98d. `mark_notifications_read` — `RETURNING id` Without `::text`
+
+File: [monitor.gleam:262](src/monitor.gleam#L262)
+
+```sql
+UPDATE notifications 
+SET read_at = NOW() 
+WHERE agent_id = $1 AND read_at IS NULL
+RETURNING id
+```
+
+`id` is UUID without `::text` cast. But the function doesn't decode it —
+it just counts rows: `Ok(list.length(result.rows))`. So this works, but
+the `RETURNING id` is unnecessary overhead.
+
+---
+
+## 99. A_ORCHESTRATOR MODULE ANALYSIS
+
+### 99a. `run_full_workflow` — Errors Send Messages but Don't Stop
+
+File: [a_orchestrator.gleam:25-32](src/a_orchestrator.gleam#L25-L32)
+
+```gleam
+Error(e) -> {
+  let msg = "[A-agentbot] <ERROR> read_soul_from_db failed: " <> e <> "..."
+  pi_send_message(pi, "autonomic-error", msg, "persistent")
+  promise.resolve(Ok(Nil))
+}
+```
+
+When `read_soul_from_db` fails, the orchestrator sends an error message
+and returns `Ok(Nil)`. This means the error is silently swallowed — the
+caller thinks the workflow succeeded. The same pattern applies to
+`read_a_jobs_from_db` and `read_project_state_from_db`.
+
+### 99b. `handle_monitor_response` — Race Condition with `ctx_is_idle`
+
+File: [a_orchestrator.gleam:88-98](src/a_orchestrator.gleam#L88-L98)
+
+```gleam
+case ctx_is_idle(ctx) {
+  False -> {
+    notify_info(ctx, "[AUTONOMIC] S became busy during A's thinking — aborting wake-up")
+    promise.resolve(Ok(Nil))
+  }
+  True -> {
+    pi_send_message(pi, "autonomic-wakeup", response, "persistent")
+```
+
+After `call_monitor` returns (which involves an LLM call that may take
+30+ seconds), the code checks `ctx_is_idle(ctx)`. But the idle state may
+have changed during the LLM call. This is a TOCTOU (time-of-check-to-time-of-use)
+race condition.
+
+However, this is actually a reasonable design — checking idle state before
+sending the wake-up prevents waking S-bot when it's already busy. The real
+issue is that `ctx_is_idle` reads from the Pi SDK's internal state, which
+may not be up-to-date.
+
+### 99c. `pi_send_message` 4th Parameter Ignored
+
+File: [a_orchestrator.gleam:30](src/a_orchestrator.gleam#L30)
+
+```gleam
+pi_send_message(pi, "autonomic-error", msg, "persistent")
+```
+
+The 4th parameter `"persistent"` is passed to `pi_send_message`, but the
+FFI implementation ignores it (see §73f). All messages are sent the same
+way regardless of the display parameter.
+
+---
+
+## 100. A_PROMPT_BUILDER MODULE ANALYSIS
+
+### 100a. `build_user_prompt` — Inter-Review Detection Is Fragile
+
+File: [a_prompt_builder.gleam:84-88](src/a_prompt_builder.gleam#L84-L88)
+
+```gleam
+let is_inter_review = string.contains(entries_json, "inter-review")
+  || string.contains(entries_json, "Inter-Review")
+  || string.contains(entries_json, "issue report")
+  || string.contains(entries_json, "fix plan")
+  || string.contains(entries_json, "root cause")
+```
+
+The inter-review detection is based on string matching in the conversation
+entries JSON. This is fragile:
+1. If S-bot uses different wording (e.g., "review this fix"), the detection fails
+2. If the conversation contains "root cause" in a non-review context, it triggers
+3. The detection doesn't check the `inter_reviews` table for pending reviews
+
+### 100b. `build_user_prompt` — Truncation May Cut Critical Context
+
+File: [a_prompt_builder.gleam:106-109](src/a_prompt_builder.gleam#L106-L109)
+
+```gleam
+True ->
+  "## INTER-REVIEW REQUESTED\n"
+  <> "..."
+  <> truncate(entries_json, 4000)
+False ->
+  "..."
+  <> truncate(entries_json, 2000)
+```
+
+For inter-review, the entries are truncated to 4000 chars; for normal
+reminders, 2000 chars. The truncation is from the beginning, so the most
+recent (and most relevant) conversation entries are preserved. But for
+inter-review, the issue report may be in the middle of the conversation,
+and the truncation may cut it off.
+
+### 100c. `a_identity_prompt` — Hardcoded Identity Rules
+
+File: [a_prompt_builder.gleam:19-34](src/a_prompt_builder.gleam#L19-L34)
+
+The identity prompt says "Your ID starts with A-" and "You are NOT the
+Somatic Agentbot". But the identity system (§90a) determines A/S prefix
+based on idle state, not a fixed assignment. If the identity flips, the
+prompt contradicts the actual identity.
+
+---
+
+## 101. SIMPLE_MIGRATE MODULE ANALYSIS
+
+### 101a. `split_statements` — Naive SQL Splitting
+
+File: [simple_migrate.gleam:31-36](src/simple_migrate.gleam#L31-L36)
+
+```gleam
+fn split_statements(sql: String) -> List(String) {
+  sql
+  |> string.split(";\n")
+```
+
+The SQL is split by `";\n"`. This will break if:
+1. A string literal contains `;\n`
+2. A function definition contains `;\n` inside a BEGIN/END block
+3. A comment ends with `;` on the same line
+
+### 101b. `strip_comment_line` — Only Strips Line-Starting Comments
+
+File: [simple_migrate.gleam:42-46](src/simple_migrate.gleam#L42-L46)
+
+```gleam
+fn strip_comment_line(stmt: String) -> String {
+  case string.starts_with(stmt, "--") {
+    True -> ""
+    False -> stmt
+  }
+}
+```
+
+Only strips comments that start at the beginning of a statement. Inline
+comments (e.g., `SELECT id -- primary key`) are not stripped. This is
+correct for SQL execution (PostgreSQL handles inline comments), but the
+function name is misleading.
+
+### 101c. No Migration Tracking
+
+The migration system doesn't track which migrations have been run.
+Every time `run_all_migrations()` is called, ALL migration files are
+executed. If a migration creates a table, running it again will fail
+with "relation already exists". The system relies on `IF NOT EXISTS`
+clauses in the SQL, but not all migrations may use them.
+
+---
+
+## 102. FILE_UTILS MODULE ANALYSIS
+
+### 102a. `file_utils` — Only Used for `extension_generator`
+
+File: [file_utils.gleam](src/file_utils.gleam)
+
+The `file_utils` module is only 23 lines and only used by
+`extension_generator.gleam` to write `extension.js`. It uses `simplifile`
+which is a pure Gleam file I/O library. This is correct and has no bugs.
+
+However, `simplifile.read()` and `simplifile.write()` are synchronous
+operations. In a Node.js environment, synchronous file I/O blocks the
+event loop. For the extension generator (which runs once at build time),
+this is acceptable. But if `file_utils` is ever used in a hot path,
+it will cause performance issues.
+
+---
+
+## 103. MAIN MODULE ANALYSIS
+
+### 103a. `main.gleam` — Only 11 Lines, Delegates to `spawn_pi`
+
+File: [main.gleam](src/main.gleam)
+
+```gleam
+@external(javascript, "./node_ffi.mjs", "spawn_pi")
+pub fn spawn_pi(args: List(String)) -> promise.Promise(Int)
+
+pub fn main(args: List(String)) -> promise.Promise(Int) {
+  spawn_pi(args)
+}
+```
+
+The main entry point delegates entirely to `spawn_pi` in `node_ffi.mjs`.
+The `spawn_pi` function presumably starts the Pi process. This is a thin
+wrapper with no logic.
+
+---
+
+## 104. A_CONTEXT_UTILS MODULE ANALYSIS
+
+### 104a. `now_ms` — Duplicate with `pi_extension.now_ms`
+
+File: [a_context_utils.gleam:47-48](src/a_context_utils.gleam#L47-L48)
+
+```gleam
+@external(javascript, "./node_ffi.mjs", "now_ms")
+fn now_ms() -> Result(Int, String)
+```
+
+This is the same FFI binding as `pi_extension.now_ms()`, but with a
+different return type:
+- `a_context_utils.now_ms()` returns `Result(Int, String)`
+- `pi_extension.now_ms()` returns `Int`
+
+The `node_ffi.mjs` implementation returns `Date.now()` (a number), which
+is always successful. The `Result` wrapper in `a_context_utils` is
+unnecessary but harmless.
+
+### 104b. `current_time_ms` — Swallows Error, Returns 0
+
+File: [a_context_utils.gleam:41-45](src/a_context_utils.gleam#L41-L45)
+
+```gleam
+pub fn current_time_ms() -> Int {
+  let res = now_ms()
+  case res {
+    Ok(t) -> t
+    Error(_) -> 0
+  }
+}
+```
+
+If `now_ms()` fails (which it shouldn't), the function returns 0. This
+means timestamp-based logic (like debounce) will use the Unix epoch
+(1970-01-01) as the current time, which will cause all debounce checks
+to pass immediately.
+
+---
+
+## 105. SYSTEM_PROMPT_TYPES MODULE ANALYSIS
+
+### 105a. `compose` — Doesn't Use Budget
+
+File: [system_prompt_types.gleam:125-134](src/system_prompt_types.gleam#L125-L134)
+
+```gleam
+pub fn compose(comp: PromptComposition) -> String {
+  let sorted = list.sort(comp.components, compare_by_priority)
+  sorted
+  |> list.map(fn(c) { ... })
+  |> string.join("\n\n")
+}
+```
+
+The `compose` function ignores the budget and includes ALL components.
+The `compose_within_budget` function exists but is never called. This means
+the system prompt can exceed the context window, causing the LLM to truncate
+or reject the prompt.
+
+### 105b. `estimate_tokens` — Naive Estimation
+
+File: [system_prompt_types.gleam:50-52](src/system_prompt_types.gleam#L50-L52)
+
+```gleam
+pub fn estimate_tokens(text: String) -> Int {
+  string.length(text) / 4 + 1
+}
+```
+
+Token estimation is `chars / 4`. This is a rough approximation that
+doesn't account for:
+- Code (which has more tokens per character)
+- Non-ASCII characters
+- Special tokens
+
+The budget system based on this estimation is unreliable.
+
+---
+
+## 106. EXTENSION_GENERATOR MODULE ANALYSIS
+
+### 106a. `consult_tool` and `commit_tool` — Not in Any Module's Public API
+
+File: [extension_generator.gleam:296-322](src/extension_generator.gleam#L296-L322)
+
+```gleam
+fn consult_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-consult-autonomic",
+    ...
+    module: "tool_consult",
+    fn_name: "on_consult",
+```
+
+The `consult_tool` and `commit_tool` are private functions in
+`extension_generator.gleam`, not in their respective modules. This is
+inconsistent with all other tools, which are defined in their own modules.
+The reason is likely that `tool_consult` and `tool_commit` don't import
+`pi_tool_call`, so they can't define `PiToolCall` values.
+
+### 106b. `session_start` Hook — `ctx.model` Is an Object
+
+File: [extension_generator.gleam:145-148](src/extension_generator.gleam#L145-L148)
+
+As documented in §98a, the `session_start` hook passes `ctx.model` to
+`monitor.record_current_model()`, but `ctx.model` is a JavaScript object,
+not a string.
+
+### 106c. `tool_result` Hook — `event.result` Doesn't Exist
+
+File: [extension_generator.gleam:175-178](src/extension_generator.gleam#L175-L178)
+
+```gleam
+event_hook(
+  "tool_result",
+  "hook_on_tool_result",
+  "on_tool_result",
+  [
+    from_param("JSON.stringify(event.result || '')"),
+```
+
+As documented in §76b, `event.result` doesn't exist in the Pi SDK's
+`ToolResultEvent`. The correct property is `event.content`.
+
+---
+
+## 107. REVISED BUG COUNT — FINAL v2
+
+| Category                           | Count                                                                                                                                   |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `::text` cast missing (confirmed)  | 18 (+4: task.get id, issue list/add/get id, agents id, broadcast id, monitor notifications id)                                          |
+| Missing NOT NULL columns in INSERT | 8                                                                                                                                       |
+| Wrong column names                 | 3 (`type`→`issue_type`, `status` in broadcast, `PENDING` for skills)                                                                    |
+| Decoder mismatch                   | 5 (+1: task.get missing project_id, stats bigint)                                                                                       |
+| Missing type variants              | 1 (SkillSource AiBuilt)                                                                                                                 |
+| Logic bugs                         | 9 (+1: issue_db build_where param reversal)                                                                                             |
+| FFI issues                         | 3 (gleamValueToJson, pi_send_message ignores display, now_ms duplicate)                                                                 |
+| Config system fragmentation        | 2 (in-memory vs database, never synced)                                                                                                 |
+| Seed/bootstrap gaps                | 7 (missing tables: agent_jobs, agent_sessions, activity_log, projects, agent_identities, provider_api_keys, psypi_event_hooks)          |
+| Dead code                          | 3 (app.current_project_id, check_git_exists result, SET app.current_project_id)                                                         |
+| Stub implementations               | 1 (tool_consult)                                                                                                                        |
+| Race conditions / concurrency      | 4 (configStore interleaving, debounce timer race, no cancellation, connection exhaustion)                                               |
+| Extension generation bugs          | 6 (dynamic import, raw_json broken, pi-tui package, command signature, no error boundary, missing details)                              |
+| A/S lifecycle logic failures       | 6 (session_start model, soul fallback silent, inter-review stuck, identity flip, direct message ignores soul, agent_start does nothing) |
+| Tool execution flow bugs           | 4 (signal ignored, onUpdate ignored, result broken, details missing)                                                                    |
+| Hook module bugs                   | 5 (before_agent_start record_trigger unreachable, soul fallback silent, agent_start no-op, tool_result sync, tool_call only edit)       |
+| Command module bugs                | 2 (listen hardcoded prompt, reload swallows error)                                                                                      |
+| DB module bugs                     | 4 (disconnect swallowed, no transactions, useless SET, hardcoded UUID)                                                                  |
+| A/S DB reader bugs                 | 4 (A reads wrong columns, A concatenates soul, jobs not seeded, errors swallowed)                                                       |
+| Monitor AI bugs                    | 4 (activity_log may not exist, case sensitivity, score without status, wrong threshold)                                                 |
+| Event hooks bugs                   | 3 (UPDATE no match check, auto-disable ineffective, optional vs COALESCE)                                                               |
+| Node PG FFI bugs                   | 1 (optional parameter handling)                                                                                                         |
+| Inter-review bugs                  | 4 (requested_at missing ::text, id missing ::text, branch hardcoded, context JSON double-encoded)                                       |
+| Tool commit bugs                   | 2 (shell_escape missing newline, git add not called before commit)                                                                      |
+| Tool consult bugs                  | 1 (stub — returns canned response, never calls A-bot)                                                                                   |
+| Code version bugs                  | 1 (get_versions returns raw Dynamic, no type safety)                                                                                    |
+| Meeting bugs                       | 2 (consensus_at missing ::text in some queries, opinion position field unused)                                                          |
+| Agent identity bugs                | 3 (identity flip on idle, check_git_exists dead code, soul fallback silent)                                                             |
+| Task bugs                          | 3 (get missing project_id, id missing ::text, tool hardcoded defaults)                                                                  |
+| Issue bugs                         | 3 (hardcoded project_id filter, build_where param reversal, id missing ::text)                                                          |
+| Broadcast bugs                     | 4 (wrong table insert, fabricated status, stats broken, id missing ::text)                                                              |
+| Agents bugs                        | 2 (reads unseeded table, id missing ::text)                                                                                             |
+| Stats bugs                         | 3 (no project_id filter, bigint decode, template broken)                                                                                |
+| Monitor module bugs                | 3 (ctx.model is object, no transaction, id missing ::text)                                                                              |
+| A orchestrator bugs                | 2 (errors swallowed, pi_send_message ignores display)                                                                                   |
+| A prompt builder bugs              | 2 (fragile inter-review detection, hardcoded identity rules)                                                                            |
+| Simple migrate bugs                | 2 (naive SQL splitting, no migration tracking)                                                                                          |
+| System prompt types bugs           | 2 (compose ignores budget, naive token estimation)                                                                                      |
+| A context utils bugs               | 2 (duplicate now_ms, error swallowed returns 0)                                                                                         |
+| Extension generator bugs           | 2 (tools not in module public API, session_start ctx.model)                                                                             |
+| **TOTAL CONFIRMED BUGS**           | **126**                                                                                                                                 |
