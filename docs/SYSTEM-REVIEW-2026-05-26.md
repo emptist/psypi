@@ -10695,27 +10695,35 @@ Fixing root causes would resolve many individual bugs simultaneously.
 
 All findings in this section verified against live PostgreSQL database on 2026-05-27.
 
-### 186.1 `session_start` / `model_select` Hook: Module Name Mismatch (VERIFIED)
+### 186.1 `session_start` / `model_select` Hook: Conditional Execution (CORRECTED)
 
-**Evidence from extension.js:**
+**UPDATE 2026-05-27: Earlier claim of "wrong module name" was INCORRECT.**
+
+**Verified:** `monitor.mjs` is the correct compiled output of `monitor.gleam`.
+The `record_current_model` function exists and is exported (line 166 of monitor.mjs).
+
+**Actual issue:**
 ```javascript
-// Line 92 — session_start hook:
-const monitor_record_current_model = (await import('./build/dev/javascript/psypi/monitor.mjs')).record_current_model;
-
-// Line 111 — model_select hook:
-const monitor_record_current_model = (await import('./build/dev/javascript/psypi/monitor.mjs')).record_current_model;
-
-// Lines 34-38 — all other monitor tools use correct name:
-import { start_monitor_loop as monitor_ai_start_monitor_loop } from "./build/dev/javascript/psypi/monitor_ai.mjs";
+// extension.js line 88-99:
+pi.on('session_start', async (event, ctx) => {
+  try {
+  if (ctx.model) {  // ← If ctx.model is falsy, ENTIRE hook body is skipped
+    const monitor_record_current_model = (await import('./build/dev/javascript/psypi/monitor.mjs')).record_current_model;
+    const result = await monitor_record_current_model(ctx.model);
+    // ...
+    await event_hooks_record_trigger('session_start');  // ← Also skipped!
+  }
+  } catch(e) { ... }
+});
 ```
 
-**Two bugs in one:**
-1. Import path `monitor.mjs` should be `monitor_ai.mjs` (Gleam module is `monitor_ai`)
-2. Function `record_current_model` does not exist in `monitor_ai.gleam` at all
+**Problem:** If `ctx.model` is undefined/null:
+- `record_current_model` is never called (acceptable)
+- `event_hooks_record_trigger('session_start')` is also never called (bug)
+- The trigger recording is inside the `if (ctx.model)` block
 
-**Result:** Both `session_start` and `model_select` hooks silently fail at runtime.
-The model is never recorded. No error is visible to the user because the catch block
-only shows a UI notification that disappears quickly.
+**Severity:** MEDIUM — hooks work when model context is available, but trigger
+recording is incorrectly conditional on model availability.
 
 ### 186.2 `is_s_still_idle()` — Heartbeat Never Updated (VERIFIED)
 
@@ -10914,17 +10922,17 @@ let context_json_str = dynamic.string(context_json)  // string, not jsonb
 
 ### 186.10 Summary: Verified Database Findings
 
-| #   | Finding                                                                 | Severity     | Verified                         |
-| --- | ----------------------------------------------------------------------- | ------------ | -------------------------------- |
-| 1   | session_start/model_select: wrong module name + missing function        | **CRITICAL** | ✅ extension.js lines 92, 111     |
-| 2   | is_s_still_idle(): heartbeats never updated, always returns True        | **CRITICAL** | ✅ DB shows 20-day-old heartbeats |
-| 3   | Double debounce: DB=900000ms, in-memory default=300000ms                | **CRITICAL** | ✅ psypi_config table             |
-| 4   | system_directives: 8 rows exist, never read by before_agent_start       | **CRITICAL** | ✅ DB has 8 active directives     |
-| 5   | auto_file_issue: wrong column (type vs issue_type) + missing project_id | HIGH         | ✅ issues table schema            |
-| 6   | inter_reviews: 33 columns, Gleam covers 6, requested_at not cast        | **CRITICAL** | ✅ DB schema verified             |
-| 7   | projects: no Gleam type, dynamic lookup unimplemented                   | HIGH         | ✅ DB has 1 project row           |
-| 8   | agent_souls: A-bot reads 3 cols, misses 1906-char content               | HIGH         | ✅ DB content lengths             |
-| 9   | request_inter_review: uuid param gets string, jsonb param gets string   | MEDIUM       | ✅ Function signature verified    |
+| #   | Finding                                                                 | Severity     | Verified                                       |
+| --- | ----------------------------------------------------------------------- | ------------ | ---------------------------------------------- |
+| 1   | session_start/model_select: trigger recording conditional on ctx.model  | MEDIUM       | ✅ extension.js lines 88-99, monitor.mjs exists |
+| 2   | is_s_still_idle(): heartbeats never updated, always returns True        | **CRITICAL** | ✅ DB shows 20-day-old heartbeats               |
+| 3   | Double debounce: DB=900000ms, in-memory default=300000ms                | **CRITICAL** | ✅ psypi_config table                           |
+| 4   | system_directives: 8 rows exist, never read by before_agent_start       | **CRITICAL** | ✅ DB has 8 active directives                   |
+| 5   | auto_file_issue: wrong column (type vs issue_type) + missing project_id | HIGH         | ✅ issues table schema                          |
+| 6   | inter_reviews: 33 columns, Gleam covers 6, requested_at not cast        | **CRITICAL** | ✅ DB schema verified                           |
+| 7   | projects: no Gleam type, dynamic lookup unimplemented                   | HIGH         | ✅ DB has 1 project row                         |
+| 8   | agent_souls: A-bot reads 3 cols, misses 1906-char content               | HIGH         | ✅ DB content lengths                           |
+| 9   | request_inter_review: uuid param gets string, jsonb param gets string   | MEDIUM       | ✅ Function signature verified                  |
 
 ---
 
@@ -11172,3 +11180,202 @@ SELECT COUNT(*) FROM tasks WHERE status = 'FAILED'
 | monitor_ai.gleam           | N/A     | N/A          | N/A      | dead code: record_review_score, auto_file_issue                    |
 
 **Average Gleam type coverage: ~20% of database columns.**
+
+---
+
+## 188. CORRECTION: session_start/model_select Hook Module Name
+
+**Earlier finding (186.1) stated the module name was wrong. This is INCORRECT.**
+
+**Verified on 2026-05-27:**
+- `monitor.mjs` IS the correct compiled output of `monitor.gleam`
+- `record_current_model` IS exported from `monitor.mjs` (line 166)
+- The file exists at `build/dev/javascript/psypi/monitor.mjs` (13994 bytes, compiled May 26)
+
+**Actual issue with session_start hook:**
+- The hook checks `if (ctx.model)` before executing
+- If `ctx.model` is undefined/null, the ENTIRE hook body is skipped
+- This includes `event_hooks_record_trigger('session_start')` — so the trigger is never recorded
+- The `model_select` hook uses `event.model` which may also be undefined
+
+**Revised severity:** MEDIUM (not CRITICAL) — hooks work when model context is available,
+but silently skip everything (including trigger recording) when it's not.
+
+---
+
+## 189. REMAINING MODULE AUDIT — SECOND PASS
+
+### 189.1 `memory.gleam` — RLS Policy + Missing project_id
+
+**DB table `memory` has 14 columns.** Gleam `Memory` type covers 7 fields.
+
+**Critical issues:**
+1. **Row Level Security policy `memory_project_isolation`** — requires `app.current_project_id`
+   session variable to be set. Gleam code never sets this variable. All queries may
+   return empty results if RLS is enforced.
+2. **`audit_direct_insert` trigger** — monitors direct inserts, may block if `allowed_sources`
+   don't include the current agent identity.
+3. **`save()` missing `project_id`** — RLS policy requires it for access.
+4. **`search()` uses `SELECT *`** — returns 14 columns, decoder handles 7.
+   Extra columns (`embedding`, `metadata`, `viewers`, etc.) are silently ignored
+   by `decode.run`, but `created_at` (timestamptz) without `::text` cast will fail.
+5. **`tags` is `text[]`** — `decode.list(decode.string)` may not work with PostgreSQL
+   array format returned by the pg driver.
+
+### 189.2 `learning.gleam` — Writes to `memory` Table, Missing project_id
+
+**`save()` inserts into `memory` table** but:
+- Missing `project_id` — RLS policy will block access
+- `tags` passed as string `"{tag1,tag2}"` — may not be correctly parsed by pg driver
+  as `text[]` — depends on driver behavior
+
+### 189.3 `areflect.gleam` — INSERT Failures on NOT NULL Columns
+
+**`save_issue()` missing `project_id`:**
+```sql
+INSERT INTO issues (title, description, severity, created_by)
+-- issues.project_id is NOT NULL — INSERT WILL FAIL
+```
+
+**`save_task()` missing `project_id`:**
+```sql
+INSERT INTO tasks (title, description, priority, created_by)
+-- tasks.project_id is NOT NULL — INSERT WILL FAIL
+```
+
+**Both `save_issue` and `save_task` will always fail with a NOT NULL constraint violation.**
+The `areflect` tool is completely non-functional for creating issues and tasks.
+
+### 189.4 `broadcast.gleam` — Hardcoded Status + Missing project_id
+
+**`list()` and `get_recent()` hardcode `'sent' as status`:**
+```sql
+SELECT id, from_ai as agent_id, content as message, priority,
+       'sent' as status, created_at::text, read_at::text as sent_at
+FROM project_communications
+```
+
+This means:
+- All broadcasts always appear as "sent" regardless of actual status
+- The `BroadcastStatus` type's `Pending`, `Failed`, `Cancelled` variants are never used
+- `sent_at` is mapped from `read_at` — semantically incorrect
+
+**`send()` passes `metadata` as string for `jsonb` column:**
+```gleam
+dynamic.string("{\"sent_at\": \"now\"}")
+```
+PostgreSQL may auto-cast, but behavior depends on pg driver version.
+
+**`stats()` queries `status` column** — but `project_communications` may not have
+a `status` column. The `list()` query aliases `read_at` as `sent_at` but doesn't
+create a `status` column.
+
+### 189.5 `meeting.gleam` — Missing project_id in create()
+
+**`create()` missing `project_id`:**
+```sql
+INSERT INTO meetings (topic, created_by)
+-- meetings.project_id exists (from FK reference) but may have default
+```
+
+Let me verify:
+```sql
+\d meetings
+-- project_id uuid (nullable, has FK to projects)
+```
+
+Since `project_id` is nullable, the INSERT works but creates meetings without
+project association.
+
+### 189.6 `code_version.gleam` — Uses SQL Functions, Mostly Correct
+
+**Uses `save_code_version()`, `get_code_versions()`, `restore_code_version()` SQL functions.**
+These are database-side functions that handle the logic correctly.
+
+**`query_versions()` uses raw SQL** with `LEFT(content, 200)` and `LENGTH(content)`
+which are valid PostgreSQL functions.
+
+**Minor issue:** `get_versions()` returns `List(dynamic.Dynamic)` without typed decoding.
+The raw dynamics are passed through to the tool result, relying on `gleamValueToJson`
+for serialization.
+
+### 189.7 `stats.gleam` — COUNT(*) Workaround, No project_id Filter
+
+**Clever `decode_bigint()` workaround:**
+```gleam
+fn decode_bigint() -> decode.Decoder(Int) {
+  decode.string
+    |> decode.map(fn(s) {
+      case int.parse(s) {
+        Ok(n) -> n
+        Error(_) -> 0
+      }
+    })
+}
+```
+
+This decodes `COUNT(*)` (bigint) as string first, then parses to int.
+This is the CORRECT approach for the pg driver's bigint handling.
+
+**But:** No `project_id` filter — counts ALL projects' data.
+
+### 189.8 `monitor.gleam` — record_current_model Works, Other Issues
+
+**`record_current_model()` inserts into `activity_log`:**
+- `context` is `jsonb` but passed as `dynamic.string()` — PostgreSQL auto-casts ✓
+- `activity_log` table exists and has correct columns ✓
+
+**`set_model()` resets ALL provider_api_keys to 'not_used' first:**
+```sql
+UPDATE provider_api_keys SET status = 'not_used'
+```
+This is a blanket reset with no WHERE clause — if multiple providers are in use,
+this temporarily marks all as not_used before setting one to in_use. Race condition
+if another process reads between the two queries.
+
+**`get_pending_notifications()` — `notifications` table may not exist.**
+Let me verify:
+
+### 189.9 `issue_types.gleam` — Missing Enum Variants
+
+**DB `issues.status` constraint:**
+```
+CHECK (status IN ('open', 'acknowledged', 'in_progress', 'resolved', 'wont_fix', 'duplicate'))
+```
+
+**Gleam `IssueStatus`:**
+```
+Open, InProgress, Resolved, Closed
+```
+
+**Missing from Gleam:** `acknowledged`, `wont_fix`, `duplicate`
+**Extra in Gleam:** `closed` (not in DB constraint)
+
+**DB `issues.issue_type` constraint:**
+```
+CHECK (issue_type IN ('bug', 'inconsistency', 'feature', 'improvement', 'question', 'debt', 'proposal'))
+```
+
+**Gleam `IssueType`:**
+```
+Bug, Inconsistency, Feature, Improvement, Question, Debt
+```
+
+**Missing from Gleam:** `proposal`
+
+Any issue with `status='acknowledged'`, `status='wont_fix'`, `status='duplicate'`,
+or `issue_type='proposal'` will fail to decode.
+
+### 189.10 Summary: Second Pass Module Audit
+
+| Module             | Key Issue                                                               | Severity     |
+| ------------------ | ----------------------------------------------------------------------- | ------------ |
+| memory.gleam       | RLS policy blocks access, missing project_id, SELECT * with timestamptz | **CRITICAL** |
+| learning.gleam     | Missing project_id, RLS blocks access                                   | **CRITICAL** |
+| areflect.gleam     | save_issue/save_task missing project_id (NOT NULL) — always fails       | **CRITICAL** |
+| broadcast.gleam    | Hardcoded 'sent' status, metadata as string for jsonb                   | MEDIUM       |
+| meeting.gleam      | Missing project_id in create()                                          | LOW          |
+| code_version.gleam | Returns untyped dynamics                                                | LOW          |
+| stats.gleam        | No project_id filter, counts all projects                               | LOW          |
+| monitor.gleam      | set_model() blanket reset race condition                                | MEDIUM       |
+| issue_types.gleam  | Missing 3 status variants + 1 type variant                              | HIGH         |
