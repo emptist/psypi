@@ -11720,3 +11720,99 @@ Gleam `Ok`, it's treated as a success. This is permissive but works.
 - No timeout — if the LLM hangs, the A-bot workflow hangs
 - No token counting — response could be very long
 - Retry only once — persistent rate limits are not handled
+
+---
+
+## 193. EXTENSION GENERATION PIPELINE — DETAILED REVIEW
+
+### 193.1 `extension_generator.gleam` — Registry & Composition
+
+**34 tools, 7 event hooks, 2 commands, 2 message renderers.**
+
+**Issues:**
+1. **`consult_tool()` is a stub** — Returns a canned response, no actual A-bot consultation
+2. **`commit_tool()` depends on broken inter-review** — `tool_commit.on_commit` always fails
+   because `inter_reviews.overall_score` is never written
+3. **Tool count is 34 but many are non-functional** — `areflect`, `commit`, `consult`,
+   `memory_search`, `broadcast_send`, `broadcast_list` all have critical bugs
+
+### 193.2 `pi_tool_call.gleam` — JS Code Generation Bugs
+
+**BUG 1: System prompt hook — trigger recording is unreachable code**
+```javascript
+// Generated code for before_agent_start:
+if (r.ok) { return { systemPrompt: r.value }; }  // ← RETURNS HERE
+else { ctx.ui.notify('Hook before_agent_start failed: ' + r.error, 'error'); }
+await event_hooks_record_trigger('before_agent_start');  // ← UNREACHABLE
+```
+The `return` statement on line 307 makes `event_hooks_record_trigger` unreachable.
+The `before_agent_start` trigger is NEVER recorded in the database.
+
+**BUG 2: Guard placement — trigger recording inside guard block**
+```javascript
+// Generated code for session_start:
+if (ctx.model) {
+  const result = await monitor_record_current_model(ctx.model);
+  // ...
+  await event_hooks_record_trigger('session_start');  // ← Inside guard!
+}
+```
+If the guard condition (`ctx.model`) is false, the trigger is never recorded.
+
+**BUG 3: Debounced hook ignores `guard` field**
+`PiDebouncedHook` has a `guard` field but the JS generation code ignores it.
+No `guard_prefix`/`guard_suffix` is generated for debounced hooks.
+
+**BUG 4: `_debounceMs` cached forever**
+```javascript
+if (_debounceMs == null) {
+  const debounceResult = await psypi_config_get_debounce_ms();
+  // ...
+  _debounceMs = dr.value;  // ← Cached, never re-read
+}
+```
+If the DB value changes, the cached value is stale. The debounce duration
+is fixed for the lifetime of the extension.
+
+### 193.3 `gleamValueToJson` — Type Name Mismatch (VERIFIED)
+
+**The function checks for `Task$Task`, `Issue$Issue`, etc.**
+**But Gleam compiler generates class names like `Task`, `Issue`, etc. (no `$`).**
+
+**Verified with actual compiled output:**
+```
+build/dev/javascript/psypi/task.mjs: export class Task extends $CustomType
+build/dev/javascript/psypi/issue_types.mjs: export class Issue extends $CustomType
+build/dev/javascript/psypi/skill.mjs: export class Skill extends $CustomType
+```
+
+**Test result:**
+```javascript
+constructor.name: Task
+startsWith Task$Task: false
+includes $: false
+```
+
+**Impact:** The hardcoded checks NEVER match. The function falls through to the
+generic `Object.fromEntries(Object.entries(val)...)` fallback, which works but:
+- Includes both numeric keys (`0`, `1`, `2`...) AND named keys (`id`, `title`...)
+- Produces duplicate data in JSON output
+- Wastes bandwidth and makes output harder to read
+
+**The hardcoded checks are dead code.** They were presumably added as an
+optimization but never matched the actual Gleam compiler output.
+
+**Types affected:** Task, Issue, Skill, Meeting, Opinion, Broadcast, Learning,
+Memory, AgentIdentity, Directive, InterReview, CodeVersion, ActivityLog, Config, Stats
+
+### 193.4 Extension Pipeline — Summary of Issues
+
+| #   | Issue                                             | Severity | Impact                                                        |
+| --- | ------------------------------------------------- | -------- | ------------------------------------------------------------- |
+| EP1 | System prompt hook: trigger recording unreachable | HIGH     | before_agent_start never tracked                              |
+| EP2 | Guard: trigger recording inside guard block       | MEDIUM   | session_start/model_select not tracked when model unavailable |
+| EP3 | Debounced hook ignores guard field                | LOW      | guard silently ignored for agent_end                          |
+| EP4 | _debounceMs cached forever                        | MEDIUM   | DB changes to debounce not reflected                          |
+| EP5 | gleamValueToJson: Task$Task never matches         | MEDIUM   | Dead code, fallback works but with duplicate keys             |
+| EP6 | consult_tool is a stub                            | MEDIUM   | No actual A-bot consultation                                  |
+| EP7 | commit_tool depends on broken inter-review        | CRITICAL | Commits permanently blocked                                   |
