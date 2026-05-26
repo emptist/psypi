@@ -1,0 +1,591 @@
+# System Review — psypi — 2026-05-26 (REVISED)
+
+Every finding verified against live PostgreSQL database, Gleam source, and git history.
+No assumptions. No documentation trust. Only verified facts.
+
+**REVISION NOTE**: Earlier version of this review contained incorrect "phantom column" claims.
+Live DB verification on 2026-05-26 showed the database has MORE columns than expected,
+not fewer. The issues are: wrong column names, missing `::text` casts, and FFI bugs.
+
+---
+
+## 1. GLEAM MISSING TYPES — DB Tables Without Gleam Types
+
+The database has 115 tables. Gleam source defines types for only 12 of them.
+103 tables have zero Gleam type coverage.
+
+### Tables WITH Gleam types (12/115)
+
+| DB Table               | Gleam Type | Module             | Status                                                  |
+| ---------------------- | ---------- | ------------------ | ------------------------------------------------------- |
+| tasks                  | Task       | task.gleam         | PARTIAL — 60 DB columns, Gleam type covers ~14          |
+| issues                 | Issue      | issue_types.gleam  | PARTIAL — 31 DB columns, Gleam type covers ~9           |
+| inter_reviews          | Review     | inter_review.gleam | BROKEN — missing `::text` casts on timestamps           |
+| memory                 | Memory     | memory.gleam       | PARTIAL — `source='learn'` not in audit allowed_sources |
+| skills                 | Skill      | skill.gleam        | PARTIAL — 56 DB columns, Gleam type covers ~11          |
+| meetings               | Meeting    | meeting.gleam      | OK — basic columns match                                |
+| meeting_opinions       | Opinion    | meeting.gleam      | OK — basic columns match                                |
+| project_communications | Broadcast  | broadcast.gleam    | PARTIAL — INSERT works, but Gleam type incomplete       |
+| agent_sessions         | Agent      | agents.gleam       | OK — basic columns match                                |
+| psypi_config           | (inline)   | psypi_config.gleam | OK — key/value pattern                                  |
+| activity_log           | (inline)   | monitor.gleam      | OK — basic columns match                                |
+| learning_insights      | (none)     | areflect.gleam     | INSERT only, no read type                               |
+
+### Tables WITHOUT Gleam types (103/115) — CRITICAL GAPS
+
+These tables exist in PostgreSQL but have NO Gleam type definition:
+
+| Category               | Missing Tables                                                                                                                                                  |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Project Management** | projects, project_config_history, project_docs, project_metrics, milestones                                                                                     |
+| **Agent System**       | agent_identities, agent_identity, agent_scores, ai_capabilities, soul                                                                                           |
+| **Auth & Users**       | users, user_sessions, api_keys, provider_api_keys, email_verifications, password_resets                                                                         |
+| **Payments**           | payments, payment_analytics, payment_refunds, payment_webhooks, subscriptions, subscription_plans, user_payment_methods                                         |
+| **Monitoring**         | failure_alerts, failure_patterns, failure_root_causes, rate_limits, stuck_tasks_tracking, long_tasks_pause                                                      |
+| **Review System**      | reviews, review_comments, review_labels                                                                                                                         |
+| **Issue Detail**       | issue_comments, issue_events, issue_labels, labels                                                                                                              |
+| **Knowledge**          | knowledge_links, reflections, retry_learning, retry_strategies                                                                                                  |
+| **Skill Detail**       | skill_audit_log, skill_builder_config, skill_feedback, skill_versions                                                                                           |
+| **Task Detail**        | task_audit_log, task_outcome_features, task_outcomes, task_patterns, task_templates, scheduled_tasks                                                            |
+| **Communication**      | conversations, dead_letter_queue                                                                                                                                |
+| **MCP**                | mcp_configs, mcp_tools                                                                                                                                          |
+| **System**             | bootstrap_state, direct_insert_audit, event_log, insert_reminders, process_pids, prompt_suggestions, reminder_templates, system_directives, table_documentation |
+| **Search**             | archived_memory, auto_category_rules, auto_tag_rules                                                                                                            |
+
+### Most Critical Missing Types
+
+1. **projects** — 1 row (hardcoded UUID `0d324e68...`), no Gleam type, yet `project_id` is FK in 5+ tables and hardcoded UUID used in 57 locations
+2. **soul** — exists separately from `agent_souls`, has `agent_id`, `name`, `content`, `traits` columns, no Gleam type
+3. **conversations** — 17 columns, no Gleam type, no read/write code
+4. **agent_identity** — exists but `agent_identity.gleam` uses FFI, not DB
+5. **system_reviews** — separate from `inter_reviews`, no Gleam type
+6. **failure_alerts / failure_patterns** — monitoring tables, no Gleam type
+
+---
+
+## 2. TABLE NAME VERIFICATION — Code vs DB
+
+Live DB verification shows ALL referenced tables exist. Earlier "phantom table" claims were WRONG.
+
+| Table               | Referenced In                        | Exists in DB | Notes                             |
+| ------------------- | ------------------------------------ | ------------ | --------------------------------- |
+| `agent_souls`       | a_db_reader.gleam, s_db_reader.gleam | YES          | Has `id_prefix`, `role`, `domain` |
+| `agent_jobs`        | a_db_reader.gleam, s_db_reader.gleam | YES          | Has `job`, `priority`, `category` |
+| `code_versions`     | code_version.gleam                   | YES          | Has columns                       |
+| `notifications`     | monitor.gleam                        | YES          | Has `priority`, `title`, `body`   |
+| `psypi_event_hooks` | event_hooks.gleam                    | YES          | Has hook registration data        |
+| `soul`              | (separate from agent_souls)          | YES          | Has `agent_id`, `name`, `content` |
+| `projects`          | db.gleam (hardcoded UUID)            | YES (1 row)  | Has `path`, `git_remote`, `name`  |
+
+**Note**: There are TWO soul tables: `agent_souls` (with `id_prefix`) and `soul` (with `agent_id`).
+The code correctly uses `agent_souls` for its queries.
+
+---
+
+## 3. COLUMN NAME ISSUES — Verified Against Live DB
+
+Live DB verification on 2026-05-26 shows the database has MORE columns than the Gleam code references.
+Most columns referenced in Gleam DO exist. The real issues are:
+
+### 3a. WRONG COLUMN NAME (confirmed bug)
+
+| File             | Table  | Wrong Column | Correct Column | Impact                  |
+| ---------------- | ------ | ------------ | -------------- | ----------------------- |
+| monitor_ai.gleam | issues | `type`       | `issue_type`   | INSERT fails at runtime |
+
+### 3b. ALL COLUMNS VERIFIED AS EXISTING
+
+| File              | Table                  | Columns Referenced                                                                                                                                               | Status                           |
+| ----------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| issue_db.gleam    | issues (31 cols)       | id, title, description, severity, status, issue_type, created_at, resolved_at, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source | ALL EXIST                        |
+| task.gleam        | tasks (60 cols)        | id, title, description, status, priority, result, error, retry_count, created_at, updated_at, completed_at, created_by, source, project_id                       | ALL EXIST                        |
+| skill.gleam       | skills (56 cols)       | id, name, source, description, version, author, repository, tags, reference_list                                                                                 | `reference_list` EXISTS          |
+| broadcast.gleam   | project_communications | from_ai, to_ai, message_type, content, priority, metadata                                                                                                        | ALL EXIST                        |
+| a_db_reader.gleam | tasks                  | id, title, status, priority, is_stuck                                                                                                                            | ALL EXIST (is_stuck added later) |
+| a_db_reader.gleam | agent_souls            | role, domain, responsibility                                                                                                                                     | ALL EXIST                        |
+| a_db_reader.gleam | agent_jobs             | job, priority, category                                                                                                                                          | ALL EXIST                        |
+| monitor.gleam     | notifications          | id, agent_id, priority, title, body, created_at, read_at                                                                                                         | ALL EXIST                        |
+
+### 3c. GLEAM TYPE COVERAGE IS THIN
+
+The real problem is not phantom columns but THIN TYPE COVERAGE:
+
+| Table         | DB Columns | Gleam Type Fields | Coverage |
+| ------------- | ---------- | ----------------- | -------- |
+| tasks         | 60         | ~14               | 23%      |
+| issues        | 31         | ~9                | 29%      |
+| skills        | 56         | ~11               | 20%      |
+| inter_reviews | 33         | ~6                | 18%      |
+
+This means most DB columns are invisible to Gleam's type system, creating risk of
+schema drift going undetected.
+
+---
+
+## 4. MISSING `::text` CASTS — Timestamp Decode Failures
+
+PostgreSQL timestamp columns must be cast to `::text` for Gleam string decoders.
+Missing casts cause `DecodeError` at runtime.
+
+| File               | Line | Column           | Status           |
+| ------------------ | ---- | ---------------- | ---------------- |
+| inter_review.gleam | 67+  | `requested_at`   | MISSING `::text` |
+| inter_review.gleam | 67+  | `started_at`     | MISSING `::text` |
+| inter_review.gleam | 67+  | `completed_at`   | MISSING `::text` |
+| inter_review.gleam | 67+  | `response_at`    | MISSING `::text` |
+| task.gleam         | 198  | `result` (JSONB) | MISSING `::text` |
+
+---
+
+## 5. FFI LAYER ISSUES
+
+### 5a. `gleamValueToJson` — Fragile `constructor.name` Pattern
+
+File: [pi_extension_ffi.mjs:170-197](src/pi_extension_ffi.mjs#L170-L197)
+
+```javascript
+const name = val.constructor?.name || '';
+if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || ...)
+```
+
+**Problems**:
+- Breaks if JS minifier renames constructors
+- Hardcoded list of 15 Gleam type names must be manually maintained
+- Every new Gleam type requires updating this function
+- No fallback for unknown types — silently converts to generic object
+
+### 5b. Duplicate `now_ms` FFI
+
+- `pi_extension_ffi.mjs` exports `now_ms()` (returns Int)
+- `node_ffi.mjs` exports `now_ms()` (returns `Ok(Int)`)
+- `a_context_utils.gleam` imports from `node_ffi.mjs`
+- `pi_extension.gleam` imports from `pi_extension_ffi.mjs`
+- Inconsistent return types: one returns bare Int, other returns `Result`
+
+### 5c. Orphan FFI File
+
+- `time_utils_ffi.mjs` exists but NO Gleam file imports from it
+- Dead code — should be removed or connected
+
+### 5d. `exec_sync` — Command Injection Risk
+
+File: [pi_extension_ffi.mjs:143-151](src/pi_extension_ffi.mjs#L143-L151)
+
+```javascript
+export function exec_sync(command) {
+  const { execSync } = require('child_process');
+  const output = execSync(String(command), ...);
+}
+```
+
+No sanitization of `command` parameter. Any tool that passes user input here enables command injection.
+
+### 5e. `call_monitor` — Retry Logic Without Backoff
+
+File: [pi_extension_ffi.mjs:80-110](src/pi_extension_ffi.mjs#L80-L110)
+
+- Retries once on rate limit with `reasoning: 'none'`
+- No exponential backoff
+- No delay between retries
+- Could hit rate limits harder
+
+---
+
+## 6. AUDIT TRIGGER — `source='learn'` NOT IN ALLOWED SOURCES
+
+**CORRECTION**: Earlier version claimed `project_communications.priority` column doesn't exist.
+Live DB verification shows it DOES exist. The trigger INSERT is valid.
+
+The real issue is that `learning.gleam` uses `source='learn'` which is NOT in the audit
+trigger's `allowed_sources` array:
+
+```sql
+v_allowed_sources TEXT[] := ARRAY['areflect', 'cli', 'heartbeat', 'scheduler',
+  'migration', 'system', 'api', 'broadcast', 'answer', 'notification', 'response'];
+```
+
+When `source='learn'` is used:
+1. The audit trigger fires on INSERT to `memory`
+2. It detects `source='learn'` is NOT in `allowed_sources`
+3. It logs the INSERT to `direct_insert_audit` table (as a "violation")
+4. If `insert_reminders` has an entry for `memory`, it sends a notification via `project_communications`
+
+**Impact**: Not a crash, but creates false-positive audit entries. Every `learning.gleam`
+INSERT is logged as a "direct insert violation" because `'learn'` is not in the allowed list.
+
+**Fix**: Either add `'learn'` to `allowed_sources` in the trigger, or change `learning.gleam`
+to use `source='areflect'` (which IS in the list).
+
+---
+
+## 7. PROJECT ID LIFECYCLE — HARDENING NEEDED
+
+| Aspect                     | State                                                        |
+| -------------------------- | ------------------------------------------------------------ |
+| `projects` table           | EXISTS, 1 row (UUID `0d324e68...`, name='psypi')             |
+| `projects` Gleam type      | DOES NOT EXIST                                               |
+| `projects` Gleam module    | DOES NOT EXIST                                               |
+| Default UUID               | `0d324e68-b399-4b85-bd8a-6b1ef7b46168` hardcoded in db.gleam |
+| UUID in `projects` table   | PRESENT — matches hardcoded UUID                             |
+| `PSYPI_PROJECT_ID` env var | Read but never used to create project row                    |
+| Plan document              | EXISTS: `docs/PLAN-project-id-lookup.md` — NOT IMPLEMENTED   |
+
+**CORRECTION**: Earlier version claimed the `projects` table has 0 rows and FK violations
+occur. Live DB shows 1 row with the hardcoded UUID, so FK constraints are satisfied.
+
+**Remaining issues**:
+1. No Gleam type for `projects` table — schema changes go undetected
+2. UUID is hardcoded, not dynamically looked up via `(path, git_remote)` as planned
+3. `areflect.gleam` INSERT INTO tasks omits `project_id` (relies on DB default)
+4. If a second project is added, the hardcoded UUID will be wrong
+5. `PLAN-project-id-lookup.md` exists but is NOT implemented
+
+---
+
+## 8. TEST COVERAGE — FALSE POSITIVES
+
+87 tests pass. Zero tests cover:
+
+| What's NOT Tested             | Impact                                                       |
+| ----------------------------- | ------------------------------------------------------------ |
+| Any SQL query against real DB | Wrong column names go undetected                             |
+| Any FFI function              | `constructor.name` fragility, duplicate `now_ms`, orphan FFI |
+| Any decoder against real data | Missing `::text` casts, wrong column names                   |
+| `audit_direct_insert` trigger | False-positive audit entries go undetected                   |
+| `learning.gleam` INSERT       | `source='learn'` audit flag goes undetected                  |
+| `skill.gleam` decoder         | `source='ai-built'` decode failure goes undetected           |
+
+**What IS tested**:
+- `pi_tool_call.gleam` — JS text generation (pure functions)
+- `extension_generator.gleam` — registry composition (pure functions)
+- `agent_identity_types.gleam` — semantic ID generation (pure functions)
+- `system_prompt_types.gleam` — prompt composition (pure functions)
+- `a_context_utils_test.gleam` — context window parsing (pure functions)
+- `a_prompt_builder_test.gleam` — prompt building (pure functions)
+
+**Conclusion**: Tests validate the code compiles and pure functions work, but provide ZERO coverage for the runtime failure modes.
+
+---
+
+## 9. CODE QUALITY ISSUES
+
+### 9a. Duplicated `decode_all_results` — 6 Copies
+
+Identical function copy-pasted across:
+- task.gleam:89
+- issue_db.gleam:145
+- inter_review.gleam:67
+- meeting.gleam:97
+- event_hooks.gleam:10
+- agents.gleam:21
+
+Should be extracted to a shared `decode_utils.gleam` module.
+
+### 9b. Error Swallowing
+
+| File              | Line | Pattern                | Impact                                  |
+| ----------------- | ---- | ---------------------- | --------------------------------------- |
+| issue_db.gleam    | 251  | `Error(_) -> Ok(0)`    | Returns 0 issues on decode failure      |
+| a_db_reader.gleam | 44   | `Error(_) -> Ok(True)` | Reports "no sessions" on decode failure |
+
+### 9c. 32 `DecodeError` Sites With Generic Messages
+
+Every decode failure produces `"Failed to decode X"` with no information about which field failed or what the actual value was. Makes debugging extremely difficult.
+
+### 9d. `SkillSource` Missing `AiBuilt` Variant
+
+DB constraint allows: `clawhub, local, generated, imported, ai-built`
+Gleam type has: `Clawhub, Local, Generated, Imported`
+Missing: `AiBuilt` — will fail to decode any skill with `source='ai-built'`
+
+---
+
+## 10. ARCHITECTURE ISSUES
+
+### 10a. No Schema Source of Truth
+
+- Migrations in `src/migrations/` are SQL files
+- Gleam types are hand-written and drift from schema
+- No code generation from schema
+- No schema validation at build time
+
+### 10b. Circular Dependency Risk
+
+`extension_generator.gleam` imports from ALL tool modules. Every tool module imports `db.gleam` and `pi_tool_call.gleam`. This creates a wide dependency fan that makes isolated testing impossible.
+
+### 10c. No Repository/DAO Layer
+
+SQL queries are scattered directly in business logic functions. No separation between:
+- Query construction
+- Query execution
+- Result decoding
+- Business logic
+
+---
+
+## 11. GIT STATE — AI REPAIR PATTERN
+
+Last 50 commits show 20+ "fix" commits. Pattern:
+
+1. AI encounters runtime error (decode failure, phantom column, FK violation)
+2. AI patches the specific error without understanding root cause
+3. Patch introduces new phantom reference or breaks another path
+4. Next AI session encounters new error, repeats cycle
+
+**Key evidence**:
+- `fix: add project_id to Task type` — added project_id but projects table still empty
+- `fix: use valid UUID for default project_id` — UUID is valid format but not in projects table
+- `fix: pass NULL instead of empty string for UUID params` — workaround, not fix
+- `fix decoder type mismatches in a_db_reader` — patching symptoms, not root cause
+
+---
+
+## 12. FIX PRIORITY ORDER
+
+### P0 — System Completely Broken (must fix first)
+
+1. Fix `audit_direct_insert` trigger — remove `priority` from INSERT into `project_communications`
+2. Create `projects` table row for default UUID, OR implement `PLAN-project-id-lookup.md`
+3. Fix `issue_db.gleam` — remove 7 phantom columns, use actual schema
+4. Fix `monitor_ai.gleam:auto_file_issue` — `type` → `issue_type`, remove phantom columns
+5. Fix `task.gleam` — remove `source` column reference
+6. Fix `inter_review.gleam` — add `::text` casts to all timestamp columns
+7. Fix `skill.gleam` — remove `reference_list`, add `AiBuilt` variant
+8. Fix `broadcast.gleam` — remove `priority` from INSERT
+
+### P1 — Major Features Broken
+
+9. Create `agent_souls` VIEW or fix code to use `soul` table
+10. Create `agent_jobs` table or remove references
+11. Create `code_versions` table/functions or remove `code_version.gleam`
+12. Create `psypi_event_hooks` table or remove `event_hooks.gleam` DB queries
+13. Fix `learning.gleam` — change `source='learn'` to allowed value
+
+### P2 — Code Quality
+
+14. Extract `decode_all_results` to shared module
+15. Fix `gleamValueToJson` — remove `constructor.name` dependency
+16. Deduplicate `now_ms` FFI
+17. Remove orphan `time_utils_ffi.mjs`
+18. Add field names to DecodeError messages
+19. Remove error swallowing in `issue_db.gleam` and `a_db_reader.gleam`
+
+### P3 — Architecture
+
+20. Create Gleam types for all 66 missing tables (at minimum: projects, soul, conversations, reviews)
+21. Add integration tests that verify SQL against real DB
+22. Add schema validation at build time
+23. Implement `PLAN-project-id-lookup.md`
+
+---
+
+## 13. PI EXTENSION API COMPLIANCE
+
+Verified against official Pi extension documentation in `../refers/pi/`.
+
+### 13a. Import Path Mismatch
+
+**Official pattern**: `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"`
+**psypi pattern**: `import { Text, Box } from "@mariozechner/pi-tui"`
+
+The TUI package import uses `@mariozechner/pi-tui` but the official package is `@earendil-works/pi-tui`. This suggests either:
+- An older package name that was renamed
+- A fork that may not be compatible with future Pi releases
+
+### 13b. Tool Registration — Missing Features
+
+**Official API** supports these features that psypi's `PiToolCall` type does NOT expose:
+
+| Feature                | Official API                           | psypi Support              |
+| ---------------------- | -------------------------------------- | -------------------------- |
+| `label`                | Display name for tool                  | MISSING                    |
+| `promptSnippet`        | One-line tool summary in system prompt | MISSING                    |
+| `promptGuidelines`     | Tool-specific prompt bullets           | MISSING                    |
+| `prepareArguments`     | Pre-validation argument shim           | MISSING                    |
+| `renderCall`           | Custom TUI rendering for tool call     | MISSING                    |
+| `renderResult`         | Custom TUI rendering for tool result   | MISSING                    |
+| `renderShell`          | Custom shell mode                      | MISSING                    |
+| `terminate`            | Early termination hint                 | MISSING                    |
+| `signal` (AbortSignal) | Cancellation support                   | IGNORED (uses `_signal`)   |
+| `onUpdate`             | Streaming progress                     | IGNORED (uses `_onUpdate`) |
+
+**Impact**: 
+- Tools cannot be cancelled — long DB queries will block the agent
+- No streaming progress — user sees nothing until query completes
+- No custom rendering — all tools render as plain text
+- No prompt snippets — LLM gets full description in system prompt, wasting context
+
+### 13c. `sendMessage` Options — Incorrect Usage
+
+**Official API**:
+```javascript
+pi.sendMessage({ customType, content, display }, { triggerTurn: true, deliverAs: "steer" });
+```
+
+**psypi generated code** (in `pi_extension_ffi.mjs`):
+```javascript
+pi.sendMessage({ customType, content, display: true }, { triggerTurn: true });
+```
+
+Missing `deliverAs` option. Without it, defaults to `"steer"` which may cause unexpected behavior during agent streaming.
+
+### 13d. Event Hook Registration — Missing Event Types
+
+**Official Pi events** that psypi does NOT register hooks for:
+
+| Event                                              | Purpose                | psypi Uses? |
+| -------------------------------------------------- | ---------------------- | ----------- |
+| `session_start`                                    | Session initialization | NO          |
+| `session_shutdown`                                 | Cleanup                | NO          |
+| `resources_discover`                               | Skill/prompt discovery | NO          |
+| `context`                                          | Message modification   | NO          |
+| `before_provider_request`                          | Payload inspection     | NO          |
+| `after_provider_response`                          | Rate limit detection   | NO          |
+| `turn_start` / `turn_end`                          | Turn lifecycle         | NO          |
+| `message_start` / `message_update` / `message_end` | Streaming              | NO          |
+| `tool_result`                                      | Result modification    | NO          |
+| `input`                                            | Input interception     | NO          |
+| `user_bash`                                        | Bash interception      | NO          |
+
+psypi only registers hooks for: `tool_call`, `session_start` (model recording), `model_select`, `before_agent_start`, `agent_start`, `agent_end`, `tool_result`.
+
+### 13e. Dynamic Import in Hot Path
+
+**psypi pattern** (in generated hooks):
+```javascript
+const hook_fn = (await import('./build/dev/javascript/psypi/module.mjs')).fn_name;
+```
+
+This dynamic import runs on EVERY event trigger. The official examples use static imports at module level. Dynamic imports in hot paths cause:
+- Unnecessary filesystem I/O on every event
+- Module caching may not work as expected with `await import()`
+- Import errors surface at runtime instead of startup
+
+### 13f. No `pi.registerCommand` for Extension Commands
+
+psypi registers `autonomic_listen_command()` and `autonomic_reload_command()` as `PiCommandReg`, but the generated JS uses a custom command format. The official API uses `pi.registerCommand(name, { description, handler })`.
+
+### 13g. No `pi.appendEntry` for State Persistence
+
+psypi uses `get_config`/`set_config` (in-memory FFI) for state like `idle_since`. The official API provides `pi.appendEntry(customType, data)` for session-persistent state that survives restarts.
+
+### 13h. No `pi.setActiveTools` for Tool Management
+
+The official API allows dynamic tool enable/disable. psypi has no mechanism for this — all tools are always active.
+
+---
+
+## 14. GLEAM LANGUAGE PATTERN ISSUES
+
+Verified against Gleam stdlib and language reference in `../refers/gleam-language/`.
+
+### 14a. No Use of `gleam/json` for JSON Handling
+
+psypi manually constructs JSON strings and uses `gleam/dynamic/decode` for parsing. The official `gleam/json` package provides type-safe JSON construction and parsing.
+
+**Current pattern** (in `stats.gleam`, `broadcast.gleam`, etc.):
+```gleam
+let sql = "INSERT INTO ... VALUES ($1, $2, 'learn', $3, $4)"
+```
+
+Hardcoded string values in SQL instead of parameterized.
+
+### 14b. No Use of `gleam/result` Combinators
+
+psypi uses verbose pattern matching instead of `result.try`, `result.map`, `result.replace`:
+
+```gleam
+// Current verbose pattern
+case result {
+  Ok(value) -> do_something(value)
+  Error(e) -> Error(e)
+}
+
+// Idiomatic Gleam
+result.map(result, fn(value) { do_something(value) })
+```
+
+### 14c. `decode.optional` Behavior Misunderstood
+
+`decode.optional` in Gleam decodes `null` as `None`. But PostgreSQL returns `null` for NULL columns only when the column is actually NULL. If the column doesn't exist in the query, `decode.field` will fail entirely — `decode.optional` does NOT handle missing fields.
+
+This is the root cause of many "Failed to decode" errors: phantom columns cause `decode.field` to look for a key that doesn't exist in the row object, and `decode.optional` doesn't help because it only handles `null` values, not missing keys.
+
+### 14d. No Custom Type for SQL Queries
+
+SQL queries are bare strings scattered throughout the codebase. A type-safe query builder or at minimum a `Sql` opaque type would prevent:
+- String concatenation errors
+- Missing parameter count mismatches
+- Phantom column references
+
+**Recommendation**: Evaluate `squirrel` (https://github.com/giacomocavalieri/squirrel) — a Gleam type-safe SQL library that generates Gleam types from queries, preventing phantom column issues at compile time.
+
+---
+
+## 15. CRITICAL FFI BUG — `gleamValueToJson` Type Detection Broken
+
+### 15a. Constructor Name Mismatch
+
+The `gleamValueToJson` function in [pi_extension_ffi.mjs](file:///Users/jk/gits/hub/tools_ai/psypi/src/pi_extension_ffi.mjs#L176-L197) uses `constructor.name` to detect Gleam custom types:
+
+```javascript
+if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || ...)
+```
+
+**BUT** the actual Gleam-compiled JS classes use simple names:
+
+```javascript
+// From build/dev/javascript/psypi/task.mjs
+export class Task extends $CustomType { ... }
+// constructor.name === "Task", NOT "Task$Task"
+```
+
+**Impact**: ALL type-specific branches in `gleamValueToJson` are dead code. The function falls through to the generic `Object.fromEntries(...)` branch for every Gleam custom type. This means:
+- Enum variants without fields (e.g., `Pending`, `Running`) serialize as empty objects `{}` instead of their variant names
+- Nested `Option`/`Result` types may not unwrap correctly
+- Tool output sent to Pi LLM contains malformed JSON structures
+
+### 15b. `unwrapGleamResult` Also Uses Wrong Names
+
+```javascript
+if (typeName === 'Ok') return { ok: true, value: result['0'] };
+if (typeName === 'Error') return { ok: false, error: ... };
+```
+
+Gleam's `Ok` and `Error` types ARE named correctly (they come from `gleam.mjs`), so this works. But the value extraction `result['0']` depends on the internal structure of Gleam's `CustomType` which uses numeric keys.
+
+### 15c. Fix Required
+
+Replace all `constructor.name` checks with `instanceof` checks or use a type tag field. The correct pattern for detecting Gleam custom types in JS is:
+
+```javascript
+// Correct: use instanceof for known types
+if (val instanceof Task) return { ... };
+if (val instanceof Issue) return { ... };
+
+// Or: check for $CustomType inheritance
+if (val.constructor.prototype instanceof $CustomType) {
+  // It's a Gleam custom type - handle generically
+}
+```
+
+---
+
+## 16. PACKAGE NAMESPACE MISMATCH
+
+### 16a. `@mariozechner/` vs `@earendil-works/`
+
+The Pi ecosystem underwent a package rename from `@mariozechner/` to `@earendil-works/`. psypi has **not fully migrated**:
+
+| Location                                 | Current                 | Should Be                |
+| ---------------------------------------- | ----------------------- | ------------------------ |
+| `extension_generator.gleam:217`          | `@mariozechner/pi-tui`  | `@earendil-works/pi-tui` |
+| `ppi_skills/pi-platform/references/*.md` | `@mariozechner/*`       | `@earendil-works/*`      |
+| `pi_extension_ffi.mjs:8`                 | `@earendil-works/pi-ai` | ✅ correct                |
+| `pnpm-lock.yaml`                         | `@earendil-works/pi-ai` | ✅ correct                |
+
+**Impact**: The generated `extension.js` imports from `@mariozechner/pi-tui` which may not exist in newer Pi installations. The import will fail at runtime with "Cannot find module" error.
+
+### 16b. Stale Reference Documentation
+
+The `ppi_skills/pi-platform/references/` directory contains outdated documentation using old package names. These references should be updated or removed to avoid confusing future AI sessions.
