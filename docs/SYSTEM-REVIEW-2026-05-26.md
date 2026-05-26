@@ -12171,5 +12171,129 @@ User changes model → pi.on('model_select', ...) fires
 | FFI6 | gleamValueToJson hardcoded names dead  | MEDIUM   | Dead code, duplicate keys in output     |
 | FFI7 | gleamValueToJson no List/Dict handling | MEDIUM   | Complex types may serialize incorrectly |
 
-**Total: 20 failure points across 8 lifecycle phases.**
-**CRITICAL: 6 | HIGH: 4 | MEDIUM: 7 | LOW: 3**
+---
+
+## 196. SQL MIGRATION DRIFT — COMPREHENSIVE ANALYSIS
+
+### 196.1 Migration System Architecture
+
+**`simple_migrate.gleam` — No tracking, no rollback, idempotent-only:**
+- Reads all `.sql` files from `src/migrations/`
+- Sorts alphabetically by filename
+- Runs ALL files every time (no tracking table)
+- Relies on `IF NOT EXISTS` / `ON CONFLICT` for idempotency
+- Splits on `;\n` — fails for stored procedures containing semicolons
+- No transaction wrapping — partial failures leave inconsistent state
+- No rollback capability
+
+### 196.2 Migration Inventory
+
+**24 migration files, numbered 003-026:**
+- Missing: 001, 002, 004 (never created or deleted)
+- **CONFLICT: Two files numbered 025**:
+  - `025_add_tasks_project_id.sql` (May 26)
+  - `025_drop_system_directives.sql` (May 25)
+  - Both run every time; alphabetical order determines execution order
+
+### 196.3 Database vs Migration — Table Count
+
+| Metric                        | Count   |
+| ----------------------------- | ------- |
+| Tables in database            | 77      |
+| Tables with migrations        | 16      |
+| **Tables WITHOUT migrations** | **61**  |
+| Migration coverage            | **21%** |
+
+### 196.4 Tables WITHOUT Migrations (61 tables)
+
+These tables were created outside the migration system — by other AIs,
+manual psql sessions, or external tools:
+
+**Agent-related (3):** agent_identity, agent_scores, soul
+**AI/ML (2):** ai_capabilities, prompt_suggestions
+**Auth/Payment (8):** api_keys, email_verifications, password_resets,
+  payments, payment_analytics, payment_refunds, payment_webhooks,
+  user_payment_methods, subscription_plans, subscriptions
+**Issue tracking (4):** issue_comments, issue_events, issue_labels, labels
+**Knowledge (3):** knowledge_links, reflections, archived_memory
+**MCP (2):** mcp_configs, mcp_tools
+**Meeting (1):** meeting_opinions
+**Process (3):** process_pids, stuck_tasks_tracking, long_tasks_pause
+**Project (4):** project_config_history, project_docs, project_metrics, milestones
+**Review (3):** reviews, review_comments, review_labels
+**Skill (5):** skill_audit_log, skill_builder_config, skill_feedback,
+  skill_versions, table_documentation
+**System (5):** bootstrap_state, direct_insert_audit, event_log,
+  insert_reminders, rate_limits
+**Task (6):** task_audit_log, task_outcome_features, task_outcomes,
+  task_patterns, task_templates, scheduled_tasks
+**User (2):** user_sessions, users
+**Other (8):** auto_category_rules, auto_tag_rules, conversations,
+  dead_letter_queue, failure_alerts, failure_patterns, failure_root_causes,
+  retry_learning, retry_strategies, reminder_templates
+
+### 196.5 Column Drift — Key Tables
+
+**tasks table: Migration 14 columns → Actual 56 columns**
+- `result` type changed: TEXT → JSONB (causes decode failure in task.gleam)
+- `created_by` split into `created_by` + `created_by_identity`
+- `project_id` added (uuid) — not in original migration
+- 42 columns added without migrations including: `is_stuck`, `tags`,
+  `encrypted_result`, `next_retry_at`, `max_retries`, `timeout_seconds`,
+  `started_at`, `is_long_running`, `type`, `assigned_to`, `category`,
+  `error_category`, `consecutive_failures`, `is_stuck`, `watchdog_kills`,
+  `pause_reason`, `paused_until`, `progress_percent`, `agent_id`,
+  `agent_name`, `git_hash`, `git_branch`, `environment`, `executor_type`,
+  `executor_model`, `executor_provider`, `delegate_to`, `complexity`,
+  `delegated_from`, `executor_source`
+
+**skills table: Migration 15 columns → Actual 54 columns**
+- `content` type changed: TEXT → JSONB (causes decode failure in skill.gleam)
+- `reference_list` removed (was TEXT, now missing)
+- `source` CHECK constraint missing `'ai-built'` (causes decode failure)
+- 39 columns added without migrations including: `project_id`, `external_id`,
+  `repository`, `tags`, `scan_status`, `verified`, `downloads`, `rating`,
+  `is_enabled`, `is_public`, `allowed_users`, `allowed_projects`,
+  `use_count`, `last_used_at`, `installed_at`, `warnings`, `issues`,
+  `permissions`, `code_analysis`, `review_notes`, `reviewed_at`,
+  `reviewed_by`, `review_status`, `auto_review_score`,
+  `manual_review_required`, `instructions`, `manifest`, `content_hash`,
+  `builder`, `maintainer`, `build_metadata`, `generation_prompt`,
+  `category`, `trigger_phrases`, `anti_patterns`, `quick_start`,
+  `examples`, `emoji`, `embedding`, `viewers`
+
+**inter_reviews table: Migration 8 columns → Actual 31 columns**
+- 23 columns added without migrations including: `commit_hash`, `branch`,
+  `requester_id`, `reviewer_type`, `review_round`, `findings` (jsonb),
+  `suggestions` (jsonb), `issues` (jsonb), `praise` (jsonb),
+  `code_quality_score`, `test_coverage_score`, `documentation_score`,
+  `response`, `response_at`, `accepted_suggestions`, `started_at`,
+  `review_context`, `issue_id`, `reviewer_id`, `response_status`,
+  `leverage_ratio`, `rework_count`, `effort_minutes`, `raw_response`
+
+### 196.6 Type Changes Causing Runtime Failures
+
+| Table         | Column         | Migration Type  | Actual Type               | Impact                                        |
+| ------------- | -------------- | --------------- | ------------------------- | --------------------------------------------- |
+| tasks         | result         | TEXT            | JSONB                     | task.gleam decode fails for non-null results  |
+| skills        | content        | TEXT            | JSONB                     | skill.gleam decode fails for non-null content |
+| skills        | reference_list | TEXT            | MISSING                   | skill.gleam decode fails                      |
+| tasks         | project_id     | MISSING         | UUID                      | added by migration 025 but no cast in queries |
+| inter_reviews | requested_at   | TIMESTAMPTZ     | TIMESTAMPTZ               | needs ::text cast for decode                  |
+| skills        | source         | CHECK(4 values) | CHECK(missing 'ai-built') | skill.gleam fails on 'ai-built'               |
+
+### 196.7 Migration System — Summary of Issues
+
+| #             | Issue                                     | Severity  | Impact                                    |
+| ------------- | ----------------------------------------- | --------- | ----------------------------------------- |
+| M1            | No migration tracking table               | CRITICAL  | All migrations re-run every startup       |
+| M2            | No transaction wrapping                   | HIGH      | Partial failures leave inconsistent state |
+| M3            | No rollback capability                    | HIGH      | Cannot undo bad migrations                |
+| M4            | Duplicate migration number 025            | MEDIUM    | Execution order depends on filename sort  |
+| M5            | Missing migrations 001, 002, 004          | LOW       | Gaps in numbering                         |
+| M6            | 61 tables without migrations              | CRITICAL  | Schema drift, no reproducibility          |
+| M7            | tasks: 14→56 columns, TEXT→JSONB          | CRITICAL  | Decode failures in task.gleam             |
+| M8            | skills: 15→54 columns, TEXT→JSONB         | CRITICAL  | Decode failures in skill.gleam            |
+| M9            | inter_reviews: 8→31 columns               | HIGH      | Missing columns in Gleam decoders         |
+| M10           | Split on semicolon fails for stored procs | MEDIUM    | Complex SQL breaks migration              |
+| **CRITICAL: 6 | HIGH: 4                                   | MEDIUM: 7 | LOW: 3**                                  |
