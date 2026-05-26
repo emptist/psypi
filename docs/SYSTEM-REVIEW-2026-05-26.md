@@ -12079,5 +12079,97 @@ User changes model → pi.on('model_select', ...) fires
 | 7     | F19 | overall_score always NULL                        | CRITICAL | Dead code path                 |
 | 7     | F20 | record_review_score never called                 | CRITICAL | Disconnected from orchestrator |
 
+---
+
+## 195. FFI BINDINGS — COMPLETENESS AND TYPE SAFETY AUDIT
+
+### 195.1 FFI Declaration Inventory
+
+**25 `@external(javascript, ...)` declarations across 6 Gleam files:**
+
+| Source File               | FFI File               | Functions    |
+| ------------------------- | ---------------------- | ------------ |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | 17 functions |
+| db.gleam                  | node_ffi.mjs           | 2 functions  |
+| a_context_utils.gleam     | node_ffi.mjs           | 1 function   |
+| extension_generator.gleam | node_ffi.mjs           | 1 function   |
+| main.gleam                | node_ffi.mjs           | 1 function   |
+| agent_identity.gleam      | agent_identity_ffi.mjs | 1 function   |
+
+**All 25 declarations have matching JS exports.** No missing functions.
+
+### 195.2 Type Safety Issues
+
+**FFI-1: `get_config` returns `null` instead of `None`**
+- Gleam type: `fn(String) -> Option(String)`
+- JS returns: `_configStore[key] || null`
+- `null` is NOT `new None()` — it's a JavaScript null
+- Works by accident: Gleam's codegen uses `instanceof Some` check,
+  and `null instanceof Some` is `false`, falling through to `None` branch
+- **Fragile**: Relies on specific Gleam codegen behavior
+
+**FFI-2: `pi_send_message` ignores `display` parameter**
+- Gleam type: `fn(a, String, String, String) -> Nil`
+- JS: `display: true` — always true, ignores the 4th argument
+- Gleam code passes `"persistent"` or `"transient"` but it makes no difference
+- **Dead parameter**: The `display` argument is useless
+
+**FFI-3: Duplicate `now_ms` implementations**
+- `pi_extension_ffi.mjs:now_ms()` returns `Date.now()` (raw Int)
+- `node_ffi.mjs:now_ms()` returns `new Ok(Date.now())` (Result(Int, String))
+- Two different implementations with different return types
+- `pi_extension.gleam` uses the first (raw Int)
+- `a_context_utils.gleam` uses the second (Result)
+- Confusing but not broken — different callers need different types
+
+**FFI-4: `ctx_reload` returns `undefined` instead of `Nil`**
+- Gleam type: `fn(a) -> promise.Promise(Nil)`
+- JS: `async function ctx_reload(ctx) { await ctx.reload(); }` — returns `undefined`
+- Works because Gleam treats `undefined` as `Nil` in FFI
+- Fragile but functional
+
+**FFI-5: `exec_sync` uses `require` instead of `import`**
+- `const { execSync } = require('child_process');`
+- Inconsistent with other FFI files that use `import`
+- Works because Node.js supports both, but could fail in pure ESM contexts
+
+### 195.3 `gleamValueToJson` — Complete Audit
+
+**The function has 3 code paths for custom types:**
+
+1. **Hardcoded type names** (lines 183-185):
+   - Checks `Task$Task`, `Issue$Issue`, etc.
+   - **NEVER MATCHES** — Gleam compiler generates `Task`, `Issue`, etc.
+   - Dead code — verified with live test
+
+2. **Generic variant check** (lines 191-197):
+   - `name.includes('$') && !name.startsWith('_')`
+   - Matches Gleam variant constructors like `Todo$Todo`, `InProgress$InProgress`
+   - These are enum variants, not record types
+   - Returns `{ type: variantName, fields: [...] }`
+
+3. **Final fallback** (lines 199-200):
+   - `Object.fromEntries(Object.entries(val)...)`
+   - Used for ALL record types (Task, Issue, Skill, etc.)
+   - Includes both numeric keys (`0`, `1`) and named keys (`id`, `title`)
+   - Produces duplicate data but functionally correct
+
+**Missing type handling:**
+- No special handling for `List` type (Gleam's linked list)
+- `NonEmpty` is handled but `Empty` is not
+- `Dict` type would serialize as nested objects — untested
+
+### 195.4 FFI Summary
+
+| #    | Issue                                  | Severity | Impact                                  |
+| ---- | -------------------------------------- | -------- | --------------------------------------- |
+| FFI1 | get_config returns null not None       | HIGH     | Fragile, relies on codegen behavior     |
+| FFI2 | pi_send_message ignores display param  | LOW      | Dead parameter                          |
+| FFI3 | Duplicate now_ms with different types  | MEDIUM   | Confusing maintenance                   |
+| FFI4 | ctx_reload returns undefined not Nil   | LOW      | Fragile but functional                  |
+| FFI5 | exec_sync uses require not import      | LOW      | Inconsistent style                      |
+| FFI6 | gleamValueToJson hardcoded names dead  | MEDIUM   | Dead code, duplicate keys in output     |
+| FFI7 | gleamValueToJson no List/Dict handling | MEDIUM   | Complex types may serialize incorrectly |
+
 **Total: 20 failure points across 8 lifecycle phases.**
 **CRITICAL: 6 | HIGH: 4 | MEDIUM: 7 | LOW: 3**
