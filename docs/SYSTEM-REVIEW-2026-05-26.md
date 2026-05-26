@@ -12519,3 +12519,136 @@ issue-get, skill-list/get/search, psypi-commit, memory-search
 **Note:** "BROKEN" means the tool will fail at runtime for non-trivial data.
 "FRAGILE" means it works now but could break with configuration changes.
 "OK" means it works correctly for typical use cases.
+
+---
+
+## 199. CRITICAL: PHANTOM TABLE REFERENCES — `agent_souls` AND `agent_jobs` DON'T EXIST
+
+### 199.1 The Problem
+
+Three modules query tables that **do not exist** in the database:
+
+| Module               | Query                                                                        | Table       | Exists? |
+| -------------------- | ---------------------------------------------------------------------------- | ----------- | ------- |
+| agent_identity.gleam | `SELECT ... FROM agent_souls WHERE id_prefix = $1`                           | agent_souls | **NO**  |
+| s_db_reader.gleam    | `SELECT content FROM agent_souls WHERE id_prefix = 'S'`                      | agent_souls | **NO**  |
+| a_db_reader.gleam    | `SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'` | agent_souls | **NO**  |
+| a_db_reader.gleam    | `SELECT j.job ... FROM agent_jobs j JOIN agent_souls s ...`                  | agent_jobs  | **NO**  |
+| s_db_reader.gleam    | `SELECT j.job ... FROM agent_jobs j JOIN agent_souls s ...`                  | agent_jobs  | **NO**  |
+
+### 199.2 Actual Database Tables
+
+The actual tables related to souls/agents are:
+
+| Table               | Columns                                                                                                                                                              | Used by Gleam?    |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `soul`              | id, role, responsibility, domain, event_triggers(JSONB), task_patterns(JSONB), verification_criteria, remediation_steps, is_active, priority, created_at, updated_at | **NO**            |
+| `agent_identities`  | (not examined)                                                                                                                                                       | **NO**            |
+| `agent_identity`    | (not examined)                                                                                                                                                       | **NO**            |
+| `agent_scores`      | (not examined)                                                                                                                                                       | **NO**            |
+| `agent_sessions`    | id, identity_id, agent_type, process_id, working_on, status, started_at, last_heartbeat, ended_at, metadata(JSONB), last_heartbeat_at                                | YES (a_db_reader) |
+| `system_directives` | id, agent_id, directive_text, priority, source, is_active, expires_at, consumed_at, created_at                                                                       | **NO**            |
+
+### 199.3 Column Mismatch: `agent_souls` vs `soul`
+
+| Gleam expects (`agent_souls`) | DB has (`soul`)              | Match?            |
+| ----------------------------- | ---------------------------- | ----------------- |
+| id (UUID)                     | id (UUID)                    | YES               |
+| name (TEXT)                   | role (TEXT)                  | **RENAMED**       |
+| domain (TEXT)                 | domain (TEXT)                | YES               |
+| responsibility (TEXT)         | responsibility (TEXT)        | YES               |
+| trigger_type (TEXT)           | event_triggers (JSONB)       | **TYPE MISMATCH** |
+| drive_mode (TEXT)             | —                            | **MISSING**       |
+| activation (TEXT)             | —                            | **MISSING**       |
+| id_prefix (TEXT)              | —                            | **MISSING**       |
+| content (TEXT)                | —                            | **MISSING**       |
+| —                             | task_patterns (JSONB)        | NOT IN GLEAM      |
+| —                             | verification_criteria (TEXT) | NOT IN GLEAM      |
+| —                             | remediation_steps (TEXT)     | NOT IN GLEAM      |
+| —                             | priority (TEXT)              | NOT IN GLEAM      |
+| —                             | created_at (timestamptz)     | NOT IN GLEAM      |
+| —                             | updated_at (timestamptz)     | NOT IN GLEAM      |
+
+### 199.4 Impact Analysis
+
+**Every soul-related query in the system will fail at runtime:**
+
+1. **`hook_on_before_agent_start`** → calls `s_db_reader.read_s_soul_from_db()` → queries `agent_souls` → **FAILS** → falls back to hardcoded personality string. S-bot never gets its real soul.
+
+2. **`a_orchestrator.run_full_workflow`** → calls `a_db_reader.read_soul_from_db()` → queries `agent_souls` → **FAILS** → sends error message to S-bot, returns `Ok(Nil)`. A-bot never gets its soul.
+
+3. **`agent_identity.get_enriched_identity`** → calls `fetch_soul_by_prefix` → queries `agent_souls` → **FAILS** → falls back to generic identity. Agent identity is always generic.
+
+4. **`a_db_reader.read_a_jobs_from_db`** → queries `agent_jobs JOIN agent_souls` → **FAILS** → A-bot never gets its jobs.
+
+5. **`s_db_reader.read_s_jobs_from_db`** → queries `agent_jobs JOIN agent_souls` → **FAILS** → S-bot never gets its jobs.
+
+### 199.5 Root Cause
+
+The Gleam code was written against a **planned schema** (`agent_souls`, `agent_jobs`)
+that was never created. The actual database has a different schema (`soul` table)
+that was created by a different migration or manual process. The Gleam code
+was never updated to match the actual schema.
+
+### 199.6 Severity: **CRITICAL**
+
+This is the single most impactful finding in the review. The entire A/S agent
+identity system is non-functional because it queries non-existent tables.
+Every soul read, every job read, every identity enrichment fails silently
+(with fallbacks that provide generic placeholder data).
+
+---
+
+## 200. HOOK MODULES — DETAILED REVIEW
+
+### 200.1 `hook_on_before_agent_start.gleam`
+
+**Issues:**
+1. **`record_trigger` IS called** — Contrary to earlier finding in §194,
+   the Gleam code calls `record_trigger` before reading the soul. The earlier
+   finding about "unreachable trigger recording" was about the GENERATED JS
+   code in extension.js, which adds a redundant and unreachable second call.
+   The Gleam-level trigger recording works correctly.
+2. **`system_directives` NOT read** — The hook only reads the S-bot soul.
+   The `system_directives` table exists in the database but is never queried.
+   A-bot's directives are completely ignored by S-bot.
+3. **Soul read always fails** — Because `agent_souls` table doesn't exist
+   (see §199), the hook always falls back to the hardcoded personality string.
+
+### 200.2 `hook_on_agent_start.gleam`
+
+**Issues:**
+1. **Only records trigger** — The hook does nothing except record the trigger
+   event. No soul loading, no directive reading, no job processing.
+
+### 200.3 `hook_on_agent_end.gleam`
+
+**Issues:**
+1. **Double debounce** — Extension.js has a generated debounce timer (15 min),
+   AND this hook has its own manual debounce via `idle_since` config (5 min default).
+   These are independent and don't coordinate.
+2. **`is_s_still_idle()` always returns True** — COUNT(*) without `::INT` cast
+   causes decode failure, fallback returns `Ok(True)`. No S-bot filter either.
+3. **Race condition** — `ctx_is_idle(ctx)` checked twice with no lock.
+4. **`set_config("idle_since", ...)` race** — In-memory config store has no
+   synchronization. Multiple concurrent hook invocations could corrupt state.
+5. **Soul read always fails** — `a_db_reader.read_soul_from_db()` queries
+   `agent_souls` which doesn't exist (see §199).
+
+### 200.4 `hook_on_tool_call.gleam`
+
+**Issues:**
+1. **Only handles "edit" tool** — Other file-modifying tools (write, create)
+   are not backed up.
+2. **`read_file_sync` blocks event loop** — Synchronous file read during hook.
+3. **`code_version.save_version`** — Uses stored procedure `save_code_version`.
+   If this procedure doesn't exist, the backup fails silently.
+
+### 200.5 Hook Summary
+
+| Hook               | Issues | Most Critical                                            |
+| ------------------ | ------ | -------------------------------------------------------- |
+| before_agent_start | 3      | system_directives never read, soul read always fails     |
+| agent_start        | 1      | Only records trigger, no functional behavior             |
+| agent_end          | 5      | Double debounce, is_s_still_idle broken, soul read fails |
+| tool_call          | 3      | Only handles "edit" tool, sync file read                 |
