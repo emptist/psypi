@@ -7574,3 +7574,251 @@ before starting.
 | FFI time_utils_ffi.mjs bugs        | 1                                                                                                            |
 | Migration schema bugs              | 5                                                                                                            |
 | **TOTAL CONFIRMED BUGS**           | **204**                                                                                                      |
+
+---
+
+## 153. FFI FILE DEEP REVIEW
+
+### 153a. pi_extension_ffi.mjs — Critical FFI Bridge
+
+**File:** [pi_extension_ffi.mjs](file:///Users/jk/gits/hub/tools_ai/psypi/src/pi_extension_ffi.mjs)
+
+**Bug 1: `pi_send_message` ignores 4th parameter `display`**
+```javascript
+export function pi_send_message(pi, customType, content, display) {
+  pi.sendMessage({
+    customType: String(customType),
+    content: String(content),
+    display: true,  // ALWAYS true, ignores 'display' parameter
+  }, { triggerTurn: true });
+}
+```
+The Gleam side passes `display: "persistent"` or other values, but
+the JS side hardcodes `display: true`. The parameter is silently
+ignored.
+
+**Bug 2: `call_monitor` retry logic is flawed**
+```javascript
+const shouldRetry = !text || (result?.errorMessage && 
+  (result?.errorMessage === 'terminated' || result?.errorMessage.includes('rate')));
+if (shouldRetry) {
+  result = await completeSimple(model, context, { 
+    apiKey: auth.apiKey, headers: auth.headers, reasoning: 'none' 
+  });
+```
+On retry, reasoning is set to 'none' (disabling thinking). But the
+original call used 'medium'. If the first call failed due to rate
+limiting, the retry will also fail. If it failed due to 'terminated',
+the retry may succeed but with lower quality output.
+
+**Bug 3: `_configStore` is not thread-safe**
+```javascript
+let _configStore = {};
+```
+Node.js is single-threaded for JS execution, but if multiple
+async operations read/write `_configStore` concurrently (e.g.,
+two `agent_end` hooks firing in quick succession), the state
+can become inconsistent. Specifically:
+- `get_config("idle_since")` returns null
+- Two hooks both set `idle_since` to different values
+- The later one wins, but the first one already proceeded
+
+**Bug 4: `gleamValueToJson` type name matching is fragile**
+```javascript
+if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || ...)
+```
+This hardcodes Gleam module$type patterns. If a new type is added
+(e.g., `Notification$Notification`), it won't be serialized
+correctly. The function will fall through to the generic
+`name.includes('$')` branch, which produces a different output
+format.
+
+**Bug 5: `gleamValueToJson` doesn't handle `NonEmpty` tail correctly**
+```javascript
+if (name === 'NonEmpty') {
+  const arr = [];
+  let cur = val;
+  while (cur && cur.constructor?.name === 'NonEmpty') {
+    arr.push(gleamValueToJson(cur.head));
+    cur = cur.tail;
+  }
+  return arr;
+}
+```
+Gleam lists end with `[]` (empty list), not `Nil`. The while loop
+checks for `NonEmpty` but doesn't handle the case where `cur.tail`
+is an empty array `[]`. If `cur.constructor?.name` is not
+`'NonEmpty'`, the loop stops. This should work for standard Gleam
+lists, but if the tail is something unexpected, items are silently
+lost.
+
+**Bug 6: `unwrapGleamResult` returns plain object, not Gleam type**
+The function returns `{ ok: true, value: ... }` or
+`{ ok: false, error: ... }`. But the Gleam side declares the
+return type as `b` (unconstrained). This works because Gleam
+treats it as Dynamic, but it's not type-safe.
+
+**Bug 7: `now_ms()` returns different types in different FFI files**
+- `pi_extension_ffi.mjs`: `return Date.now()` → returns `Int`
+- `node_ffi.mjs`: `return new Ok(Date.now())` → returns `Result(Int, ...)`
+
+The Gleam side in `pi_extension.gleam` declares `now_ms() -> Int`,
+while `node_ffi.mjs` wraps it in `Ok()`. If any Gleam code calls
+the `node_ffi.mjs` version expecting a plain `Int`, it will get
+a Gleam `Ok` variant instead.
+
+### 153b. node_ffi.mjs — System Utilities
+
+**File:** [node_ffi.mjs](file:///Users/jk/gits/hub/tools_ai/psypi/src/node_ffi.mjs)
+
+**Bug 1: `now_ms()` returns `Ok(Date.now())` instead of plain `Int`**
+```javascript
+export function now_ms() {
+  return new Ok(Date.now());
+}
+```
+But `pi_extension_ffi.mjs` returns `Date.now()` (plain Int). The
+Gleam declarations differ:
+- `pi_extension.gleam`: `now_ms() -> Int`
+- Whatever uses `node_ffi.mjs`: expects `Result(Int, ...)`
+
+These two `now_ms` implementations are incompatible.
+
+**Bug 2: `execute()` error returns `Error({ ExecutionError: e.message })`**
+```javascript
+return new Error({ ExecutionError: e.message || 'Command failed' });
+```
+This creates a Gleam `Error` variant containing a JavaScript object
+`{ ExecutionError: e.message }`. Gleam code would need to decode
+this as a dynamic type. If the Gleam side expects a simple string,
+the decode will fail.
+
+**Bug 3: `spawn_pi()` doesn't handle Pi not found**
+```javascript
+const piProcess = spawn('pi', args, ...);
+```
+If `pi` is not in PATH, `spawn` will emit an 'error' event but
+the promise rejection doesn't provide a helpful error message.
+
+**Bug 4: `get_project_id_env()` returns empty string for missing env**
+```javascript
+export function get_project_id_env() {
+  return process.env['PSYPI_PROJECT_ID'] || '';
+}
+```
+In `db.gleam`, this empty string triggers the hardcoded UUID
+fallback. But there's no logging or warning that the fallback
+is being used.
+
+### 153c. agent_identity_ffi.mjs — Git Check
+
+**File:** [agent_identity_ffi.mjs](file:///Users/jk/gits/hub/tools_ai/psypi/src/agent_identity_ffi.mjs)
+
+**Bug 1: `check_git_exists` result is unused by Gleam code**
+The function works correctly, but `agent_identity.gleam` assigns
+the result to `_global` (underscore = unused). The entire FFI
+call is dead code.
+
+### 153d. time_utils_ffi.mjs — Time Utility
+
+**File:** [time_utils_ffi.mjs](file:///Users/jk/gits/hub/tools_ai/psypi/src/time_utils_ffi.mjs)
+
+**Bug 1: `now_iso8601()` returns `Promise.resolve()` but no Gleam code uses it**
+The function exists but there's no corresponding `@external`
+declaration in any `.gleam` file. It's dead code.
+
+### 153e. db.gleam — Database Connection Management
+
+**File:** [db.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/db.gleam)
+
+**Bug 1: `with_connection` creates a new connection for every query**
+Every call to `with_connection` calls `connect()` then `disconnect()`.
+This means every database operation:
+1. Creates a new TCP connection to PostgreSQL
+2. Performs SSL handshake (if configured)
+3. Authenticates
+4. Sets `app.current_project_id`
+5. Executes the query
+6. Closes the connection
+
+This is extremely expensive. A connection pool should be used
+instead.
+
+**Bug 2: `disconnect()` result is ignored**
+```gleam
+let _ = disconnect(conn)
+```
+If disconnect fails, the error is silently swallowed. The
+connection may leak.
+
+**Bug 3: `SET app.current_project_id` uses hardcoded UUID fallback**
+```gleam
+let project_id = case get_project_id_env() {
+  "" -> "0d324e68-b399-4b85-bd8a-6b1ef7b46168"
+  id -> id
+}
+```
+This is the 6th location where the hardcoded UUID appears.
+No dynamic lookup from `projects` table.
+
+**Bug 4: No connection timeout**
+`connect()` has no timeout. If PostgreSQL is unreachable, the
+promise will hang indefinitely.
+
+**Bug 5: No query timeout**
+`query()` has no timeout. Long-running queries will block the
+event loop.
+
+---
+
+## 154. REVISED BUG COUNT — FINAL v10
+
+| Category                           | Count                                                                                                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `::text` cast missing (TSTZ+JSONB) | 15                                                                                                                                                      |
+| Missing NOT NULL columns in INSERT | 12                                                                                                                                                      |
+| Wrong column names                 | 4                                                                                                                                                       |
+| Decoder mismatch                   | 11                                                                                                                                                      |
+| Missing type variants              | 3                                                                                                                                                       |
+| Logic bugs                         | 14                                                                                                                                                      |
+| FFI issues                         | 14 (+5: pi_send_message ignores display, call_monitor flawed retry, gleamValueToJson fragile type matching, now_ms type conflict, execute error format) |
+| Config system fragmentation        | 3                                                                                                                                                       |
+| Seed/bootstrap gaps                | 10                                                                                                                                                      |
+| Dead code                          | 8 (+2: time_utils_ffi.now_iso8601 unused, agent_identity_ffi.check_git_exists unused)                                                                   |
+| Stub implementations               | 2                                                                                                                                                       |
+| Race conditions / concurrency      | 5 (+1: _configStore concurrent access)                                                                                                                  |
+| Extension generation bugs          | 6                                                                                                                                                       |
+| A/S lifecycle logic failures       | 8                                                                                                                                                       |
+| Tool execution flow bugs           | 4                                                                                                                                                       |
+| Hook module bugs                   | 9                                                                                                                                                       |
+| Command module bugs                | 2                                                                                                                                                       |
+| DB module bugs                     | 7 (+3: no connection pool, disconnect error ignored, no query timeout)                                                                                  |
+| A/S DB reader bugs                 | 7                                                                                                                                                       |
+| Monitor AI bugs                    | 9                                                                                                                                                       |
+| Monitor module bugs                | 4                                                                                                                                                       |
+| Event hooks bugs                   | 4                                                                                                                                                       |
+| Node PG FFI bugs                   | 1                                                                                                                                                       |
+| Inter-review bugs                  | 7                                                                                                                                                       |
+| Tool commit bugs                   | 3                                                                                                                                                       |
+| Tool consult bugs                  | 2                                                                                                                                                       |
+| Code version bugs                  | 1                                                                                                                                                       |
+| Meeting bugs                       | 3                                                                                                                                                       |
+| Agent identity bugs                | 5                                                                                                                                                       |
+| Task bugs                          | 6                                                                                                                                                       |
+| Issue bugs                         | 4                                                                                                                                                       |
+| Broadcast bugs                     | 6                                                                                                                                                       |
+| Skill bugs                         | 3                                                                                                                                                       |
+| Agents bugs                        | 2                                                                                                                                                       |
+| Stats bugs                         | 3                                                                                                                                                       |
+| A orchestrator bugs                | 3                                                                                                                                                       |
+| A prompt builder bugs              | 2                                                                                                                                                       |
+| Simple migrate bugs                | 4                                                                                                                                                       |
+| System prompt types bugs           | 3                                                                                                                                                       |
+| A context utils bugs               | 2                                                                                                                                                       |
+| Extension generator bugs           | 2                                                                                                                                                       |
+| FFI node_ffi.mjs bugs              | 4 (+1: now_ms returns Ok() instead of plain Int)                                                                                                        |
+| FFI pi_extension_ffi.mjs bugs      | 7 (+1: pi_send_message ignores display parameter)                                                                                                       |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                                                                                                                       |
+| FFI time_utils_ffi.mjs bugs        | 1                                                                                                                                                       |
+| Migration schema bugs              | 5                                                                                                                                                       |
+| **TOTAL CONFIRMED BUGS**           | **219**                                                                                                                                                 |
