@@ -13212,3 +13212,187 @@ Adding to the 7 critical findings from §203.2:
 | C12 | `auto_file_issue` uses wrong column names (`type` vs `issue_type`) | Auto-issue filing broken                      |
 
 **Total critical findings: 12** (up from 7)
+
+---
+
+## 205. END-TO-END DATA FLOW TRACE — `psypi-task-add` → `psypi-tasks` → `psypi-task-complete`
+
+### 205.1 Step 1: Tool Registration
+
+`task_add_tool()` defines a `PiToolCall` with:
+- `name: "psypi-task-add"`
+- `module: "task"`, `fn_name: "add"`
+- `args: [from_param("params.title"), lit("\"\""), lit("5"), lit("\"cli\""), from_param("params?.project_id || '0d324e68-b399-4b85-bd8a-6b1ef7b46168'")]`
+
+The extension generator creates JS code that calls `task.add(title, "", 5, "cli", project_id)`.
+
+### 205.2 Step 2: Gleam `add()` Function
+
+```sql
+INSERT INTO tasks (title, description, priority, created_by, project_id)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id
+```
+
+**Analysis:**
+- `title` (TEXT, NOT NULL) — OK, comes from params
+- `description` (TEXT, nullable) — Always empty string `""`, never from params
+- `priority` (INTEGER, default 0) — Always hardcoded to `5`
+- `created_by` (TEXT, nullable) — Always hardcoded to `"cli"`
+- `project_id` (UUID, nullable) — From params or hardcoded UUID
+
+**Issues:**
+1. **`description` always empty** — The tool doesn't accept a description parameter, but the `add()` function signature has one. The tool always passes `""`.
+2. **`priority` always 5** — The tool doesn't accept a priority parameter. Always 5.
+3. **`created_by` always "cli"** — Should be the agent's identity, not hardcoded.
+4. **`project_id` as string passed to UUID column** — The hardcoded UUID string is passed as `$5` to a UUID column. node-postgres may or may not auto-cast this. If it doesn't, the INSERT fails.
+5. **`RETURNING id` without `::text`** — `id` is UUID, decoded with `decode.string`. May fail.
+6. **`audit_direct_insert` trigger fires** — But since `tasks` has no `source` column, the trigger sets `v_source = 'unknown'` and skips the warning. OK.
+
+**Verdict:** `psypi-task-add` PROBABLY WORKS but with hardcoded values and potential UUID casting issues.
+
+### 205.3 Step 3: Gleam `list()` Function
+
+```sql
+SELECT id, title, description, status, priority, result, error, retry_count,
+       created_at::text, updated_at::text, completed_at::text, created_by, source,
+       project_id::text
+FROM tasks
+WHERE status = $1 AND project_id = $2
+ORDER BY priority DESC, created_at ASC LIMIT 100
+```
+
+**Analysis:**
+1. **`source` column does NOT exist** — SQL error: "column 'source' does not exist"
+2. **`result` is JSONB without `::text`** — node-postgres returns object, `decode.string` fails
+3. **`project_id::text` cast present** — OK for UUID→text conversion
+4. **`id` without `::text`** — UUID, may fail with `decode.string`
+
+**Verdict:** `psypi-tasks` (list) is **BROKEN** — SQL error on `source` column.
+
+### 205.4 Step 4: Gleam `get()` Function
+
+```sql
+SELECT id, title, description, status, priority, result, error, retry_count,
+       created_at::text, updated_at::text, completed_at::text, created_by, source
+FROM tasks
+WHERE id = $1
+```
+
+**Analysis:**
+1. **`source` column does NOT exist** — SQL error
+2. **`result` is JSONB without `::text`** — Decode fails
+3. **`project_id` NOT in SELECT** — But decoder expects `project_id` field → decode error
+4. **`id` without `::text`** — UUID, may fail
+
+**Verdict:** `psypi-task-get` is **BROKEN** — SQL error on `source` column AND missing `project_id` in SELECT.
+
+### 205.5 Step 5: Gleam `complete()` Function
+
+```sql
+UPDATE tasks
+SET status = 'COMPLETED', completed_at = NOW()
+WHERE id = $1
+RETURNING id
+```
+
+**Analysis:**
+1. **`$1` is string, `id` is UUID** — May fail if node-postgres doesn't auto-cast
+2. **`RETURNING id` without `::text`** — UUID decode issue
+3. **No validation of current status** — Can complete an already-completed or failed task
+
+**Verdict:** `psypi-task-complete` PROBABLY WORKS but with potential UUID casting issues.
+
+### 205.6 Complete Task Data Flow Summary
+
+```
+psypi-task-add → INSERT (5 cols) → ✅ WORKS (with caveats)
+psypi-tasks    → SELECT (source) → ❌ BROKEN (column doesn't exist)
+psypi-task-get → SELECT (source, missing project_id) → ❌ BROKEN
+psypi-task-complete → UPDATE → ✅ PROBABLY WORKS
+```
+
+**The task lifecycle is broken at the LIST and GET stages.** Tasks can be created
+and completed, but cannot be listed or retrieved. This means:
+- AI agents can add tasks but can never see them again
+- The `psypi-tasks` tool always returns an error
+- The `areflect.gleam` module also inserts tasks but can't list them
+
+### 205.7 Column Mismatch Detail for `tasks` Table
+
+| Column in Decoder | In SELECT?            | In DB? | Data Type   | Cast?           | Works?     |
+| ----------------- | --------------------- | ------ | ----------- | --------------- | ---------- |
+| `id`              | YES                   | YES    | uuid        | NO              | FRAGILE    |
+| `title`           | YES                   | YES    | text        | N/A             | OK         |
+| `description`     | YES                   | YES    | text        | N/A             | OK         |
+| `status`          | YES                   | YES    | text        | N/A             | OK         |
+| `priority`        | YES                   | YES    | integer     | N/A             | OK         |
+| `result`          | YES                   | YES    | jsonb       | NO              | **BROKEN** |
+| `error`           | YES                   | YES    | text        | N/A             | OK         |
+| `retry_count`     | YES                   | YES    | integer     | N/A             | OK         |
+| `created_at`      | YES                   | YES    | timestamptz | `::text`        | OK         |
+| `updated_at`      | YES                   | YES    | timestamptz | `::text`        | OK         |
+| `completed_at`    | YES                   | YES    | timestamptz | `::text`        | OK         |
+| `created_by`      | YES                   | YES    | text        | N/A             | OK         |
+| `source`          | YES                   | **NO** | —           | —               | **BROKEN** |
+| `project_id`      | YES (list) / NO (get) | YES    | uuid        | `::text` (list) | PARTIAL    |
+
+**Score: 11/14 columns work, 2 are broken, 1 is partially broken**
+
+### 205.8 Same Analysis for Other Major Tables
+
+**`issues` table (24 columns):**
+
+| Column in Decoder | In DB? | Works?             |
+| ----------------- | ------ | ------------------ |
+| `id`              | YES    | OK                 |
+| `title`           | YES    | OK                 |
+| `description`     | YES    | OK                 |
+| `severity`        | YES    | OK                 |
+| `status`          | YES    | OK                 |
+| `issue_type`      | YES    | OK                 |
+| `created_at`      | YES    | OK (with `::text`) |
+| `resolved_at`     | YES    | OK (with `::text`) |
+| `created_by`      | **NO** | **BROKEN**         |
+| `discovered_by`   | **NO** | **BROKEN**         |
+| `environment`     | **NO** | **BROKEN**         |
+| `git_branch`      | **NO** | **BROKEN**         |
+| `git_hash`        | **NO** | **BROKEN**         |
+| `reported_by`     | **NO** | **BROKEN**         |
+| `source`          | **NO** | **BROKEN**         |
+
+**Score: 8/15 columns work, 7 are broken** — The issue listing is broken.
+
+**`skills` table (54 columns):**
+
+| Column in Decoder | In DB? | Data Type   | Cast?    | Works?                             |
+| ----------------- | ------ | ----------- | -------- | ---------------------------------- |
+| `id`              | YES    | uuid        | NO       | FRAGILE                            |
+| `name`            | YES    | text        | N/A      | OK                                 |
+| `description`     | YES    | text        | N/A      | OK                                 |
+| `status`          | YES    | text        | N/A      | OK                                 |
+| `safety_score`    | YES    | integer     | N/A      | OK                                 |
+| `author`          | YES    | text        | N/A      | OK                                 |
+| `source`          | YES    | text        | N/A      | OK (but missing `AiBuilt` variant) |
+| `content`         | YES    | jsonb       | NO       | **BROKEN**                         |
+| `reference_list`  | YES    | jsonb       | NO       | **BROKEN**                         |
+| `created_at`      | YES    | timestamptz | `::text` | OK                                 |
+| `updated_at`      | YES    | timestamptz | `::text` | OK                                 |
+| `embedding`       | YES    | vector      | NO       | **BROKEN** (can't decode)          |
+
+**Score: 8/12 columns work, 3 are broken, 1 is fragile**
+
+### 205.9 Cross-Table JSONB Column Audit
+
+All JSONB columns in the database that Gleam tries to decode as `decode.string`:
+
+| Table           | Column            | Decoder                          | Has `::text`? | Works?     |
+| --------------- | ----------------- | -------------------------------- | ------------- | ---------- |
+| `tasks`         | `result`          | `decode.optional(decode.string)` | NO            | **BROKEN** |
+| `skills`        | `content`         | `decode.optional(decode.string)` | NO            | **BROKEN** |
+| `skills`        | `reference_list`  | `decode.optional(decode.string)` | NO            | **BROKEN** |
+| `inter_reviews` | (none)            | —                                | —             | —          |
+| `issues`        | (none in decoder) | —                                | —             | —          |
+| `memory`        | (none in decoder) | —                                | —             | —          |
+
+**4 JSONB columns decoded without `::text` cast → all fail for non-null values.**
