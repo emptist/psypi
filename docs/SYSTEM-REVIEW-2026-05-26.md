@@ -15065,3 +15065,283 @@ Pi tool call → Gleam function → SQL query → DB → decode → result:
 - **The entire A-bot system** (soul, jobs, wake-up, inter-review) is non-functional
 - **The auto-backup system** is non-functional
 - **The inter-review commit flow** is a dead end
+
+---
+
+## 230. REMAINING MODULE AUDITS — stats, learning, memory, broadcast, meeting, areflect, agents
+
+### 230.1 `stats.gleam` — Template Bug + Bigint Handling
+
+**SQL**: `SELECT (SELECT COUNT(*) FROM tasks) as tasks, ...`
+No `::INT` cast on COUNT(*). The `decode_bigint()` function handles this by decoding
+as string then parsing to int. This works but is a workaround for missing `::INT` cast.
+
+**Template Bug**: `template("Tasks:${r.value.tasks} Issues:${r.value.issues} ...")`
+Uses `${r.value.tasks}` which accesses `r.value.tasks` in JS. But `r.value` is a
+Gleam `Stats` custom type, compiled with numbered fields (`r.value['0']`).
+**Result: All values are `undefined`.** Output: "Tasks:undefined Issues:undefined Skills:undefined Meetings:undefined"
+
+### 230.2 `learning.gleam` — Works But Tags Format Is Fragile
+
+**SQL**: `INSERT INTO memory (content, tags, source, importance, agent_id) VALUES (...)`
+The `tags` parameter is formatted as PostgreSQL array literal `{tag1,tag2}`.
+The `normalize_tags()` function converts JSON arrays or comma-separated strings
+to this format. This is fragile — if a tag contains a comma or brace, it breaks.
+
+**The `memory` table has `tags` as `text` type** (not `text[]`), so the `{tag1,tag2}`
+format is stored as a plain string. When `memory.gleam` later reads it with
+`decode.list(decode.string)`, it will fail because the stored value is a string,
+not a JS array.
+
+**But**: `learning.gleam` doesn't read back — it only writes. So this bug is latent.
+
+### 230.3 `memory.gleam` — Multiple Decode Issues
+
+**`save()` function**:
+- `RETURNING id` — `id` is `uuid` type, not cast to `::text`. `decode.string` will fail.
+- The function tries to decode the returned row with `memory_decoder()` which expects
+  7 fields (id, content, tags, source, agent_id, importance, created_at). But the
+  INSERT only returns `id`. The decoder will fail because `content`, `tags`, etc.
+  are missing.
+- **This function has NEVER worked.** It always returns `Error(DecodeError("Failed to decode memory"))`.
+
+**`search()` function**:
+- `SELECT * FROM memory` — Returns ALL columns including `embedding` (vector type)
+  and `metadata` (jsonb). The `memory_decoder()` doesn't have fields for these,
+  but `decode.field` only reads named fields, so extra columns are ignored.
+- `id` is `uuid` — NOT cast to `::text`. `decode.string` will fail.
+- `tags` is `text` type (stored as `{tag1,tag2}` string). `decode.list(decode.string)`
+  expects a JS array, not a string. This will fail.
+- `created_at` is `timestamptz` — NOT cast to `::text`. `decode.string` will fail.
+- **This function has NEVER worked.** Every row decode fails.
+
+### 230.4 `broadcast.gleam` — Missing `priority` Column
+
+**`send()` function**:
+```sql
+INSERT INTO project_communications
+(project_id, from_ai, message_type, content, priority, metadata)
+VALUES ($1, $2, 'broadcast', $3, $4, $5)
+```
+
+**The `project_communications` table has NO `priority` column.**
+Columns: id, project_id, from_ai, to_ai, message_type, content, metadata, created_at, read_at.
+
+**This INSERT will FAIL with: `ERROR: column "priority" does not exist`.**
+**The `psypi-broadcast-send` tool has NEVER worked.**
+
+**`list()` function**:
+```sql
+SELECT id, from_ai as agent_id, content as message, priority, ...
+FROM project_communications
+```
+Also references `priority` column which doesn't exist.
+**The `psypi-broadcasts` tool has NEVER worked.**
+
+**`stats()` function**:
+```sql
+SELECT COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+FROM project_communications
+```
+Also references `priority`. **This function has NEVER worked.**
+
+**`id` is `uuid`** — NOT cast to `::text` in any query. `decode.string` will fail.
+
+### 230.5 `meeting.gleam` — UUID Not Cast to Text
+
+**All queries** return `id` (uuid) without `::text` cast:
+- `INSERT INTO meetings ... RETURNING id` — uuid, not cast
+- `SELECT id, topic, ... FROM meetings` — uuid, not cast
+- `INSERT INTO meeting_opinions ... RETURNING id` — uuid, not cast
+
+**Impact**: `decode.string` on uuid values will fail. All meeting tools that return
+id values are broken.
+
+**But**: The `list()` function uses `created_at::text` and `consensus_at::text` —
+these ARE properly cast ✅
+
+**`meeting_say` tool**: Passes `params.author || "psypi"` but `author` is not in
+the tool schema parameters. Falls back to "psypi" always.
+
+### 230.6 `areflect.gleam` — `created_by` Column Missing from `issues`
+
+**`save_issue()` function**:
+```sql
+INSERT INTO issues (title, description, severity, created_by)
+VALUES ($1, $2, 'medium', $3)
+```
+
+**The `issues` table has NO `created_by` column.**
+This INSERT will FAIL with: `ERROR: column "created_by" does not exist`.
+
+**Impact**: When A-bot uses `[ISSUE]` markers in areflect, the issue is NOT saved.
+The error is silently swallowed (the `save_issues` recursive function continues
+after each error).
+
+**`save_task()` function**:
+```sql
+INSERT INTO tasks (title, description, priority, created_by)
+VALUES ($1, $2, 5, $3)
+```
+The `tasks` table DOES have `created_by` ✅. This works.
+
+**`fetch_recent_issues()` function**:
+```sql
+SELECT id, title, status, severity FROM issues ORDER BY ...
+```
+`id` is `uuid` — NOT cast to `::text`. `decode.string` will fail.
+**This function has NEVER worked.**
+
+**`save_learning()` function**:
+```sql
+INSERT INTO learning_insights (insight_type, title, content, confidence)
+VALUES ('pattern', $1, $2, 0.8)
+```
+The `learning_insights` table has these columns ✅. This works.
+
+### 230.7 `agents.gleam` — Works Correctly
+
+```sql
+SELECT id, agent_type, created_at::text FROM agent_identities ORDER BY created_at DESC LIMIT 50
+```
+
+- `id` is `character varying` — `decode.string` works ✅
+- `agent_type` is `character varying` — `decode.string` works ✅
+- `created_at::text` — properly cast ✅
+
+**This is one of the few modules that works correctly end-to-end.**
+
+---
+
+## 231. PHANTOM TABLE `psypi_event_hooks` — CONFIRMED
+
+```
+psypi=# \dt *event_hook*
+Did not find any tables named "*event_hook*".
+```
+
+The `psypi_event_hooks` table referenced by `event_hooks.gleam` does NOT exist.
+
+**Impact**:
+- `psypi-hooks-list` tool → FAILS
+- `psypi-hooks-active` tool → FAILS
+- `event_hooks.record_trigger()` → FAILS (called by every hook)
+- All trigger counts and last_triggered timestamps are never recorded
+
+**But**: The `record_trigger` function is called at the START of most hooks.
+If it fails, the hook continues (the error is caught and ignored in most cases).
+So hooks still run, but trigger tracking is broken.
+
+---
+
+## 232. PHANTOM TABLE `notifications` — CONFIRMED
+
+```
+psypi=# \dt *notification*
+Did not find any tables named "*notification*".
+```
+
+The `notifications` table referenced by `monitor.gleam` does NOT exist.
+
+**Impact**:
+- `monitor.create_notification()` → FAILS
+- `monitor.get_pending_notifications()` → FAILS
+- `monitor.mark_notifications_read()` → FAILS
+- The entire agent notification system is non-functional
+
+---
+
+## 233. UPDATED PHANTOM TABLE INVENTORY — ALL CONFIRMED
+
+| #   | Table Name          | Referenced By                               | Exists? | Impact                       |
+| --- | ------------------- | ------------------------------------------- | ------- | ---------------------------- |
+| 1   | `agent_souls`       | a_db_reader, s_db_reader, agent_identity    | ❌ NO    | A/S soul loading fails       |
+| 2   | `agent_jobs`        | a_db_reader, s_db_reader                    | ❌ NO    | A/S job loading fails        |
+| 3   | `code_versions`     | code_version, monitor_ai, hook_on_tool_call | ❌ NO    | Auto-backup broken           |
+| 4   | `notifications`     | monitor.gleam                               | ❌ NO    | Agent notification broken    |
+| 5   | `psypi_event_hooks` | event_hooks.gleam                           | ❌ NO    | Hook trigger tracking broken |
+
+**5 phantom tables. 5 critical systems broken.**
+
+---
+
+## 234. UUID CAST MISSING — COMPLETE INVENTORY
+
+Every table with a `uuid` primary key that is SELECTed without `::text` cast:
+
+| Table                  | Column  | Referenced By      | Cast? | Status                                   |
+| ---------------------- | ------- | ------------------ | ----- | ---------------------------------------- |
+| meetings               | id      | meeting.gleam      | ❌     | decode.string fails                      |
+| meeting_opinions       | id      | meeting.gleam      | ❌     | decode.string fails                      |
+| project_communications | id      | broadcast.gleam    | ❌     | decode.string fails                      |
+| inter_reviews          | id      | inter_review.gleam | ❌     | decode.string fails                      |
+| inter_reviews          | task_id | inter_review.gleam | ❌     | decode.optional(decode.string) fails     |
+| notifications          | id      | monitor.gleam      | ❌     | decode.string fails (table also missing) |
+| memory                 | id      | memory.gleam       | ❌     | decode.string fails                      |
+| issues                 | id      | areflect.gleam     | ❌     | decode.string fails                      |
+
+**Tables that DO cast uuid to text correctly**:
+- `tasks` → `id::text` ✅
+- `issues` → `id::text` ✅ (in issue_db.gleam)
+- `agent_identities` → `id` is varchar, not uuid ✅
+- `psypi_event_hooks` → `id::text` ✅ (but table doesn't exist)
+
+**8 uuid columns across 7 tables are missing `::text` casts.**
+
+---
+
+## 235. COLUMN MISSING FROM TABLE — COMPLETE INVENTORY
+
+| Table                  | Column Referenced | Referenced By                            | Exists? | Actual Column |
+| ---------------------- | ----------------- | ---------------------------------------- | ------- | ------------- |
+| issues                 | `created_by`      | areflect.gleam                           | ❌ NO    | doesn't exist |
+| issues                 | `type`            | monitor_ai.gleam                         | ❌ NO    | `issue_type`  |
+| project_communications | `priority`        | broadcast.gleam                          | ❌ NO    | doesn't exist |
+| memory                 | `saved_at`        | monitor_ai.gleam                         | ❌ NO    | `created_at`  |
+| soul                   | `id_prefix`       | a_db_reader, s_db_reader, agent_identity | ❌ NO    | doesn't exist |
+| soul                   | `content`         | s_db_reader                              | ❌ NO    | doesn't exist |
+| soul                   | `name`            | agent_identity                           | ❌ NO    | doesn't exist |
+| soul                   | `trigger_type`    | agent_identity                           | ❌ NO    | doesn't exist |
+| soul                   | `drive_mode`      | agent_identity                           | ❌ NO    | doesn't exist |
+| soul                   | `activation`      | agent_identity                           | ❌ NO    | doesn't exist |
+
+**10 phantom column references across 4 tables.**
+
+---
+
+## 236. MODULE-BY-MODULE VERDICT
+
+| Module                     | Tools                                                                                                                  | Hooks                          | Works?     | Key Issues                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ---------- | ------------------------------------------------------------ |
+| task                       | psypi-task-add, psypi-tasks, psypi-task-complete                                                                       | —                              | ⚠️ PARTIAL  | Hardcoded UUID, missing project_id                           |
+| issue_db                   | psypi-issue-add, psypi-issues, psypi-issue-count, psypi-issue-get, psypi-issue-resolve                                 | —                              | ⚠️ PARTIAL  | created_by not in schema, project_id hardcoded               |
+| skill                      | psypi-skill-list, psypi-skill-get, psypi-skill-search                                                                  | —                              | ⚠️ PARTIAL  | Missing AiBuilt variant                                      |
+| meeting                    | psypi-meetings, psypi-meeting-get, psypi-meeting-opinions, psypi-meeting-add, psypi-meeting-say                        | —                              | ❌ BROKEN   | UUID not cast, author not in schema                          |
+| code_version               | psypi-doc-save, psypi-doc-list                                                                                         | —                              | ❌ BROKEN   | Table doesn't exist                                          |
+| memory                     | psypi-memory-search                                                                                                    | —                              | ❌ BROKEN   | UUID not cast, tags decode fails, template bug               |
+| broadcast                  | psypi-broadcast-send, psypi-broadcasts                                                                                 | —                              | ❌ BROKEN   | priority column missing                                      |
+| learning                   | psypi-learn-save                                                                                                       | —                              | ✅ WORKS    | Tags format fragile                                          |
+| stats                      | psypi-stats-show                                                                                                       | —                              | ❌ BROKEN   | Template uses named fields on custom type                    |
+| areflect                   | psypi-areflect                                                                                                         | —                              | ⚠️ PARTIAL  | issues.created_by missing, fetch_recent_issues uuid not cast |
+| agents                     | psypi-agents                                                                                                           | —                              | ✅ WORKS    | Properly implemented                                         |
+| monitor_ai                 | psypi-autonomic-health, psypi-autonomic-alerts, psypi-autonomic-stats, psypi-autonomic-status, psypi-autonomic-suggest | —                              | ⚠️ PARTIAL  | auto_file_issue broken, prepare_context broken               |
+| event_hooks                | psypi-hooks-list, psypi-hooks-active                                                                                   | —                              | ❌ BROKEN   | Table doesn't exist                                          |
+| monitor                    | (notifications)                                                                                                        | —                              | ❌ BROKEN   | Table doesn't exist                                          |
+| agent_identity             | psypi-my-id                                                                                                            | —                              | ❌ BROKEN   | JS object vs Gleam type mismatch                             |
+| tool_commit                | psypi-commit                                                                                                           | —                              | ❌ DEAD END | Review never completes                                       |
+| tool_consult               | psypi-consult-autonomic                                                                                                | —                              | ❌ STUB     | Returns canned message                                       |
+| hook_on_agent_start        | —                                                                                                                      | agent_start                    | ✅ WORKS    | No-op but functional                                         |
+| hook_on_tool_call          | —                                                                                                                      | tool_call                      | ⚠️ PARTIAL  | Auto-backup fails silently                                   |
+| hook_on_tool_result        | —                                                                                                                      | tool_result                    | ⚠️ PARTIAL  | String-based error detection                                 |
+| hook_on_before_agent_start | —                                                                                                                      | before_agent_start             | ❌ BROKEN   | agent_souls doesn't exist                                    |
+| hook_on_agent_end          | —                                                                                                                      | agent_end                      | ❌ BROKEN   | Double debounce + phantom tables                             |
+| a_orchestrator             | —                                                                                                                      | (called by agent_end)          | ❌ BROKEN   | Error swallowing, phantom tables                             |
+| a_db_reader                | —                                                                                                                      | (called by a_orchestrator)     | ❌ BROKEN   | Phantom tables, catch-22                                     |
+| s_db_reader                | —                                                                                                                      | (called by before_agent_start) | ❌ BROKEN   | Phantom table                                                |
+
+**Summary**:
+- ✅ WORKS: 2 modules (agents, learning)
+- ⚠️ PARTIAL: 7 modules (task, issue_db, skill, areflect, monitor_ai, hook_on_tool_call, hook_on_tool_result)
+- ❌ BROKEN: 15 modules
+- ❌ STUB: 1 module (tool_consult)
+- ❌ DEAD END: 1 module (tool_commit)
