@@ -9673,3 +9673,314 @@ S-bot calls psypi-commit tool
 6. **`Config`** — `psypi_config` table. Read/written by psypi_config.gleam but only as key-value pairs.
 7. **`EventHook`** — `psypi_event_hooks` table. `EventHook` type exists but doesn't match DB schema.
 8. **`Notification`** — `notifications` table. `Notification` type exists in monitor.gleam but not connected to DB.
+
+---
+
+## 181. EXTENSION GENERATION PIPELINE — END-TO-END ANALYSIS
+
+The extension generation pipeline transforms Gleam type definitions into a working `extension.js` file
+that Pi loads at runtime. This section traces the entire chain and identifies every discrepancy.
+
+### 181.1 Pipeline Architecture
+
+```
+PiToolCall / PiEventHook / PiCommandReg / PiMessageRenderer (Gleam types)
+    ↓ defined in: task.gleam, skill.gleam, etc.
+    ↓ collected by: extension_generator.gleam (all_tools, all_event_hooks, all_commands, all_message_renderers)
+    ↓ composed by: pi_tool_call.gleam (to_js_text, event_hook_to_js, command_to_js, message_renderer_to_js)
+    ↓ output: extension.js (1085 lines)
+    ↓ loaded by: Pi runtime at startup
+```
+
+### 181.2 Generated extension.js Inventory
+
+| Component         | Count | Details                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tools             | 34    | psypi-my-id, task-add, tasks, task-complete, stats-show, doc-save, doc-list, issue-add, issues, issue-count, issue-get, issue-resolve, skill-list, skill-get, skill-search, meetings, meeting-get, meeting-opinions, meeting-add, meeting-say, learn-save, memory-search, broadcast-send, broadcasts, areflect, agents, autonomic-status, autonomic-health, autonomic-alerts, autonomic-stats, autonomic-suggest, hooks-list, hooks-active, consult-autonomic, commit |
+| Event Hooks       | 7     | tool_call, session_start, model_select, before_agent_start, agent_start, agent_end (debounced), tool_result                                                                                                                                                                                                                                                                                                                                                           |
+| Commands          | 2     | autonomic-listen, autonomic-reload                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Message Renderers | 2     | autonomic-wakeup, autonomic-error                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+### 181.3 CRITICAL: Tool Parameter Schema vs Pi SDK Requirements
+
+**Pi SDK expects** `Type.Object({...})` from `typebox` with proper JSON Schema.
+**Generated code produces** hand-crafted JSON strings from `params_to_js()`.
+
+| Issue                                               | Severity | Details                                                                                                                                                                                                                                                                     |
+| --------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No `label` field on tools                           | MEDIUM   | Pi SDK `registerTool` accepts `label` for display. Generated tools omit it. Pi falls back to `name`.                                                                                                                                                                        |
+| No `promptSnippet` on tools                         | HIGH     | Pi SDK uses `promptSnippet` for the "Available tools" section in system prompt. Without it, psypi tools are INVISIBLE in the tool summary shown to the LLM. The LLM must discover them only from the full tool definitions.                                                 |
+| No `promptGuidelines` on tools                      | HIGH     | Pi SDK uses `promptGuidelines` for tool-specific usage hints in the system prompt. Without it, the LLM has no guidance on when/how to use psypi tools.                                                                                                                      |
+| No `prepareArguments` on tools                      | MEDIUM   | Pi SDK supports `prepareArguments` for backward compatibility. Not generated. If tool schemas change, old sessions break.                                                                                                                                                   |
+| No `renderCall` / `renderResult` on tools           | LOW      | Pi SDK supports custom rendering. Not generated. Default rendering works.                                                                                                                                                                                                   |
+| `parameters` uses raw JSON strings                  | MEDIUM   | Generated: `{ "type": "object", "properties": { "title": { "type": "string" } } }`. Pi SDK examples use `Type.Object({ title: Type.String() })`. Raw JSON works but loses typebox validation and Google API compatibility.                                                  |
+| No `StringEnum` for enum params                     | HIGH     | Pi SDK docs: "Use `StringEnum` from `@earendil-works/pi-ai` for string enums. `Type.Union`/`Type.Literal` doesn't work with Google's API." Generated code uses plain `"type": "string"` for status/priority/severity params. Google models will not constrain these values. |
+| Integer params typed as `"type": "number"`          | LOW      | `importance` in learn-save and `limit` in doc-list are integers but typed as number. Not a bug but imprecise.                                                                                                                                                               |
+| `limit` typed as `"type": "string"` then `parseInt` | MEDIUM   | doc-list, memory-search, broadcasts pass limit as string then parse to int. Should be `"type": "integer"` and pass directly.                                                                                                                                                |
+
+### 181.4 CRITICAL: Event Hook Discrepancies vs Pi SDK
+
+| Hook                 | Issue                                                 | Severity     | Details                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------- | ----------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tool_call`          | Extracts `event.input.path \|\| event.input.filePath` | MEDIUM       | Only handles `edit` tool (checked in Gleam). But the hook fires for ALL tools, wasting a DB trigger record for every non-edit tool call.                                                                                                                                                                                                                                  |
+| `tool_call`          | Does not use `isToolCallEventType`                    | MEDIUM       | Pi SDK provides `isToolCallEventType("edit", event)` for type-safe input access. Generated code uses raw `event.input.path`.                                                                                                                                                                                                                                              |
+| `tool_call`          | Cannot block                                          | LOW          | Pi SDK `tool_call` can return `{ block: true, reason }`. Generated code never returns a block result.                                                                                                                                                                                                                                                                     |
+| `session_start`      | Guard `ctx.model`                                     | LOW          | Correctly guarded — only records model if one exists.                                                                                                                                                                                                                                                                                                                     |
+| `model_select`       | Guard `event.model`                                   | LOW          | Correctly guarded.                                                                                                                                                                                                                                                                                                                                                        |
+| `before_agent_start` | Returns `{ systemPrompt: r.value }`                   | **CRITICAL** | Pi SDK `before_agent_start` expects `{ systemPrompt, message }`. The hook only returns `systemPrompt`. This works but means the S-bot soul is injected as the ENTIRE system prompt, REPLACING Pi's built-in system prompt rather than augmenting it.                                                                                                                      |
+| `before_agent_start` | Soul content replaces entire system prompt            | **CRITICAL** | `hook_on_before_agent_start` reads S-bot soul and returns it as `systemPrompt`. Per Pi docs: "Replace the system prompt for this turn (chained across extensions)". This means Pi's built-in system prompt (with tool descriptions, guidelines, context files) is COMPLETELY REPLACED by the soul content. The LLM loses all awareness of available tools and guidelines. |
+| `agent_start`        | Only records trigger                                  | LOW          | No functional logic, just DB audit.                                                                                                                                                                                                                                                                                                                                       |
+| `agent_end`          | Double debounce                                       | **CRITICAL** | Generated JS creates a `setTimeout` debounce (from DB config). Then `hook_on_agent_end` also checks `idle_since` in-memory config. Two debounce layers = 2x delay.                                                                                                                                                                                                        |
+| `agent_end`          | Debounce timer is module-scoped                       | MEDIUM       | `_debounceTimerId` and `_debounceMs` are `let` vars inside `export default function(pi)`. They persist across invocations. If Pi reloads extensions without restarting, stale timer state could cause issues.                                                                                                                                                             |
+| `agent_end`          | `record_trigger` inside setTimeout                    | LOW          | `event_hooks_record_trigger('agent_end')` is called inside the setTimeout callback, AFTER the hook runs. If the hook fails, the trigger is still recorded (inside try/catch).                                                                                                                                                                                             |
+| `tool_result`        | JSON.stringify(event.result)                          | MEDIUM       | `event.result` is already a structured object. `JSON.stringify` then parsing in Gleam is fragile. The `extract_error_msg` function does crude string splitting on `"error"` which matches any JSON containing the word "error" in a key name.                                                                                                                             |
+| `tool_result`        | Returns `Ok(Nil)` always                              | LOW          | Pi SDK `tool_result` can return `{ content, details, isError }` to modify the result. Generated code ignores the return value.                                                                                                                                                                                                                                            |
+
+### 181.5 CRITICAL: `before_agent_start` System Prompt Replacement
+
+This is the most dangerous issue in the extension pipeline.
+
+**What happens:**
+1. User sends a prompt to S-bot
+2. Pi fires `before_agent_start`
+3. `hook_on_before_agent_start` reads S-bot soul from DB
+4. Returns `{ systemPrompt: soul_content }`
+5. Pi REPLACES the entire system prompt with the soul content
+6. The LLM now has NO knowledge of:
+   - Available tools (psypi-task-add, psypi-commit, etc.)
+   - Tool usage guidelines
+   - Context files (AGENTS.md, etc.)
+   - Pi's built-in instructions
+
+**Why this is wrong:**
+Pi SDK docs say `before_agent_start` should AUGMENT the system prompt:
+```javascript
+return {
+  systemPrompt: event.systemPrompt + "\n\nExtra instructions...",
+};
+```
+
+The current code replaces it entirely. The `event.systemPrompt` parameter (which contains Pi's built-in prompt) is never used.
+
+**Impact:** S-bot operates with only its soul content as instructions. It has no awareness of psypi tools unless the soul content explicitly mentions them. This explains why S-bot sometimes "forgets" to use tools.
+
+### 181.6 CRITICAL: `gleamValueToJson` Constructor Name Matching
+
+The `gleamValueToJson` function in `pi_extension_ffi.mjs` uses constructor name matching to serialize Gleam values:
+
+```javascript
+if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || ...)
+```
+
+**Issues:**
+1. **Hardcoded type list** — Every new Gleam type requires updating this function. If a type is added without updating, it falls through to the generic object serializer which may produce wrong output.
+2. **Gleam compiler name mangling** — Gleam's JS codegen may change constructor names between versions. The `$` separator is an implementation detail.
+3. **Missing types** — The following types used in tool results are NOT in the match list:
+   - `Review` / `ReviewFinding` (inter_review)
+   - `HealthReport` (monitor_ai)
+   - `Alert` (monitor_ai)
+   - `WorkSuggestion` (monitor_ai)
+   - `ModelStats` (monitor_ai)
+   - `HookInfo` (event_hooks)
+   - `EnrichedIdentity` (agent_identity)
+   - `ConsultResult` (tool_consult)
+4. **Variant handling** — Union types like `TaskStatus`, `SkillSource`, `IssueSeverity` have variant constructors (e.g., `TaskStatus$Pending`). The generic `$` catch-all handles these but produces `{ type: "Pending" }` or `{ type: "Pending", fields: [...] }` which may not match what the LLM expects.
+
+### 181.7 CRITICAL: `unwrapGleamResult` Fragility
+
+```javascript
+export function unwrapGleamResult(result) {
+  const typeName = result.constructor?.name || '';
+  if (typeName === 'Ok') return { ok: true, value: result['0'] };
+  if (typeName === 'Error') return { ok: false, error: JSON.stringify(gleamValueToJson(result['0'])) || 'Unknown' };
+  return { ok: true, value: result };
+}
+```
+
+**Issues:**
+1. **Minification risk** — If the JS is ever minified, constructor names change and this breaks.
+2. **Fallback assumes Ok** — If the result is not `Ok` or `Error`, it assumes `ok: true`. This silently treats unexpected values as successes.
+3. **Error serialization** — Errors are `JSON.stringify(gleamValueToJson(result['0']))`. If `gleamValueToJson` fails on the error value, this throws and the entire tool call fails with an unhelpful error.
+
+### 181.8 Tool Import Strategy: Static vs Dynamic
+
+**Tools use static imports** (top-level `import` statements):
+```javascript
+import { add as task_add } from "./build/dev/javascript/psypi/task.mjs";
+```
+
+**Hooks use dynamic imports** (inside event handlers):
+```javascript
+const hook_on_tool_call_on_tool_call = (await import('./build/dev/javascript/psypi/hook_on_tool_call.mjs')).on_tool_call;
+```
+
+**Why the difference:** Hooks are called less frequently and the dynamic import avoids loading all hook code at startup. Tools are registered at startup so their imports are needed immediately.
+
+**Issue:** Static imports fail fast — if any tool module has a syntax error or missing export, the ENTIRE extension fails to load. Dynamic imports fail at call time, which is more graceful but harder to debug.
+
+**Risk:** A broken tool module (e.g., after a failed Gleam build) will prevent ALL tools from loading.
+
+### 181.9 `tool_call` Hook: Auto-Backup Logic
+
+The `tool_call` hook fires for EVERY tool call but only acts on `edit`:
+
+```gleam
+case tool_name == "edit" {
+  False -> promise.resolve(Ok(Nil))
+  True -> { ... auto-backup logic ... }
+}
+```
+
+**Issues:**
+1. **Wasteful DB writes** — `event_hooks_record_trigger('tool_call')` is called for EVERY tool call, even non-edit ones. This creates audit records for bash, read, write, etc.
+2. **File path extraction** — `event.input ? (event.input.path || event.input.filePath || '') : ''` — The `filePath` fallback is for `write` tool, but the hook only acts on `edit`. The `filePath` branch is dead code.
+3. **Missing `write` tool backup** — The `write` tool also modifies files but is not backed up. Only `edit` triggers auto-backup.
+4. **`read_file_sync` FFI** — Uses `fs.readFileSync` which blocks the Node.js event loop. Should use async `readFile` or `readFileSync` in a worker thread.
+
+### 181.10 `tool_result` Hook: Error Detection Heuristics
+
+```gleam
+let is_error =
+  string.contains(result_json, "\"error\"")
+  || string.contains(result_json, "Error:")
+  || string.contains(result_json, "execution error")
+  || string.contains(result_json, "tool_execution_blocked")
+  || string.contains(result_json, "\"is_error\":true")
+```
+
+**Issues:**
+1. **False positives** — Any tool result containing the word "error" in a key name (e.g., `{"stderr": "", "error_count": 0}`) triggers the error path.
+2. **Crude JSON parsing** — `extract_error_msg` splits on `"error"` and then on `"`. This breaks on nested JSON, escaped quotes, or non-standard formatting.
+3. **Sends to A-bot on every error** — Every tool error triggers `pi_send_message("autonomic-error", ...)`. If S-bot has a bad tool call loop, this floods A-bot with messages.
+
+### 181.11 `consult_autonomic` Tool: No-Op Implementation
+
+```gleam
+pub fn on_consult(question: String, ctx: a) -> promise.Promise(Result(String, String)) {
+  notify_info(ctx, "[AUTONOMIC] Consult: " <> user_question)
+  promise.resolve(Ok("[Autonomic] Consult request: " <> user_question <> "\n\nThe S-worker should address this in its next turn."))
+}
+```
+
+**This tool does NOTHING.** It returns a canned string. It does NOT:
+- Call the A-bot
+- Send a message to A-bot
+- Wait for A-bot response
+- Provide any actual consultation
+
+The description says "Consult the Autonomic Worker for difficult decisions" but the implementation just echoes the question back with a note saying "S-worker should address this."
+
+### 181.12 `commit` Tool: Inter-Review Flow Analysis
+
+The commit tool has a two-phase flow:
+
+**Phase 1** (no `review_id`): Creates inter-review record, returns review_id
+**Phase 2** (with `review_id`): Checks `overall_score >= 50`, then commits
+
+**Critical gap:** A-bot never writes `overall_score` to the `inter_reviews` table.
+- `a_orchestrator.run_a_workflow` calls `call_monitor` but the response is only used to send a message via `pi_send_message`
+- No code writes the review score back to the database
+- `inter_review.get_review_details` reads `overall_score` which is always NULL
+- Phase 2 always returns "Review not yet complete"
+- **Commits are permanently blocked**
+
+### 181.13 Command Handlers: Return Format Mismatch
+
+Pi SDK `registerCommand` handler should return `void` or nothing:
+```typescript
+pi.registerCommand("hello", {
+  handler: async (args, ctx) => {
+    ctx.ui.notify("Hello!", "info");
+  },
+});
+```
+
+Generated code returns `{ content: [{ type: "text", text: ... }] }`:
+```javascript
+handler: async (args, ctx) => {
+  const result = await command_listen_on_autonomic_listen(args || '', ctx, pi);
+  const r = unwrapGleamResult(result);
+  return r.ok ? { content: [{ type: "text", text: JSON.stringify(gleamValueToJson(r.value)) }] } : ...
+}
+```
+
+This is a **tool result format**, not a command handler format. Pi command handlers don't return content objects. The return value is likely ignored, but it indicates a misunderstanding of the Pi SDK API.
+
+### 181.14 `autonomic-reload` Command: ctx.reload() Footgun
+
+```gleam
+pub fn on_autonomic_reload(ctx: a) -> promise.Promise(Result(String, String)) {
+  notify_info(ctx, "Reloading extensions...")
+  promise.map(ctx_reload(ctx), fn(_) {
+    notify_info(ctx, "Extensions reloaded. Monitor updated.")
+    Ok("Extensions reloaded.")
+  })
+}
+```
+
+Pi SDK docs warn:
+> "Code after `await ctx.reload()` still runs from the pre-reload version"
+> "Code after `await ctx.reload()` must not assume old in-memory extension state is still valid"
+
+The `notify_info(ctx, "Extensions reloaded.")` call AFTER `ctx_reload` runs with the OLD ctx object. If the reload replaced the extension instance, this notify may fail silently or produce unexpected behavior.
+
+### 181.15 `pi_send_message` Ignores `display` Parameter
+
+```javascript
+export function pi_send_message(pi, customType, content, display) {
+  pi.sendMessage({
+    customType: String(customType),
+    content: String(content),
+    display: true,  // Always true, ignoring the `display` parameter
+  }, { triggerTurn: true });
+}
+```
+
+The `display` argument passed from Gleam code (e.g., `"persistent"`) is ignored. `display` is always `true`. The `triggerTurn: true` means every A-bot message triggers an immediate LLM turn, even if S-bot is still processing.
+
+### 181.16 Import Path: `@mariozechner/pi-tui` vs `@earendil-works/pi-tui`
+
+```javascript
+import { Text, Box } from "@mariozechner/pi-tui";
+```
+
+Pi SDK docs reference `@earendil-works/pi-tui`:
+```typescript
+import { Container, SettingsList } from "@earendil-works/pi-tui";
+```
+
+The generated extension uses `@mariozechner/pi-tui` which may be an older package name. If Pi updates to `@earendil-works/pi-tui`, the import will break.
+
+### 181.17 Extension Generator: No Validation or Testing
+
+The `extension_generator.gleam` module:
+1. **No validation** — Does not check that module names correspond to real Gleam modules
+2. **No testing** — No tests verify the generated JS is syntactically valid
+3. **No idempotency check** — Running `gleam run -m extension_generator` always overwrites `extension.js` even if nothing changed
+4. **No diff output** — No way to see what changed between generations
+5. **Build path hardcoded** — `./build/dev/javascript/psypi/` is hardcoded. Production builds would use `./build/erlang-psi/` or similar.
+
+### 181.18 Summary: Extension Pipeline Issues
+
+| #   | Issue                                              | Severity     | Category       |
+| --- | -------------------------------------------------- | ------------ | -------------- |
+| 1   | `before_agent_start` replaces entire system prompt | **CRITICAL** | Logic          |
+| 2   | `gleamValueToJson` missing type constructors       | **CRITICAL** | FFI            |
+| 3   | Commit tool permanently blocked (no score written) | **CRITICAL** | Logic          |
+| 4   | `consult_autonomic` is a no-op                     | **CRITICAL** | Logic          |
+| 5   | Double debounce in `agent_end`                     | **CRITICAL** | Logic          |
+| 6   | No `promptSnippet` / `promptGuidelines` on tools   | HIGH         | SDK Compliance |
+| 7   | No `StringEnum` for enum params (Google API break) | HIGH         | SDK Compliance |
+| 8   | `tool_result` error detection false positives      | HIGH         | Logic          |
+| 9   | `unwrapGleamResult` fragile constructor matching   | HIGH         | FFI            |
+| 10  | Command handlers return tool-result format         | MEDIUM       | SDK Compliance |
+| 11  | `pi_send_message` ignores `display` parameter      | MEDIUM       | FFI            |
+| 12  | `tool_call` hook wasteful DB writes for non-edit   | MEDIUM       | Performance    |
+| 13  | `tool_call` hook missing `write` tool backup       | MEDIUM       | Logic          |
+| 14  | `read_file_sync` blocks event loop                 | MEDIUM       | Performance    |
+| 15  | Import path `@mariozechner/pi-tui` may be outdated | MEDIUM       | Dependency     |
+| 16  | `limit` typed as string then parseInt              | MEDIUM       | Schema         |
+| 17  | No tool `label` field                              | MEDIUM       | SDK Compliance |
+| 18  | `ctx_reload` footgun in autonomic-reload           | MEDIUM       | Logic          |
+| 19  | Static imports fail fast for all tools             | LOW          | Reliability    |
+| 20  | No validation/testing in generator                 | LOW          | Quality        |
