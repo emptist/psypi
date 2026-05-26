@@ -12652,3 +12652,130 @@ Every soul read, every job read, every identity enrichment fails silently
 | agent_start        | 1      | Only records trigger, no functional behavior             |
 | agent_end          | 5      | Double debounce, is_s_still_idle broken, soul read fails |
 | tool_call          | 3      | Only handles "edit" tool, sync file read                 |
+
+---
+
+## 201. ADDITIONAL PHANTOM TABLE REFERENCES AND SCHEMA MISMATCHES
+
+### 201.1 `notifications` Table — DOES NOT EXIST
+
+`monitor.gleam` queries a `notifications` table that doesn't exist:
+
+| Function                    | SQL                                                 | Will Fail? |
+| --------------------------- | --------------------------------------------------- | ---------- |
+| `get_pending_notifications` | `SELECT ... FROM notifications WHERE agent_id = $1` | **YES**    |
+| `create_notification`       | `INSERT INTO notifications ... RETURNING id::text`  | **YES**    |
+| `mark_notifications_read`   | `UPDATE notifications SET read_at = NOW() ...`      | **YES**    |
+
+The entire notification system (Monitor → Agentbot communication) is non-functional.
+
+### 201.2 `issues` Table — MASSIVE COLUMN MISMATCH
+
+`issue_db.gleam` expects columns that don't exist in the `issues` table:
+
+**Columns in decoder but NOT in database:**
+- `created_by` — doesn't exist
+- `environment` — doesn't exist
+- `git_branch` — doesn't exist
+- `git_hash` — doesn't exist
+- `reported_by` — doesn't exist
+- `source` — doesn't exist
+- `project_id` — doesn't exist (used in INSERT and WHERE!)
+
+**Columns in database but NOT in decoder:**
+- `discovered_at` (timestamptz)
+- `related_issue_id` (uuid)
+- `task_id` (uuid)
+- `resolution` (text)
+- `resolved_by` (uuid)
+- `tags` (jsonb)
+- `metadata` (jsonb)
+- `updated_at` (timestamptz)
+- `assignee` (uuid)
+- `assignee_type` (text)
+- `milestone_id` (uuid)
+- `related_review_id` (uuid)
+- `review_id` (uuid)
+- `dlq_id` (uuid)
+- `viewers` (jsonb)
+
+**Impact:**
+- `issue_db.add()` — INSERT includes `project_id` column → **FAILS**
+- `issue_db.list()` — SELECT includes non-existent columns → **FAILS**
+- `issue_db.get()` — WHERE `project_id = $2` → **FAILS**
+- `issue_db.resolve()` — WHERE `project_id = $3` → **FAILS**
+- `issue_db.count()` — WHERE `project_id = $N` → **FAILS**
+
+**The entire issue CRUD system is non-functional.**
+
+### 201.3 `areflect.gleam` — `save_issue` Will Fail
+
+`areflect.save_issue()` inserts `(title, description, severity, created_by)` into
+`issues`. But `issues` doesn't have `created_by`. This INSERT will fail.
+
+However, `save_task()` inserts `(title, description, priority, created_by)` into
+`tasks`, which DOES have `created_by`. So task saving works but issue saving fails.
+
+### 201.4 `stats.gleam` — Cross-Project Counting
+
+`stats.gleam` counts ALL rows across ALL projects:
+```sql
+SELECT (SELECT COUNT(*) FROM tasks) as tasks, ...
+```
+No `project_id` filter. If the database contains data from multiple projects,
+the stats will be incorrect.
+
+### 201.5 `psypi_config.gleam` vs `pi_extension_ffi.mjs` — Dual Config System
+
+Two completely separate configuration systems exist:
+
+| System                 | Storage                            | Used by             | Synchronized? |
+| ---------------------- | ---------------------------------- | ------------------- | ------------- |
+| `psypi_config.gleam`   | PostgreSQL `psypi_config` table    | No one actively     | N/A           |
+| `pi_extension_ffi.mjs` | In-memory JS `_configStore` object | `hook_on_agent_end` | No            |
+
+The `hook_on_agent_end` reads `monitor_debounce_ms` and `idle_since` from the
+in-memory store (`pi_extension.get_config()`). The database config
+(`psypi_config.get_debounce_ms()`) is never called by any hook.
+
+**If someone sets `monitor_debounce_ms` in the database, the hook won't see it.**
+**If someone sets `idle_since` in the in-memory store, it's lost on restart.**
+
+### 201.6 `learning.gleam` — Tags as PostgreSQL Array String
+
+`learning.save()` passes tags as `dynamic.string(format_pg_array(tags))` which
+produces `"{tag1,tag2}"`. This is a string representation of a PostgreSQL array,
+not an actual array parameter. The `memory.tags` column is `ARRAY` type.
+
+node-postgres can handle array parameters natively if passed as JS arrays.
+Passing as a string may work if PostgreSQL casts it, but it's fragile and
+depends on the column type matching exactly.
+
+### 201.7 `monitor.gleam` — `set_model` Resets All Providers
+
+`set_model()` first runs `UPDATE provider_api_keys SET status = 'not_used'`
+which resets ALL providers to 'not_used', then sets the selected one to 'in_use'.
+This is dangerous if multiple providers should be active simultaneously.
+
+### 201.8 Complete Phantom Table Inventory
+
+| Table Referenced in Gleam          | Exists in DB? | Modules Affected                         |
+| ---------------------------------- | ------------- | ---------------------------------------- |
+| `agent_souls`                      | **NO**        | agent_identity, s_db_reader, a_db_reader |
+| `agent_jobs`                       | **NO**        | a_db_reader, s_db_reader                 |
+| `notifications`                    | **NO**        | monitor                                  |
+| `issues` (with expected columns)   | **PARTIAL**   | issue_db, areflect                       |
+| `psypi_config`                     | YES           | psypi_config                             |
+| `activity_log`                     | YES           | monitor                                  |
+| `provider_api_keys`                | YES           | monitor                                  |
+| `soul` (actual table)              | YES           | **NOT USED by any Gleam code**           |
+| `system_directives` (actual table) | YES           | **NOT USED by any Gleam code**           |
+| `agent_sessions`                   | YES           | a_db_reader                              |
+| `psypi_event_hooks`                | YES           | event_hooks                              |
+| `memory`                           | YES           | memory, learning                         |
+| `meetings`                         | YES           | meeting                                  |
+| `meeting_opinions`                 | YES           | meeting                                  |
+| `project_communications`           | YES           | broadcast                                |
+| `code_versions`                    | YES           | code_version                             |
+| `learning_insights`                | YES           | areflect                                 |
+| `tasks`                            | YES           | task, a_db_reader, areflect              |
