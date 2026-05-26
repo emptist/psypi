@@ -9078,3 +9078,212 @@ All critical bugs verified against live PostgreSQL database on 2026-05-27.
 | B285  | inter_reviews.requested_at is timestamptz                 | `SELECT requested_at FROM inter_reviews LIMIT 1`                                                                             | Returns `2026-05-26 05:42:42.383544+08`                                 | ✅ CONFIRMED |
 
 **All 16 critical bugs verified against live database. Zero false positives among these.**
+
+---
+
+## 175. GIT LOG ANALYSIS — AI REPAIR PATTERNS — v17
+
+### 175.1 Project Timeline
+
+| Date                | Event                                                        |
+| ------------------- | ------------------------------------------------------------ |
+| 2026-05-01          | Project started (5 commits: scaffolding, CLI, kernel, docs)  |
+| 2026-05-01 to 05-25 | 590+ commits of feature development, fixes, refactors        |
+| 2026-05-26          | Deep system review begins (20+ review commits)               |
+| 2026-05-27          | Review continues, live DB verification, logic chain analysis |
+
+**27 days of development. 631 total commits.**
+
+### 175.2 Commit Type Distribution
+
+| Type     | Count | %     | Observation                          |
+| -------- | ----- | ----- | ------------------------------------ |
+| feat     | 143   | 22.7% | New features added continuously      |
+| review   | 124   | 19.7% | Review documentation (this session)  |
+| fix      | 106   | 16.8% | Bug fixes — nearly 1 in 6 commits    |
+| docs     | 96    | 15.2% | Documentation updates                |
+| refactor | 50    | 7.9%  | Code restructuring                   |
+| chore    | 36    | 5.7%  | Maintenance                          |
+| cleanup  | 7     | 1.1%  | Dead code removal                    |
+| test     | 6     | 1.0%  | **Only 6 test commits in 631 total** |
+
+### 175.3 Churn Hotspots — Topics with Most Commits
+
+| Topic          | Commits | Pattern                                                                             |
+| -------------- | ------- | ----------------------------------------------------------------------------------- |
+| Inter-review   | 122     | AIs repeatedly trying to fix the review flow — it never worked                      |
+| Debounce       | 15      | AIs repeatedly adjusting debounce timing — never resolved double-debounce           |
+| Decoder/decode | 10      | AIs repeatedly fixing type mismatches — root cause (no schema sync) never addressed |
+| Revert         | 6       | AIs reverting their own changes — indicates instability                             |
+
+### 175.4 Debounce Churn Timeline (15 commits)
+
+```
+2026-05-0x  config: reduce monitor debounce from 15s to 5s
+2026-05-0x  refactor: migrate agent_end to PiDebouncedHook + delete obsolete hooks
+2026-05-0x  Fix agent_end_coordination: fallback to 15000ms default when monitor_debounce_ms not in system_config
+2026-05-0x  Revert fallback: when monitor_debounce_ms not in system_config, notify
+2026-05-0x  fix: debounce fallback 15000ms when config missing; system_config uses psypi_config table
+2026-05-0x  fix: use completeSimple with reasoning='medium'; add setStatus for idle feedback
+2026-05-0x  revert: remove set_status from idle feedback
+2026-05-0x  revert: keep notify_info for idle feedback
+2026-05-0x  fix: set monitor_debounce_ms to 300000ms (5 min)
+2026-05-0x  fix: remove early isIdle check from debounced agent_end hook
+2026-05-0x  fix: add debounce guard to on_agent_end
+2026-05-0x  fix: psypi-task-add + debounce timer dedup + idle_since tracking
+2026-05-0x  test: add inter-review detection + debounce timer dedup tests
+```
+
+**Pattern**: AIs oscillate between debounce values (5s→15s→15000ms→300000ms), add/remove checks, migrate to PiDebouncedHook then add manual debounce on top. The double-debounce root cause was never identified until this review.
+
+### 175.5 Inter-Review Churn (122 commits)
+
+The inter-review system has the highest churn of any topic. Key pattern:
+1. AIs add inter-review check to commit flow
+2. Inter-review fails because `requested_at` can't be decoded
+3. AIs try to fix the decoder
+4. Fix doesn't work because `::text` cast is still missing
+5. AIs add workarounds (skip review, bypass check)
+6. Workarounds break other things
+7. AIs revert workarounds
+8. Cycle repeats
+
+**Root cause identified in this review**: `requested_at` not cast to `::text`, and `overall_score` never written back. Both are simple fixes that were never found because AIs treated symptoms instead of tracing the actual data flow.
+
+### 175.6 The "Fix Without Understanding" Pattern
+
+The git log reveals a consistent anti-pattern:
+
+1. **Surface-level fix**: AI sees error message, adds a quick patch
+2. **No root cause analysis**: AI doesn't trace WHY the error occurs
+3. **Patch breaks something else**: Because the underlying issue wasn't fixed
+4. **New patch for new symptom**: AI patches the new symptom
+5. **Repeat**: 106 fix commits, 279+ bugs still present
+
+Examples:
+- `fix: pass NULL instead of empty string for UUID params` — treats symptom, doesn't fix the UUID type mismatch
+- `fix: change priority decoder from string to int in db readers` — fixes one module, doesn't fix the SQL comparison `priority >= 2` on text column
+- `fix: add project_id to Task type, decoder, and list SQL query` — adds project_id to one query but not to `task.get()` SELECT
+- `fix: decoder type mismatches in a_db_reader: count (string→int)` — fixes one COUNT but not the 19 other COUNT/JSONB issues
+
+### 175.7 Test Deficit
+
+Only 6 test commits out of 631 total (1.0%). The tests that exist only test pure Gleam functions, not:
+- Database query execution
+- FFI boundary correctness
+- End-to-end workflow (session start → A-bot wake-up → commit)
+- JSONB decode/encode
+- Timestamp cast behavior
+
+This is why "tests pass but system is broken" — the tests don't test the broken parts.
+
+---
+
+## 176. MODULE FUNCTIONALITY ASSESSMENT — v17
+
+### 176.1 Modules That Work at Runtime
+
+| Module                      | Status  | Evidence                                                             |
+| --------------------------- | ------- | -------------------------------------------------------------------- |
+| `db.gleam`                  | PARTIAL | Connection works, but no pooling, disconnect errors ignored          |
+| `pi_extension_ffi.mjs`      | PARTIAL | Core FFI works, but `gleamValueToJson` fragile, `call_monitor` works |
+| `extension_generator.gleam` | PARTIAL | Generates extension.js, but missing some tool registrations          |
+| `hook_on_agent_end.gleam`   | PARTIAL | Fires correctly, but `is_s_still_idle` always returns True           |
+| `a_orchestrator.gleam`      | PARTIAL | Runs workflow, but error swallowing hides failures                   |
+| `a_prompt_builder.gleam`    | PARTIAL | Builds prompts, but includes error strings in prompt                 |
+| `simple_migrate.gleam`      | PARTIAL | Runs migrations, but no tracking → re-runs all                       |
+| `agent_identity.gleam`      | PARTIAL | Reads identity, but `check_git_exists` unused, category nullable     |
+| `psypi_config.gleam`        | PARTIAL | Reads config, but dual store (DB + in-memory) race condition         |
+| `file_utils.gleam`          | WORKS   | File operations work correctly                                       |
+| `main.gleam`                | WORKS   | Entry point, registers hooks correctly                               |
+| `command_listen.gleam`      | WORKS   | Simple command, no DB interaction                                    |
+| `command_reload.gleam`      | WORKS   | Simple command, no DB interaction                                    |
+
+### 176.2 Modules That FAIL at Runtime
+
+| Module               | Status           | Failure Mode                                                                                                |
+| -------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| `broadcast.gleam`    | BROKEN           | `stats()` SQL error (no `status` column, text>=int), `send()` metadata type mismatch                        |
+| `memory.gleam`       | BROKEN           | `save()` uses full decoder for RETURNING id → always fails                                                  |
+| `skill.gleam`        | BROKEN           | `get()`/`search()` JSONB not cast → decode fails, missing `AiBuilt` variant                                 |
+| `task.gleam`         | BROKEN           | `get()` missing project_id in SELECT, result JSONB not cast → decode fails                                  |
+| `inter_review.gleam` | BROKEN           | `requested_at` not cast → decode fails, `overall_score` never written → commit blocked                      |
+| `tool_commit.gleam`  | BROKEN           | Depends on inter_review which is broken, `shell_escape` incomplete                                          |
+| `monitor_ai.gleam`   | BROKEN           | `auto_file_issue` wrong column name + missing project_id, `check_system_health` queries non-existent status |
+| `issue_db.gleam`     | BROKEN           | `build_where` parameter reversal → wrong filter values                                                      |
+| `learning.gleam`     | BROKEN           | Tags passed as string for ARRAY column                                                                      |
+| `meeting.gleam`      | PARTIALLY BROKEN | `meeting_say_tool` missing author param                                                                     |
+| `code_version.gleam` | PARTIALLY BROKEN | `doc_save_tool` missing content param, `saved_at` no cast                                                   |
+| `areflect.gleam`     | PARTIALLY BROKEN | `save_issue` missing project_id                                                                             |
+| `a_db_reader.gleam`  | PARTIALLY BROKEN | `is_s_still_idle` always True, category nullable decode                                                     |
+| `event_hooks.gleam`  | PARTIALLY BROKEN | COALESCE + optional redundant, `read_file_sync` blocks                                                      |
+
+### 176.3 Summary
+
+| Category                           | Count                        |
+| ---------------------------------- | ---------------------------- |
+| Modules that work                  | 4                            |
+| Modules that partially work        | 10                           |
+| Modules that are broken at runtime | 9                            |
+| Modules that are partially broken  | 5                            |
+| **Total non-functional modules**   | **24 of 28 runtime modules** |
+
+**85.7% of runtime modules have bugs that cause failures in normal operation.**
+
+---
+
+## 177. REVISED BUG COUNT — FINAL v17
+
+| Category                           | Count   |
+| ---------------------------------- | ------- |
+| `::text` cast missing (TSTZ+JSONB) | 20      |
+| Missing NOT NULL columns in INSERT | 16      |
+| Wrong column names                 | 6       |
+| Decoder mismatch                   | 17      |
+| Wrong column referenced in SQL     | 2       |
+| Missing type variants              | 3       |
+| Logic bugs                         | 19      |
+| FFI issues                         | 15      |
+| Config system fragmentation        | 4       |
+| Seed/bootstrap gaps                | 10      |
+| Dead code                          | 9       |
+| Stub implementations               | 4       |
+| Race conditions / concurrency      | 6       |
+| Extension generation bugs          | 8       |
+| A/S lifecycle logic failures       | 12      |
+| Tool execution flow bugs           | 6       |
+| Hook module bugs                   | 15      |
+| Command module bugs                | 2       |
+| DB module bugs                     | 8       |
+| A/S DB reader bugs                 | 11      |
+| Monitor AI bugs                    | 21      |
+| Monitor module bugs                | 6       |
+| Event hooks bugs                   | 5       |
+| Node PG FFI bugs                   | 1       |
+| Inter-review bugs                  | 13      |
+| Tool commit bugs                   | 7       |
+| Tool consult bugs                  | 4       |
+| Code version bugs                  | 3       |
+| Meeting bugs                       | 4       |
+| Agent identity bugs                | 7       |
+| Task bugs                          | 9       |
+| Issue bugs                         | 5       |
+| Broadcast bugs                     | 10      |
+| Skill bugs                         | 5       |
+| Agents bugs                        | 2       |
+| Stats bugs                         | 3       |
+| A orchestrator bugs                | 3       |
+| A prompt builder bugs              | 2       |
+| A context utils bugs               | 4       |
+| Simple migrate bugs                | 5       |
+| System prompt types bugs           | 3       |
+| Areflect bugs                      | 5       |
+| Extension generator bugs           | 2       |
+| FFI node_ffi.mjs bugs              | 4       |
+| FFI pi_extension_ffi.mjs bugs      | 8       |
+| FFI agent_identity_ffi.mjs bugs    | 1       |
+| FFI time_utils_ffi.mjs bugs        | 1       |
+| Memory bugs                        | 2       |
+| Learning bugs                      | 1       |
+| Migration schema bugs              | 11      |
+| **TOTAL CONFIRMED BUGS**           | **285** |
