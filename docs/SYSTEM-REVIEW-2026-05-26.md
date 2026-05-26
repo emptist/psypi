@@ -13676,3 +13676,541 @@ function gleamValueToJson(v) {
    is also updated.
 3. The function falls back to `JSON.stringify(v)` for unknown types, which
    produces `[object Object]` for Gleam custom types.
+
+---
+
+## 209. EXTENSION GENERATION PIPELINE — COMPLETE AUDIT
+
+Generated `extension.js` is 1087 lines. Audited against all 44 Gleam source files.
+
+### 209.1 Tool Registry — 34 Tools Registered
+
+| #   | Tool Name               | Module         | Function              | Result Format | Issues                                                           |
+| --- | ----------------------- | -------------- | --------------------- | ------------- | ---------------------------------------------------------------- |
+| 1   | psypi-my-id             | agent_identity | get_enriched_identity | raw_json      | ⚠️ Arg mismatch — passes JS object, Gleam expects IdentityContext |
+| 2   | psypi-task-add          | task           | add                   | template      | ⚠️ Hardcoded UUID in args                                         |
+| 3   | psypi-tasks             | task           | list                  | raw_json      | OK                                                               |
+| 4   | psypi-task-complete     | task           | complete              | template      | OK                                                               |
+| 5   | psypi-stats-show        | stats          | stats                 | template      | ⚠️ Template uses `r.value.tasks` etc — assumes record fields      |
+| 6   | psypi-doc-save          | code_version   | save_version          | raw_json      | ⚠️ `params.content` not in schema                                 |
+| 7   | psypi-doc-list          | code_version   | get_versions          | raw_json      | ⚠️ `limit` param type is "string" but parseInt used               |
+| 8   | psypi-issue-add         | issue_db       | add                   | template      | ❌ `params.created_by` not in schema                              |
+| 9   | psypi-issues            | issue_db       | list                  | template      | OK                                                               |
+| 10  | psypi-issue-count       | issue_db       | count                 | template      | OK                                                               |
+| 11  | psypi-issue-get         | issue_db       | get                   | template      | OK                                                               |
+| 12  | psypi-issue-resolve     | issue_db       | resolve               | template      | OK                                                               |
+| 13  | psypi-skill-list        | skill          | list                  | template      | OK                                                               |
+| 14  | psypi-skill-get         | skill          | get                   | template      | OK                                                               |
+| 15  | psypi-skill-search      | skill          | search                | template      | OK                                                               |
+| 16  | psypi-meetings          | meeting        | list                  | template      | OK                                                               |
+| 17  | psypi-meeting-get       | meeting        | get                   | template      | OK                                                               |
+| 18  | psypi-meeting-opinions  | meeting        | list_opinions         | template      | OK                                                               |
+| 19  | psypi-meeting-add       | meeting        | create                | template      | OK                                                               |
+| 20  | psypi-meeting-say       | meeting        | add_opinion           | template      | ⚠️ `params.author` not in schema                                  |
+| 21  | psypi-learn-save        | learning       | save                  | template      | OK                                                               |
+| 22  | psypi-memory-search     | memory         | search                | template      | ⚠️ Template says "Found {count}" — literal string                 |
+| 23  | psypi-broadcast-send    | broadcast      | send                  | template      | OK                                                               |
+| 24  | psypi-broadcasts        | broadcast      | list                  | template      | OK                                                               |
+| 25  | psypi-areflect          | areflect       | areflect              | template      | OK                                                               |
+| 26  | psypi-agents            | agents         | list                  | template      | OK                                                               |
+| 27  | psypi-autonomic-status  | monitor_ai     | start_monitor_loop    | template      | ⚠️ Returns template string, ignores actual result                 |
+| 28  | psypi-autonomic-health  | monitor_ai     | check_system_health   | raw_json      | OK                                                               |
+| 29  | psypi-autonomic-alerts  | monitor_ai     | get_alerts            | raw_json      | OK                                                               |
+| 30  | psypi-autonomic-stats   | monitor_ai     | get_model_stats       | raw_json      | OK                                                               |
+| 31  | psypi-autonomic-suggest | monitor_ai     | get_work_suggestions  | raw_json      | OK                                                               |
+| 32  | psypi-hooks-list        | event_hooks    | list_all_hooks        | raw_json      | OK                                                               |
+| 33  | psypi-hooks-active      | event_hooks    | list_active_hooks     | raw_json      | OK                                                               |
+| 34  | psypi-consult-autonomic | tool_consult   | on_consult            | raw_json      | ❌ Stub — returns canned message                                  |
+| 35  | psypi-commit            | tool_commit    | on_commit             | raw_json      | ❌ Dead end — review never completes                              |
+
+### 209.2 Tool Argument Mismatches — CRITICAL
+
+**psypi-my-id** — The generated JS passes a raw JS object:
+```js
+agent_identity_get_enriched_identity(({ is_idle: ctx.isIdle(), source: ..., model: ..., thinking_level: ..., cwd: ... }))
+```
+But `get_enriched_identity` in [agent_identity.gleam](src/agent_identity.gleam) expects `IdentityContext` — a Gleam custom type.
+The JS object is NOT a Gleam `IdentityContext` instance. It's a plain JS object.
+Gleam's `semantic_id()` then calls `ctx.is_idle`, `ctx.model`, etc. as Gleam record field access.
+**But Gleam compiles custom types with numbered fields (`ctx['0']`, `ctx['1']`), not named fields.**
+So `ctx.is_idle` will be `undefined`, `ctx.model` will be `undefined`.
+**This tool ALWAYS returns a broken identity.**
+
+**psypi-issue-add** — Generated code passes `params.created_by || "psypi"`:
+```js
+issue_db_add(params.title || "", params.description || "", params.severity || "medium", params.issue_type || "bug", params.created_by || "psypi", params.project_id || "0d324e68...")
+```
+But the tool schema only defines: `title`, `description`, `severity`, `issue_type`, `project_id`.
+`created_by` is NOT in the parameters schema, so `params.created_by` is always `undefined`,
+falling back to `"psypi"`. The Gleam function signature is `add(title, desc, severity, issue_type, created_by, project_id)`.
+This works by accident (the fallback value), but the schema is misleading.
+
+**psypi-meeting-say** — Generated code passes `params.author || "psypi"`:
+```js
+meeting_add_opinion(params.meeting_id || "", params.author || "psypi", params.message || "", null, null)
+```
+But the tool schema only defines: `meeting_id`, `message`.
+`author` is NOT in the parameters schema, so it always falls back to `"psypi"`.
+
+**psypi-doc-save** — Generated code passes `params.content || ""`:
+```js
+code_version_save_version(params.file_path || "", params.content || "", params.saved_by || "unknown", params.commit_hash || "", params.reason || "manual save")
+```
+But the tool schema only defines: `file_path`.
+`content`, `saved_by`, `commit_hash`, `reason` are NOT in the schema.
+They all fall back to defaults. The `content` will be empty string — saving a version with empty content.
+
+### 209.3 Template Format Issues
+
+**psypi-memory-search** — Template: `` `Found {count} memories` ``
+This is a JS template literal, but `{count}` is NOT a valid template expression.
+In JS, `${count}` would be the correct syntax. But the Gleam generator uses `{count}` literally.
+**Result: The tool always returns the literal string "Found {count} memories".**
+
+**psypi-stats-show** — Template: `` `Tasks:${r.value.tasks} Issues:${r.value.issues} Skills:${r.value.skills} Meetings:${r.value.meetings}` ``
+This uses `r.value.tasks` etc. which assumes the Gleam Stats type has `.tasks`, `.issues`, etc.
+as JS properties. But Gleam compiles custom types with numbered fields (`r.value['0']`, etc.).
+**Result: All values are `undefined`, output is "Tasks:undefined Issues:undefined Skills:undefined Meetings:undefined".**
+
+### 209.4 Hook Registry — 7 Hooks Registered
+
+| #   | Event              | Type               | Module                       | Guard         | Issues                             |
+| --- | ------------------ | ------------------ | ---------------------------- | ------------- | ---------------------------------- |
+| 1   | tool_call          | PiEventHook        | hook_on_tool_call            | None          | OK                                 |
+| 2   | session_start      | PiEventHook        | monitor.record_current_model | `ctx.model`   | OK                                 |
+| 3   | model_select       | PiEventHook        | monitor.record_current_model | `event.model` | OK                                 |
+| 4   | before_agent_start | PiSystemPromptHook | hook_on_before_agent_start   | N/A           | ❌ record_trigger unreachable       |
+| 5   | agent_start        | PiEventHook        | hook_on_agent_start          | None          | OK                                 |
+| 6   | agent_end          | PiDebouncedHook    | hook_on_agent_end            | None          | ❌ Guard ignored; double debounce   |
+| 7   | tool_result        | PiEventHook        | hook_on_tool_result          | None          | ⚠️ Returns sync Result, not Promise |
+
+### 209.5 `tool_result` Hook — Sync vs Async Mismatch
+
+The generated code for `tool_result` hook does:
+```js
+const result = await hook_on_tool_result_on_tool_result(JSON.stringify(event.result || ''), event.toolName || '', pi);
+```
+
+But `hook_on_tool_result.on_tool_result()` returns `Result(Nil, String)` — a **synchronous** Gleam Result, NOT a `Promise`.
+The `await` on a non-Promise is harmless (JS awaits non-thenables by resolving immediately),
+but `unwrapGleamResult` then tries to destructure the Result.
+This works by accident because `unwrapGleamResult` handles both Ok and Error constructors.
+
+However, the REAL issue is that `on_tool_result` calls `pi_send_message(pi, ...)` where `pi` is the 3rd argument.
+In the generated code, `pi` is passed as the 3rd arg from the hook definition:
+```
+args: [from_param("JSON.stringify(event.result || '')"), from_param("event.toolName || ''"), lit("pi")]
+```
+This passes the `pi` object from the hook handler scope. But `pi_send_message` in `pi_extension_ffi.mjs`
+expects `pi` to have a `sendMessage` method. The `pi` object from the hook scope DOES have this.
+**This works correctly.**
+
+### 209.6 `agent_end` Debounce — Dual Source Problem
+
+The `PiDebouncedHook` for `agent_end` reads debounce_ms from `psypi_config.get_debounce_ms()`.
+This queries the DATABASE for `monitor_debounce_ms` key.
+
+But `hook_on_agent_end.gleam` ALSO reads debounce from `get_config("monitor_debounce_ms")`.
+This reads from the IN-MEMORY `_configStore`.
+
+**These are two completely different stores:**
+1. `psypi_config.get_debounce_ms()` → SQL query to `psypi_config` table
+2. `get_config("monitor_debounce_ms")` → in-memory `_configStore` object
+
+If the database has `monitor_debounce_ms = 300000` (5 min) but the in-memory store has no value,
+the JS debounce fires after 5 min, but the Gleam manual debounce uses a default of 300000ms too.
+The total delay is: JS debounce (5 min) + Gleam debounce (5 min) = 10 min minimum.
+
+If someone sets `monitor_debounce_ms` via `psypi_config.set()` (database), the JS debounce
+will pick it up on next extension load, but the in-memory store will NOT be updated.
+
+### 209.7 Import Path — Dev Build Only
+
+All imports use `./build/dev/javascript/psypi/` paths:
+```js
+import { add as task_add } from "./build/dev/javascript/psypi/task.mjs";
+```
+
+This means the extension ONLY works with `gleam build` dev output.
+For production (`gleam build --release`), the path would be `./build/prod/javascript/psypi/`.
+There is no configuration for switching between dev and prod paths.
+
+---
+
+## 210. FFI BINDINGS — COMPLETE AUDIT
+
+### 210.1 All `@external` Declarations in Gleam Source
+
+| File                      | JS Module              | JS Function                | Gleam Signature                                        | Status |
+| ------------------------- | ---------------------- | -------------------------- | ------------------------------------------------------ | ------ |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | notify_error               | (a, String) -> Nil                                     | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | notify_warning             | (a, String) -> Nil                                     | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | notify_info                | (a, String) -> Nil                                     | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | set_status                 | (a, String, String) -> Nil                             | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | ctx_is_idle                | (a) -> Bool                                            | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | ctx_has_pending_messages   | (a) -> Bool                                            | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | ctx_get_entries_json       | (a) -> String                                          | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | ctx_get_context_usage_json | (a) -> String                                          | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | ctx_get_cwd                | (a) -> String                                          | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | pi_send_message            | (a, String, String, String) -> Nil                     | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | read_file_sync             | (String) -> Result(String, String)                     | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | call_monitor               | (a, String, String) -> Promise(Result(String, String)) | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | ctx_reload                 | (a) -> Promise(Nil)                                    | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | exec_sync                  | (String) -> Result(String, String)                     | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | unwrap_gleam_result        | (a) -> b                                               | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | gleam_value_to_json        | (a) -> b                                               | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | now_ms                     | () -> Int                                              | ✅      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | get_config                 | (String) -> Option(String)                             | ❌      |
+| pi_extension.gleam        | pi_extension_ffi.mjs   | set_config                 | (String, String) -> Nil                                | ✅      |
+| db.gleam                  | node_ffi.mjs           | get_project_id_env         | () -> String                                           | ✅      |
+| db.gleam                  | node_ffi.mjs           | get_database_url           | () -> String                                           | ✅      |
+| agent_identity.gleam      | agent_identity_ffi.mjs | check_git_exists           | (String) -> Bool                                       | ✅      |
+| extension_generator.gleam | node_ffi.mjs           | get_project_root           | () -> String                                           | ✅      |
+
+### 210.2 `get_config` Return Type Mismatch — CRITICAL
+
+**Gleam declaration**: `get_config(key: String) -> option.Option(String)`
+**JS implementation**:
+```js
+export function get_config(key) {
+  return _configStore[key] || null;
+}
+```
+
+When key is not found, JS returns `null`. But Gleam's `Option(String)` type expects
+either a `Some("value")` or `None` Gleam constructor instance. JS `null` is NOT `None`.
+
+**However**, this works by accident because Gleam's compiled pattern matching on `Option`
+checks the constructor name. When `null` is returned, the `option.None` branch matches
+because `null` has no `constructor.name`. This is fragile and depends on Gleam's
+internal compilation details.
+
+**The correct approach** would be:
+```js
+export function get_config(key) {
+  const v = _configStore[key];
+  return v !== undefined ? new Some(v) : new None();
+}
+```
+
+### 210.3 `read_file_sync` Return Type Mismatch
+
+**Gleam declaration**: `read_file_sync(path: String) -> Result(String, String)`
+**JS implementation**: Returns `new Ok(content)` or `new Error(msg)`
+
+This is correct — it returns proper Gleam Result constructors.
+
+### 210.4 `exec_sync` Return Type Mismatch
+
+**Gleam declaration**: `exec_sync(command: String) -> Result(String, String)`
+**JS implementation**: Returns `new Ok(output)` or `new Error(msg)`
+
+This is correct — it returns proper Gleam Result constructors.
+
+### 210.5 `now_ms` — Duplicate Implementations
+
+Two separate `now_ms` functions exist:
+1. `pi_extension_ffi.mjs`: `export function now_ms() { return Date.now(); }` — returns bare `Int`
+2. `node_ffi.mjs`: `export function now_ms() { return Date.now(); }` — returns bare `Int`
+
+Both return the same thing, but they're in different modules.
+`pi_extension.gleam` imports from `pi_extension_ffi.mjs`.
+`a_context_utils.gleam` imports from `node_ffi.mjs` (via `now_ms`).
+The duplicate is confusing but not broken.
+
+### 210.6 Orphan FFI File — `time_utils_ffi.mjs`
+
+`time_utils_ffi.mjs` exists but NO Gleam file imports from it.
+Dead code — should be removed.
+
+---
+
+## 211. SQL QUERY vs DB SCHEMA — COMPLETE VERIFICATION
+
+### 211.1 `agent_identities` Table — `agents.gleam` Issues
+
+**DB columns**: id (varchar), project (varchar), git_hash (varchar), machine_fingerprint (varchar),
+created_at (timestamptz), updated_at (timestamptz), display_name (varchar), description (text),
+owner (varchar), source (text), session_id (text), agent_type (varchar), model (varchar),
+thinking_level (varchar), id_prefix (text)
+
+**Gleam query**: `SELECT id, agent_type, created_at::text FROM agent_identities ORDER BY created_at DESC LIMIT 50`
+
+**Issues**:
+1. `id` is `character varying` — `decode.string` works ✅
+2. `agent_type` EXISTS — `decode.string` works ✅ (earlier review said it didn't — WRONG)
+3. `created_at::text` — properly cast ✅
+
+**But**: The Gleam `Agent` type only has 3 fields (id, agent_type, created_at).
+The DB has 15 columns. 12 columns are invisible to Gleam.
+
+### 211.2 `inter_reviews` Table — `inter_review.gleam` Issues
+
+**DB columns** (33): id (uuid), task_id (uuid), commit_hash (text), branch (text),
+requester_id (text), reviewer_type (text), review_round (int), status (text),
+summary (text), findings (jsonb), suggestions (jsonb), issues (jsonb), praise (jsonb),
+overall_score (int), code_quality_score (int), test_coverage_score (int),
+documentation_score (int), response (text), response_at (timestamptz),
+accepted_suggestions (jsonb), requested_at (timestamptz), started_at (timestamptz),
+completed_at (timestamptz), review_context (jsonb), issue_id (uuid), reviewer_id (text),
+response_status (text), raw_response (text), session_id (varchar), reviewed_by (text),
+leverage_ratio (numeric), rework_count (int), effort_minutes (int)
+
+**Gleam query**: `SELECT id, task_id, status, summary, overall_score, requested_at FROM inter_reviews WHERE id = $1`
+
+**Issues**:
+1. `id` is `uuid` — NOT cast to `::text`. `decode.string` will fail because pg returns UUID object.
+   **Wait** — the `get_review_details` function passes `review_id` as `$1` param (string).
+   The WHERE clause `id = $1` works because PostgreSQL auto-casts text to uuid.
+   But the SELECT returns uuid — `decode.string` will fail.
+   **FIX NEEDED**: `id::text` in SELECT.
+
+2. `task_id` is `uuid` — NOT cast to `::text`. Same issue as above.
+   `decode.optional(decode.string)` will fail for non-null values.
+   **FIX NEEDED**: `task_id::text` in SELECT.
+
+3. `requested_at` is `timestamptz` — NOT cast to `::text`.
+   `decode.string` will fail because pg returns Date object.
+   **FIX NEEDED**: `requested_at::text` in SELECT.
+
+4. `request_review` calls `request_inter_review($1, $2, $3, $4, $5)`:
+   - `$1` = task_id_param (dynamic.nil() or dynamic.string) → p_task_id (uuid) ✅
+   - `$2` = commit_hash_param (dynamic.nil() or dynamic.string) → p_commit_hash (text) ✅
+   - `$3` = branch_str (dynamic.string("main")) → p_branch (text) ✅
+   - `$4` = reviewer_id_param (dynamic.string("autonomic")) → p_requester_id (text) ✅
+   - `$5` = context_json_str (dynamic.string(json)) → p_review_context (jsonb) ✅
+
+   **Wait** — the parameter order in `request_review()` is:
+   ```
+   task_id_param, commit_hash_param, branch_str, reviewer_id_param, context_json_str
+   ```
+   And the SQL function signature is:
+   ```
+   p_task_id uuid, p_commit_hash text, p_branch text, p_requester_id text, p_review_context jsonb
+   ```
+
+   **This is CORRECT!** The earlier review (§207.2) claimed parameter order mismatch,
+   but the actual code has the correct order. The `tool_commit.gleam` calls
+   `inter_review.request_review(None, None, "autonomic", context)` where:
+   - `None` → task_id (correct: p_task_id)
+   - `None` → commit_hash (correct: p_commit_hash)
+   - `"autonomic"` → reviewer_id (correct: p_requester_id)
+   - `context` → context (correct: p_review_context)
+
+   **But wait** — the function signature is `request_review(task_id, commit_hash, reviewer_id, context)`.
+   The 3rd param is `reviewer_id`, and `tool_commit.gleam` passes `"autonomic"`.
+   The SQL function's 3rd param is `p_branch`, not `p_requester_id`.
+   
+   Let me re-examine: In `inter_review.gleam`, the params array is:
+   ```
+   [task_id_param, commit_hash_param, branch_str, reviewer_id_param, context_json_str]
+   ```
+   Where `branch_str = dynamic.string("main")` and `reviewer_id_param = dynamic.string(reviewer_id)`.
+   The `reviewer_id` arg from `tool_commit.gleam` is `"autonomic"`.
+
+   So the actual SQL params are:
+   - $1 = None (task_id) → p_task_id ✅
+   - $2 = None (commit_hash) → p_commit_hash ✅
+   - $3 = "main" (branch) → p_branch ✅
+   - $4 = "autonomic" (reviewer_id) → p_requester_id ✅
+   - $5 = JSON (context) → p_review_context ✅
+
+   **CORRECTION**: The parameter order IS correct. The earlier review (§207.2) was WRONG
+   about data corruption. The `branch` is hardcoded to `"main"`, `reviewer_id` is `"autonomic"`,
+   and `context` is the JSON string. These map correctly to the SQL function parameters.
+
+   **However**, the `reviewer_id` being `"autonomic"` is semantically wrong — it should be
+   the actual agent identity ID, not just the string "autonomic". But it's not a parameter
+   order mismatch.
+
+### 211.3 `notifications` Table — `monitor.gleam` Issues
+
+**DB columns** (7): id (uuid), agent_id (text), priority (text), title (text),
+body (text), created_at (timestamp without tz), read_at (timestamp without tz)
+
+**Gleam query**: `SELECT id, agent_id, priority, title, body, created_at::text as created_at, read_at::text as read_at FROM notifications`
+
+**Issues**:
+1. `id` is `uuid` — NOT cast to `::text`. `decode.string` will fail.
+   **FIX NEEDED**: `id::text` in SELECT.
+
+2. `created_at::text` — properly cast ✅
+3. `read_at::text` — properly cast ✅
+
+### 211.4 `psypi_event_hooks` Table — `event_hooks.gleam` Issues
+
+**DB columns** (14): id (uuid), event_name (text), hook_status (text),
+monitor_action (text), worker_action (text), injection_enabled (boolean),
+description (text), last_triggered (timestamp without tz), trigger_count (integer),
+error_count (integer), last_error (text), created_at (timestamp without tz),
+updated_at (timestamp without tz), agentbot_action (text)
+
+**Gleam query**: `SELECT id::text, event_name, hook_status, monitor_action, COALESCE(agentbot_action, '') as agentbot_action, injection_enabled, COALESCE(description, '') as description, COALESCE(last_triggered::text, '') as last_triggered, trigger_count, error_count FROM psypi_event_hooks`
+
+**Issues**:
+1. `id::text` — properly cast ✅
+2. `last_triggered::text` — properly cast ✅
+3. `agentbot_action` — uses COALESCE for null handling ✅
+4. `description` — uses COALESCE for null handling ✅
+
+**But**: The decoder uses `decode.optional(decode.string)` for `agentbot_action`,
+`description`, and `last_triggered`, then converts `None` to `""` via `opt_to_str`.
+But the SQL already uses `COALESCE(..., '')` to replace nulls with empty strings.
+So `decode.optional` will always get `Some("")` instead of `None` for null columns.
+This is redundant but not broken — the `opt_to_str` function handles both cases.
+
+**Missing column**: `worker_action` exists in DB but is not queried. Not a bug (just unused).
+
+### 211.5 `agent_sessions` Table — `a_db_reader.gleam` Issues
+
+**DB columns** (11): id (uuid), identity_id (varchar), agent_type (varchar),
+process_id (int), working_on (uuid), status (varchar), started_at (timestamptz),
+last_heartbeat (timestamptz), ended_at (timestamptz), metadata (jsonb),
+last_heartbeat_at (timestamptz)
+
+**Gleam query**: `SELECT COUNT(*) as cnt FROM agent_sessions WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'`
+
+**Issues**:
+1. `COUNT(*)` returns `bigint` — `decode.int` may fail because node-postgres returns
+   bigint as string for large values. For small counts (< 2^53), it returns a JS number.
+   **Usually works** but not guaranteed. Should use `COUNT(*)::INT`.
+
+2. The query checks `status = 'alive'` — but the `status` column is `varchar`.
+   The actual values in the DB need to be verified. If status is `'active'` instead
+   of `'alive'`, this query returns 0 rows (which means "idle" — false positive).
+
+3. The query does NOT filter by `identity_id LIKE 'S-%'`. It counts ALL active sessions,
+   including A-bot sessions. If A-bot has an active session, `is_s_still_idle()` returns
+   `False` (count > 0) even when S-bot is idle. This is the OPPOSITE of the bug
+   described in §206.5 — the function may return False when it should return True.
+
+### 211.6 `issues` Table — `monitor_ai.gleam` auto_file_issue
+
+**Gleam query**: `INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment) VALUES (...)`
+
+**DB columns**: The `issues` table has `issue_type` column, NOT `type`.
+**BUG CONFIRMED**: `type` should be `issue_type`. This INSERT will FAIL at runtime.
+
+### 211.7 `issues` Table — `issue_db.gleam` add()
+
+**Gleam query**: `INSERT INTO issues (title, description, severity, issue_type, created_by, project_id) VALUES ($1, $2, $3, $4, $5, $6)`
+
+**DB columns**: All referenced columns exist ✅
+**But**: `project_id` is `uuid` type. The Gleam code passes `dynamic.string(project_id)`.
+PostgreSQL will auto-cast text to uuid if the string is a valid UUID format.
+This works for the hardcoded UUID but would fail for invalid strings.
+
+---
+
+## 212. `agent_identity.gleam` — Semantic ID Logic Bug
+
+### 212.1 Identity Based on `is_idle` Instead of Role
+
+The `semantic_id()` function determines agent prefix based on `ctx.is_idle`:
+```gleam
+let prefix = case ctx.is_idle {
+  True -> "A"
+  False -> "S"
+}
+```
+
+This means:
+- If the agent is idle → it gets prefix "A" (Autonomic)
+- If the agent is busy → it gets prefix "S" (Somatic)
+
+**This is backwards from the intended A/S agent model.** The Autonomic agent (A) is the
+background observer, and the Somatic agent (S) is the active worker. The prefix should
+be based on the agent's ROLE, not its current idle state.
+
+An idle S-bot would be incorrectly identified as an A-bot, and a busy A-bot
+(during wake-up) would be incorrectly identified as an S-bot.
+
+### 212.2 JS Object Passed as Gleam Custom Type
+
+The `psypi-my-id` tool passes a raw JS object:
+```js
+({ is_idle: ctx.isIdle(), source: ..., model: ..., thinking_level: ..., cwd: ... })
+```
+
+But `get_enriched_identity()` expects `IdentityContext` — a Gleam custom type.
+Gleam compiles custom types with numbered fields, not named fields.
+So `ctx.is_idle` in Gleam becomes `ctx['0']` in compiled JS.
+
+The JS object `{ is_idle: true, source: ..., ... }` has named properties,
+not numbered ones. So Gleam's `ctx.is_idle` access returns `undefined`.
+
+**Effect**: `semantic_id()` gets `ctx.is_idle = undefined`, which is falsy,
+so `prefix = "S"`. Then `ctx.model = undefined`, which is `""`, so
+`semantic_id()` returns `Error(NotFound("missing model id"))`.
+
+The `get_enriched_identity()` function then returns `Error(NotFound("missing model id"))`.
+The tool returns an error to the user.
+
+**This tool is COMPLETELY BROKEN at runtime.**
+
+---
+
+## 213. `hook_on_before_agent_start.gleam` — Double Record Trigger
+
+The `on_before_agent_start()` function calls `event_hooks.record_trigger("before_agent_start")`
+at the BEGINNING of the function:
+```gleam
+let trigger = promise.map(event_hooks.record_trigger("before_agent_start"), fn(r) { ... })
+promise.await(trigger, fn(_) {
+  promise.await(s_db_reader.read_s_soul_from_db(), fn(soul_result) { ... })
+})
+```
+
+But the generated JS code ALSO calls `event_hooks_record_trigger('before_agent_start')`
+at the END of the hook handler (after the return statement, so it's unreachable — §208.1).
+
+If the unreachable code were fixed, the trigger would be recorded TWICE:
+once by Gleam code, once by generated JS code.
+
+**Current state**: Trigger is recorded once (by Gleam code), because the JS code
+is unreachable. This is correct behavior by accident.
+
+---
+
+## 214. `monitor_ai.gleam` — `auto_file_issue` Column Name Bug
+
+```gleam
+let sql =
+  "
+  INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+  VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'development')
+  "
+```
+
+The `issues` table has column `issue_type`, NOT `type`.
+This INSERT will FAIL with: `ERROR: column "type" does not exist`.
+
+**This function has NEVER been called successfully.**
+
+---
+
+## 215. `a_db_reader.gleam` — `is_s_still_idle()` Logic Bug
+
+The current query:
+```sql
+SELECT COUNT(*) as cnt FROM agent_sessions
+WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+
+**Problems**:
+1. No filter for S-bot sessions — counts ALL active sessions (A and S)
+2. If A-bot has an active session, count > 0, returns `Ok(False)` (not idle)
+   even when S-bot IS idle
+3. If no sessions are active, count = 0, returns `Ok(True)` (idle) — correct
+4. `COUNT(*)` returns bigint — `decode.int` may fail for large counts
+5. Decode error fallback returns `Ok(True)` — always says idle on error
+
+**The function should filter by S-bot identity:**
+```sql
+SELECT COUNT(*)::INT as cnt FROM agent_sessions
+WHERE identity_id LIKE 'S-%' AND status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+
+**Current behavior**: If A-bot is running (which it does during wake-up),
+`is_s_still_idle()` returns `Ok(False)`, causing the wake-up to abort.
+This creates a catch-22: A-bot can't wake up because A-bot is running.
