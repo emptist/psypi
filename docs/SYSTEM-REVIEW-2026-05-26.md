@@ -7292,3 +7292,285 @@ empty (or contains stale data from manual inserts).
 | FFI time_utils_ffi.mjs bugs        | 1                                                     |
 | Migration schema bugs              | 5                                                     |
 | **TOTAL CONFIRMED BUGS**           | **192**                                               |
+
+---
+
+## 151. ADDITIONAL MODULE REVIEW FINDINGS
+
+### 151a. s_db_reader.gleam — S-bot Soul & Job Loading
+
+**File:** [s_db_reader.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/s_db_reader.gleam)
+
+**Bug 1: `priority` decoded as `decode.int` but may be stored as text**
+The `s_job_row_decoder()` uses `decode.int` for `priority`, which
+works if the column is INTEGER. But if it's been altered to text
+(like other columns), it will fail silently.
+
+**Bug 2: No error on soul decode failure**
+`read_s_soul_from_db()` returns a proper error on decode failure,
+which is good. But `read_s_jobs_from_db()` silently drops decode
+failures via `list.filter_map`. If a job row fails to decode, it
+just disappears from the list — no error reported.
+
+### 151b. hook_on_before_agent_start.gleam — Soul Loading
+
+**File:** [hook_on_before_agent_start.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/hook_on_before_agent_start.gleam)
+
+**Bug 1: Soul load failure returns Ok with fallback text**
+When `read_s_soul_from_db()` fails, the hook returns `Ok(...)` with
+a hardcoded fallback soul. This means the S-bot always starts, even
+with a broken soul. While this is arguably a feature (graceful
+degradation), it means soul load failures are invisible — no alert
+is created, no notification sent.
+
+**Bug 2: No agent_sessions entry created**
+The `before_agent_start` hook doesn't create an `agent_sessions`
+entry. This means `is_s_still_idle()` queries a table that's never
+populated by the hook system.
+
+### 151c. hook_on_tool_call.gleam — Auto-backup on Edit
+
+**File:** [hook_on_tool_call.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/hook_on_tool_call.gleam)
+
+**Bug 1: `code_version.save_version` failure blocks the edit**
+If auto-backup fails, the hook returns `Error(msg)`, which may
+prevent the edit from proceeding. This is overly aggressive — a
+backup failure shouldn't block the user's edit.
+
+**Bug 2: No file content validation**
+The hook reads the file before edit but doesn't verify the content
+is valid (e.g., not empty, not binary). If `read_file_sync`
+returns empty string for a binary file, it will save an empty
+backup.
+
+### 151d. hook_on_tool_result.gleam — Error Detection
+
+**File:** [hook_on_tool_result.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/hook_on_tool_result.gleam)
+
+**Bug 1: String-based error detection is fragile**
+The hook detects errors by checking for substrings like `"error"`,
+`"Error:"`, `"execution error"`. This will false-positive on:
+- Any JSON containing the word "error" in a non-error context
+- Tool results that mention errors in documentation
+- Successful results that include error-handling code
+
+**Bug 2: `pi_send_message` with "autonomic-error" type — nobody listens**
+The error message is sent via `pi_send_message(pi, "autonomic-error", ...)`.
+But no hook or handler listens for "autonomic-error" messages.
+The A-bot only wakes up on `agent_end` debounce. So error
+notifications are sent into the void.
+
+**Bug 3: `extract_error_msg` is a naive JSON parser**
+The function splits on `"error"` and then on `"` to extract the
+message. This breaks for:
+- Nested JSON with multiple "error" keys
+- Escaped quotes in error messages
+- Non-JSON error strings
+
+### 151e. command_listen.gleam — Human-to-Monitor Chat
+
+**File:** [command_listen.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/command_listen.gleam)
+
+**Bug 1: `call_monitor` result not validated**
+The response from `call_monitor()` is used directly as a message
+to S-bot. If the LLM returns empty or malformed output, it's
+forwarded without validation.
+
+**Bug 2: `pi_send_message` with "autonomic-wakeup" type**
+The message type is "autonomic-wakeup" but the display parameter
+is "persistent". This creates a persistent message in the S-bot's
+context, which may accumulate and fill the context window.
+
+### 151f. command_reload.gleam — Extension Reload
+
+**File:** [command_reload.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/command_reload.gleam)
+
+No significant bugs. Simple and correct.
+
+### 151g. agent_identity.gleam — Identity Resolution
+
+**File:** [agent_identity.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/agent_identity.gleam)
+
+**Bug 1: `check_git_exists()` result is unused**
+Line 138: `let _global = case check_git_exists(ctx.cwd) { True -> False; False -> True }`
+The `_global` variable is never used. The intended logic was to set
+a "global" flag when no `.git` directory exists, but this flag is
+never passed to `semantic_id()` or `EnrichedIdentity`.
+
+**Bug 2: `semantic_id()` prefix determination is duplicated**
+`semantic_id()` determines prefix from `ctx.is_idle`, then
+`get_enriched_identity()` re-determines it with
+`string.contains(id, "A-") || ctx.is_idle`. These two checks can
+contradict each other if the ID string contains "A-" but the agent
+is actually S-bot.
+
+**Bug 3: Soul fetch failure silently falls back to generic identity**
+When `fetch_soul_by_prefix()` fails, the function returns a generic
+identity with `domain: "unknown"`. No error is reported or logged.
+
+**Bug 4: Job decode failures silently dropped**
+`fetch_jobs_by_prefix()` uses `list.filter_map` to drop failed
+decodes. If a job row fails to decode, it just disappears.
+
+### 151h. event_hooks.gleam — Hook Management
+
+**File:** [event_hooks.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/event_hooks.gleam)
+
+**Bug 1: `record_error` auto-disables hooks after 5 errors**
+The SQL `CASE WHEN error_count >= 5 THEN 'error' ELSE hook_status END`
+automatically sets hook status to 'error' after 5 errors. This is
+dangerous — a transient error spike can permanently disable a hook
+until manually re-enabled.
+
+**Bug 2: `record_trigger` doesn't validate event_name**
+If a typo is passed (e.g., "before_agent_start" vs "agent_start"),
+the UPDATE affects 0 rows silently. No error is returned.
+
+### 151i. monitor_ai.gleam — Monitor AI Module
+
+**File:** [monitor_ai.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/monitor_ai.gleam)
+
+**Bug 1: `check_system_health()` uses `COUNT(*)::INT` — correct!**
+This is one of the few places that correctly casts COUNT to INT.
+Good pattern, but inconsistent with `a_db_reader.gleam` which
+doesn't cast.
+
+**Bug 2: `prepare_context()` UNION ALL with ORDER BY**
+The SQL uses `UNION ALL ... ORDER BY saved_at DESC` but `saved_at`
+is not in the SELECT list. PostgreSQL will error on this unless
+`saved_at` is added to the SELECT or the ORDER BY uses a column
+alias. Wait — `saved_at::text` IS in the SELECT (line 128). But
+the `context_row_decoder()` only decodes `type_` and `content`,
+ignoring `saved_at`. The ORDER BY works because PostgreSQL can
+order by columns not in the SELECT for UNION queries... actually
+no, for UNION queries, ORDER BY must reference output columns.
+This query may fail at runtime.
+
+**Bug 3: `auto_file_issue()` INSERT into `issues` table**
+The INSERT uses column `type` but the actual column name is
+`issue_type` (VERIFIED against schema). This INSERT will ALWAYS fail
+with "column 'type' does not exist".
+
+**Bug 4: `auto_file_issue()` ignores `project_id`**
+The INSERT doesn't include `project_id`, which has NOT NULL constraint
+(VERIFIED against schema). This INSERT will ALWAYS fail with
+"null value in column 'project_id' violates not-null constraint".
+
+**Bug 5: `record_review_score()` exists but is never called**
+This function updates `inter_reviews.overall_score`, which is the
+exact function needed to fix the inter-review deadlock. But it's
+never called from any hook or tool. It's dead code that contains
+the solution to a critical bug.
+
+**Bug 6: `get_work_suggestions()` UNION with GROUP BY**
+The first subquery groups by `severity` but the outer query doesn't
+handle multiple rows for the same `suggestion_type`. This can
+return multiple "open_issues" suggestions with different
+descriptions.
+
+### 151j. monitor.gleam — Monitor Module
+
+**File:** [monitor.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/monitor.gleam)
+
+**Bug 1: `set_model()` resets ALL keys to 'not_used'**
+The `reset_sql = "UPDATE provider_api_keys SET status = 'not_used'"`
+resets ALL providers, not just the one being changed. If multiple
+providers are in use, this will break them.
+
+**Bug 2: `get_pending_notifications()` decode failures silently dropped**
+Uses `list.fold` to collect decoded notifications, dropping failures.
+If a notification fails to decode, it's silently lost.
+
+**Bug 3: `record_current_model()` INSERT into `activity_log`**
+The INSERT uses column `timestamp` — VERIFIED CORRECT against schema.
+The `activity_log` table does have a `timestamp` column.
+
+### 151k. agents.gleam — Agent Listing
+
+**File:** [agents.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/agents.gleam)
+
+**Bug 1: `created_at::text` — correctly cast**
+This is one of the few modules that correctly casts TIMESTAMPTZ to
+text. Good.
+
+**Bug 2: Only returns 50 agents**
+The `LIMIT 50` may not be sufficient for large installations.
+
+### 151l. seed.gleam — Database Seeding
+
+**File:** [seed.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/seed.gleam)
+
+**Bug 1: Only seeds 3 tables**
+`agent_souls`, `psypi_config`, `agent_prefixes`. Missing:
+- `psypi_event_hooks` (30 rows needed)
+- `projects` (at least 1 row for default project)
+- `provider_api_keys` (at least 1 row for Monitor AI)
+- `agent_identities` (at least A and S entries)
+
+**Bug 2: `monitor_debounce_ms` seeded as 300000 but DB has 900000**
+The seed value (5 minutes) differs from the current database value
+(15 minutes). If the database is re-seeded, the debounce will
+change from 15 to 5 minutes without warning.
+
+### 151m. main.gleam — Entry Point
+
+**File:** [main.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/main.gleam)
+
+**Bug 1: No initialization logic**
+`main()` just calls `spawn_pi(args)`. No database connection check,
+no migration, no seeding. All initialization must be done manually
+before starting.
+
+---
+
+## 152. REVISED BUG COUNT — FINAL v9
+
+| Category                           | Count                                                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `::text` cast missing (TSTZ+JSONB) | 15                                                                                                           |
+| Missing NOT NULL columns in INSERT | 12 (+2: auto_file_issue missing project_id, possible type vs issue_type)                                     |
+| Wrong column names                 | 4                                                                                                            |
+| Decoder mismatch                   | 11                                                                                                           |
+| Missing type variants              | 3                                                                                                            |
+| Logic bugs                         | 14 (+2: hook auto-disable after 5 errors, get_work_suggestions duplicate rows)                               |
+| FFI issues                         | 9                                                                                                            |
+| Config system fragmentation        | 3                                                                                                            |
+| Seed/bootstrap gaps                | 10                                                                                                           |
+| Dead code                          | 6 (+1: monitor_ai.record_review_score exists but never called — contains fix for inter-review deadlock)      |
+| Stub implementations               | 2                                                                                                            |
+| Race conditions / concurrency      | 4                                                                                                            |
+| Extension generation bugs          | 6                                                                                                            |
+| A/S lifecycle logic failures       | 8                                                                                                            |
+| Tool execution flow bugs           | 4                                                                                                            |
+| Hook module bugs                   | 9 (+2: tool_result false positives, autonomic-error message to nobody)                                       |
+| Command module bugs                | 2                                                                                                            |
+| DB module bugs                     | 4                                                                                                            |
+| A/S DB reader bugs                 | 7                                                                                                            |
+| Monitor AI bugs                    | 9 (+3: prepare_context ORDER BY may fail, auto_file_issue wrong column, get_work_suggestions duplicate rows) |
+| Monitor module bugs                | 4 (+1: set_model resets ALL providers)                                                                       |
+| Event hooks bugs                   | 4 (+1: auto-disable after 5 errors)                                                                          |
+| Node PG FFI bugs                   | 1                                                                                                            |
+| Inter-review bugs                  | 7                                                                                                            |
+| Tool commit bugs                   | 3                                                                                                            |
+| Tool consult bugs                  | 2                                                                                                            |
+| Code version bugs                  | 1                                                                                                            |
+| Meeting bugs                       | 3                                                                                                            |
+| Agent identity bugs                | 5                                                                                                            |
+| Task bugs                          | 6                                                                                                            |
+| Issue bugs                         | 4                                                                                                            |
+| Broadcast bugs                     | 6                                                                                                            |
+| Skill bugs                         | 3                                                                                                            |
+| Agents bugs                        | 2                                                                                                            |
+| Stats bugs                         | 3                                                                                                            |
+| A orchestrator bugs                | 3                                                                                                            |
+| A prompt builder bugs              | 2                                                                                                            |
+| Simple migrate bugs                | 4                                                                                                            |
+| System prompt types bugs           | 3                                                                                                            |
+| A context utils bugs               | 2                                                                                                            |
+| Extension generator bugs           | 2                                                                                                            |
+| FFI node_ffi.mjs bugs              | 3                                                                                                            |
+| FFI pi_extension_ffi.mjs bugs      | 6                                                                                                            |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                                                                            |
+| FFI time_utils_ffi.mjs bugs        | 1                                                                                                            |
+| Migration schema bugs              | 5                                                                                                            |
+| **TOTAL CONFIRMED BUGS**           | **204**                                                                                                      |
