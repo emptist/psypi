@@ -555,15 +555,32 @@ if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || ...)
 **BUT** the actual Gleam-compiled JS classes use simple names:
 
 ```javascript
-// From build/dev/javascript/psypi/task.mjs
+// From build/dev/javascript/psypi/task.mjs (VERIFIED via gleam build)
 export class Task extends $CustomType { ... }
 // constructor.name === "Task", NOT "Task$Task"
+
+export class Pending extends $CustomType {}
+// constructor.name === "Pending", NOT "TaskStatus$Pending"
+
+// Task$Task is a FACTORY FUNCTION, not the class:
+export const Task$Task = (id, ...) => new Task(id, ...);
 ```
 
-**Impact**: ALL type-specific branches in `gleamValueToJson` are dead code. The function falls through to the generic `Object.fromEntries(...)` branch for every Gleam custom type. This means:
-- Enum variants without fields (e.g., `Pending`, `Running`) serialize as empty objects `{}` instead of their variant names
-- Nested `Option`/`Result` types may not unwrap correctly
-- Tool output sent to Pi LLM contains malformed JSON structures
+**Impact**: ALL `startsWith('X$X')` type-specific branches in `gleamValueToJson` are dead code.
+The function falls through to the generic `Object.fromEntries(...)` branch for every Gleam
+custom type with fields, and produces `{}` for fieldless variants like `Pending`, `Running`.
+
+**Verified behavior**:
+- `Task` instance → `Object.fromEntries(Object.entries(val))` → `{id: ..., title: ..., status: Pending, ...}`
+  - The `status: Pending` field is itself a `$CustomType` with no entries → serializes as `{}`
+  - This means `status` is always `{}` in the JSON, losing the variant name
+- `Pending` instance → `Object.fromEntries([])` → `{}` — variant name completely lost
+- `Ok(value)` → works correctly (line 183 handles this)
+- `None` → works correctly (line 182 returns `null`)
+
+**Root cause**: Gleam compiles `type TaskStatus { Pending Running ... }` to separate classes
+`Pending`, `Running`, etc. The `TaskStatus$Pending` is a factory function, not the class.
+The FFI code assumed `constructor.name` would be `"Task$Task"` but it's actually `"Task"`.
 
 ### 15b. `unwrapGleamResult` Also Uses Wrong Names
 
