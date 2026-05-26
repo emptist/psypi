@@ -14214,3 +14214,854 @@ WHERE identity_id LIKE 'S-%' AND status = 'alive' AND last_heartbeat > NOW() - I
 **Current behavior**: If A-bot is running (which it does during wake-up),
 `is_s_still_idle()` returns `Ok(False)`, causing the wake-up to abort.
 This creates a catch-22: A-bot can't wake up because A-bot is running.
+
+---
+
+## 216. PHANTOM TABLE `agent_souls` — COMPLETE ANALYSIS
+
+### 216.1 The Actual `soul` Table Schema
+
+```
+soul (12 columns):
+  id                    uuid        NOT NULL  DEFAULT uuid_generate_v4()
+  role                  text        NOT NULL
+  responsibility        text        NOT NULL
+  domain                text        NOT NULL
+  event_triggers        jsonb                 DEFAULT '[]'::jsonb
+  task_patterns         jsonb                 DEFAULT '[]'::jsonb
+  verification_criteria text
+  remediation_steps     text
+  is_active             boolean               DEFAULT true
+  priority              text                  DEFAULT 'medium'
+  created_at            timestamptz           DEFAULT now()
+  updated_at            timestamptz           DEFAULT now()
+```
+
+**NO `id_prefix` column. NO `content` column. NO `name` column. NO `activation` column.**
+
+### 216.2 All References to `agent_souls` in Gleam Code
+
+| File                 | Query                                                                                                                                              | Columns Referenced                                                                           | Status                                                                |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| a_db_reader.gleam    | `SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'`                                                                       | role, domain, responsibility, id_prefix                                                      | ❌ Table doesn't exist; id_prefix doesn't exist                        |
+| s_db_reader.gleam    | `SELECT content FROM agent_souls WHERE id_prefix = 'S' AND is_active = true`                                                                       | content, id_prefix, is_active                                                                | ❌ Table doesn't exist; content doesn't exist; id_prefix doesn't exist |
+| agent_identity.gleam | `SELECT id, name, domain, responsibility, trigger_type, drive_mode, activation FROM agent_souls WHERE id_prefix = $1 AND is_active = true LIMIT 1` | id, name, domain, responsibility, trigger_type, drive_mode, activation, id_prefix, is_active | ❌ Table doesn't exist; 5 of 9 columns don't exist                     |
+
+### 216.3 The `soul` Table Data
+
+```
+role     | domain
+---------+----------------------
+ Monitor | database_consistency
+ Monitor | error_handling
+ Monitor | role_clarity
+ Monitor | system_maintenance
+ Monitor | code_quality
+```
+
+All rows have `role = 'Monitor'`. There are NO rows with `role = 'A'` or `role = 'S'`.
+The `id_prefix` concept doesn't exist in the `soul` table at all.
+
+### 216.4 Impact Analysis
+
+**A-bot soul loading** (`a_db_reader.read_soul_from_db()`):
+- Queries `agent_souls` → ERROR: table "agent_souls" does not exist
+- A-bot workflow ABORTS at step 1
+- Error message sent via `pi_send_message("autonomic-error", ...)`
+- A-bot NEVER gets its personality/instructions
+
+**S-bot soul loading** (`s_db_reader.read_s_soul_from_db()`):
+- Queries `agent_souls` → ERROR: table "agent_souls" does not exist
+- `hook_on_before_agent_start` catches the error and returns fallback prompt:
+  "You are the Somatic Agentbot... [SOUL LOAD FAILED: DB query: ...]"
+- S-bot runs with a GENERIC prompt, not its actual personality
+
+**Agent identity** (`agent_identity.fetch_soul_by_prefix()`):
+- Queries `agent_souls` → ERROR: table "agent_souls" does not exist
+- Returns `Error(DbError("..."))`
+- `get_enriched_identity()` propagates error → tool returns error to user
+
+### 216.5 The Fix Required
+
+The `soul` table needs either:
+1. An `id_prefix` column (text, values 'A' and 'S') to distinguish A-bot and S-bot souls
+2. OR a `role` value convention ('Autonomic' and 'Somatic' instead of 'Monitor')
+3. AND a `content` column (text/jsonb) for the full personality prompt
+
+Currently the `soul` table only has `Monitor` role entries — it was designed for the
+monitor AI, not for A/S agent personality storage.
+
+The entire A/S soul system is built on a table that doesn't exist and a schema
+that was never implemented.
+
+---
+
+## 217. PHANTOM TABLE `agent_jobs` — COMPLETE ANALYSIS
+
+### 217.1 No `agent_jobs` Table Exists
+
+```
+psypi=# \dt *job*
+(0 rows)
+```
+
+There is NO `agent_jobs` table in the database.
+
+### 217.2 All References to `agent_jobs` in Gleam Code
+
+| File              | Query                                                                                                                                                                  | Status                    |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| a_db_reader.gleam | `SELECT j.job, j.priority, j.category FROM agent_jobs j JOIN agent_souls s ON j.soul_id = s.id WHERE s.id_prefix = 'A' AND j.is_active = true ORDER BY j.priority ASC` | ❌ Both tables don't exist |
+| s_db_reader.gleam | `SELECT j.job, j.priority, j.category FROM agent_jobs j JOIN agent_souls s ON j.soul_id = s.id WHERE s.id_prefix = 'S' AND j.is_active = true ORDER BY j.priority ASC` | ❌ Both tables don't exist |
+
+### 217.3 Impact
+
+**A-bot job loading** (`a_db_reader.read_a_jobs_from_db()`):
+- Queries `agent_jobs JOIN agent_souls` → ERROR: table "agent_jobs" does not exist
+- A-bot workflow ABORTS at step 2 (after soul loading also fails)
+- A-bot NEVER gets its job queue
+
+**S-bot job loading** (`s_db_reader.read_s_jobs_from_db()`):
+- This function exists but is NEVER CALLED from any hook or tool
+- Dead code — would also fail if called
+
+**A-bot prompt composition** (`a_prompt_builder.build_system_prompt()`):
+- Calls `add_a_jobs(a_jobs)` which checks if jobs == "" or == "  (no active jobs)"
+- Since `read_a_jobs_from_db()` fails, the error is caught and A-bot workflow aborts
+- Jobs are never added to the prompt
+
+### 217.4 The Fix Required
+
+Create `agent_jobs` table with columns:
+- id (uuid, PK)
+- soul_id (uuid, FK → soul.id)
+- job (text)
+- priority (int)
+- category (text)
+- is_active (boolean, default true)
+
+Or redesign the job system to use the existing `tasks` table with an `assigned_to` column.
+
+---
+
+## 218. HOOK IMPLEMENTATIONS — COMPLETE AUDIT
+
+### 218.1 `hook_on_agent_start.gleam` — Minimal, Works
+
+```gleam
+pub fn on_agent_start() -> promise.Promise(Result(Nil, String)) {
+  promise.map(event_hooks.record_trigger("agent_start"), fn(r) {
+    result.map_error(r, fn(e) { string.inspect(e) })
+  })
+}
+```
+
+**Assessment**: Records the trigger and returns. No logic. Works correctly.
+**But**: This is a no-op hook — it doesn't DO anything useful. The `agent_start`
+event is an opportunity to initialize agent state, but nothing happens.
+
+### 218.2 `hook_on_tool_call.gleam` — Auto-Backup on Edit
+
+```gleam
+pub fn on_tool_call(tool_name, file_path, ctx, pi) -> promise.Promise(Result(Nil, String))
+```
+
+**Logic**: When `tool_name == "edit"`, reads the file and saves a version to `code_versions`.
+
+**Issues**:
+1. `tool_name == "edit"` — This is a HARD-CODED check. If Pi changes the tool name
+   (e.g., "edit_file", "write_file"), this hook stops working.
+
+2. `read_file_sync(file_path)` — Reads the file BEFORE the edit. This is correct for
+   auto-backup (save the pre-edit version). But if the file doesn't exist yet (new file),
+   this returns an error, and the hook sends an error notification. This is a false alarm
+   for new file creation.
+
+3. `code_version.save_version(file_path, content, "psypi", "", "auto-backup")` —
+   The `commit_hash` is always empty string. The `saved_by` is always "psypi".
+   This means auto-backups have no git context.
+
+4. `read_file_sync` is a SYNCHRONOUS FFI call inside an async hook. This blocks the
+   Node.js event loop during file reads. For large files, this could cause latency.
+
+5. The hook returns `Error(msg)` when backup fails. This causes the generated JS code
+   to call `ctx.ui.notify('Hook tool_call error: ...', 'error')`. But the tool call
+   itself still proceeds — the error only affects the backup, not the edit.
+
+### 218.3 `hook_on_tool_result.gleam` — Error Detection and Notification
+
+```gleam
+pub fn on_tool_result(result_json, tool_name, pi) -> Result(Nil, String)
+```
+
+**Logic**: Checks if the tool result JSON contains error indicators. If so, sends
+an `autonomic-error` message to S-bot.
+
+**Issues**:
+1. **Returns synchronous `Result`, not `Promise`** — The generated JS code uses `await`
+   on this function. Since it returns a non-Promise value, `await` resolves immediately.
+   This works but is inconsistent with other hooks.
+
+2. **Error detection is string-based** — Checks for `"error"`, `"Error:"`,
+   `"execution error"`, `"tool_execution_blocked"`, `"is_error":true`.
+   This is fragile:
+   - A successful result containing the word "error" in content triggers false positive
+   - A failed result with a different error format is missed
+   - `"Error:"` check is case-sensitive — `"error:"` is missed
+
+3. **`extract_error_msg` is crude** — Splits on `"error"` and takes the next quoted string.
+   This often extracts the wrong text or returns "Unknown error".
+
+4. **`pi_send_message(pi, "autonomic-error", ...)` is called with `"persistent"`** —
+   Every tool error creates a persistent message. If S-bot has a bad tool that errors
+   repeatedly, this floods the message queue.
+
+5. **The function always returns `Ok(Nil)`** — Even when an error is detected, it
+   returns `Ok(Nil)`, not `Error(...)`. The error is "handled" by sending a message,
+   but the hook never signals failure to the Pi runtime.
+
+### 218.4 `hook_on_before_agent_start.gleam` — S-bot Soul Injection
+
+```gleam
+pub fn on_before_agent_start() -> promise.Promise(Result(String, String))
+```
+
+**Logic**: Records trigger, then reads S-bot soul from DB. Returns soul content as
+system prompt injection.
+
+**Issues**:
+1. **Queries `agent_souls` table** — This table doesn't exist (§216).
+   `s_db_reader.read_s_soul_from_db()` will FAIL.
+
+2. **Error handling returns fallback prompt** — When soul loading fails, it returns:
+   ```
+   "You are the Somatic Agentbot (S-agentbot)... [SOUL LOAD FAILED: DB query: ...]"
+   ```
+   This means S-bot ALWAYS runs with the fallback prompt because `agent_souls` doesn't exist.
+
+3. **The fallback prompt includes the error message** — This error message (including
+   DB error details) is injected into the system prompt. This wastes tokens and exposes
+   internal error details to the LLM.
+
+4. **`PiSystemPromptHook` return value** — The hook returns `Result(String, String)`.
+   The generated JS code does:
+   ```js
+   if (r.ok) { return { systemPrompt: r.value }; }
+   else { ctx.ui.notify('Hook failed: ' + r.error, 'error'); }
+   ```
+   Since the error case returns `Ok(fallback_prompt)`, the `else` branch is never reached.
+   The fallback prompt is always injected as `systemPrompt`.
+
+5. **`record_trigger` is called BEFORE soul loading** — If soul loading fails,
+   the trigger is still recorded as successful. This is misleading — the hook "ran"
+   but didn't accomplish its purpose.
+
+---
+
+## 219. A-ORCHESTRATOR WORKFLOW — COMPLETE LOGIC TRACE
+
+### 219.1 The Intended Flow
+
+```
+run_a_workflow(ctx, pi, entries_json, usage_json, cwd, context_window)
+  → read_soul_from_db()          [A-bot personality]
+  → read_a_jobs_from_db()         [A-bot job queue]
+  → read_project_state_from_db()  [active tasks + open issues]
+  → compose system prompt from soul + jobs
+  → build user prompt from usage + entries + cwd + state
+  → call_monitor(ctx, user_prompt, system_prompt)  [invoke LLM]
+  → handle_monitor_response(ctx, pi, result)
+    → if S is idle: pi_send_message("autonomic-wakeup", response)
+    → if S is busy: abort
+```
+
+### 219.2 The ACTUAL Flow — Step by Step
+
+**Step 1: `read_soul_from_db()`**
+```sql
+SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'
+```
+→ ERROR: table "agent_souls" does not exist
+→ `pi_send_message(pi, "autonomic-error", msg, "persistent")`
+→ `promise.resolve(Ok(Nil))` — **ABORT, no error propagated**
+
+**Step 2: NEVER REACHED** — The workflow returns `Ok(Nil)` after soul loading fails.
+`read_a_jobs_from_db()`, `read_project_state_from_db()`, `call_monitor()` are all skipped.
+
+### 219.3 Error Swallowing Pattern
+
+The A-orchestrator uses this pattern for ALL error cases:
+```gleam
+Error(e) -> {
+  let msg = "[A-agentbot] <ERROR> ... " <> e
+  pi_send_message(pi, "autonomic-error", msg, "persistent")
+  promise.resolve(Ok(Nil))  // ← Returns Ok, not Error!
+}
+```
+
+**This means**:
+1. The workflow NEVER returns an error to the caller
+2. The error is sent as a chat message, which S-bot may or may not see
+3. The caller (`hook_on_agent_end`) receives `Ok(Nil)` and considers the workflow successful
+4. No retry logic exists — the error is permanent
+5. No logging to a persistent store — the error message is ephemeral
+
+### 219.4 `call_monitor` — The LLM Invocation
+
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "call_monitor")
+pub fn call_monitor(ctx: a, user_prompt: String, system_prompt: String) ->
+  promise.Promise(Result(String, String))
+```
+
+The JS implementation in `pi_extension_ffi.mjs`:
+```js
+export async function call_monitor(ctx, userPrompt, systemPrompt) {
+  const model = ctx.model || ctx.modelRegistry?.defaultModel;
+  if (!model) return new Error("No model available for monitor");
+  try {
+    const result = await model.generate({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    });
+    return new Ok(result.content || result.text || JSON.stringify(result));
+  } catch(e) {
+    return new Error(e.message || String(e));
+  }
+}
+```
+
+**Issues**:
+1. `ctx.model` — This is the Pi context object. Whether it has a `model` property
+   depends on the Pi runtime version. If `ctx.model` is undefined and
+   `ctx.modelRegistry?.defaultModel` is also undefined, the function returns
+   `new Error("No model available")`.
+
+2. `model.generate()` — This is NOT a standard API. Different Pi versions may use
+   `model.chat()`, `model.complete()`, or `model.invoke()`. The exact method name
+   needs to match the Pi SDK version.
+
+3. `result.content || result.text || JSON.stringify(result)` — The result format
+   varies by model provider. `JSON.stringify(result)` as fallback produces verbose,
+   unstructured output that the LLM didn't generate.
+
+4. **No streaming** — The entire response is generated before returning. For long
+   A-bot responses, this could take 30+ seconds with no feedback.
+
+5. **No token limit** — The system prompt + user prompt could exceed the model's
+   context window. `a_prompt_builder` estimates tokens but never enforces the budget.
+   `compose_within_budget()` exists but is NEVER CALLED — only `compose()` is used.
+
+### 219.5 `handle_monitor_response` — Wake-up Decision
+
+```gleam
+fn handle_monitor_response(ctx, pi, monitor_result) {
+  case monitor_result {
+    Ok(response) -> {
+      case ctx_is_idle(ctx) {
+        False -> notify_info(ctx, "S became busy — aborting"); Ok(Nil)
+        True -> pi_send_message(pi, "autonomic-wakeup", response, "persistent"); Ok(Nil)
+      }
+    }
+    Error(e) -> pi_send_message(pi, "autonomic-error", msg, "persistent"); Ok(Nil)
+  }
+}
+```
+
+**Issues**:
+1. **No review score writing** — After A-bot generates a response, `record_review_score()`
+   is NEVER called. This means inter-reviews are never completed (§207).
+
+2. **No response parsing** — A-bot's response is sent raw to S-bot as a "persistent" message.
+   There's no structure — no way to distinguish a wake-up reminder from an inter-review
+   response from an error notification.
+
+3. **`ctx_is_idle(ctx)` check AFTER LLM call** — By the time A-bot finishes thinking
+   (which could take 30+ seconds), S-bot may have started working again. The idle check
+   is correct but creates a wasted LLM call.
+
+4. **No retry on busy** — If S-bot is busy, the wake-up is simply aborted. The A-bot's
+   response is discarded. No queue, no retry, no scheduling.
+
+---
+
+## 220. SYSTEM PROMPT COMPOSITION — TOKEN BUDGET ANALYSIS
+
+### 220.1 Budget Calculation
+
+In `a_prompt_builder.build_system_prompt()`:
+```gleam
+let budget = context_window / 4
+new_composition(budget)
+```
+
+If `context_window` is 200,000 (Claude 3.5), budget = 50,000 tokens.
+If `context_window` is 128,000 (Claude 3), budget = 32,000 tokens.
+
+### 220.2 Components Added
+
+1. **A-identity prompt** (Critical priority):
+   ~300 characters → ~75 tokens
+   "You are the Autonomic Agentbot..." — hardcoded in `a_identity_prompt()`
+
+2. **Soul content** (Critical priority):
+   From `read_soul_from_db()` — currently FAILS, would be 0 tokens
+   If it worked, could be 500-2000 tokens depending on DB content
+
+3. **A-jobs** (High priority):
+   From `read_a_jobs_from_db()` — currently FAILS, would be 0 tokens
+   If it worked, could be 200-500 tokens
+
+### 220.3 `compose_within_budget()` — EXISTS BUT NEVER USED
+
+The `system_prompt_types.gleam` module has a `compose_within_budget()` function that
+sorts components by priority and drops low-priority ones when the budget is exceeded.
+
+But `a_prompt_builder` calls `compose()`, NOT `compose_within_budget()`.
+
+**This means**: If soul content + jobs + identity exceed the budget, the prompt
+is still assembled in full. There is NO budget enforcement.
+
+### 220.4 User Prompt — No Budget Control
+
+The user prompt is built by `build_user_prompt()`:
+```
+context_section + usage_section + state_section + recent_section
+```
+
+Where:
+- `state_section` = "## Project State (from database):\n" + project_state
+- `recent_section` = entries_json truncated to 2000 or 4000 chars
+
+The user prompt has NO token budget. It's concatenated as-is.
+If `project_state` is large (many tasks + issues), the user prompt could be
+thousands of tokens, potentially exceeding the model's input limit.
+
+### 220.5 Token Estimation Accuracy
+
+```gleam
+pub fn estimate_tokens(text: String) -> Int {
+  string.length(text) / 4 + 1
+}
+```
+
+This is a rough estimate (4 chars per token). For English text, this is approximately
+correct. For code (which has more special characters), it underestimates by 20-50%.
+
+---
+
+## 221. `a_context_utils.gleam` — FFI Return Type Inconsistency
+
+### 221.1 `now_ms()` Declaration vs Implementation
+
+**Gleam declaration**:
+```gleam
+@external(javascript, "./node_ffi.mjs", "now_ms")
+fn now_ms() -> Result(Int, String)
+```
+
+**JS implementation** (node_ffi.mjs):
+```js
+export function now_ms() {
+  return new Ok(Date.now());
+}
+```
+
+**Usage**:
+```gleam
+pub fn current_time_ms() -> Int {
+  let res = now_ms()
+  case res {
+    Ok(t) -> t
+    Error(_) -> 0
+  }
+}
+```
+
+This works because `new Ok(Date.now())` is a Gleam `Ok(Int)` constructor.
+The `Error(_)` branch is unreachable.
+
+**But**: `pi_extension_ffi.mjs` ALSO exports `now_ms()`:
+```js
+export function now_ms() {
+  return Date.now();  // Bare Int, NOT wrapped in Ok
+}
+```
+
+And `pi_extension.gleam` declares it as:
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "now_ms")
+pub fn now_ms() -> Int
+```
+
+**Two different `now_ms` functions with different return types in different modules.**
+This is confusing and error-prone. If someone accidentally imports from the wrong
+module, the type mismatch would cause runtime errors.
+
+### 221.2 `parse_context_window` — Fragile JSON Parsing
+
+```gleam
+fn context_window_decoder() -> decode.Decoder(Int) {
+  use context_window <- decode.field("contextWindow", decode.int)
+  decode.success(context_window)
+}
+```
+
+This expects the JSON to have a top-level `contextWindow` field with an integer value.
+If the Pi runtime changes the field name (e.g., `context_window`, `maxTokens`),
+this will fail with a decode error, and the A-bot workflow will abort.
+
+---
+
+## 222. `monitor_ai.gleam` — `prepare_context` SQL Bug
+
+```sql
+SELECT 'learning' as type_, content, saved_at::text 
+FROM memory 
+WHERE agent_id = $1 AND source = 'learn'
+UNION ALL
+SELECT 'backup' as type_, file_path as content, saved_at::text
+FROM code_versions
+WHERE saved_by = $1
+ORDER BY saved_at DESC
+LIMIT 10
+```
+
+**Issues**:
+1. `UNION ALL` requires matching column types. `memory.content` is `text` and
+   `code_versions.file_path` is `text` — these match ✅
+
+2. `ORDER BY saved_at DESC` — In a UNION, `saved_at` refers to the 3rd column
+   of the result set. Both subqueries alias it as `saved_at::text`. This works ✅
+
+3. The decoder expects `type_` and `content` fields:
+   ```gleam
+   fn context_row_decoder() -> decode.Decoder(String) {
+     use type_ <- decode.field("type_", decode.string)
+     use content <- decode.field("content", decode.string)
+     decode.success(type_ <> ": " <> content <> "\n")
+   }
+   ```
+   But the SQL returns 3 columns: `type_`, `content`, `saved_at`. The decoder only
+   reads 2. The 3rd column is ignored. This is fine — `decode.field` only reads
+   the named field. ✅
+
+4. **`memory` table may not have `source` column** — The query filters
+   `WHERE source = 'learn'`. If the `memory` table doesn't have a `source` column,
+   this query fails. Need to verify.
+
+5. **This function is NEVER CALLED** — `prepare_context()` is a public function
+   but no tool or hook invokes it. Dead code.
+
+---
+
+## 223. `monitor_ai.gleam` — `check_system_health` SQL Issues
+
+```sql
+SELECT 
+  (SELECT COUNT(*)::INT FROM tasks WHERE status = 'FAILED') as failed_tasks,
+  (SELECT COUNT(*)::INT FROM issues WHERE status = 'open') as open_issues,
+  (SELECT COUNT(*)::INT FROM activity_log WHERE timestamp > NOW() - INTERVAL '1 hour') as activities_1h
+```
+
+**Issues**:
+1. `tasks WHERE status = 'FAILED'` — The `tasks` table uses uppercase status values
+   ('FAILED', 'COMPLETED', 'PENDING'). This is correct ✅
+
+2. `issues WHERE status = 'open'` — The `issues` table uses lowercase status values
+   ('open', 'resolved', 'closed'). This is correct ✅
+
+3. `activity_log WHERE timestamp > NOW() - INTERVAL '1 hour'` — The `activity_log`
+   table has a `timestamp` column. Need to verify this column name.
+   The migration 012 creates `activity_log` with `created_at` column, not `timestamp`.
+   **If the column is `created_at`, this query FAILS.**
+
+4. `COUNT(*)::INT` — Properly cast to integer ✅
+
+---
+
+## 224. `monitor_ai.gleam` — `get_work_suggestions` SQL Issues
+
+```sql
+SELECT * FROM (
+  SELECT 'open_issues' as suggestion_type, 
+         'Review and resolve ' || COUNT(*)::TEXT || ' open issues' as description,
+         CASE WHEN severity = 'critical' THEN 1 ELSE 2 END as priority
+  FROM issues WHERE status = 'open'
+  GROUP BY severity
+  UNION ALL
+  SELECT 'stale_tasks' as suggestion_type,
+         'Review ' || COUNT(*)::TEXT || ' stale tasks (>7 days)' as description,
+         3 as priority
+  FROM tasks WHERE status = 'PENDING' AND created_at < NOW() - INTERVAL '7 days'
+  UNION ALL
+  SELECT 'pending_skills' as suggestion_type,
+         'Review ' || COUNT(*)::TEXT || ' pending skills' as description,
+         4 as priority
+  FROM skills WHERE status = 'PENDING'
+) sub
+ORDER BY priority
+LIMIT 5
+```
+
+**Issues**:
+1. `tasks WHERE status = 'PENDING'` — The `tasks` table uses uppercase status values.
+   But the migration 010 defines status as 'pending' (lowercase). Need to verify
+   actual data. If the data is lowercase, this returns 0 rows.
+
+2. `skills WHERE status = 'PENDING'` — Same issue. The `skills` table status values
+   need verification.
+
+3. `GROUP BY severity` in the first subquery — This means if there are 3 critical
+   and 5 non-critical issues, you get TWO rows: "Review and resolve 3 open issues"
+   and "Review and resolve 5 open issues". This is confusing — should be one row
+   with total count.
+
+---
+
+## 225. INTER-REVIEW CORRECTION — Parameter Order Was Correct
+
+### 225.1 Re-examination of §207.2
+
+The earlier review (§207.2) claimed that `request_inter_review` had parameter order
+mismatch causing "DATA CORRUPTION". This was WRONG.
+
+**Actual `inter_review.gleam` code**:
+```gleam
+pub fn request_review(
+  task_id: Option(String),
+  commit_hash: Option(String),
+  reviewer_id: String,
+  context: String,
+) -> promise.Promise(Result(String, ReviewError)) {
+  // ...
+  let branch_str = dynamic.string("main")
+  let reviewer_id_param = dynamic.string(reviewer_id)
+  let context_json_str = dynamic.string(json)
+  [task_id_param, commit_hash_param, branch_str, reviewer_id_param, context_json_str]
+```
+
+**SQL function**: `request_inter_review(p_task_id uuid, p_commit_hash text, p_branch text, p_requester_id text, p_review_context jsonb)`
+
+**Mapping**:
+- $1 = task_id → p_task_id ✅
+- $2 = commit_hash → p_commit_hash ✅
+- $3 = "main" → p_branch ✅
+- $4 = reviewer_id → p_requester_id ✅
+- $5 = context_json → p_review_context ✅
+
+**The parameter order IS correct.** The earlier claim of data corruption was incorrect.
+
+### 225.2 The REAL Inter-Review Problem
+
+The inter-review is still broken, but for different reasons:
+1. A-bot never picks up the review because `read_soul_from_db()` fails (§216)
+2. `respond_to_inter_review()` is never called from any Gleam code
+3. `record_review_score()` exists but is never called
+4. `overall_score` stays NULL forever
+5. `commit_if_reviewed()` checks `overall_score` and blocks the commit
+
+**The root cause is NOT parameter order — it's the missing `agent_souls` table
+and the missing review response pipeline.**
+
+---
+
+## 226. PHANTOM TABLE `code_versions` — COMPLETE ANALYSIS
+
+### 226.1 No `code_versions` Table or Functions Exist
+
+```
+psypi=# \dt *version*
+  skill_versions  (exists, but NOT code_versions)
+
+psypi=# \df *code_version*
+  (no matching functions)
+```
+
+Neither the `code_versions` table NOR the SQL functions
+(`save_code_version`, `get_code_versions`, `restore_code_version`)
+exist in the database.
+
+### 226.2 All References in Gleam Code
+
+| File                    | Query/Call                                                                                              | Status                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| code_version.gleam      | `SELECT save_code_version($1, $2, $3, $4, $5)`                                                          | ❌ Function doesn't exist      |
+| code_version.gleam      | `SELECT * FROM get_code_versions($1, $2)`                                                               | ❌ Function doesn't exist      |
+| code_version.gleam      | `SELECT restore_code_version($1)`                                                                       | ❌ Function doesn't exist      |
+| code_version.gleam      | `SELECT id, file_path, saved_by, saved_at, ... FROM code_versions WHERE ...`                            | ❌ Table doesn't exist         |
+| monitor_ai.gleam        | `SELECT 'backup' as type_, file_path as content, saved_at::text FROM code_versions WHERE saved_by = $1` | ❌ Table doesn't exist         |
+| hook_on_tool_call.gleam | `code_version.save_version(file_path, content, "psypi", "", "auto-backup")`                             | ❌ Calls non-existent function |
+
+### 226.3 Impact
+
+**Auto-backup system** (`hook_on_tool_call.gleam`):
+- When S-bot edits a file, the hook tries to save a version
+- `save_version()` calls `save_code_version()` SQL function → ERROR
+- The error is caught and displayed as a notification
+- **No auto-backup ever happens**
+
+**psypi-doc-save tool**:
+- Calls `save_version()` → same error
+- **This tool has NEVER worked**
+
+**psypi-doc-list tool**:
+- Calls `get_versions()` → same error
+- **This tool has NEVER worked**
+
+**monitor_ai.prepare_context()**:
+- Queries `code_versions` → ERROR
+- But this function is never called (dead code)
+
+---
+
+## 227. `memory` TABLE — `saved_at` vs `created_at` Column Mismatch
+
+### 227.1 The Bug
+
+`monitor_ai.gleam` `prepare_context()`:
+```sql
+SELECT 'learning' as type_, content, saved_at::text 
+FROM memory WHERE agent_id = $1 AND source = 'learn'
+```
+
+But the `memory` table has `created_at`, NOT `saved_at`.
+
+### 227.2 Verification
+
+```
+psypi=# SELECT column_name FROM information_schema.columns 
+        WHERE table_name = 'memory' AND column_name IN ('saved_at', 'created_at');
+ column_name 
+-------------
+ created_at
+```
+
+No `saved_at` column. The query will FAIL with: `ERROR: column "saved_at" does not exist`.
+
+### 227.3 Impact
+
+`prepare_context()` is dead code (never called), so this bug has no runtime impact.
+But if someone tries to use it, it will fail.
+
+---
+
+## 228. CONSOLIDATED PHANTOM TABLE/VIEW/FUNCTION INVENTORY
+
+### 228.1 Phantom Tables (Referenced in Gleam, Don't Exist in DB)
+
+| Table Name          | Referenced By                               | Impact                               |
+| ------------------- | ------------------------------------------- | ------------------------------------ |
+| `agent_souls`       | a_db_reader, s_db_reader, agent_identity    | ❌ CRITICAL — A/S soul loading fails  |
+| `agent_jobs`        | a_db_reader, s_db_reader                    | ❌ CRITICAL — A/S job loading fails   |
+| `code_versions`     | code_version, monitor_ai, hook_on_tool_call | ❌ HIGH — Auto-backup broken          |
+| `notifications`     | monitor.gleam                               | ❌ MEDIUM — Agent notification broken |
+| `psypi_event_hooks` | event_hooks.gleam                           | ⚠️ Need to verify                     |
+
+### 228.2 Phantom SQL Functions (Referenced in Gleam, Don't Exist in DB)
+
+| Function Name            | Referenced By      | Impact                            |
+| ------------------------ | ------------------ | --------------------------------- |
+| `save_code_version()`    | code_version.gleam | ❌ HIGH — Auto-backup broken       |
+| `get_code_versions()`    | code_version.gleam | ❌ HIGH — Version listing broken   |
+| `restore_code_version()` | code_version.gleam | ❌ MEDIUM — Version restore broken |
+
+### 228.3 Phantom Columns (Referenced in Queries, Don't Exist in Tables)
+
+| Table  | Column       | Referenced By                            | Actual Column |
+| ------ | ------------ | ---------------------------------------- | ------------- |
+| soul   | id_prefix    | a_db_reader, s_db_reader, agent_identity | doesn't exist |
+| soul   | content      | s_db_reader                              | doesn't exist |
+| soul   | name         | agent_identity                           | doesn't exist |
+| soul   | trigger_type | agent_identity                           | doesn't exist |
+| soul   | drive_mode   | agent_identity                           | doesn't exist |
+| soul   | activation   | agent_identity                           | doesn't exist |
+| memory | saved_at     | monitor_ai                               | created_at    |
+| issues | type         | monitor_ai                               | issue_type    |
+
+### 228.4 Tables That DO Exist But With Wrong Column Names
+
+| Table  | Gleam Expects | DB Has       |
+| ------ | ------------- | ------------ |
+| issues | `type`        | `issue_type` |
+| memory | `saved_at`    | `created_at` |
+
+---
+
+## 229. CRITICAL PATH ANALYSIS — WHAT ACTUALLY WORKS
+
+### 229.1 Tools That Work End-to-End
+
+Based on the complete audit, these tools have a working path from
+Pi tool call → Gleam function → SQL query → DB → decode → result:
+
+| Tool                   | Module                         | Status    | Notes                                  |
+| ---------------------- | ------------------------------ | --------- | -------------------------------------- |
+| psypi-tasks            | task.list                      | ✅ WORKS   | Simple SELECT, proper casts            |
+| psypi-task-complete    | task.complete                  | ✅ WORKS   | Simple UPDATE                          |
+| psypi-issues           | issue_db.list                  | ✅ WORKS   | Simple SELECT                          |
+| psypi-issue-count      | issue_db.count                 | ✅ WORKS   | COUNT with ::INT                       |
+| psypi-issue-get        | issue_db.get                   | ✅ WORKS   | Simple SELECT with id::text            |
+| psypi-issue-resolve    | issue_db.resolve               | ✅ WORKS   | Simple UPDATE                          |
+| psypi-skill-list       | skill.list                     | ⚠️ PARTIAL | Works if source is 'human' or 'manual' |
+| psypi-skill-get        | skill.get                      | ⚠️ PARTIAL | Same source issue                      |
+| psypi-skill-search     | skill.search                   | ⚠️ PARTIAL | Same source issue                      |
+| psypi-meetings         | meeting.list                   | ✅ WORKS   | Simple SELECT                          |
+| psypi-meeting-get      | meeting.get                    | ✅ WORKS   | Simple SELECT                          |
+| psypi-meeting-opinions | meeting.list_opinions          | ✅ WORKS   | Simple SELECT                          |
+| psypi-meeting-add      | meeting.create                 | ✅ WORKS   | INSERT with proper types               |
+| psypi-learn-save       | learning.save                  | ✅ WORKS   | INSERT with proper types               |
+| psypi-broadcast-send   | broadcast.send                 | ✅ WORKS   | INSERT with proper types               |
+| psypi-broadcasts       | broadcast.list                 | ✅ WORKS   | Simple SELECT                          |
+| psypi-areflect         | areflect                       | ✅ WORKS   | INSERT with proper types               |
+| psypi-agents           | agents.list                    | ✅ WORKS   | Simple SELECT                          |
+| psypi-hooks-list       | event_hooks.list_all_hooks     | ⚠️ PARTIAL | Depends on psypi_event_hooks table     |
+| psypi-hooks-active     | event_hooks.list_active_hooks  | ⚠️ PARTIAL | Same                                   |
+| psypi-autonomic-health | monitor_ai.check_system_health | ✅ WORKS   | Sub-queries with ::INT                 |
+| psypi-autonomic-alerts | monitor_ai.get_alerts          | ✅ WORKS   | Sub-queries with ::INT                 |
+| psypi-autonomic-stats  | monitor_ai.get_model_stats     | ✅ WORKS   | Aggregation with ::INT                 |
+
+### 229.2 Tools That Are BROKEN
+
+| Tool                    | Module                        | Status       | Root Cause                                      |
+| ----------------------- | ----------------------------- | ------------ | ----------------------------------------------- |
+| psypi-my-id             | agent_identity                | ❌ BROKEN     | JS object vs Gleam custom type mismatch         |
+| psypi-task-add          | task.add                      | ⚠️ PARTIAL    | Hardcoded UUID, missing project_id              |
+| psypi-doc-save          | code_version                  | ❌ BROKEN     | code_versions table doesn't exist               |
+| psypi-doc-list          | code_version                  | ❌ BROKEN     | code_versions table doesn't exist               |
+| psypi-issue-add         | issue_db.add                  | ⚠️ PARTIAL    | created_by not in schema, project_id hardcoded  |
+| psypi-meeting-say       | meeting.add_opinion           | ⚠️ PARTIAL    | author not in schema                            |
+| psypi-memory-search     | memory.search                 | ⚠️ PARTIAL    | Template format bug                             |
+| psypi-stats-show        | stats                         | ❌ BROKEN     | Template uses named fields on Gleam custom type |
+| psypi-autonomic-status  | monitor_ai.start_monitor_loop | ⚠️ MISLEADING | Returns hardcoded template, ignores result      |
+| psypi-consult-autonomic | tool_consult                  | ❌ STUB       | Returns canned message                          |
+| psypi-commit            | tool_commit                   | ❌ DEAD END   | Review never completes                          |
+
+### 229.3 Hooks That Work
+
+| Hook          | Status  | Notes                                 |
+| ------------- | ------- | ------------------------------------- |
+| tool_call     | ✅ WORKS | Auto-backup fails but hook returns Ok |
+| session_start | ✅ WORKS | Records model to activity_log         |
+| model_select  | ✅ WORKS | Records model to activity_log         |
+| agent_start   | ✅ WORKS | Records trigger (no-op)               |
+
+### 229.4 Hooks That Are BROKEN
+
+| Hook               | Status    | Root Cause                                                       |
+| ------------------ | --------- | ---------------------------------------------------------------- |
+| before_agent_start | ❌ BROKEN  | Queries agent_souls (doesn't exist), returns fallback prompt     |
+| agent_end          | ❌ BROKEN  | Double debounce + agent_souls missing + is_s_still_idle catch-22 |
+| tool_result        | ⚠️ PARTIAL | Works but string-based error detection is fragile                |
+
+### 229.5 Summary
+
+- **23 of 35 tools** (66%) have a working end-to-end path
+- **12 of 35 tools** (34%) are broken, partial, or stubs
+- **4 of 7 hooks** (57%) work correctly
+- **3 of 7 hooks** (43%) are broken
+- **The entire A-bot system** (soul, jobs, wake-up, inter-review) is non-functional
+- **The auto-backup system** is non-functional
+- **The inter-review commit flow** is a dead end
