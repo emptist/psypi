@@ -10688,3 +10688,240 @@ to determine Gleam types. This is fragile because:
 
 These 6 root causes account for the majority of the 22 critical/high issues.
 Fixing root causes would resolve many individual bugs simultaneously.
+
+---
+
+## 186. DATABASE-ORIENTED REVIEW — VERIFIED FINDINGS
+
+All findings in this section verified against live PostgreSQL database on 2026-05-27.
+
+### 186.1 `session_start` / `model_select` Hook: Module Name Mismatch (VERIFIED)
+
+**Evidence from extension.js:**
+```javascript
+// Line 92 — session_start hook:
+const monitor_record_current_model = (await import('./build/dev/javascript/psypi/monitor.mjs')).record_current_model;
+
+// Line 111 — model_select hook:
+const monitor_record_current_model = (await import('./build/dev/javascript/psypi/monitor.mjs')).record_current_model;
+
+// Lines 34-38 — all other monitor tools use correct name:
+import { start_monitor_loop as monitor_ai_start_monitor_loop } from "./build/dev/javascript/psypi/monitor_ai.mjs";
+```
+
+**Two bugs in one:**
+1. Import path `monitor.mjs` should be `monitor_ai.mjs` (Gleam module is `monitor_ai`)
+2. Function `record_current_model` does not exist in `monitor_ai.gleam` at all
+
+**Result:** Both `session_start` and `model_select` hooks silently fail at runtime.
+The model is never recorded. No error is visible to the user because the catch block
+only shows a UI notification that disappears quickly.
+
+### 186.2 `is_s_still_idle()` — Heartbeat Never Updated (VERIFIED)
+
+**Evidence from database:**
+```
+identity_id                     | agent_type | status | last_heartbeat
+S-psypi-psypi-019dff39-...     | psypi      | alive  | 2026-05-07 06:59:23
+S-psypi-psypi-019dfea0-...     | psypi      | alive  | 2026-05-07 03:42:58
+P-tencent/hy3-preview:free-... | psypi      | alive  | 2026-05-07 03:06:31
+```
+
+All sessions have `status = 'alive'` but `last_heartbeat` dates are 20 days old.
+No code exists to update `last_heartbeat` — no heartbeat mechanism in any hook.
+
+**The `is_s_still_idle()` query:**
+```sql
+SELECT COUNT(*) as cnt FROM agent_sessions
+WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+
+Since heartbeats are never updated, this query ALWAYS returns 0, so `is_s_still_idle()`
+ALWAYS returns `True`. The idle check is completely non-functional.
+
+**Additionally:** The query has no `identity_id LIKE 'S-%'` filter, so even if
+heartbeats were updated, A-bot sessions would be counted, potentially blocking
+A-bot wake-up.
+
+### 186.3 Double Debounce — Conflicting Values (VERIFIED)
+
+**Evidence from database:**
+```sql
+SELECT key, value FROM psypi_config WHERE key LIKE '%debounce%';
+-- monitor_debounce_ms | 900000  (15 minutes)
+```
+
+**Evidence from code:**
+- JS debounce layer (extension.js): reads `psypi_config.get_debounce_ms()` → **900000ms (15 min)**
+- Gleam debounce layer (hook_on_agent_end): reads `_configStore["monitor_debounce_ms"]` → **null → defaults to 300000ms (5 min)**
+
+**The two debounce values are:**
+- JS layer: 15 minutes (from DB)
+- Gleam layer: 5 minutes (hardcoded default)
+
+**Scenario analysis:**
+- If S is idle for 15 min: JS timer fires → Gleam check: elapsed=15min > 5min → A wakes up ✓
+- If S is idle for 5-15 min: JS timer hasn't fired yet → A never wakes up ✗
+- If `_configStore` is set to 900000: JS timer fires at 15min → Gleam check: elapsed=15min >= 15min → A wakes up ✓
+- But `_configStore` is never populated from DB → always uses default 300000
+
+**The effective debounce is the MAX of both layers = 15 minutes**, but only because
+the JS layer fires first and the Gleam layer's threshold is lower. If the DB value
+were changed to less than 300000, the Gleam layer would BLOCK A-bot wake-up entirely.
+
+### 186.4 `system_directives` Table — Unimplemented Read Bridge (VERIFIED)
+
+**Evidence from database:**
+```
+Table exists: system_directives (8 rows)
+Columns: id, agent_id, directive_text, priority, is_active, source, created_at, expires_at, consumed_at
+```
+
+**Sample directives include:**
+- Inter-review requests with actual code diffs
+- System reminders about checking directives
+- Priority levels: low, medium, high, critical
+
+**Evidence from code:**
+- Migration `005_system_directives.sql` creates the table with comment:
+  "Atonomic Agentbot writes directives here → before_agent_start reads → injects into system prompt"
+- `hook_on_before_agent_start.gleam` does NOT query `system_directives`
+- No code reads from this table at all
+- The entire A→S directive bridge is broken at the reading end
+
+### 186.5 `auto_file_issue` — Wrong Column Name + Missing project_id (VERIFIED)
+
+**Evidence from database:**
+```sql
+\d issues
+-- Column: issue_type (NOT "type")
+-- Column: project_id uuid NOT NULL
+```
+
+**Evidence from code (monitor_ai.gleam):**
+```sql
+INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+-- Uses "type" instead of "issue_type"
+-- Missing project_id (NOT NULL column)
+```
+
+**Two bugs:**
+1. Column `type` should be `issue_type`
+2. Missing `project_id` which is NOT NULL
+
+If `auto_file_issue` were ever called, the INSERT would fail on both counts.
+
+### 186.6 `inter_reviews` Table — 33 Columns, Gleam Covers 6 (VERIFIED)
+
+**Evidence from database:**
+```
+inter_reviews has 33 columns:
+id, task_id, commit_hash, branch, requester_id, reviewer_type, review_round,
+status, summary, findings, suggestions, issues, praise, overall_score,
+code_quality_score, test_coverage_score, documentation_score, response,
+response_at, accepted_suggestions, requested_at, started_at, completed_at,
+review_context, issue_id, reviewer_id, response_status, raw_response,
+session_id, reviewed_by, leverage_ratio, rework_count, effort_minutes
+```
+
+**Gleam `Review` type covers:**
+```
+id, task_id, status, summary, overall_score, requested_at (6 columns)
+```
+
+**Missing from Gleam type (27 columns):**
+- `findings`, `suggestions`, `issues`, `praise` — JSONB arrays with review details
+- `code_quality_score`, `test_coverage_score`, `documentation_score` — sub-scores
+- `response`, `raw_response` — A-bot's actual review text
+- `reviewer_id`, `reviewed_by` — who reviewed
+- `response_status` — accepted/rejected/partial
+- `completed_at`, `started_at` — timing data
+
+**Critical decode issue:** `requested_at` is `timestamptz` but not cast to `::text`
+in `get_review_details` query. The pg driver returns a JS Date object, which
+`decode.string` cannot parse.
+
+### 186.7 `projects` Table — No Gleam Type (VERIFIED)
+
+**Evidence from database:**
+```
+projects table:
+id:            uuid (PK)
+name:          text NOT NULL UNIQUE
+description:   text
+path:          text NOT NULL (CHECK: starts with '/')
+language:      text
+framework:     text
+config:        jsonb
+status:        text (ACTIVE/INACTIVE/ARCHIVED)
+created_at:    timestamptz
+updated_at:    timestamptz
+last_qc_at:    timestamptz
+fingerprint:   text UNIQUE
+git_remote:    text
+last_seen:     timestamptz
+
+Data: 1 row — id='0d324e68-b399-4b85-bd8a-6b1ef7b46168', name='psypi'
+```
+
+**No Gleam type exists for this table.** The project_id is hardcoded in `db.gleam`
+and read from env var. The `PLAN-project-id-lookup.md` describes a dynamic lookup
+using `(path, git_remote)` but this is unimplemented.
+
+### 186.8 `agent_souls` Table — Asymmetric Read (VERIFIED)
+
+**Evidence from database:**
+```
+agent_souls:
+S-soul: content length = 938 chars (brief summary)
+A-soul: content length = 1906 chars (detailed personality with specific instructions)
+```
+
+**Evidence from code:**
+- `s_db_reader.read_s_soul_from_db()`: reads `content` column → gets full 938-char soul
+- `a_db_reader.read_soul_from_db()`: reads `role, domain, responsibility` → gets summary line only
+
+**A-bot never sees its own 1906-char soul content.** The detailed instructions about
+inter-review priority, anti-stupidity enforcement, and specific behavioral guidelines
+are completely invisible to the A-bot workflow.
+
+### 186.9 `request_inter_review` Function — Parameter Type Mismatch (VERIFIED)
+
+**Evidence from database:**
+```sql
+\df+ request_inter_review
+-- p_task_id uuid (NOT text)
+-- p_commit_hash text
+-- p_branch text
+-- p_requester_id text
+-- p_review_context jsonb (NOT text)
+```
+
+**Evidence from code (inter_review.gleam):**
+```gleam
+let task_id_param = case task_id {
+  Some(id) -> dynamic.string(id)   // string, not uuid
+  None -> dynamic.nil()
+}
+let context_json_str = dynamic.string(context_json)  // string, not jsonb
+```
+
+**Two type mismatches:**
+1. `p_task_id` expects `uuid`, Gleam passes `dynamic.string()` — PostgreSQL can
+   auto-cast text to uuid IF the string is valid UUID format, otherwise fails
+2. `p_review_context` expects `jsonb`, Gleam passes `dynamic.string()` — PostgreSQL
+   may auto-cast, but behavior depends on pg driver version
+
+### 186.10 Summary: Verified Database Findings
+
+| #   | Finding                                                                 | Severity     | Verified                         |
+| --- | ----------------------------------------------------------------------- | ------------ | -------------------------------- |
+| 1   | session_start/model_select: wrong module name + missing function        | **CRITICAL** | ✅ extension.js lines 92, 111     |
+| 2   | is_s_still_idle(): heartbeats never updated, always returns True        | **CRITICAL** | ✅ DB shows 20-day-old heartbeats |
+| 3   | Double debounce: DB=900000ms, in-memory default=300000ms                | **CRITICAL** | ✅ psypi_config table             |
+| 4   | system_directives: 8 rows exist, never read by before_agent_start       | **CRITICAL** | ✅ DB has 8 active directives     |
+| 5   | auto_file_issue: wrong column (type vs issue_type) + missing project_id | HIGH         | ✅ issues table schema            |
+| 6   | inter_reviews: 33 columns, Gleam covers 6, requested_at not cast        | **CRITICAL** | ✅ DB schema verified             |
+| 7   | projects: no Gleam type, dynamic lookup unimplemented                   | HIGH         | ✅ DB has 1 project row           |
+| 8   | agent_souls: A-bot reads 3 cols, misses 1906-char content               | HIGH         | ✅ DB content lengths             |
+| 9   | request_inter_review: uuid param gets string, jsonb param gets string   | MEDIUM       | ✅ Function signature verified    |
