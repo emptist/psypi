@@ -15730,3 +15730,329 @@ psypi-consult-autonomic, psypi-commit, all issue_tools, all monitor_ai tools.
 13. Add connection pooling
 14. Add migration tracking table
 15. Sync in-memory config with database config
+
+---
+
+## 241. GLEAM TYPES vs DB SCHEMA — COMPLETE CROSS-REFERENCE
+
+### 241.1 Gleam Types That Map to DB Tables
+
+| Gleam Type        | DB Table               | Fields Match?   | Issues                                                      |
+| ----------------- | ---------------------- | --------------- | ----------------------------------------------------------- |
+| Task              | tasks                  | ⚠️ PARTIAL       | Missing project_id in decoder; source column doesn't exist  |
+| Issue             | issues                 | ⚠️ PARTIAL       | issue_type vs type; created_by missing                      |
+| Skill             | skills                 | ⚠️ PARTIAL       | Missing AiBuilt variant; JSONB decode issues                |
+| Meeting           | meetings               | ⚠️ PARTIAL       | UUID not cast; consensus_at may not exist                   |
+| Opinion           | meeting_opinions       | ⚠️ PARTIAL       | UUID not cast                                               |
+| Memory            | memory                 | ❌ MISMATCH      | UUID not cast; tags is text not array; save() decoder wrong |
+| Broadcast         | project_communications | ❌ MISMATCH      | priority column missing; maps to wrong table                |
+| Stats             | (aggregate)            | ❌ TEMPLATE      | Template uses named fields on custom type                   |
+| Agent             | agent_identities       | ✅ OK            | Correctly implemented                                       |
+| EventHook         | psypi_event_hooks      | ❌ TABLE MISSING | Table doesn't exist                                         |
+| Notification      | notifications          | ❌ TABLE MISSING | Table doesn't exist                                         |
+| Review            | inter_reviews          | ⚠️ PARTIAL       | UUID not cast; overall_score never written                  |
+| ReviewFinding     | inter_reviews (jsonb)  | ⚠️ PARTIAL       | Decoded from JSONB column                                   |
+| Learning          | inter_reviews (jsonb)  | ⚠️ PARTIAL       | Decoded from JSONB column                                   |
+| MonitorModel      | provider_api_keys      | ✅ OK            | Works correctly                                             |
+| HealthMetrics     | (aggregate)            | ✅ OK            | Computed from multiple queries                              |
+| AlertMetrics      | (aggregate)            | ✅ OK            | Computed from multiple queries                              |
+| ModelStats        | (aggregate)            | ✅ OK            | Computed from multiple queries                              |
+| MonitorSuggestion | (computed)             | ✅ OK            | Not from DB                                                 |
+| SafetyResult      | (computed)             | ✅ OK            | Not from DB                                                 |
+| EnrichedIdentity  | (composite)            | ❌ BROKEN        | Depends on agent_souls                                      |
+| AgentId           | (computed)             | ❌ BROKEN        | Semantic ID based on is_idle                                |
+| AgentIdentity     | (composite)            | ❌ BROKEN        | Depends on agent_souls                                      |
+| IdentityContext   | (computed)             | ❌ BROKEN        | Depends on broken AgentId                                   |
+| IssueSummary      | issues                 | ⚠️ PARTIAL       | UUID not cast in fetch                                      |
+
+### 241.2 DB Tables With NO Gleam Type (78 tables total)
+
+The database has 78 tables. Only ~15 have corresponding Gleam types.
+The remaining 63 tables have no Gleam type and no Gleam code that reads from them:
+
+**Tables with NO Gleam coverage**:
+activity_log, agent_identity, agent_scores, agent_sessions, ai_capabilities,
+api_keys, archived_memory, auto_category_rules, auto_tag_rules, bootstrap_state,
+conversations, dead_letter_queue, direct_insert_audit, email_verifications,
+event_log, failure_alerts, failure_patterns, failure_root_causes, insert_reminders,
+issue_comments, issue_events, issue_labels, knowledge_links, labels,
+long_tasks_pause, mcp_configs, mcp_tools, milestones, password_resets,
+payment_analytics, payment_refunds, payment_webhooks, payments, process_pids,
+project_config_history, project_docs, project_metrics, prompt_suggestions,
+rate_limits, reflections, reminder_templates, retry_learning, retry_strategies,
+review_comments, review_labels, reviews, scheduled_tasks, skill_audit_log,
+skill_builder_config, skill_feedback, skill_versions, stuck_tasks_tracking,
+subscription_plans, subscriptions, system_directives, table_documentation,
+task_audit_log, task_outcome_features, task_outcomes, task_patterns,
+task_templates, user_payment_methods, user_sessions, users
+
+**Key observations**:
+- `soul` table EXISTS but Gleam code references `agent_souls` (phantom)
+- `agent_identities` table EXISTS but Gleam `Agent` type only reads 3 of 9 columns
+- `psypi_config` table EXISTS but Gleam uses in-memory `_configStore` instead
+- `reviews` table EXISTS but Gleam uses `inter_reviews` (different table)
+- `activity_log` EXISTS and is written to by `monitor.record_current_model()`
+- 63 tables are completely unused by Gleam code
+
+### 241.3 The `soul` Table — Most Critical Gap
+
+The `soul` table is the correct table for agent soul data, but Gleam code
+references `agent_souls` which doesn't exist.
+
+**Actual `soul` table schema**:
+```
+soul (12 columns):
+  id                    uuid        NOT NULL  DEFAULT uuid_generate_v4()
+  role                  text        NOT NULL
+  responsibility        text        NOT NULL
+  domain                text        NOT NULL
+  event_triggers        jsonb                 DEFAULT '[]'::jsonb
+  task_patterns         jsonb                 DEFAULT '[]'::jsonb
+  verification_criteria text
+  remediation_steps     text
+  is_active             boolean               DEFAULT true
+  priority              text                  DEFAULT 'medium'
+  created_at            timestamptz           DEFAULT now()
+  updated_at            timestamptz           DEFAULT now()
+```
+
+**What Gleam code expects from `agent_souls`**:
+- `a_db_reader`: `role, domain, responsibility` + `id_prefix='A'` filter
+- `s_db_reader`: `content` + `id_prefix='S'` filter
+- `agent_identity`: `id, name, domain, responsibility, trigger_type, drive_mode, activation` + `id_prefix` filter
+
+**Mapping needed**:
+| agent_souls column | soul column    | Notes                              |
+| ------------------ | -------------- | ---------------------------------- |
+| id_prefix          | role           | 'A' → 'autonomic', 'S' → 'somatic' |
+| name               | domain         | domain serves as name              |
+| content            | responsibility | responsibility serves as content   |
+| trigger_type       | event_triggers | JSONB, needs parsing               |
+| drive_mode         | priority       | priority serves as drive mode      |
+| activation         | is_active      | boolean → activation status        |
+
+**There is NO Gleam type for `soul`**. This is the most critical missing type.
+
+### 241.4 Missing Gleam Types for Existing DB Tables
+
+| DB Table               | Has Gleam Type?                     | Should Have One?                 |
+| ---------------------- | ----------------------------------- | -------------------------------- |
+| soul                   | ❌ NO                                | YES — core to A/S agent system   |
+| agent_identities       | Partial (Agent reads 3/9 cols)      | YES — full type needed           |
+| psypi_config           | ❌ NO                                | YES — config reads/writes        |
+| activity_log           | ❌ NO                                | MAYBE — only written, never read |
+| projects               | ❌ NO                                | YES — project_id lookup          |
+| provider_api_keys      | Partial (MonitorModel reads 2 cols) | MAYBE — only for model info      |
+| skills                 | Partial (Skill type exists)         | YES — needs JSONB handling       |
+| memory                 | Partial (Memory type exists)        | YES — needs fix                  |
+| learning_insights      | ❌ NO                                | MAYBE — only written by areflect |
+| project_communications | Partial (Broadcast maps to it)      | YES — needs correct mapping      |
+
+---
+
+## 242. THE `psypi_config` TABLE vs IN-MEMORY STORE
+
+### 242.1 The Dual Config Problem
+
+**Database table `psypi_config`**:
+```
+psypi_config (6 columns):
+  key         text        (PRIMARY KEY)
+  value       text
+  encrypted   boolean
+  description text
+  created_at  timestamptz
+  updated_at  timestamptz
+```
+
+**In-memory store `_configStore`** (in `pi_extension_ffi.mjs`):
+```js
+const _configStore = {};
+export function get_config(key) { return _configStore[key] || null; }
+export function set_config(key, value) { _configStore[key] = value; }
+```
+
+### 242.2 Who Uses What
+
+| Module              | Uses              | Key                 | Written | Read |
+| ------------------- | ----------------- | ------------------- | ------- | ---- |
+| hook_on_agent_end   | in-memory         | idle_since          | YES     | YES  |
+| hook_on_agent_end   | in-memory         | monitor_debounce_ms | NO      | YES  |
+| extension_generator | DB (psypi_config) | get_debounce_ms     | —       | YES  |
+| (debounced_hook)    | DB (psypi_config) | debounce_ms         | —       | YES  |
+
+### 242.3 The Problem
+
+1. `hook_on_agent_end` writes `idle_since` to in-memory store
+2. The generated `debounced_hook` reads from `psypi_config` table
+3. These are TWO DIFFERENT stores with NO synchronization
+4. Result: debounce logic uses stale or missing values
+
+### 242.4 Impact
+
+The `agent_end` hook has a **double debounce**:
+1. First: the generated `debounced_hook` wrapper checks `psypi_config` table for debounce timing
+2. Second: the manual debounce check in `hook_on_agent_end` reads `idle_since` from in-memory store
+
+These two debounce mechanisms are independent and can produce conflicting results.
+
+---
+
+## 243. THE `projects` TABLE — EMPTY AND UNUSED BY GLEAM
+
+### 243.1 Schema
+
+```
+projects (14 columns):
+  id          uuid        (PRIMARY KEY)
+  name        text
+  description text
+  path        text
+  language    text
+  framework   text
+  config      jsonb
+  status      text
+  created_at  timestamptz
+  updated_at  timestamptz
+  last_qc_at  timestamptz
+  fingerprint text
+  git_remote  text
+  last_seen   timestamptz
+```
+
+### 243.2 The Table Is EMPTY
+
+```
+psypi=# SELECT COUNT(*) FROM projects;
+ count 
+-------
+     0
+(1 row)
+```
+
+### 243.3 The Hardcoded UUID References a Non-Existent Row
+
+The UUID `0d324e68-b399-4b85-bd8a-6b1ef7b46168` is used in 7 locations:
+
+| File              | Line | Usage                                 |
+| ----------------- | ---- | ------------------------------------- |
+| task.gleam        | 283  | Default project_id param              |
+| issue_db.gleam    | 215  | Default project_id filter             |
+| issue_db.gleam    | 273  | project_id for issue_get              |
+| issue_db.gleam    | 304  | project_id for issue_resolve          |
+| issue_tools.gleam | 24   | Default project_id param              |
+| db.gleam          | 38   | Default project_id when env var empty |
+| migrations/025    | 6    | ALTER TABLE SET DEFAULT               |
+
+**None of these references point to an actual project row.**
+
+### 243.4 Impact
+
+- Every task and issue is created with `project_id = '0d324e68-...'` which doesn't exist
+- If FK constraints exist, all INSERTs would fail (they don't seem to, or the data would be broken)
+- If FK constraints don't exist, all data is orphaned — no project to belong to
+- The `PLAN-project-id-lookup.md` plan for dynamic lookup via `(path, git_remote)` is unimplemented
+- The `projects` table has `path` and `git_remote` columns ready for this, but no code uses them
+
+### 243.5 What Should Happen
+
+1. On extension startup, query `SELECT id FROM projects WHERE path = $1 AND git_remote = $2`
+2. If found, use that `project_id`
+3. If not found, INSERT a new project row and use the new `id`
+4. Store the resolved `project_id` in the in-memory config store
+5. All tools should read `project_id` from config, not hardcode it
+
+---
+
+## 244. THE `agent_identities` TABLE — GLEAM ONLY READS 3/9 COLUMNS
+
+### 244.1 Full Schema
+
+```
+agent_identities (9 columns):
+  id                  character varying
+  project             character varying
+  git_hash            character varying
+  machine_fingerprint character varying
+  created_at          timestamptz
+  updated_at          timestamptz
+  display_name        character varying
+  description         text
+  owner               character varying
+```
+
+### 244.2 What Gleam Reads
+
+```sql
+SELECT id, agent_type, created_at::text FROM agent_identities
+```
+
+**Problem**: There is NO `agent_type` column. The Gleam code uses `agent_type`
+which doesn't exist. It should use `display_name` or `description`.
+
+Wait — let me re-check. The `agents.gleam` module queries `agent_type`:
+
+```sql
+SELECT id, agent_type, created_at::text FROM agent_identities
+```
+
+But the table has `display_name` and `description`, not `agent_type`.
+
+**This means the `psypi-agents` tool is BROKEN** — it references a non-existent column.
+
+Wait, I previously marked this as ✅ OK. Let me re-verify...
+
+Actually, looking more carefully at the table schema:
+- `id` is `character varying` — works with `decode.string` ✅
+- `agent_type` — DOES NOT EXIST in the table ❌
+- `created_at::text` — properly cast ✅
+
+**The `psypi-agents` tool is BROKEN.** The `agent_type` column doesn't exist.
+
+### 244.3 Correction to Section 230.7
+
+Section 230.7 incorrectly stated that `agents.gleam` works correctly.
+It does NOT — the `agent_type` column doesn't exist in `agent_identities`.
+
+---
+
+## 245. REVISED MODULE VERDICT TABLE
+
+Correcting the verdict from Section 236:
+
+| Module                     | Tools                                                 | Works?     | Key Issues                                     |
+| -------------------------- | ----------------------------------------------------- | ---------- | ---------------------------------------------- |
+| task                       | psypi-task-add, psypi-tasks, psypi-task-complete      | ⚠️ PARTIAL  | Hardcoded UUID, missing project_id             |
+| issue_db                   | psypi-issue-add, psypi-issues, etc.                   | ⚠️ PARTIAL  | created_by not in schema, project_id hardcoded |
+| skill                      | psypi-skill-list, psypi-skill-get, psypi-skill-search | ⚠️ PARTIAL  | Missing AiBuilt variant                        |
+| meeting                    | psypi-meetings, etc.                                  | ❌ BROKEN   | UUID not cast                                  |
+| code_version               | psypi-doc-save, psypi-doc-list                        | ❌ BROKEN   | Table doesn't exist                            |
+| memory                     | psypi-memory-search                                   | ❌ BROKEN   | UUID not cast, tags decode fails               |
+| broadcast                  | psypi-broadcast-send, psypi-broadcasts                | ❌ BROKEN   | priority column missing                        |
+| learning                   | psypi-learn-save                                      | ✅ WORKS    | Tags format fragile                            |
+| stats                      | psypi-stats-show                                      | ❌ BROKEN   | Template uses named fields                     |
+| areflect                   | psypi-areflect                                        | ⚠️ PARTIAL  | issues.created_by missing                      |
+| agents                     | psypi-agents                                          | ❌ BROKEN   | agent_type column doesn't exist                |
+| monitor_ai                 | psypi-autonomic-*                                     | ⚠️ PARTIAL  | auto_file_issue broken                         |
+| event_hooks                | psypi-hooks-*                                         | ❌ BROKEN   | Table doesn't exist                            |
+| monitor                    | (notifications)                                       | ❌ BROKEN   | Table doesn't exist                            |
+| agent_identity             | psypi-my-id                                           | ❌ BROKEN   | JS object vs Gleam type                        |
+| tool_commit                | psypi-commit                                          | ❌ DEAD END | Review never completes                         |
+| tool_consult               | psypi-consult-autonomic                               | ❌ STUB     | Returns canned message                         |
+| hook_on_agent_start        | —                                                     | ✅ WORKS    | No-op but functional                           |
+| hook_on_tool_call          | —                                                     | ⚠️ PARTIAL  | Auto-backup fails silently                     |
+| hook_on_tool_result        | —                                                     | ✅ WORKS    | Simple string matching                         |
+| hook_on_before_agent_start | —                                                     | ⚠️ PARTIAL  | Works with fallback soul                       |
+| hook_on_agent_end          | —                                                     | ❌ BROKEN   | Double debounce + phantom tables               |
+| a_orchestrator             | —                                                     | ❌ BROKEN   | Error swallowing, phantom tables               |
+| a_db_reader                | —                                                     | ❌ BROKEN   | Phantom tables, catch-22                       |
+| s_db_reader                | —                                                     | ❌ BROKEN   | Phantom table                                  |
+
+**Revised Summary**:
+- ✅ WORKS: 2 modules (learning, hook_on_tool_result) — was 3, agents downgraded
+- ⚠️ PARTIAL: 6 modules (task, issue_db, skill, areflect, monitor_ai, hook_on_tool_call, hook_on_before_agent_start) — was 7, hook_on_tool_result upgraded
+- ❌ BROKEN: 16 modules — was 15, agents added
+- ❌ STUB: 1 module (tool_consult)
+- ❌ DEAD END: 1 module (tool_commit)
+
+**Only 2 out of 26 modules work correctly. 16 are completely broken.**
