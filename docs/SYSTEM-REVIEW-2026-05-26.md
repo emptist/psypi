@@ -14,22 +14,24 @@ not fewer. The issues are: wrong column names, missing `::text` casts, and FFI b
 The database has 115 tables. Gleam source defines types for only 12 of them.
 103 tables have zero Gleam type coverage.
 
-### Tables WITH Gleam types (12/115)
+### Tables WITH Gleam types (14/115)
 
-| DB Table               | Gleam Type | Module             | Status                                                  |
-| ---------------------- | ---------- | ------------------ | ------------------------------------------------------- |
-| tasks                  | Task       | task.gleam         | PARTIAL — 60 DB columns, Gleam type covers ~14          |
-| issues                 | Issue      | issue_types.gleam  | PARTIAL — 31 DB columns, Gleam type covers ~9           |
-| inter_reviews          | Review     | inter_review.gleam | BROKEN — missing `::text` casts on timestamps           |
-| memory                 | Memory     | memory.gleam       | PARTIAL — `source='learn'` not in audit allowed_sources |
-| skills                 | Skill      | skill.gleam        | PARTIAL — 56 DB columns, Gleam type covers ~11          |
-| meetings               | Meeting    | meeting.gleam      | OK — basic columns match                                |
-| meeting_opinions       | Opinion    | meeting.gleam      | OK — basic columns match                                |
-| project_communications | Broadcast  | broadcast.gleam    | PARTIAL — INSERT works, but Gleam type incomplete       |
-| agent_sessions         | Agent      | agents.gleam       | OK — basic columns match                                |
-| psypi_config           | (inline)   | psypi_config.gleam | OK — key/value pattern                                  |
-| activity_log           | (inline)   | monitor.gleam      | OK — basic columns match                                |
-| learning_insights      | (none)     | areflect.gleam     | INSERT only, no read type                               |
+| DB Table               | Gleam Type | Module               | Status                                                  |
+| ---------------------- | ---------- | -------------------- | ------------------------------------------------------- |
+| tasks                  | Task       | task.gleam           | PARTIAL — 60 DB columns, Gleam type covers ~14          |
+| issues                 | Issue      | issue_types.gleam    | PARTIAL — 31 DB columns, Gleam type covers ~9           |
+| inter_reviews          | Review     | inter_review.gleam   | BROKEN — missing `::text` casts on timestamps           |
+| memory                 | Memory     | memory.gleam         | PARTIAL — `source='learn'` not in audit allowed_sources |
+| skills                 | Skill      | skill.gleam          | PARTIAL — 56 DB columns, Gleam type covers ~11          |
+| meetings               | Meeting    | meeting.gleam        | OK — basic columns match                                |
+| meeting_opinions       | Opinion    | meeting.gleam        | OK — basic columns match                                |
+| project_communications | Broadcast  | broadcast.gleam      | PARTIAL — INSERT works, but Gleam type incomplete       |
+| agent_sessions         | Agent      | agents.gleam         | OK — basic columns match                                |
+| psypi_config           | (inline)   | psypi_config.gleam   | OK — key/value pattern                                  |
+| activity_log           | (inline)   | monitor.gleam        | OK — basic columns match                                |
+| learning_insights      | (none)     | areflect.gleam       | INSERT only, no read type                               |
+| agent_souls            | (tuple)    | agent_identity.gleam | READ only, decoder as tuple not named type              |
+| agent_jobs             | (String)   | s_db_reader.gleam    | READ only, decoded to formatted string                  |
 
 ### Tables WITHOUT Gleam types (103/115) — CRITICAL GAPS
 
@@ -392,48 +394,50 @@ Last 50 commits show 20+ "fix" commits. Pattern:
    → save() ALWAYS returns Error even though INSERT succeeds → callers may create duplicates
 2. **`memory.gleam:search()`** — `SELECT *` returns `created_at` as Date, decoder uses `decode.string`
    → search() ALWAYS fails on decode
-3. **`monitor_ai.gleam:auto_file_issue()`** — `type` column doesn't exist (should be `issue_type`)
-   → INSERT always fails with "column 'type' does not exist"
-4. **`inter_review.gleam`** — add `::text` casts to `requested_at` (3 locations)
+3. **`areflect.gleam:save_issue()`** — Missing `project_id` (NOT NULL, no default)
+   → INSERT always fails with "null value in column 'project_id' violates not-null constraint"
+4. **`monitor_ai.gleam:auto_file_issue()`** — `type` column doesn't exist (should be `issue_type`) AND missing `project_id`
+   → INSERT always fails (two separate errors)
+5. **`inter_review.gleam`** — add `::text` casts to `requested_at` (3 locations)
    → decode fails with DecodeError
-5. **`skill.gleam`** — add `AiBuilt` variant to `SkillSource`
+6. **`skill.gleam`** — add `AiBuilt` variant to `SkillSource`
    → decode fails for `source='ai-built'`
-6. **`gleamValueToJson`** — ALL `startsWith('X$X')` checks are dead code
+7. **`gleamValueToJson`** — ALL `startsWith('X$X')` checks are dead code
    → enum variants serialize as `{}` losing variant name; tool output to Pi LLM is malformed
-7. **`skill.gleam:184,214`** — JSONB columns `content`, `reference_list` missing `::text` cast
+8. **`skill.gleam:184,214`** — JSONB columns `content`, `reference_list` missing `::text` cast
    → decode fails for non-null values
 
 ### P1 — Logic Bugs & Data Integrity
 
-8. **`a_db_reader.gleam:44`** — `Error(_) -> Ok(True)` assumes S is idle on decode failure
+9. **`a_db_reader.gleam:44`** — `Error(_) -> Ok(True)` assumes S is idle on decode failure
    → A-bot may wake up inappropriately; should be `Ok(False)`
-9. **`is_s_still_idle`** — counts ALL sessions, not just S-bot (no `agent_type` filter)
+10. **`is_s_still_idle`** — counts ALL sessions, not just S-bot (no `agent_type` filter)
    → A-bot's own session counts as "S is busy"
-10. **`learning.gleam`** — `source='learn'` triggers audit false-positive
+11. **`learning.gleam`** — `source='learn'` triggers audit false-positive
     → Every INSERT logged as "direct insert violation"
-11. **9 decoders** silently fall back to default enum values on unknown variants
+12. **9 decoders** silently fall back to default enum values on unknown variants
     → Masks data integrity issues; should return Error instead
-12. Fix `task.gleam` — add `::text` cast to `result` (JSONB) column in SELECT
-13. Add `project_id` to `areflect.gleam` INSERT INTO tasks (inconsistent with task.add)
+13. Fix `task.gleam` — add `::text` cast to `result` (JSONB) column in SELECT
+14. Add `project_id` to `areflect.gleam` INSERT INTO tasks (inconsistent with task.add)
 
 ### P2 — Architecture & Type Coverage
 
-14. Create Gleam type for `projects` table (currently no type, 1 row exists)
-15. Implement `PLAN-project-id-lookup.md` for dynamic project_id resolution
-16. Create Gleam types for high-value missing tables: `soul`, `system_reviews`, `conversations`
-17. Extract `decode_all_results` to shared `decode_utils.gleam` module
-18. Deduplicate `now_ms` FFI (two different return types)
-19. Remove orphan `time_utils_ffi.mjs`
-20. Update `@mariozechner/pi-tui` → `@earendil-works/pi-tui` in extension_generator.gleam
-21. Resolve dual heartbeat columns in `agent_sessions` (`last_heartbeat` vs `last_heartbeat_at`)
+15. Create Gleam type for `projects` table (currently no type, 1 row exists)
+16. Implement `PLAN-project-id-lookup.md` for dynamic project_id resolution
+17. Create Gleam types for high-value missing tables: `soul`, `system_reviews`, `conversations`
+18. Extract `decode_all_results` to shared `decode_utils.gleam` module
+19. Deduplicate `now_ms` FFI (two different return types)
+20. Remove orphan `time_utils_ffi.mjs`
+21. Update `@mariozechner/pi-tui` → `@earendil-works/pi-tui` in extension_generator.gleam
+22. Resolve dual heartbeat columns in `agent_sessions` (`last_heartbeat` vs `last_heartbeat_at`)
 
 ### P3 — Architecture & Testing
 
-17. Evaluate `squirrel` for type-safe SQL queries (prevents phantom column issues at compile time)
-18. Add integration tests that verify SQL queries against real DB
-19. Add schema validation at build time
-20. Implement missing Pi extension API features (signal/cancellation, streaming, custom rendering)
-21. Replace dynamic `await import()` in hooks with static imports
+23. Evaluate `squirrel` for type-safe SQL queries (prevents phantom column issues at compile time)
+24. Add integration tests that verify SQL queries against real DB
+25. Add schema validation at build time
+26. Implement missing Pi extension API features (signal/cancellation, streaming, custom rendering)
+27. Replace dynamic `await import()` in hooks with static imports
 
 ---
 
@@ -796,3 +800,60 @@ But a multi-line commit message could cause unexpected behavior.
 
 All database queries use `$1`, `$2`, etc. with `dynamic.string()` for values.
 No SQL injection vectors found in database code.
+
+---
+
+## 20. MISSING NOT NULL COLUMNS IN INSERTS
+
+### 20a. `areflect.gleam:save_issue()` — Missing `project_id` (NOT NULL, no default)
+
+```gleam
+// areflect.gleam:228
+INSERT INTO issues (title, description, severity, created_by)
+VALUES ($1, $2, 'medium', $3)
+```
+
+The `issues` table has `project_id` as NOT NULL with NO default value.
+This INSERT will FAIL with: `ERROR: null value in column "project_id" violates not-null constraint`.
+
+**Verified**: `SELECT is_nullable, column_default FROM information_schema.columns
+WHERE table_name = 'issues' AND column_name = 'project_id'` returns `NO, null`.
+
+### 20b. `monitor_ai.gleam:auto_file_issue()` — Missing `project_id` (NOT NULL, no default)
+
+Same issue as 20a — the INSERT doesn't include `project_id`, which is NOT NULL.
+Additionally uses wrong column name `type` instead of `issue_type` (see Section 18c).
+
+### 20c. `areflect.gleam:save_task()` — Missing `project_id` (has default, works)
+
+```gleam
+// areflect.gleam:253
+INSERT INTO tasks (title, description, priority, created_by)
+VALUES ($1, $2, 5, $3)
+```
+
+The `tasks` table has `project_id` as NOT NULL BUT with a default value
+(`'0d324e68-b399-4b85-bd8a-6b1ef7b46168'::uuid`). This INSERT works but uses
+the hardcoded default instead of the current project's ID. Inconsistent with
+`task.gleam:123` which explicitly passes `project_id`.
+
+---
+
+## 21. FRAGILE JSON PARSING IN `hook_on_tool_result.gleam`
+
+```gleam
+// hook_on_tool_result.gleam:8-13
+let is_error =
+  string.contains(result_json, "\"error\"")
+  || string.contains(result_json, "Error:")
+  || string.contains(result_json, "execution error")
+  || string.contains(result_json, "tool_execution_blocked")
+  || string.contains(result_json, "\"is_error\":true")
+```
+
+This uses `string.contains` to detect errors in JSON. Problems:
+- **False positives**: Any tool result containing the word "Error:" in its data (e.g., a task about "Error Handling") triggers the error path.
+- **False negatives**: Error responses with non-standard formats are missed.
+- **`extract_error_msg`** uses `string.split(json, "\"error\"")` which is extremely fragile — it breaks on nested JSON, escaped quotes, or any response where `"error"` appears in data.
+
+Should use proper JSON decoding via `gleam/json` instead of string matching.
