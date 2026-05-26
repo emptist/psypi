@@ -7822,3 +7822,248 @@ event loop.
 | FFI time_utils_ffi.mjs bugs        | 1                                                                                                                                                       |
 | Migration schema bugs              | 5                                                                                                                                                       |
 | **TOTAL CONFIRMED BUGS**           | **219**                                                                                                                                                 |
+
+---
+
+## 155. EXTENSION GENERATOR AND PI TOOL CALL REVIEW
+
+### 155a. pi_tool_call.gleam — Type Definitions and JS Generation
+
+**File:** [pi_tool_call.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/pi_tool_call.gleam)
+
+**Bug 1: `params_to_js` doesn't quote `required` array values properly**
+The generated JS has `"required": ["title", "description"]` which is
+correct JSON. No bug here.
+
+**Bug 2: `to_js_text` uses `unwrapGleamResult` which returns plain object**
+The generated tool code calls `unwrapGleamResult(result)` which
+returns `{ ok: true, value: ... }`. But the Gleam function returns
+a `Result(a, e)` type. The `unwrapGleamResult` function in
+`pi_extension_ffi.mjs` manually destructures the Gleam Result type.
+This works but is fragile — if Gleam changes its internal Result
+representation, it will break.
+
+**Bug 3: `hook_import_line` uses dynamic import inside event handler**
+```javascript
+const alias = (await import('./build/dev/javascript/psypi/module.mjs')).fn_name;
+```
+This dynamic import happens on EVERY hook invocation. Node.js caches
+modules after first import, so subsequent calls are fast. But the
+first call for each hook is slow (module resolution + parsing).
+
+**Bug 4: `PiDebouncedHook` generates debounce timer that adds to manual debounce**
+The generated debounced hook creates a `setTimeout` that fires after
+`debounce_ms`, then calls the handler function. But the handler
+(`hook_on_agent_end.on_agent_end`) implements its OWN debounce
+logic using in-memory config. This creates DOUBLE DEBOUNCE:
+- First debounce: generated JS timer (reads from database via
+  `psypi_config.get_debounce_ms()`)
+- Second debounce: manual check in `on_agent_end` (reads from
+  in-memory `_configStore`)
+
+The actual debounce time is the SUM of both, not just one.
+
+### 155b. extension_generator.gleam — Extension Composition
+
+**File:** [extension_generator.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/extension_generator.gleam)
+
+**Bug 1: `all_tools()` missing `task_get_tool`**
+The tool registry includes `task_add_tool()`, `task_list_tool()`,
+`task_complete_tool()` but NOT `task_get_tool()`. The `task.gleam`
+module defines a `task_get_tool()` function, but it's never
+registered. S-bot cannot look up individual tasks.
+
+**Bug 2: `session_start` hook calls `monitor.record_current_model`**
+The hook passes `from_param("ctx.model")` but `record_current_model`
+expects a `model_name: String`. `ctx.model` is a JavaScript object,
+not a string. The function will receive `[object Object]` as the
+model name.
+
+**Bug 3: `model_select` hook also calls `monitor.record_current_model`**
+Same issue — `from_param("event.model")` passes a JS object as
+string.
+
+**Bug 4: `write_extension()` silently ignores write errors**
+```gleam
+case write_file(extension_path, content) {
+  Ok(_) -> Nil
+  Error(e) -> io.println("Error writing extension.js: " <> string.inspect(e))
+}
+```
+The error is printed but the function returns `Nil` (not Error).
+The caller has no way to know the write failed.
+
+**Bug 5: No `task_get_tool` in registry**
+As noted above, `task.get()` is defined but never registered as a
+Pi tool. The S-bot cannot retrieve individual tasks by ID.
+
+### 155c. psypi_config.gleam — Database Config
+
+**File:** [psypi_config.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/psypi_config.gleam)
+
+**Bug 1: `get_debounce_ms()` reads from database, but hooks use in-memory**
+The `psypi_config.get_debounce_ms()` function reads from the
+`psypi_config` table in PostgreSQL. But `hook_on_agent_end.gleam`
+uses `pi_extension.get_config("monitor_debounce_ms")` which reads
+from the in-memory `_configStore`. These are two completely
+different stores that are never synchronized.
+
+**Bug 2: `set()` writes to database, not in-memory store**
+When `psypi_config.set()` is called, it writes to the database.
+But the in-memory `_configStore` is never updated. Any code that
+reads from `_configStore` after a database write will see stale
+values.
+
+### 155d. areflect.gleam — Agent Reflection
+
+**File:** [areflect.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/areflect.gleam)
+
+**Bug 1: `save_issue()` INSERT missing `project_id` (NOT NULL, no default)**
+```gleam
+let sql = "
+  INSERT INTO issues (title, description, severity, created_by)
+  VALUES ($1, $2, 'medium', $3)
+"
+```
+The `issues` table has `project_id` as NOT NULL with no default.
+This INSERT will ALWAYS fail with:
+"null value in column 'project_id' violates not-null constraint"
+
+**Bug 2: `save_issue()` INSERT missing `issue_type` (has default 'bug')**
+The `issue_type` column has a default of 'bug', so this INSERT
+will succeed with the default. But it means all areflect-created
+issues are typed as 'bug' regardless of actual type.
+
+**Bug 3: `fetch_recent_issues()` — `id` is UUID, decoded as `decode.string`**
+UUID is returned as string by node-postgres, so this should work.
+But it's inconsistent with other modules that use `id::text`.
+
+**Bug 4: `save_learning()` inserts into `learning_insights` not `memory`**
+The `areflect` module saves learnings to `learning_insights` table,
+while the `learning.gleam` module saves to `memory` table. These
+are different tables with different schemas. Learnings saved via
+`areflect` won't appear in `memory.search()` results.
+
+**Bug 5: `_agent_id` parameter unused in `save_learning()`**
+The `agent_id` parameter is prefixed with underscore, meaning it's
+unused. The INSERT doesn't include `agent_id` in the
+`learning_insights` table.
+
+---
+
+## 156. DOUBLE DEBOUNCE ANALYSIS
+
+The `agent_end` hook has TWO debounce mechanisms stacked on top of
+each other:
+
+### Layer 1: Generated Debounce (extension.js)
+
+```javascript
+// Generated by pi_tool_call.gleam:PiDebouncedHook
+let _debounceTimerId = null;
+let _debounceMs = null;
+pi.on('agent_end', async (event, ctx) => {
+  if (_debounceTimerId) clearTimeout(_debounceTimerId);
+  _debounceTimerId = null;
+  if (_debounceMs == null) {
+    const debounceResult = await psypi_config_get_debounce_ms();
+    _debounceMs = unwrapGleamResult(debounceResult).value;
+  }
+  _debounceTimerId = setTimeout(async () => {
+    // Call hook_on_agent_end.on_agent_end(ctx, pi)
+  }, _debounceMs);
+});
+```
+
+This reads `monitor_debounce_ms` from DATABASE (e.g., 900000 = 15min).
+
+### Layer 2: Manual Debounce (hook_on_agent_end.gleam)
+
+```gleam
+// Inside on_agent_end()
+case get_config("idle_since") {
+  Some(idle_since_str) -> {
+    let elapsed = now - idle_since
+    case get_config("monitor_debounce_ms") {
+      Some(debounce_str) -> // use value from in-memory store
+      None -> // use hardcoded 300000 (5min)
+    }
+  }
+}
+```
+
+This reads `monitor_debounce_ms` from IN-MEMORY store (always null
+on startup → falls back to 300000 = 5min).
+
+### Combined Effect
+
+1. S-bot finishes → `agent_end` fires
+2. Generated debounce sets 15min timer (from database)
+3. After 15min, timer fires → calls `on_agent_end(ctx, pi)`
+4. `on_agent_end` checks `idle_since` in in-memory store
+5. First time: no `idle_since` → records it → returns (waits another cycle)
+6. Next `agent_end` → generated debounce sets another 15min timer
+7. After 15min, timer fires → calls `on_agent_end` again
+8. `on_agent_end` finds `idle_since` → checks elapsed (30min total)
+9. Elapsed > 5min (in-memory default) → proceeds to coordinate
+
+**Total debounce: 15min (generated) + 15min (generated again) = 30min**
+**Or: 15min (generated) + 5min (in-memory) = 20min on second fire**
+
+The intended behavior was probably just ONE debounce of 15 minutes.
+Instead, the actual debounce is 20-30 minutes due to double layering.
+
+---
+
+## 157. REVISED BUG COUNT — FINAL v11
+
+| Category                           | Count                                                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `::text` cast missing (TSTZ+JSONB) | 15                                                                                                                                          |
+| Missing NOT NULL columns in INSERT | 14 (+2: areflect.save_issue missing project_id, extension_generator session_start passes object as string)                                  |
+| Wrong column names                 | 4                                                                                                                                           |
+| Decoder mismatch                   | 11                                                                                                                                          |
+| Missing type variants              | 3                                                                                                                                           |
+| Logic bugs                         | 15 (+1: double debounce — generated + manual)                                                                                               |
+| FFI issues                         | 14                                                                                                                                          |
+| Config system fragmentation        | 4 (+1: psypi_config writes to DB but hooks read from in-memory)                                                                             |
+| Seed/bootstrap gaps                | 10                                                                                                                                          |
+| Dead code                          | 8                                                                                                                                           |
+| Stub implementations               | 2                                                                                                                                           |
+| Race conditions / concurrency      | 5                                                                                                                                           |
+| Extension generation bugs          | 8 (+2: missing task_get_tool, session_start/model_select pass object as string)                                                             |
+| A/S lifecycle logic failures       | 8                                                                                                                                           |
+| Tool execution flow bugs           | 4                                                                                                                                           |
+| Hook module bugs                   | 9                                                                                                                                           |
+| Command module bugs                | 2                                                                                                                                           |
+| DB module bugs                     | 7                                                                                                                                           |
+| A/S DB reader bugs                 | 7                                                                                                                                           |
+| Monitor AI bugs                    | 9                                                                                                                                           |
+| Monitor module bugs                | 4                                                                                                                                           |
+| Event hooks bugs                   | 4                                                                                                                                           |
+| Node PG FFI bugs                   | 1                                                                                                                                           |
+| Inter-review bugs                  | 7                                                                                                                                           |
+| Tool commit bugs                   | 3                                                                                                                                           |
+| Tool consult bugs                  | 2                                                                                                                                           |
+| Code version bugs                  | 1                                                                                                                                           |
+| Meeting bugs                       | 3                                                                                                                                           |
+| Agent identity bugs                | 5                                                                                                                                           |
+| Task bugs                          | 6                                                                                                                                           |
+| Issue bugs                         | 4                                                                                                                                           |
+| Broadcast bugs                     | 6                                                                                                                                           |
+| Skill bugs                         | 3                                                                                                                                           |
+| Agents bugs                        | 2                                                                                                                                           |
+| Stats bugs                         | 3                                                                                                                                           |
+| A orchestrator bugs                | 3                                                                                                                                           |
+| A prompt builder bugs              | 2                                                                                                                                           |
+| Simple migrate bugs                | 4                                                                                                                                           |
+| System prompt types bugs           | 3                                                                                                                                           |
+| A context utils bugs               | 2                                                                                                                                           |
+| Areflect bugs                      | 5 (+5: save_issue missing project_id, save_learning to wrong table, unused agent_id, fetch_recent_issues id no cast, issue_type always bug) |
+| Extension generator bugs           | 2                                                                                                                                           |
+| FFI node_ffi.mjs bugs              | 4                                                                                                                                           |
+| FFI pi_extension_ffi.mjs bugs      | 7                                                                                                                                           |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                                                                                                           |
+| FFI time_utils_ffi.mjs bugs        | 1                                                                                                                                           |
+| Migration schema bugs              | 5                                                                                                                                           |
+| **TOTAL CONFIRMED BUGS**           | **230**                                                                                                                                     |
