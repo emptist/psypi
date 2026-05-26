@@ -12284,16 +12284,140 @@ manual psql sessions, or external tools:
 
 ### 196.7 Migration System — Summary of Issues
 
-| #             | Issue                                     | Severity  | Impact                                    |
-| ------------- | ----------------------------------------- | --------- | ----------------------------------------- |
-| M1            | No migration tracking table               | CRITICAL  | All migrations re-run every startup       |
-| M2            | No transaction wrapping                   | HIGH      | Partial failures leave inconsistent state |
-| M3            | No rollback capability                    | HIGH      | Cannot undo bad migrations                |
-| M4            | Duplicate migration number 025            | MEDIUM    | Execution order depends on filename sort  |
-| M5            | Missing migrations 001, 002, 004          | LOW       | Gaps in numbering                         |
-| M6            | 61 tables without migrations              | CRITICAL  | Schema drift, no reproducibility          |
-| M7            | tasks: 14→56 columns, TEXT→JSONB          | CRITICAL  | Decode failures in task.gleam             |
-| M8            | skills: 15→54 columns, TEXT→JSONB         | CRITICAL  | Decode failures in skill.gleam            |
-| M9            | inter_reviews: 8→31 columns               | HIGH      | Missing columns in Gleam decoders         |
-| M10           | Split on semicolon fails for stored procs | MEDIUM    | Complex SQL breaks migration              |
-| **CRITICAL: 6 | HIGH: 4                                   | MEDIUM: 7 | LOW: 3**                                  |
+| #   | Issue                                     | Severity | Impact                                    |
+| --- | ----------------------------------------- | -------- | ----------------------------------------- |
+| M1  | No migration tracking table               | CRITICAL | All migrations re-run every startup       |
+| M2  | No transaction wrapping                   | HIGH     | Partial failures leave inconsistent state |
+| M3  | No rollback capability                    | HIGH     | Cannot undo bad migrations                |
+| M4  | Duplicate migration number 025            | MEDIUM   | Execution order depends on filename sort  |
+| M5  | Missing migrations 001, 002, 004          | LOW      | Gaps in numbering                         |
+| M6  | 61 tables without migrations              | CRITICAL | Schema drift, no reproducibility          |
+| M7  | tasks: 14→56 columns, TEXT→JSONB          | CRITICAL | Decode failures in task.gleam             |
+| M8  | skills: 15→54 columns, TEXT→JSONB         | CRITICAL | Decode failures in skill.gleam            |
+| M9  | inter_reviews: 8→31 columns               | HIGH     | Missing columns in Gleam decoders         |
+| M10 | Split on semicolon fails for stored procs | MEDIUM   | Complex SQL breaks migration              |
+
+---
+
+## 197. REMAINING MODULE REVIEW — PROMPT, ORCHESTRATOR, DB, S_READER
+
+### 197.1 `a_prompt_builder.gleam` — System Prompt Composition
+
+**Issues:**
+1. **Inter-review detection is fragile string matching** — checks for
+   `"inter-review"`, `"issue report"`, `"fix plan"`, `"root cause"` in
+   the raw entries JSON. Could match on unrelated text (e.g., "we should
+   NOT do inter-review" would still trigger).
+2. **Review score NEVER extracted from A-bot response** — The A-bot's
+   response text is sent as a wake-up message but never parsed for a
+   numeric score. `record_review_score()` is never called.
+3. **Soul component added TWICE** — Once as `a_identity_prompt()` (Critical),
+   once as `soul_content` from DB (Critical). Both are `soul_component()`
+   with Critical priority. The compose function will interleave them with
+   other Critical components.
+4. **Budget is `context_window / 4`** — Only 25% for system prompt.
+   If context window is 128K, budget is 32K tokens. Reasonable but
+   may be too small for complex inter-reviews.
+5. **Truncation at 4000/2000 chars** — For inter-review, entries are
+   truncated to 4000 chars; for normal reminders, 2000 chars. This
+   may cut off critical context in long conversations.
+
+### 197.2 `a_orchestrator.gleam` — Workflow Orchestration
+
+**Issues:**
+1. **Error swallowing** — All error paths return `Ok(Nil)` after sending
+   an error message. The caller never knows the workflow failed.
+2. **No review score writing** — After `call_monitor` returns a response,
+   the orchestrator sends it as a wake-up message but NEVER:
+   - Parses the response for a review score
+   - Calls `monitor_ai.record_review_score()`
+   - Updates `inter_reviews.overall_score`
+   This is the ROOT CAUSE of commit blocking.
+3. **Race condition** — `ctx_is_idle(ctx)` is checked AFTER the LLM call
+   returns. If S became busy during the call, the entire LLM response
+   is discarded. No caching or retry mechanism.
+4. **No timeout on LLM call** — If `call_monitor` hangs, the entire
+   A-bot workflow hangs indefinitely.
+5. **Nested promise.await pyramid** — 4 levels deep (soul → jobs → state → LLM).
+   Hard to read and maintain. Could be flattened with `promise.all`.
+
+### 197.3 `db.gleam` — Database Connection Management
+
+**Issues:**
+1. **No connection pooling** — `with_connection()` creates a new `pg.Client`
+   for EVERY query, then disconnects. Each query requires:
+   - TCP handshake
+   - SSL negotiation
+   - Authentication
+   - `SET app.current_project_id` (extra query)
+   - The actual query
+   - Disconnect
+   This adds ~50-100ms overhead per query.
+2. **Hardcoded project_id fallback** — `"0d324e68-b399-4b85-bd8a-6b1ef7b46168"`
+   is used when `PSYPI_PROJECT_ID` env var is empty. This is the UUID
+   from the `projects` table but is not dynamically looked up.
+3. **Disconnect error ignored** — `let _ = disconnect(conn)` silently
+   ignores disconnect failures. Could leak connections.
+4. **No query timeout** — No `statement_timeout` or `query_timeout` set
+   on the client config. A slow query could block indefinitely.
+5. **No retry logic** — If a connection fails, there's no retry.
+   Transient network issues cause permanent failures.
+
+### 197.4 `s_db_reader.gleam` — S-bot Database Reader
+
+**Issues:**
+1. **Soul content decoded as `decode.string`** — The `content` column in
+   `agent_souls` is TEXT, so this works. But if it's changed to JSONB
+   (like `skills.content` was), it will break.
+2. **No `system_directives` read** — The hook only reads the S-bot soul.
+   The `system_directives` table (A→S directive bridge) is NEVER read.
+   This means A-bot's directives are completely ignored by S-bot.
+3. **Job decoder assumes `priority` is INT** — If `priority` is stored
+   as TEXT or has NULL values, decode will fail.
+4. **No error recovery** — If soul read fails, the hook returns a
+   hardcoded fallback personality. This is reasonable but the fallback
+   doesn't include any directive or job information.
+
+### 197.5 `monitor_ai.gleam` — Monitor AI Module
+
+**Issues:**
+1. **`record_review_score` is dead code** — Function exists (line 314)
+   but is NEVER called by any other module. The A-bot orchestrator
+   doesn't call it after getting a review response.
+2. **`auto_file_issue` is dead code** — Function exists (line 560)
+   but is NEVER called from the `tool_result` hook. Tool errors are
+   notified but never persisted as issues.
+3. **`check_system_health` uses `COUNT(*)::INT`** — Correct cast,
+   unlike `a_db_reader.is_s_still_idle` which uses `COUNT(*)` without
+   `::INT`. Inconsistent.
+4. **`get_model_stats` always returns 0** — Because `overall_score` is
+   always NULL in `inter_reviews`, `AVG(overall_score)` returns NULL,
+   which `COALESCE(..., 0)::INT` converts to 0. The stats are useless.
+5. **`prepare_context` uses `saved_at::text`** — Correct cast for
+   timestamptz. But the function is never called by any other module.
+6. **`analyze_and_act` returns `COUNT(*)::TEXT`** — Used as display text,
+   so this is OK. But the function is never called by any hook.
+
+### 197.6 `system_prompt_types.gleam` — Prompt Composition Types
+
+**Issues:**
+1. **Token estimation is crude** — `string.length(text) / 4 + 1` assumes
+   4 chars per token. Actual tokenization varies by language and content.
+   English text averages ~4 chars/token, but code can be ~3 chars/token.
+2. **`compose_within_budget` may reorder components** — It sorts by
+   priority then adds until budget is full. But the `kept` list is built
+   by prepending, which reverses the order. The final `compose()` call
+   sorts again, so this is OK but confusing.
+3. **No deduplication** — If the same component is added twice (e.g.,
+   soul content), both are included in the output.
+
+### 197.7 Module Review Summary
+
+| Module              | Issues | Most Critical                                       |
+| ------------------- | ------ | --------------------------------------------------- |
+| a_prompt_builder    | 5      | Review score never extracted from response          |
+| a_orchestrator      | 5      | No review score written (ROOT CAUSE)                |
+| db                  | 5      | No connection pooling (50-100ms overhead per query) |
+| s_db_reader         | 4      | system_directives never read                        |
+| monitor_ai          | 6      | record_review_score is dead code                    |
+| system_prompt_types | 3      | Crude token estimation                              |
