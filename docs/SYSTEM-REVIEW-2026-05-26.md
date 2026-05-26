@@ -15345,3 +15345,388 @@ Every table with a `uuid` primary key that is SELECTed without `::text` cast:
 - ❌ BROKEN: 15 modules
 - ❌ STUB: 1 module (tool_consult)
 - ❌ DEAD END: 1 module (tool_commit)
+
+---
+
+## 237. DATA FLOW ANALYSIS — COMPLETE MODULE DEPENDENCY MAP
+
+### 237.1 Entry Points
+
+The system has 3 types of entry points:
+
+**A) Pi Tool Calls** (triggered by AI agent using a tool):
+```
+User → Pi TUI → extension.js → Gleam function → DB → result → extension.js → Pi TUI
+```
+
+**B) Pi Event Hooks** (triggered by Pi runtime events):
+```
+Pi Runtime → extension.js → Gleam hook function → DB/Gleam chain → result
+```
+
+**C) Extension Generator** (build-time):
+```
+`gleam run -m extension_generator` → reads all PiToolCall/PiEventHook registries
+→ generates extension.js → writes to project root
+```
+
+### 237.2 Module Dependency Graph
+
+```
+extension_generator
+  ├── agent_identity (my_id_tool)
+  ├── agents (agents_list_tool)
+  ├── areflect (areflect_tool)
+  ├── broadcast (broadcast_send_tool, broadcast_list_tool)
+  ├── code_version (doc_save_tool, doc_list_tool)
+  ├── event_hooks (list_hooks_tool, list_active_hooks_tool)
+  ├── issue_tools (5 tools)
+  ├── learning (learn_save_tool)
+  ├── meeting (5 tools)
+  ├── memory (memory_search_tool)
+  ├── monitor_ai (5 tools + 2 commands)
+  ├── skill (3 tools)
+  ├── stats (stats_show_tool)
+  ├── task (3 tools)
+  ├── tool_commit (commit_tool) ← defined inline
+  └── tool_consult (consult_tool) ← defined inline
+
+hook_on_agent_end
+  ├── a_context_utils (parse_context_window, current_time_ms)
+  ├── a_db_reader (is_s_still_idle)
+  ├── a_orchestrator (coordinate_with_s)
+  └── pi_extension (get_config, set_config, notify_info, pi_send_message)
+
+a_orchestrator
+  ├── a_db_reader (read_a_soul_from_db, read_a_jobs_from_db)
+  ├── a_prompt_builder (build_system_prompt, build_user_prompt)
+  ├── pi_extension (notify_info, pi_send_message, call_monitor)
+  └── system_prompt_types (compose)
+
+hook_on_before_agent_start
+  ├── event_hooks (record_trigger)
+  └── s_db_reader (read_s_soul_from_db)
+
+hook_on_tool_call
+  ├── code_version (save_version)
+  └── pi_extension (read_file_sync, set_status, notify_error)
+
+hook_on_tool_result
+  └── pi_extension (notify_error, pi_send_message)
+
+hook_on_agent_start
+  └── event_hooks (record_trigger)
+
+tool_commit
+  ├── inter_review (request_review, get_review_details)
+  └── pi_extension (exec_sync)
+
+tool_consult
+  └── pi_extension (notify_info)
+
+a_db_reader
+  └── db (with_connection, query)
+
+s_db_reader
+  └── db (with_connection, query)
+
+agent_identity
+  ├── db (with_connection, query)
+  └── pi_tool_call (PiToolCall, lit, raw_json)
+
+monitor_ai
+  ├── db (with_connection, query)
+  └── pi_tool_call (PiToolCall, ...)
+
+monitor
+  └── db (with_connection, query)
+
+event_hooks
+  └── db (with_connection, query)
+
+All data modules (task, issue_db, skill, meeting, memory, broadcast, learning, stats, areflect, agents, code_version, inter_review):
+  └── db (with_connection, query)
+```
+
+### 237.3 Critical Data Flow Chains
+
+**Chain 1: S-bot Session Start**
+```
+Pi fires "before_agent_start"
+  → hook_on_before_agent_start.on_before_agent_start()
+    → event_hooks.record_trigger("before_agent_start")  ← FAILS (table missing)
+    → s_db_reader.read_s_soul_from_db()
+      → db.query("SELECT content FROM agent_souls WHERE id_prefix='S'")  ← FAILS (table missing)
+    ← Returns fallback hardcoded soul text
+  → Pi injects returned string as system prompt
+```
+**Status**: ⚠️ WORKS with fallback, but soul is hardcoded, not from DB
+
+**Chain 2: S-bot Agent End → A-bot Wake-up**
+```
+Pi fires "agent_end"
+  → hook_on_agent_end.on_agent_end(ctx, pi)
+    → get_config("idle_since")  ← reads from in-memory _configStore
+    → Debounce check (manual)
+    → a_db_reader.is_s_still_idle()  ← FAILS (phantom table, catch-22)
+    → a_orchestrator.coordinate_with_s(ctx, pi, entries_json)
+      → a_db_reader.read_a_soul_from_db()  ← FAILS (phantom table)
+      → a_db_reader.read_a_jobs_from_db()  ← FAILS (phantom table)
+      → a_prompt_builder.build_system_prompt(soul, jobs, context_window)
+      → a_prompt_builder.build_user_prompt(usage, entries, cwd, project_state)
+      → call_monitor(ctx, user_prompt, system_prompt)  ← JS FFI
+      → handle_monitor_response()
+        → ctx_is_idle(ctx)  ← catch-22: checks if S is idle
+        → pi_send_message(pi, "autonomic-wakeup", response, "persistent")
+```
+**Status**: ❌ BROKEN — 3 phantom table queries fail, debounce is doubled, is_s_still_idle is catch-22
+
+**Chain 3: Inter-Review Commit Flow**
+```
+S calls psypi-commit (phase 1, no review_id)
+  → tool_commit.trigger_review(message)
+    → exec_sync("git diff && git diff --cached")
+    → inter_review.request_review(None, None, "autonomic", context)
+      → db.query("INSERT INTO inter_reviews ...")  ← WORKS
+    ← Returns review_id
+  S calls psypi-commit (phase 2, with review_id)
+    → tool_commit.commit_if_reviewed(message, review_id)
+      → inter_review.get_review_details(review_id)
+        → db.query("SELECT ... FROM inter_reviews WHERE id = $1")  ← id uuid not cast
+      → Check overall_score
+        ← overall_score is always NULL (A-bot never writes it)
+      ← Returns "Review not yet complete"
+```
+**Status**: ❌ DEAD END — Phase 1 works, Phase 2 is permanently blocked
+
+**Chain 4: Auto-Backup on Edit**
+```
+Pi fires "tool_call" with toolName="edit"
+  → hook_on_tool_call.on_tool_call(tool_name, file_path, ctx, pi)
+    → read_file_sync(file_path)  ← JS FFI
+    → code_version.save_version(file_path, content, "psypi", "", "auto-backup")
+      → db.query("SELECT save_code_version(...)")  ← FAILS (function doesn't exist)
+    ← Error silently swallowed
+```
+**Status**: ❌ BROKEN — SQL function doesn't exist, auto-backup never works
+
+**Chain 5: Tool Error Detection**
+```
+Pi fires "tool_result"
+  → hook_on_tool_result.on_tool_result(result_json, tool_name, pi)
+    → String-based error detection (contains "Error:" or "error")
+    → If error: notify_error(pi, ...) + pi_send_message("autonomic-error", ...)
+```
+**Status**: ✅ WORKS — Simple string matching, no DB dependency
+
+**Chain 6: Areflect (Learnings/Issues/Tasks)**
+```
+AI calls psypi-areflect
+  → areflect.areflect(text, agent_id)
+    → parse() — extract [LEARN], [ISSUE], [TASK], [ISSUELIST] markers
+    → save_learnings() → INSERT INTO learning_insights  ← WORKS
+    → save_issues() → INSERT INTO issues (title, description, severity, created_by)
+                     ← FAILS: created_by column doesn't exist
+    → save_tasks() → INSERT INTO tasks (title, description, priority, created_by)
+                    ← WORKS
+    → fetch_recent_issues() → SELECT id FROM issues  ← id uuid not cast, FAILS
+```
+**Status**: ⚠️ PARTIAL — Learnings and tasks saved, issues fail, recent issues can't be fetched
+
+### 237.4 Data Flow Issues Summary
+
+| Issue                                                                                     | Chains Affected | Severity |
+| ----------------------------------------------------------------------------------------- | --------------- | -------- |
+| Phantom tables (agent_souls, agent_jobs, psypi_event_hooks, notifications, code_versions) | 1, 2, 4         | CRITICAL |
+| UUID not cast to text                                                                     | 3, 6            | HIGH     |
+| Missing columns (priority, created_by)                                                    | 6               | HIGH     |
+| Double debounce in agent_end                                                              | 2               | HIGH     |
+| is_s_still_idle catch-22                                                                  | 2               | HIGH     |
+| Review score never written                                                                | 3               | CRITICAL |
+| In-memory config not synced with DB                                                       | 2               | MEDIUM   |
+| Template uses named fields on custom type                                                 | stats           | MEDIUM   |
+
+---
+
+## 238. ERROR HANDLING ANALYSIS — SILENT FAILURE MODES
+
+### 238.1 Error Swallowing Patterns
+
+**Pattern 1: `promise.await` with ignored error**
+```gleam
+promise.await(save_issues(conn, issues, agent_id), fn(_) {
+  // Error from save_issues is discarded — fn(_) matches both Ok and Error
+  save_tasks(conn, tasks, agent_id)
+})
+```
+Used in: `areflect.gleam` (save_learnings, save_issues, save_tasks)
+Impact: Errors in saving learnings/issues/tasks are silently swallowed.
+
+**Pattern 2: Decode failure returns empty list**
+```gleam
+let memories = result.rows
+  |> list.map(fn(row) {
+    case decode.run(row, memory_decoder()) {
+      Ok(mem) -> [mem]
+      Error(_) -> []  // Row silently dropped
+    }
+  })
+  |> list.fold([], fn(acc, lst) { list.append(acc, lst) })
+```
+Used in: `memory.gleam`, `monitor.gleam`
+Impact: Decode errors produce empty results with no error indication.
+
+**Pattern 3: `with_connection` error transformation**
+```gleam
+db.with_connection(fn(conn) { ... }, fn(e: DbError) { e })
+```
+The second function transforms the error. When it's `fn(e) { e }`, the error
+is passed through. But the caller may not check for errors.
+
+**Pattern 4: `result.map_error` with string.inspect**
+```gleam
+result.map_error(r, fn(e) { string.inspect(e) })
+```
+Converts structured errors to strings, losing error type information.
+
+### 238.2 Silent Failure Inventory
+
+| Module            | Function                  | Failure Mode                          | User Sees?                      |
+| ----------------- | ------------------------- | ------------------------------------- | ------------------------------- |
+| areflect          | save_issues               | SQL error (created_by missing)        | No — swallowed by promise.await |
+| areflect          | fetch_recent_issues       | Decode error (uuid not cast)          | No — returns empty list         |
+| memory            | save                      | Decode error (wrong columns)          | No — returns generic error      |
+| memory            | search                    | Decode error (uuid, tags, created_at) | No — returns empty list         |
+| broadcast         | send                      | SQL error (priority missing)          | Yes — returns error             |
+| broadcast         | list                      | SQL error (priority missing)          | Yes — returns error             |
+| code_version      | save_version              | SQL error (function missing)          | No — hook swallows it           |
+| event_hooks       | record_trigger            | SQL error (table missing)             | No — hook continues             |
+| a_orchestrator    | handle_monitor_response   | Error from call_monitor               | Yes — sends autonomic-error     |
+| hook_on_tool_call | on_tool_call              | save_version fails                    | Partially — logs error          |
+| monitor           | create_notification       | SQL error (table missing)             | No — returns error              |
+| monitor           | get_pending_notifications | SQL error (table missing)             | No — returns error              |
+
+### 238.3 The "Silent Degradation" Problem
+
+The most dangerous pattern is **silent degradation**: the system appears to work
+but produces incorrect or empty results. Examples:
+
+1. **`areflect` saves learnings but not issues** — AI thinks issues are recorded, they're not
+2. **`memory.search` returns empty list** — AI thinks no memories exist, they do
+3. **`event_hooks.record_trigger` fails** — Hook trigger counts are always 0
+4. **`a_db_reader.is_s_still_idle` returns True** — A-bot always thinks S is idle
+5. **`code_version.save_version` fails** — No auto-backup, no error to user
+
+---
+
+## 239. TEMPLATE FORMAT BUGS — COMPLETE INVENTORY
+
+The `result_format` field in `PiToolCall` defines how the tool result is displayed
+in the Pi TUI. The `template()` function uses JS template literals with `${...}`.
+
+### 239.1 Named Field Access on Gleam Custom Types
+
+Gleam compiles custom types to JS arrays with numbered indices:
+```js
+// Gleam: Stats(tasks: 5, issues: 3, skills: 10, meetings: 2)
+// JS: ["Stats", 5, 3, 10, 2]  (or similar numbered structure)
+```
+
+Templates that use `${r.value.fieldName}` will get `undefined`:
+
+| Tool                 | Template                                              | Bug?              |
+| -------------------- | ----------------------------------------------------- | ----------------- |
+| psypi-stats-show     | `Tasks:${r.value.tasks} Issues:${r.value.issues} ...` | ❌ All undefined   |
+| psypi-task-add       | `Task added: ${r.value}`                              | ⚠️ Shows [object]  |
+| psypi-task-complete  | `Task completed: ${r.value}`                          | ⚠️ Shows [object]  |
+| psypi-broadcast-send | `Broadcast sent: ${r.value}`                          | ⚠️ Shows [object]  |
+| psypi-meeting-say    | `Opinion added: ${r.value}`                           | ⚠️ Shows [object]  |
+| psypi-doc-save       | `Version saved: ${r.value}`                           | ⚠️ Shows [object]  |
+| psypi-learn-save     | `Learning saved`                                      | ✅ No field access |
+
+### 239.2 `gleamValueToJson` Usage
+
+Some templates use `${JSON.stringify(gleamValueToJson(r.value))}` which correctly
+serializes Gleam types to JSON. But `gleamValueToJson` itself has bugs (see §209).
+
+| Tool                   | Template                                       | Bug?                     |
+| ---------------------- | ---------------------------------------------- | ------------------------ |
+| psypi-meetings         | `${JSON.stringify(gleamValueToJson(r.value))}` | ⚠️ gleamValueToJson buggy |
+| psypi-meeting-get      | `${JSON.stringify(gleamValueToJson(r.value))}` | ⚠️ gleamValueToJson buggy |
+| psypi-meeting-opinions | `${JSON.stringify(gleamValueToJson(r.value))}` | ⚠️ gleamValueToJson buggy |
+| psypi-broadcasts       | `${JSON.stringify(gleamValueToJson(r.value))}` | ⚠️ gleamValueToJson buggy |
+| psypi-agents           | `${JSON.stringify(gleamValueToJson(r.value))}` | ⚠️ gleamValueToJson buggy |
+| psypi-hooks-list       | `raw_json()`                                   | ✅ Correct                |
+| psypi-hooks-active     | `raw_json()`                                   | ✅ Correct                |
+| psypi-areflect         | `${JSON.stringify(gleamValueToJson(r.value))}` | ⚠️ gleamValueToJson buggy |
+| psypi-my-id            | `raw_json()`                                   | ✅ Correct                |
+
+### 239.3 `raw_json()` Templates
+
+`raw_json()` returns the raw Gleam result value, which is then serialized by
+the extension.js runtime. This is the most reliable format.
+
+Tools using `raw_json()`: psypi-my-id, psypi-hooks-list, psypi-hooks-active,
+psypi-consult-autonomic, psypi-commit, all issue_tools, all monitor_ai tools.
+
+---
+
+## 240. CONSOLIDATED ISSUE COUNT
+
+### 240.1 By Category
+
+| Category                                                          | Count  | Severity |
+| ----------------------------------------------------------------- | ------ | -------- |
+| Phantom tables (referenced but don't exist)                       | 5      | CRITICAL |
+| Phantom columns (referenced but don't exist)                      | 10     | CRITICAL |
+| UUID not cast to text                                             | 8      | HIGH     |
+| Timestamp not cast to text                                        | 3      | HIGH     |
+| JSONB not cast to text                                            | 2      | MEDIUM   |
+| Missing Gleam type variants                                       | 1      | MEDIUM   |
+| Template format bugs (named fields on custom types)               | 1      | MEDIUM   |
+| gleamValueToJson incomplete type support                          | 1      | MEDIUM   |
+| Error swallowing / silent degradation                             | 6      | HIGH     |
+| Double debounce logic                                             | 1      | HIGH     |
+| is_s_still_idle catch-22                                          | 1      | HIGH     |
+| Review score never written                                        | 1      | CRITICAL |
+| Dual config store (in-memory vs DB)                               | 1      | MEDIUM   |
+| SQL function doesn't exist (save_code_version, get_code_versions) | 2      | HIGH     |
+| Extension generation bugs (unreachable code, wrong template)      | 2      | MEDIUM   |
+| Hardcoded project_id UUID                                         | 1      | MEDIUM   |
+| No connection pooling                                             | 1      | MEDIUM   |
+| No migration tracking table                                       | 1      | MEDIUM   |
+| tool_consult is a stub                                            | 1      | LOW      |
+| **TOTAL**                                                         | **49** |          |
+
+### 240.2 By Impact
+
+| Impact                                     | Tools Affected | Hooks Affected |
+| ------------------------------------------ | -------------- | -------------- |
+| Completely broken (returns error or empty) | 12             | 3              |
+| Partially broken (some features work)      | 7              | 2              |
+| Works but with latent bugs                 | 4              | 0              |
+| Works correctly                            | 2              | 2              |
+
+### 240.3 Priority Fix Order
+
+**P0 — Must fix first (system is non-functional without these)**:
+1. Create missing tables (psypi_event_hooks, code_versions, notifications)
+   OR update Gleam code to not reference them
+2. Fix phantom table references (agent_souls → soul, agent_jobs → ???)
+3. Add `::text` casts to all uuid and timestamptz columns in SELECT queries
+4. Fix missing columns (priority in project_communications, created_by in issues)
+
+**P1 — Must fix next (core workflows broken)**:
+5. Fix inter-review score writing (A-bot must call record_review_score)
+6. Fix is_s_still_idle (remove catch-22, use correct query)
+7. Fix double debounce in agent_end hook
+8. Fix areflect.save_issue (remove created_by or add column)
+
+**P2 — Should fix (quality and reliability)**:
+9. Fix gleamValueToJson type support
+10. Fix template format bugs (named fields on custom types)
+11. Fix memory.gleam save/search decoders
+12. Fix code_version SQL functions
+13. Add connection pooling
+14. Add migration tracking table
+15. Sync in-memory config with database config
