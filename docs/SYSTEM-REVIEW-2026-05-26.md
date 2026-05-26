@@ -2373,3 +2373,772 @@ The dynamic lookup plan in `docs/PLAN-project-id-lookup.md` is unimplemented.
 | Dead code                          | 1 (app.current_project_id)                                                                                         |
 | Stub implementations               | 1 (tool_consult)                                                                                                   |
 | **TOTAL CONFIRMED BUGS**           | **45**                                                                                                             |
+
+---
+
+## 69. RACE CONDITIONS IN SHARED STATE
+
+### 69a. `_configStore` — No Synchronization for Concurrent Access
+
+File: [pi_extension_ffi.mjs:145-150](src/pi_extension_ffi.mjs#L145-L150)
+
+```javascript
+let _configStore = {};
+
+export function get_config(key) {
+  return _configStore[key] || null;
+}
+
+export function set_config(key, value) {
+  _configStore[key] = value;
+}
+```
+
+Node.js is single-threaded for JavaScript execution, so there are no true thread-safety
+concerns. However, there ARE async interleaving issues:
+
+**Scenario 1: Debounce timer fires while `on_agent_end` is still processing**
+
+```
+T0: agent_end fires → check_idle_since() reads idle_since = None
+T1: set_config("idle_since", now_ms()) — records timestamp
+T2: agent_end fires AGAIN (before T1's set_config completes)
+    → check_idle_since() reads idle_since = None (T1's write hasn't happened yet)
+    → Records ANOTHER timestamp, overwriting T1's value
+```
+
+This is unlikely because `set_config` is synchronous, but the pattern is fragile.
+
+**Scenario 2: `idle_since` cleared while debounce timer is pending**
+
+```
+T0: agent_end fires → S is idle → set_config("idle_since", now)
+T1: S becomes busy → agent_end fires → set_config("idle_since", "0")
+T2: Debounce timer from T0 fires → reads idle_since = "0" → records new timestamp
+    → This is WRONG — the debounce timer should have been cancelled when S became busy
+```
+
+The `PiDebouncedHook` in the generated JS does `clearTimeout(_debounceTimerId)` on each
+new event, which should prevent T2 from firing. But if the `on_agent_end` handler itself
+takes time (DB queries, LLM calls), the timer could fire before the handler completes.
+
+### 69b. `_debounceTimerId` — Module-Level Variable Shared Across Events
+
+File: Generated `extension.js` (from [pi_tool_call.gleam:410-470](src/pi_tool_call.gleam#L410-L470))
+
+```javascript
+let _debounceTimerId = null;
+let _debounceMs = null;
+
+pi.on('agent_end', async (event, ctx) => {
+  if (_debounceTimerId) clearTimeout(_debounceTimerId);
+  _debounceTimerId = null;
+  // ... read debounce_ms from DB ...
+  _debounceTimerId = setTimeout(async () => {
+    _debounceTimerId = null;
+    // ... call hook_on_agent_end ...
+  }, _debounceMs);
+});
+```
+
+**Problem**: If two `agent_end` events fire in quick succession:
+1. Event 1: clears timer, reads DB (async), sets new timer
+2. Event 2: clears Event 1's timer, reads DB (async), sets new timer
+3. Only Event 2's timer survives — Event 1's debounce is lost
+
+This is actually CORRECT behavior (debounce should restart on each event).
+But the `_debounceMs` read is also async — if the DB read is slow, the timer
+from Event 1 might fire before Event 2 clears it.
+
+### 69c. `call_monitor` — No Cancellation Support
+
+File: [pi_extension_ffi.mjs:60-120](src/pi_extension_ffi.mjs#L60-L120)
+
+The `call_monitor` function makes an LLM API call that can take 10-30 seconds.
+During this time:
+- The `_signal` parameter in `pi.registerTool({ execute(_toolCallId, params, _signal, ...) })` is ignored
+- If the user cancels the operation, the LLM call continues
+- If S-bot becomes busy during the call, `handle_monitor_response` checks `ctx_is_idle()`
+  but the LLM response is already consumed — the API cost is wasted
+
+### 69d. Connection Pool Exhaustion
+
+`db.with_connection()` creates a new connection for every query. If multiple hooks
+fire simultaneously (e.g., `tool_call` + `agent_end` + `tool_result`), each creates
+its own connection. With PostgreSQL's default `max_connections = 100`, this is fine
+for normal operation. But if many hooks fire in rapid succession and each makes
+multiple queries (e.g., `areflect_tool` makes 3-4 queries), connections could accumulate.
+
+More importantly, each `with_connection` call does:
+1. `node_pg.connect()` — TCP handshake + auth
+2. `SET app.current_project_id` — useless query (see §29c)
+3. Actual query
+4. `node_pg.end()` — TCP close
+
+This is 4 round-trips per query. For `areflect_tool` which makes 4 queries, that's
+16 round-trips. With a connection pool, it would be 4.
+
+---
+
+## 70. EXTENSION GENERATION PIPELINE — DEEPER ANALYSIS
+
+### 70a. Dynamic Import on Every Hook Fire
+
+File: [pi_tool_call.gleam:336](src/pi_tool_call.gleam#L336)
+
+```javascript
+const hook_fn = (await import('./build/dev/javascript/psypi/module.mjs')).fn_name;
+```
+
+This `await import()` runs on EVERY event trigger. While Node.js caches modules
+after the first import, the `await import()` still:
+1. Checks the module cache (fast, but not free)
+2. Creates a Promise that resolves to the cached module
+3. Awaits that Promise (microtask overhead)
+
+For hot paths like `tool_call` (fires on EVERY tool use), this adds unnecessary
+latency. The official Pi examples use static imports at module level.
+
+### 70b. Generated JS Uses `unwrapGleamResult` But Gleam Returns Are Inconsistent
+
+The generated code calls `unwrapGleamResult(result)` on every tool/hook result.
+But the Gleam functions have INCONSISTENT return types:
+
+| Module             | Function       | Returns                                     | unwrapGleamResult Works?  |
+| ------------------ | -------------- | ------------------------------------------- | ------------------------- |
+| task.gleam         | add()          | `Result(String, DbError)`                   | ✅ Yes                     |
+| task.gleam         | list()         | `Result(List(Task), DbError)`               | ✅ Yes                     |
+| areflect.gleam     | areflect()     | `Result(ReflectionResult, ReflectionError)` | ✅ Yes                     |
+| tool_commit.gleam  | on_commit()    | `Result(String, String)`                    | ✅ Yes                     |
+| tool_consult.gleam | on_consult()   | `Result(String, String)`                    | ✅ Yes                     |
+| hook_on_tool_call  | on_tool_call() | `Result(Nil, String)`                       | ⚠️ Returns Nil, not useful |
+| hook_on_agent_end  | on_agent_end() | `Result(Nil, String)`                       | ⚠️ Same                    |
+| stats.gleam        | stats()        | `Result(Stats, DbError)`                    | ✅ Yes                     |
+
+The `unwrapGleamResult` function checks `constructor.name === 'Ok'` and extracts
+`result['0']`. This works because Gleam's `Ok` and `Error` types are consistently
+named. But the VALUE inside depends on the specific function.
+
+### 70c. `raw_json()` Result Format Depends on `gleamValueToJson` Which Is Broken
+
+The `raw_json()` format calls `JSON.stringify(gleamValueToJson(r.value))`.
+Since `gleamValueToJson` fails to detect most Gleam custom types (see §15),
+the JSON output is broken for:
+- `Stats` type → `{0: 5, 1: 3, 2: 1, 3: 0}` instead of `{tasks: 5, issues: 3, ...}`
+- `HealthMetrics` → same numeric key problem
+- `AlertMetrics` → same
+- `ModelStats` → same
+- `MonitorAction` → same
+- `EnrichedIdentity` → same
+- `ReflectionResult` → same
+
+Every tool that uses `raw_json()` format produces broken JSON with numeric keys.
+The `template()` format uses `${r.value.field}` which also fails because
+`r.value` has numeric keys, not named keys.
+
+**Impact**: 15+ tools return broken JSON to the Pi agent. The LLM receives
+garbled data like `{0: 5, 1: 3}` instead of `{tasks: 5, issues: 3}`.
+
+### 70d. `@mariozechner/pi-tui` Import May Not Resolve
+
+File: [extension_generator.gleam:217](src/extension_generator.gleam#L217)
+
+```javascript
+import { Text, Box } from "@mariozechner/pi-tui";
+```
+
+The package was renamed to `@earendil-works/pi-tui`. If the old package is not
+installed, the import will fail with `ERR_MODULE_NOT_FOUND` at Pi startup.
+The entire extension will fail to load — NO tools, NO hooks, NO commands.
+
+### 70e. `registerCommand` Handler Signature Mismatch
+
+File: [pi_tool_call.gleam:540-560](src/pi_tool_call.gleam#L540-L560)
+
+Generated code:
+```javascript
+pi.registerCommand("autonomic-listen", {
+  handler: async (args, ctx) => { ... }
+});
+```
+
+Official Pi SDK:
+```javascript
+pi.registerCommand("name", {
+  description: "...",
+  handler: async (args, ctx, pi) => { ... }
+});
+```
+
+The generated handler receives `(args, ctx)` but the official API provides
+`(args, ctx, pi)`. The `pi` parameter is missing. The `command_listen` and
+`command_reload` modules work around this by passing `ctx` and `pi` as
+literal arguments in the `args` list, but this means `pi` is passed as a
+FnArg, not through the official API parameter.
+
+### 70f. No Error Boundary Around Individual Tool Registrations
+
+If ONE tool's Gleam module fails to import (e.g., syntax error in compiled .mjs),
+the ENTIRE extension fails because the `await import()` is inside the `execute`
+function, not at registration time. The error surfaces only when the tool is used,
+not at startup.
+
+---
+
+## 71. A/S AGENT LIFECYCLE — END-TO-END LOGIC CHAIN TRACE
+
+### 71a. Session Start Flow
+
+```
+1. Pi starts → loads extension.js
+2. extension.js registers hooks, tools, commands, message renderers
+3. Pi creates a session → fires "session_start" event
+4. session_start hook: record_current_model(ctx.model)
+   → But ctx.model may not exist on SessionStartEvent (see §25f)
+   → If it works: writes model to psypi_config or agent_sessions
+   → If it fails: silently ignored (SilentSuccess action)
+5. Pi fires "before_agent_start" event
+6. before_agent_start hook: on_before_agent_start()
+   → Reads S-bot soul from agent_souls table
+   → Returns soul content as systemPrompt
+   → event_hooks_record_trigger NEVER called (see §52)
+7. Pi fires "agent_start" event
+8. agent_start hook: on_agent_start()
+   → Records trigger in psypi_event_hooks table
+   → Returns Ok(Nil) — no action
+9. S-bot begins processing user prompt
+```
+
+**Bug at step 4**: `ctx.model` may not be available on `SessionStartEvent`.
+**Bug at step 6**: `event_hooks_record_trigger` never called on success.
+**Bug at step 6**: If soul read fails, hardcoded fallback soul is used silently.
+
+### 71b. S-bot Tool Call Flow
+
+```
+1. S-bot decides to use a tool (e.g., psypi-task-add)
+2. Pi fires "tool_call" event
+3. tool_call hook: on_tool_call(tool_name, file_path, ctx, pi)
+   → Only handles tool_name == "edit" (see §39)
+   → For "edit": reads file, saves version to code_versions
+   → For all others: returns Ok(Nil) immediately
+4. Pi executes the tool
+5. Pi fires "tool_result" event
+6. tool_result hook: on_tool_result(result_json, tool_name, pi)
+   → result_json is "''" because event.result doesn't exist (see §25a)
+   → Error detection via string.contains on garbage input
+   → If "error" detected: sends autonomic-error message to S-bot
+   → autonomic-error is rendered with [A-agentbot ERROR] prefix
+   → But S-bot may not understand this is from A-bot (it's just a message)
+7. Tool result returned to S-bot
+```
+
+**Bug at step 3**: Only "edit" tool gets auto-backup. Write, replace, etc. are ignored.
+**Bug at step 6**: `event.result` is undefined, so error detection is broken.
+**Bug at step 6**: Error messages sent to S-bot, not A-bot. A-bot never learns about errors.
+
+### 71c. S-bot Turn End Flow (Triggers A-bot Wake-up)
+
+```
+1. S-bot finishes a turn (sends response to user)
+2. Pi fires "agent_end" event
+3. Debounce: Pi SDK sets setTimeout(monitor_debounce_ms)
+   → Reads debounce_ms from psypi_config table via DB query
+   → Default: 300000ms (5 minutes)
+4. After debounce period, callback fires:
+5. hook_on_agent_end.on_agent_end(ctx, pi)
+6. Check ctx_is_idle() and ctx_has_pending_messages()
+   → If S is not idle: clear idle_since, return
+   → If S is idle but has pending messages: skip
+   → If S is idle and no pending messages: check_idle_since()
+7. check_idle_since() reads from IN-MEMORY config store
+   → First time: records timestamp, returns (debounce NOT satisfied)
+   → Subsequent: checks elapsed against monitor_debounce_ms (also in-memory)
+   → If elapsed >= debounce_ms: proceed to coordinate_with_s()
+8. coordinate_with_s() checks ctx_is_idle() again + a_db_reader.is_s_still_idle()
+   → is_s_still_idle() ALWAYS returns True (see §23)
+   → If both "idle": coordinate_when_idle()
+9. coordinate_when_idle() parses context window from usage JSON
+   → If parse fails: sends autonomic-error, returns
+   → If parse succeeds: calls a_orchestrator.run_a_workflow()
+10. run_a_workflow():
+    a. read_soul_from_db() → gets A-bot soul (only role, domain, responsibility — NOT content)
+    b. read_a_jobs_from_db() → gets A-bot jobs
+    c. read_project_state_from_db() → gets tasks + issues
+    d. build_system_prompt() → composes soul + jobs + inter-review instructions
+    e. build_user_prompt() → includes S-bot conversation + project state
+    f. call_monitor(ctx, user_prompt, system_prompt) → calls LLM
+    g. handle_monitor_response() → checks ctx_is_idle() one more time
+    h. pi_send_message(pi, "autonomic-wakeup", response, "persistent")
+11. Pi delivers message to S-bot with [A-agentbot] prefix
+12. S-bot reads A-bot's message and decides what to do
+```
+
+**Bug at step 3**: Debounce reads from DATABASE, but step 7 reads from IN-MEMORY.
+Two completely different config systems.
+**Bug at step 7**: First `agent_end` after restart always records timestamp and returns.
+Requires TWO consecutive `agent_end` fires to actually wake up A-bot.
+**Bug at step 8**: `is_s_still_idle()` is useless — always returns True.
+**Bug at step 10a**: A-bot reads only 3 columns from `agent_souls`, not the full `content`.
+**Bug at step 10h**: A-bot response is NEVER written to `inter_reviews` table.
+**Bug at step 12**: S-bot has no structured way to process A-bot's free-text message.
+
+### 71d. Inter-Review Commit Flow (PERMANENTLY STUCK)
+
+```
+1. S-bot calls psypi-commit(message="")
+2. tool_commit.trigger_review(message)
+   → Runs "git diff && git diff --cached" to get changes
+   → Runs "git diff --name-only" to get file list
+   → Calls inter_review.request_review(None, None, "autonomic", context)
+3. request_review() calls SQL function request_inter_review(...)
+   → Creates row in inter_reviews with status='pending', overall_score=NULL
+   → Returns review_id
+4. S-bot receives: "Inter-review triggered (ID: xxx). Call psypi-commit again with this review_id."
+5. A-bot should review the code:
+   → A-bot's agent_end hook fires (see §71c)
+   → A-bot reads conversation, detects "inter-review" keywords
+   → A-bot calls LLM to generate review
+   → LLM response is sent as pi_send_message to S-bot
+   → BUT: response is NEVER written to inter_reviews table
+   → overall_score stays NULL forever
+6. S-bot calls psypi-commit(message, review_id)
+7. tool_commit.commit_if_reviewed(message, review_id)
+   → Calls inter_review.get_review_details(review_id)
+   → Finds review with overall_score = NULL
+   → Returns Error("Review not yet complete. A-bot is still reviewing. Try again later.")
+8. S-bot retries... forever. The review NEVER completes.
+```
+
+**The inter-review system has NEVER successfully completed a review.**
+Every commit attempt is permanently stuck at step 7.
+
+### 71e. A-bot Direct Message Flow (/autonomic-listen)
+
+```
+1. User types /autonomic-listen "message"
+2. command_listen.on_autonomic_listen(args, ctx, pi)
+3. Calls call_monitor(ctx, user_prompt, system_prompt)
+   → Uses hardcoded system prompt, not A-bot's soul from DB
+4. LLM response is sent via pi_send_message("autonomic-wakeup", response, "persistent")
+5. S-bot receives the message
+```
+
+**Bug at step 3**: The system prompt is hardcoded in `command_listen.gleam`, not read
+from the `agent_souls` table. A-bot's configured soul is ignored for direct messages.
+
+---
+
+## 72. TOOL CALL EXECUTION FLOW — DETAILED TRACE
+
+### 72a. How a Pi Tool Call Reaches Gleam Code
+
+```
+1. LLM decides to call psypi-task-add(title="Fix bug", description="...")
+2. Pi SDK creates tool call event with parameters
+3. Pi SDK calls the registered execute function:
+   async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+     const result = await task_add_task("Fix bug", "...");
+     const r = unwrapGleamResult(result);
+     return r.ok ? { content: [{ type: "text", text: JSON.stringify(gleamValueToJson(r.value)) }] }
+                 : { content: [{ type: "text", text: `Error: ${r.error}` }] };
+   }
+4. task_add_task() is an imported Gleam function:
+   import { add_task as task_add_task } from "./build/dev/javascript/psypi/task.mjs";
+5. Gleam's task.add_task() runs:
+   a. Connects to DB (new connection)
+   b. Sets app.current_project_id (useless, see §29c)
+   c. Executes INSERT INTO tasks (...)
+   d. Decodes result with task_decoder()
+   e. Disconnects from DB
+6. Result is a Gleam Result(String, DbError) type
+7. unwrapGleamResult() extracts Ok value or Error message
+8. gleamValueToJson() serializes the value (BROKEN for custom types, see §15)
+9. JSON.stringify() converts to string
+10. Pi SDK returns the result to the LLM
+```
+
+**Bug at step 3**: `_signal` (AbortSignal) is ignored — tool cannot be cancelled.
+**Bug at step 3**: `_onUpdate` (streaming callback) is ignored — no progress updates.
+**Bug at step 5a**: New DB connection per query — no pooling, no transactions.
+**Bug at step 5b**: `SET app.current_project_id` is useless (see §29c).
+**Bug at step 8**: `gleamValueToJson` produces broken JSON for custom types.
+**Bug at step 10**: Missing `details` field in result — Pi SDK expects it.
+
+### 72b. How a Pi Event Hook Reaches Gleam Code
+
+```
+1. Pi fires event (e.g., "agent_end")
+2. Pi SDK calls registered event handler:
+   pi.on('agent_end', async (event, ctx) => {
+     // Debounce logic...
+     const result = await hook_on_agent_end_on_agent_end(ctx, pi);
+     const r = unwrapGleamResult(result);
+     // ...
+   });
+3. hook_on_agent_end_on_agent_end() is dynamically imported:
+   const hook_on_agent_end_on_agent_end = (await import('./build/dev/javascript/psypi/hook_on_agent_end.mjs')).on_agent_end;
+4. Gleam's on_agent_end() runs (see §71c for full trace)
+5. Result is processed by the generated JS code
+```
+
+**Bug at step 3**: Dynamic import on every event — should be static.
+**Bug at step 2**: For `before_agent_start`, the `return { systemPrompt: r.value }`
+exits before `event_hooks_record_trigger` is called.
+
+---
+
+## 73. ADDITIONAL LOGIC/PROGRAMMING FAILURES
+
+### 73a. `agent_identity.gleam` — Identity Prefix Depends on Transient State
+
+File: [agent_identity.gleam:68-72](src/agent_identity.gleam#L68-L72)
+
+```gleam
+let prefix = case ctx.is_idle {
+  True -> "A"
+  False -> "S"
+}
+```
+
+And later:
+```gleam
+let prefix = case string.contains(id, "A-") || ctx.is_idle {
+  True -> "A"
+  False -> "S"
+}
+```
+
+The agent identity is determined by whether S-bot is currently idle. This means:
+- If S-bot is idle → identity resolves to A-bot → loads A-bot's soul and jobs
+- If S-bot becomes busy → identity resolves to S-bot → loads S-bot's soul and jobs
+- The same session can flip between A-bot and S-bot identity
+
+**This is a fundamental design flaw.** Agent identity should be stable and determined
+at session creation, not by transient idle state. The `ctx.is_idle` check was likely
+intended to mean "is this the autonomic (idle-monitoring) agent?" but it actually
+means "is the somatic agent currently idle?"
+
+### 73b. `agent_identity.gleam` — `check_git_exists` Result Ignored
+
+File: [agent_identity.gleam:86-89](src/agent_identity.gleam#L86-L89)
+
+```gleam
+let _global = case check_git_exists(ctx.cwd) {
+  True -> False
+  False -> True
+}
+```
+
+The result is assigned to `_global` (underscore prefix = unused variable).
+The global prefix logic is computed but never used. The `semantic_id` function
+uses `ctx.global` directly, not the computed `_global` value.
+
+This means the git existence check is dead code — it has no effect on the
+generated identity.
+
+### 73c. `areflect.gleam` — `save_issues` Swallows Individual Errors
+
+File: [areflect.gleam:207-213](src/areflect.gleam#L207-L213)
+
+```gleam
+fn save_issues(conn, issues, agent_id) {
+  case issues {
+    [] -> promise.resolve(Ok(Nil))
+    [first, ..rest] -> {
+      promise.await(save_issue(conn, first, agent_id), fn(_) {
+        save_issues(conn, rest, agent_id)
+      })
+    }
+  }
+}
+```
+
+The `fn(_)` discards the result of `save_issue`. If the first issue fails to save
+(e.g., missing `project_id`), the error is silently ignored and the function
+continues to save the rest. The caller never knows which issues failed.
+
+Same pattern in `save_learnings` and `save_tasks`.
+
+### 73d. `learning.gleam` — Tags Format Conversion Is Lossy
+
+File: [learning.gleam:48-66](src/learning.gleam#L48-L66)
+
+```gleam
+fn normalize_tags(raw: String) -> String {
+  // Converts JSON array ["tag1","tag2"] to PostgreSQL array format {tag1,tag2}
+  // Converts comma-separated "tag1, tag2" to PostgreSQL array format {tag1,tag2}
+}
+```
+
+The function converts tags to PostgreSQL array literal format `{tag1,tag2}`.
+But `dynamic.string()` sends this as a text parameter, not an array.
+PostgreSQL may auto-cast `'{tag1,tag2}'::text[]` but this depends on the
+driver and table definition. If the `tags` column is `text[]`, the string
+`{tag1,tag2}` needs to be sent as a properly formatted array literal with
+quotes: `{"tag1","tag2"}` for values containing spaces or special characters.
+
+### 73e. `broadcast.gleam` — `stats()` Query Uses Non-Existent Columns
+
+File: [broadcast.gleam:258-264](src/broadcast.gleam#L258-L264)
+
+```sql
+SELECT
+  COUNT(*) as total,
+  COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
+  COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+FROM project_communications
+WHERE from_ai = $1 AND message_type = 'broadcast'
+```
+
+Three bugs:
+1. `status` column doesn't exist in `project_communications` — SQL will fail
+2. `priority >= 2` — `priority` is `text` type, comparing text to integer fails
+3. Even if priority were integer, `'low' >= 2` is meaningless
+
+### 73f. `broadcast.gleam` — `list()` Hardcodes Status
+
+File: [broadcast.gleam:196-200](src/broadcast.gleam#L196-L200)
+
+```sql
+SELECT id, from_ai as agent_id, content as message, priority,
+       'sent' as status, created_at::text, read_at::text as sent_at
+FROM project_communications
+```
+
+- `'sent' as status` — hardcoded, actual status is unknown
+- `read_at::text as sent_at` — `read_at` is when the message was READ, not SENT
+- `id` is UUID without `::text` cast
+
+### 73g. `a_prompt_builder.gleam` — Inter-Review Detection Is Fragile
+
+File: [a_prompt_builder.gleam:104-108](src/a_prompt_builder.gleam#L104-L108)
+
+```gleam
+let is_inter_review = string.contains(entries_json, "inter-review")
+  || string.contains(entries_json, "Inter-Review")
+  || string.contains(entries_json, "issue report")
+  || string.contains(entries_json, "fix plan")
+  || string.contains(entries_json, "root cause")
+```
+
+This detects inter-review requests by string matching in the conversation JSON.
+If S-bot uses different phrasing (e.g., "code review", "PR review", "check my work"),
+the A-bot won't prioritize the review. The detection should be based on the
+`inter_reviews` table status, not string matching.
+
+### 73h. `a_prompt_builder.gleam` — Truncation Loses Critical Context
+
+File: [a_prompt_builder.gleam:119-122](src/a_prompt_builder.gleam#L119-L122)
+
+```gleam
+let recent_section = case is_inter_review {
+  True ->
+    truncate(entries_json, 4000)
+  False ->
+    truncate(entries_json, 2000)
+}
+```
+
+For inter-review, only 4000 characters of conversation are included. If the
+issue report is long (which it often is), the truncation may cut off the
+most important parts — the root cause analysis and fix plan.
+
+### 73i. `monitor_ai.gleam` — `check_safety` Uses Wrong Threshold
+
+File: [monitor_ai.gleam:399-405](src/monitor_ai.gleam#L399-L405)
+
+```gleam
+let critical_threshold = 3
+let critical_issues = health.open_issues
+let should_block = critical_issues > critical_threshold
+```
+
+This checks if `open_issues > 3` to decide whether to block. But `open_issues`
+counts ALL open issues (not just critical ones). The variable name
+`critical_issues` is misleading — it's actually `open_issues`. A project with
+4 low-severity open issues would be "blocked" by this logic.
+
+### 73j. `monitor_ai.gleam` — `get_work_suggestions()` Wrong Case for Skills
+
+File: [monitor_ai.gleam:318](src/monitor_ai.gleam#L318)
+
+```sql
+FROM skills WHERE status = 'PENDING'
+```
+
+The `skills` table uses lowercase status values (`pending`, `approved`).
+This query uses `PENDING` (uppercase). It will return 0 rows.
+
+Meanwhile, the `tasks` table uses UPPERCASE (`PENDING`, `COMPLETED`), so
+`status = 'PENDING'` is correct for tasks but wrong for skills.
+
+### 73k. `monitor_ai.gleam` — `get_model_stats()` Wrong Case for Reviews
+
+File: [monitor_ai.gleam:285](src/monitor_ai.gleam#L285)
+
+```sql
+COUNT(*) FILTER (WHERE status = 'FAILED')::INT as failure_count
+FROM inter_reviews
+```
+
+The `inter_reviews` table uses lowercase status (`pending`). There are no `FAILED`
+rows. The correct value would be lowercase `failed`, but since reviews never
+complete (see §22), this doesn't matter in practice.
+
+### 73l. `tool_commit.gleam` — Shell Escape Missing Newline
+
+File: [tool_commit.gleam:10-16](src/tool_commit.gleam#L10-L16)
+
+```gleam
+fn shell_escape(s: String) -> String {
+  s
+  |> string.replace("\\", "\\\\")
+  |> string.replace("\"", "\\\"")
+  |> string.replace("$", "\\$")
+  |> string.replace("`", "\\`")
+}
+```
+
+Missing: newline (`\n`) escape. A multi-line commit message like:
+```
+fix: something
+
+Detailed description here
+```
+Would break the `git commit -m "..."` command because the newline inside
+the double-quoted string would be interpreted as a command separator.
+
+### 73m. `hook_on_tool_result.gleam` — Error Detection on Garbage Input
+
+File: [hook_on_tool_result.gleam:8-13](src/hook_on_tool_result.gleam#L8-L13)
+
+The `result_json` parameter receives `JSON.stringify(event.result || '')`.
+Since `event.result` doesn't exist on `ToolResultEvent` (see §25a), this is
+always `JSON.stringify('')` which is `"''"`.
+
+The error detection checks:
+```gleam
+string.contains(result_json, "\"error\"")
+```
+
+This checks if `"''"` contains `"error"` — it doesn't. So no errors are
+ever detected from tool results. The entire error notification system is
+non-functional.
+
+### 73n. `pi_extension_ffi.mjs` — `call_monitor` Retry Without Backoff
+
+File: [pi_extension_ffi.mjs:80-110](src/pi_extension_ffi.mjs#L80-L110)
+
+```javascript
+if (shouldRetry) {
+  result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'none' });
+}
+```
+
+On rate limit or empty response, the code retries ONCE with `reasoning: 'none'`.
+No delay between retries. No exponential backoff. If the API is rate-limiting,
+the immediate retry will also be rate-limited.
+
+### 73o. `pi_extension_ffi.mjs` — `pi_send_message` Ignores `display` Parameter
+
+File: [pi_extension_ffi.mjs:55-59](src/pi_extension_ffi.mjs#L55-L59)
+
+```javascript
+export function pi_send_message(pi, customType, content, display) {
+  pi.sendMessage({
+    customType: String(customType),
+    content: String(content),
+    display: true,  // hardcoded, ignores the display parameter
+  }, { triggerTurn: true });
+}
+```
+
+The `display` parameter is accepted but never used. All messages are sent with
+`display: true`. The calling code passes `"persistent"` as the display value,
+which is ignored.
+
+---
+
+## 74. REVISED BUG COUNT — INCLUDING LOGIC/PROGRAMMING FAILURES
+
+| Category                           | Count                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `::text` cast missing (confirmed)  | 14                                                                                                                 |
+| Missing NOT NULL columns in INSERT | 8                                                                                                                  |
+| Wrong column names                 | 2 (`type`→`issue_type`, `status` in broadcast)                                                                     |
+| Decoder mismatch                   | 3 (memory save, task get, broadcast stats)                                                                         |
+| Missing type variants              | 1 (SkillSource AiBuilt)                                                                                            |
+| Logic bugs                         | 5 (is_s_still_idle no filter, dual debounce, identity prefix, inter-review never completes, tool_call only "edit") |
+| FFI issues                         | 2 (gleamValueToJson, pi_send_message ignores display)                                                              |
+| Config system fragmentation        | 2 (in-memory vs database, never synced)                                                                            |
+| Seed/bootstrap gaps                | 6 (missing tables)                                                                                                 |
+| Dead code                          | 2 (app.current_project_id, check_git_exists result)                                                                |
+| Stub implementations               | 1 (tool_consult)                                                                                                   |
+| Race conditions / concurrency      | 4 (configStore interleaving, debounce timer race, no cancellation, connection exhaustion)                          |
+| Extension generation bugs          | 6 (dynamic import, raw_json broken, pi-tui package, command signature, no error boundary, missing details)         |
+| A/S lifecycle logic failures       | 5 (session_start model, soul fallback silent, inter-review stuck, identity flip, direct message ignores soul)      |
+| Tool execution flow bugs           | 4 (signal ignored, onUpdate ignored, result broken, details missing)                                               |
+| Additional logic failures          | 15 (see §73a-73o)                                                                                                  |
+| **TOTAL CONFIRMED BUGS**           | **80**                                                                                                             |
+
+---
+
+## 75. SYSTEMIC ROOT CAUSES
+
+### 75a. No Integration Testing Against Real Database
+
+Every bug in sections 4-67 is invisible to the current test suite because:
+- Gleam tests only test pure functions
+- No test connects to a real PostgreSQL database
+- No test runs the FFI layer against real Node.js
+- No test verifies SQL queries return decodable results
+
+**This is the #1 systemic issue.** Without integration tests, every code change
+is a gamble.
+
+### 75b. No Schema Source of Truth
+
+The database schema exists in:
+1. Migration SQL files (initial state only — not updated after ALTER TABLE)
+2. Live PostgreSQL (current state — not version controlled)
+3. Gleam type definitions (hand-written — drifts from both)
+
+There is no single source of truth. When a migration adds a column, no mechanism
+ensures the Gleam types are updated.
+
+### 75c. AI Repair Cycle
+
+The git log shows a repeating pattern:
+1. AI encounters runtime error (decode failure, missing column, FK violation)
+2. AI patches the specific error without understanding root cause
+3. Patch introduces new phantom reference or breaks another path
+4. Next AI session encounters new error, repeats cycle
+
+This cycle has continued for 5+ months. The system has accumulated 80 confirmed
+bugs because each "fix" only addresses the immediate symptom.
+
+### 75d. Type System Not Leveraged
+
+Gleam's type system could catch many of these bugs at compile time:
+- `decode.field` could use a schema-derived type
+- SQL queries could be type-checked against schema
+- FFI bindings could use opaque types instead of `a` and `b`
+
+But the codebase uses `a` and `b` (type variables) for Pi context objects,
+bypassing the type system entirely. This means the compiler can't verify
+that `ctx.ui.notify` is called correctly, or that `pi.sendMessage` receives
+the right arguments.
+
+### 75e. No Observability
+
+When something goes wrong at runtime:
+- Decode errors produce "Failed to decode X" with no field-level detail
+- SQL errors are wrapped in generic `QueryError(String)`
+- FFI errors are caught and wrapped in `Error(e.message || 'unknown')`
+- No structured logging
+- No error tracking
+- No metrics
+
+The system is essentially a black box. When it breaks, the only way to debug
+is to read the source code and guess what went wrong.
