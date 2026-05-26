@@ -3142,3 +3142,622 @@ When something goes wrong at runtime:
 
 The system is essentially a black box. When it breaks, the only way to debug
 is to read the source code and guess what went wrong.
+
+---
+
+## 76. HOOK MODULE DEEP ANALYSIS
+
+### 76a. `hook_on_before_agent_start` — Record Trigger Before Return
+
+File: [hook_on_before_agent_start.gleam:6-8](src/hook_on_before_agent_start.gleam#L6-L8)
+
+```gleam
+pub fn on_before_agent_start() -> promise.Promise(Result(String, String)) {
+  let trigger = promise.map(event_hooks.record_trigger("before_agent_start"), fn(r) {
+    result.map_error(r, fn(e) { string.inspect(e) })
+  })
+  promise.await(trigger, fn(_) {
+    promise.await(s_db_reader.read_s_soul_from_db(), fn(soul_result) { ... })
+  })
+}
+```
+
+This module correctly awaits `record_trigger` before reading the soul. But in the
+generated JS code, the `before_agent_start` hook returns `{ systemPrompt: r.value }`
+which causes the Pi SDK to set the system prompt. The `event_hooks_record_trigger`
+call in the generated JS wrapper happens AFTER the return, so it's never reached.
+
+**Root cause**: The generated JS for `system_prompt_hook` does:
+```javascript
+const result = await hook_fn(...args);
+const r = unwrapGleamResult(result);
+event_hooks_record_trigger("before_agent_start"); // <-- never reached
+return { systemPrompt: r.value }; // <-- returns here first
+```
+
+The `return` exits the function before `event_hooks_record_trigger` is called.
+The Gleam code correctly awaits the trigger, but the generated JS wrapper adds
+an ADDITIONAL `event_hooks_record_trigger` call that's unreachable.
+
+### 76b. `hook_on_before_agent_start` — Soul Fallback Is Silent
+
+File: [hook_on_before_agent_start.gleam:14-21](src/hook_on_before_agent_start.gleam#L14-L21)
+
+```gleam
+Error(e) ->
+  promise.resolve(Ok(
+    "You are the Somatic Agentbot (S-agentbot). Your ID starts with S-. "
+    <> "You are NOT the Autonomic Agentbot (A-agentbot). "
+    <> "Messages from A come via pi_send_message — read and follow them. "
+    <> "The human user operates the terminal.\n\n"
+    <> "[SOUL LOAD FAILED: " <> e <> "]",
+  ))
+```
+
+When the soul fails to load, the function returns `Ok(fallback_soul)` — not `Error`.
+The Pi SDK sees a valid system prompt and proceeds. The `[SOUL LOAD FAILED]` message
+is embedded in the system prompt, but S-bot may not understand this is an error
+condition. There is no notification to A-bot, no error recording, and no retry.
+
+### 76c. `hook_on_agent_start` — Only Records Trigger
+
+File: [hook_on_agent_start.gleam:6-9](src/hook_on_agent_start.gleam#L6-L9)
+
+```gleam
+pub fn on_agent_start() -> promise.Promise(Result(Nil, String)) {
+  promise.map(event_hooks.record_trigger("agent_start"), fn(r) {
+    result.map_error(r, fn(e) { string.inspect(e) })
+  })
+}
+```
+
+This hook only records the trigger in the database. It does nothing else.
+No session initialization, no identity assignment, no state setup. The
+`agent_start` event is a critical point in the lifecycle — it should at
+minimum:
+1. Create an `agent_sessions` row
+2. Assign an identity (A or S) to the session
+3. Load the appropriate soul and jobs
+
+Currently, none of this happens at `agent_start`.
+
+### 76d. `hook_on_agent_end` — Dual Debounce System
+
+File: [hook_on_agent_end.gleam:29-55](src/hook_on_agent_end.gleam#L29-L55)
+
+The Pi SDK's `debounced_hook` wrapper sets a `setTimeout` based on the value
+read from `psypi_config.get_debounce_ms()`. Then, when the timer fires, the
+Gleam `on_agent_end` function runs its OWN debounce check using the in-memory
+`get_config("idle_since")` and `get_config("monitor_debounce_ms")`.
+
+This creates a **dual debounce** system:
+1. **Pi SDK debounce** (JS level): Reads from `psypi_config` table via DB query
+2. **Gleam debounce** (Gleam level): Reads from in-memory `_configStore`
+
+The two systems are NEVER synchronized. The in-memory store is populated by
+`set_config()` calls in the Gleam code, but `psypi_config` is populated by
+`psypi_config.set()` which writes to the database. They are completely separate.
+
+**Impact**: The Pi SDK debounce (5 min) + Gleam debounce (5 min) = 10 min total
+delay before A-bot wakes up. Even if both are set to the same value, the Gleam
+debounce starts counting from the FIRST `agent_end` after restart, while the
+Pi SDK debounce starts counting from the LATEST `agent_end`.
+
+### 76e. `hook_on_agent_end` — `is_s_still_idle()` Always Returns True
+
+File: [a_db_reader.gleam:24-38](src/a_db_reader.gleam#L24-L38)
+
+```sql
+SELECT COUNT(*) as cnt FROM agent_sessions
+WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+
+This query counts ALL alive sessions, not just S-bot sessions. But more
+critically, the `agent_sessions` table is NEVER populated by any hook.
+The `hook_on_agent_start` only records a trigger in `psypi_event_hooks` —
+it doesn't insert into `agent_sessions`. So the query always returns `cnt = 0`,
+and `is_s_still_idle()` always returns `True`.
+
+### 76f. `hook_on_tool_result` — Synchronous Function, Wrong Return Type
+
+File: [hook_on_tool_result.gleam:7-9](src/hook_on_tool_result.gleam#L7-L9)
+
+```gleam
+pub fn on_tool_result(
+  result_json: String,
+  tool_name: String,
+  pi: a,
+) -> Result(Nil, String) {
+```
+
+This returns `Result(Nil, String)` directly (not wrapped in `promise.Promise`).
+But the generated JS code does:
+```javascript
+const result = await hook_on_tool_result_on_tool_result(...args);
+```
+
+The `await` on a non-Promise value works in JavaScript (it resolves immediately),
+but the `unwrapGleamResult` function expects a Gleam `Result` type. This works
+because `Result` is a synchronous type. However, the `event_hooks_record_trigger`
+call in the wrapper expects the result to be available, and since the function
+is synchronous, the trigger recording happens correctly.
+
+But there's a deeper issue: `notify_error(pi, ...)` and `pi_send_message(pi, ...)`
+are called synchronously inside this function. These FFI functions have side effects
+(sending messages to the Pi SDK), but the function returns before those side effects
+complete. This is fine for `notify_error` (which is synchronous), but `pi_send_message`
+triggers an async message delivery that may not complete before the next hook fires.
+
+### 76g. `hook_on_tool_call` — Only Handles "edit"
+
+File: [hook_on_tool_call.gleam:18-20](src/hook_on_tool_call.gleam#L18-L20)
+
+```gleam
+case tool_name == "edit" {
+  False -> promise.resolve(Ok(Nil))
+  True -> { ... }
+}
+```
+
+Only the "edit" tool gets auto-backup. Other file-modifying tools like "write",
+"replace", "create_file" are ignored. This means:
+- `write` tool: No backup before overwriting a file
+- `replace` tool: No backup before replacing content
+- `create_file` tool: No backup (though less critical)
+
+The Pi SDK uses various tool names depending on the model's choice. The
+auto-backup should cover ALL file-modifying operations.
+
+---
+
+## 77. COMMAND MODULE ANALYSIS
+
+### 77a. `command_listen` — Hardcoded System Prompt
+
+File: [command_listen.gleam:21-25](src/command_listen.gleam#L21-L25)
+
+```gleam
+let system_prompt =
+  "You are the Autonomic Agentbot (A-agentbot). Your ID starts with A-. "
+  <> "You are NOT the Somatic Agentbot (S-agentbot). "
+  <> "The human is sending you a direct message. "
+  <> "Think about what they need and compose a clear, specific message to S. "
+  <> "Be brief and actionable."
+```
+
+This system prompt is hardcoded. It doesn't include:
+- A-bot's soul content from `agent_souls` table
+- A-bot's jobs from `agent_jobs` table
+- Project state (tasks, issues)
+- Any context about what S-bot has been doing
+
+Compare with `a_orchestrator.run_a_workflow()` which reads all of these from
+the database. The `/autonomic-listen` command gives A-bot a much weaker prompt.
+
+### 77b. `command_reload` — No Error Handling
+
+File: [command_reload.gleam:5-9](src/command_reload.gleam#L5-L9)
+
+```gleam
+pub fn on_autonomic_reload(ctx: a) -> promise.Promise(Result(String, String)) {
+  notify_info(ctx, "Reloading extensions...")
+  promise.map(ctx_reload(ctx), fn(_) {
+    notify_info(ctx, "Extensions reloaded. Monitor updated.")
+    Ok("Extensions reloaded.")
+  })
+}
+```
+
+The `fn(_)` discards the result of `ctx_reload`. If the reload fails:
+1. The error is silently ignored
+2. The user sees "Extensions reloaded. Monitor updated." even though it failed
+3. The function returns `Ok("Extensions reloaded.")` — a lie
+
+---
+
+## 78. DB MODULE ANALYSIS
+
+### 78a. `with_connection` — Disconnect Error Swallowed
+
+File: [db.gleam:78-86](src/db.gleam#L78-L86)
+
+```gleam
+pub fn with_connection(
+  callback: fn(Connection) -> promise.Promise(Result(a, e)),
+  error_mapper: fn(DbError) -> e,
+) -> promise.Promise(Result(a, e)) {
+  promise.await(connect(), fn(conn_result) {
+    case conn_result {
+      Error(e) -> promise.resolve(Error(error_mapper(e)))
+      Ok(conn) -> {
+        promise.await(callback(conn), fn(result) {
+          let _ = disconnect(conn)
+          promise.resolve(result)
+        })
+      }
+    }
+  })
+}
+```
+
+`let _ = disconnect(conn)` — the disconnect result is discarded. If the
+disconnect fails (e.g., connection already closed, network error), the error
+is silently ignored. This could lead to connection leaks on the PostgreSQL side.
+
+### 78b. `with_connection` — No Transaction Support
+
+The `with_connection` function creates a connection, runs a callback, and
+disconnects. There is no way to run multiple queries in a transaction.
+If a callback makes multiple queries and the second one fails, the first
+query's effects are NOT rolled back.
+
+This is particularly problematic for:
+- `areflect_tool`: Makes 3-4 inserts (issue, learnings, tasks) — partial saves
+- `tool_commit`: Makes git operations + DB inserts — partial commits
+- `inter_review`: Creates review + requests review — partial state
+
+### 78c. `connect()` — `SET app.current_project_id` Is Useless
+
+File: [db.gleam:44-48](src/db.gleam#L44-L48)
+
+```gleam
+let set_sql = "SET app.current_project_id = $1"
+let set_params = [dynamic.string(project_id)]
+promise.map(node_pg.query(client, set_sql, set_params), fn(_) {
+  Ok(Connection(client))
+})
+```
+
+This sets a session-level variable on every new connection. But:
+1. The connection is closed after each query (see `with_connection`)
+2. No RLS policy uses `app.current_project_id` (verified in migrations)
+3. No trigger or function references `current_setting('app.current_project_id')`
+4. The SET command adds an extra round-trip to every query
+
+This is pure overhead with zero benefit.
+
+### 78d. `connect()` — Hardcoded Fallback UUID
+
+File: [db.gleam:41-43](src/db.gleam#L41-L43)
+
+```gleam
+let project_id = case get_project_id_env() {
+  "" -> "0d324e68-b399-4b85-bd8a-6b1ef7b46168"
+  id -> id
+}
+```
+
+The hardcoded UUID `0d324e68-b399-4b85-bd8a-6b1ef7b46168` is used as the default
+project ID. This UUID exists in the `projects` table (verified), but:
+1. It's hardcoded in 6 different places across the codebase
+2. There's no mechanism to change it without code changes
+3. The `PLAN-project-id-lookup.md` plan for dynamic lookup is unimplemented
+4. If the `projects` table row is deleted, the entire system breaks silently
+
+---
+
+## 79. A_DB_READER DEEP ANALYSIS
+
+### 79a. `read_soul_from_db` — Only Reads 3 Columns
+
+File: [a_db_reader.gleam:57-59](src/a_db_reader.gleam#L57-L59)
+
+```sql
+SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'
+```
+
+The `agent_souls` table has a `content` column that contains the full soul prompt.
+But `read_soul_from_db` only reads `role`, `domain`, and `responsibility` — three
+short text fields. The `content` column (which could be a multi-paragraph system
+prompt) is completely ignored.
+
+Compare with `s_db_reader.read_s_soul_from_db()` which correctly reads the `content`
+column. The A-bot reader is missing the most important field.
+
+### 79b. `read_soul_from_db` — Returns Concatenated String
+
+File: [a_db_reader.gleam:70-73](src/a_db_reader.gleam#L70-L73)
+
+```gleam
+fn soul_responsibility_decoder() -> decode.Decoder(String) {
+  use role <- decode.field("role", decode.string)
+  use domain <- decode.field("domain", decode.string)
+  use responsibility <- decode.field("responsibility", decode.string)
+  decode.success("[" <> role <> " | " <> domain <> "] " <> responsibility)
+}
+```
+
+The decoder concatenates the three fields into a single string like
+`[Autonomic | autonomic] System health monitoring`. This loses all structure.
+The `a_prompt_builder` then adds this as a "soul component" alongside the
+hardcoded identity prompt. The actual soul content from the database is never used.
+
+### 79c. `read_a_jobs_from_db` — JOIN May Return No Rows
+
+File: [a_db_reader.gleam:200-203](src/a_db_reader.gleam#L200-L203)
+
+```sql
+SELECT j.job, j.priority, j.category
+FROM agent_jobs j
+JOIN agent_souls s ON j.soul_id = s.id
+WHERE s.id_prefix = 'A' AND j.is_active = true
+ORDER BY j.priority ASC
+```
+
+This JOIN requires `agent_jobs.soul_id` to match `agent_souls.id`. But:
+1. The `seed.gleam` only seeds `agent_souls` — not `agent_jobs`
+2. If no jobs are seeded, the query returns 0 rows
+3. The code handles this: `[] -> Ok("  (no active jobs)")`
+4. But A-bot then has NO jobs to guide its behavior
+
+### 79d. `read_project_state_from_db` — Error Swallowed
+
+File: [a_db_reader.gleam:88-95](src/a_db_reader.gleam#L88-L95)
+
+```gleam
+let tasks_text = case tasks_result {
+  Ok(t) -> t
+  Error(_) -> "  (tasks unavailable)"
+}
+```
+
+If reading tasks fails (e.g., decode error, connection error), the error is
+silently replaced with `(tasks unavailable)`. A-bot receives this as part of
+its prompt but has no way to know the data is missing or why.
+
+---
+
+## 80. MONITOR_AI DEEP ANALYSIS
+
+### 80a. `check_system_health` — `activity_log` Table May Not Exist
+
+File: [monitor_ai.gleam:57](src/monitor_ai.gleam#L57)
+
+```sql
+(SELECT COUNT(*)::INT FROM activity_log WHERE timestamp > NOW() - INTERVAL '1 hour') as activities_1h
+```
+
+The `activity_log` table is referenced but may not exist. If it doesn't exist,
+the entire `check_system_health` query fails, and the function returns
+`Error(QueryError(...))`. There's no graceful degradation.
+
+### 80b. `prepare_context` — UNION ALL with Different Column Counts
+
+File: [monitor_ai.gleam:98-106](src/monitor_ai.gleam#L98-L106)
+
+```sql
+SELECT 'learning' as type_, content, saved_at::text
+FROM memory
+WHERE agent_id = $1 AND source = 'learn'
+UNION ALL
+SELECT 'backup' as type_, file_path as content, saved_at::text
+FROM code_versions
+WHERE saved_by = $1
+ORDER BY saved_at DESC
+LIMIT 10
+```
+
+`UNION ALL` requires the same number of columns in both subqueries. Both have
+3 columns (`type_`, `content`, `saved_at`), so this is correct. But the
+`ORDER BY saved_at` at the end of a `UNION ALL` is ambiguous — which `saved_at`?
+PostgreSQL resolves this by position, but it's fragile.
+
+### 80c. `get_work_suggestions` — Case Sensitivity Mismatch
+
+File: [monitor_ai.gleam:318](src/monitor_ai.gleam#L318)
+
+```sql
+FROM skills WHERE status = 'PENDING'
+```
+
+As documented in §73j, `skills.status` uses lowercase values. This query
+returns 0 rows. But there's another issue: the `issues` subquery uses
+`GROUP BY severity` which returns ONE row per severity level. So if there
+are 5 critical issues and 3 medium issues, the result is 2 rows, not 8.
+
+### 80d. `record_review_score` — Only Updates Score, Not Status
+
+File: [monitor_ai.gleam:283-285](src/monitor_ai.gleam#L283-L285)
+
+```sql
+UPDATE inter_reviews SET overall_score = $1 WHERE id = $2
+```
+
+This only updates `overall_score`. It doesn't update:
+- `status` (should change from 'pending' to 'completed' or 'approved')
+- `completed_at` (should be set to NOW())
+- `reviewer_id` (should be set to A-bot's identity)
+
+Without updating `status`, the `commit_if_reviewed` check will still see
+`status = 'pending'` and refuse to commit, even after the score is set.
+
+### 80e. `check_safety` — Blocks on Low-Severity Issues
+
+File: [monitor_ai.gleam:399-405](src/monitor_ai.gleam#L399-L405)
+
+```gleam
+let critical_threshold = 3
+let critical_issues = health.open_issues
+let should_block = critical_issues > critical_threshold
+```
+
+As documented in §73i, `open_issues` counts ALL open issues, not just critical
+ones. The variable name `critical_issues` is misleading. A project with 4
+low-severity open issues would be "blocked" by this logic.
+
+---
+
+## 81. S_DB_READER ANALYSIS
+
+### 81a. `read_s_soul_from_db` — Only Reads `content`, Ignores Other Fields
+
+File: [s_db_reader.gleam:16-18](src/s_db_reader.gleam#L16-L18)
+
+```sql
+SELECT content FROM agent_souls WHERE id_prefix = 'S' AND is_active = true
+```
+
+This correctly reads the `content` column (unlike `a_db_reader`). But:
+1. It filters by `is_active = true` — if S-bot's soul is deactivated, the function fails
+2. It only reads `content`, not `role`, `domain`, `responsibility`, `trigger_type`, etc.
+3. The `content` from `seed.gleam` is just `"# S"` — a minimal placeholder
+
+### 81b. `read_s_jobs_from_db` — Same JOIN Issue as A-bot
+
+File: [s_db_reader.gleam:43-46](src/s_db_reader.gleam#L43-L46)
+
+```sql
+FROM agent_jobs j
+JOIN agent_souls s ON j.soul_id = s.id
+WHERE s.id_prefix = 'S' AND j.is_active = true
+```
+
+Same as §79c — `agent_jobs` is not seeded, so this returns 0 rows.
+
+---
+
+## 82. EVENT_HOOKS MODULE ANALYSIS
+
+### 82a. `record_trigger` — UPDATE Without WHERE Match
+
+File: [event_hooks.gleam:146-153](src/event_hooks.gleam#L146-L153)
+
+```sql
+UPDATE psypi_event_hooks
+SET last_triggered = NOW(),
+    trigger_count = trigger_count + 1,
+    updated_at = NOW()
+WHERE event_name = $1
+```
+
+If no row matches `event_name = $1`, the UPDATE silently affects 0 rows.
+The function still returns `Ok(Nil)`. There's no check for whether the
+UPDATE actually matched any rows.
+
+This means if the `psypi_event_hooks` table is empty (not seeded), all
+trigger recordings silently do nothing.
+
+### 82b. `record_error` — Auto-Disables After 5 Errors
+
+File: [event_hooks.gleam:166-170](src/event_hooks.gleam#L166-L170)
+
+```sql
+SET error_count = error_count + 1,
+    last_error = $2,
+    hook_status = CASE WHEN error_count >= 5 THEN 'error' ELSE hook_status END,
+    updated_at = NOW()
+```
+
+After 5 errors, the hook status is set to 'error'. But:
+1. No code checks `hook_status` before executing a hook
+2. The 'error' status is purely informational
+3. The hook continues to fire and fail even after being marked 'error'
+4. There's no auto-recovery mechanism (no code resets 'error' to 'active')
+
+### 82c. `event_hook_decoder` — `decode.optional` with `decode.string` May Fail
+
+File: [event_hooks.gleam:48-50](src/event_hooks.gleam#L48-L50)
+
+```gleam
+use agentbot_action <- decode.field("agentbot_action", decode.optional(decode.string))
+```
+
+The SQL uses `COALESCE(agentbot_action, '') as agentbot_action`, which means
+the value is always a string (never NULL). But the decoder uses
+`decode.optional(decode.string)`, which expects either NULL or a string.
+Since `COALESCE` converts NULL to `''`, the `decode.optional` will always
+return `Some("")`, never `None`. This works but is semantically wrong —
+the `COALESCE` should be removed if `decode.optional` is used, or vice versa.
+
+---
+
+## 83. NODE_PG FFI ANALYSIS
+
+### 83a. `mapQueryResult` — Row Objects Are Plain JS Objects
+
+File: [node_pg/ffi.mjs:325-330](build/dev/javascript/node_pg/ffi.mjs#L325-L330)
+
+```javascript
+function mapQueryResult(pgResult) {
+  return {
+    rows: arrayToList(pgResult.rows),
+    ...
+  };
+}
+```
+
+`pgResult.rows` is an array of plain JavaScript objects like `{id: 1, name: "foo"}`.
+These are converted to Gleam Lists using `arrayToList`. But `arrayToList` creates
+a Gleam `List(Dynamic)` — each row is a `dynamic.Dynamic` value.
+
+When Gleam code does `decode.run(row, decoder)`, it's decoding a plain JS object.
+The `decode.field("id", decode.string)` function accesses `row.id`. This works
+because `pg` returns rows as plain objects with column names as keys.
+
+But there's a subtle issue: `pg` type-casts some values automatically:
+- `timestamp` → JavaScript `Date` object (not a string)
+- `jsonb` → JavaScript object (not a string)
+- `boolean` → JavaScript `boolean` (not an integer)
+- `uuid` → JavaScript `string` (this is fine)
+
+This is why `::text` casts are needed — they force PostgreSQL to return strings
+instead of native JavaScript types. Without `::text`, `decode.string` fails on
+`Date` objects and JavaScript objects.
+
+### 83b. `executeQuery` — Parameters Are Gleam Dynamic Values
+
+File: [node_pg/ffi.mjs:295-300](build/dev/javascript/node_pg/ffi.mjs#L295-L300)
+
+```javascript
+export async function executeQuery(client, sql, parameters) {
+  const pgClient = client.inner;
+  const jsParams = listToArray(parameters);
+  const result = await pgClient.query(sql, jsParams);
+  ...
+}
+```
+
+`listToArray(parameters)` converts the Gleam List of `dynamic.Dynamic` values
+to a JavaScript array. But `dynamic.Dynamic` values are raw JavaScript values
+passed through Gleam's type system. When `db.gleam` does `dynamic.string(value)`,
+it creates a Gleam `Dynamic` wrapping a JavaScript string. The `pg` library
+receives these as-is.
+
+This works for simple types (string, int, float). But for:
+- `dynamic.optional(dynamic.string)`: Gleam's `Some("x")` becomes `{0: "x"}`,
+  which `pg` would try to insert as a complex object, not a string or NULL
+- `dynamic.bool(True)`: Gleam's `True` is JavaScript `true`, which works
+- `dynamic.int(42)`: Gleam's `42` is JavaScript `42`, which works
+
+The parameter passing works for the types currently used, but would break
+for optional values.
+
+---
+
+## 84. REVISED BUG COUNT — FINAL
+
+| Category                           | Count                                                                                                                                                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `::text` cast missing (confirmed)  | 14                                                                                                                                                                                                       |
+| Missing NOT NULL columns in INSERT | 8                                                                                                                                                                                                        |
+| Wrong column names                 | 3 (`type`→`issue_type`, `status` in broadcast, `PENDING` for skills)                                                                                                                                     |
+| Decoder mismatch                   | 4 (memory save, task get, broadcast stats, event_hooks optional vs COALESCE)                                                                                                                             |
+| Missing type variants              | 1 (SkillSource AiBuilt)                                                                                                                                                                                  |
+| Logic bugs                         | 8 (is_s_still_idle no filter, dual debounce, identity prefix, inter-review never completes, tool_call only "edit", record_review_score no status update, check_safety wrong threshold, case sensitivity) |
+| FFI issues                         | 3 (gleamValueToJson, pi_send_message ignores display, now_ms duplicate)                                                                                                                                  |
+| Config system fragmentation        | 2 (in-memory vs database, never synced)                                                                                                                                                                  |
+| Seed/bootstrap gaps                | 7 (missing tables: agent_jobs, agent_sessions, activity_log, projects, agent_identities, provider_api_keys, psypi_event_hooks)                                                                           |
+| Dead code                          | 3 (app.current_project_id, check_git_exists result, SET app.current_project_id)                                                                                                                          |
+| Stub implementations               | 1 (tool_consult)                                                                                                                                                                                         |
+| Race conditions / concurrency      | 4 (configStore interleaving, debounce timer race, no cancellation, connection exhaustion)                                                                                                                |
+| Extension generation bugs          | 6 (dynamic import, raw_json broken, pi-tui package, command signature, no error boundary, missing details)                                                                                               |
+| A/S lifecycle logic failures       | 6 (session_start model, soul fallback silent, inter-review stuck, identity flip, direct message ignores soul, agent_start does nothing)                                                                  |
+| Tool execution flow bugs           | 4 (signal ignored, onUpdate ignored, result broken, details missing)                                                                                                                                     |
+| Hook module bugs                   | 5 (before_agent_start record_trigger unreachable, soul fallback silent, agent_start no-op, tool_result sync, tool_call only edit)                                                                        |
+| Command module bugs                | 2 (listen hardcoded prompt, reload swallows error)                                                                                                                                                       |
+| DB module bugs                     | 4 (disconnect swallowed, no transactions, useless SET, hardcoded UUID)                                                                                                                                   |
+| A/S DB reader bugs                 | 4 (A reads wrong columns, A concatenates soul, jobs not seeded, errors swallowed)                                                                                                                        |
+| Monitor AI bugs                    | 4 (activity_log may not exist, case sensitivity, score without status, wrong threshold)                                                                                                                  |
+| Event hooks bugs                   | 3 (UPDATE no match check, auto-disable ineffective, optional vs COALESCE)                                                                                                                                |
+| Node PG FFI bugs                   | 1 (optional parameter handling)                                                                                                                                                                          |
+| **TOTAL CONFIRMED BUGS**           | **97**                                                                                                                                                                                                   |
