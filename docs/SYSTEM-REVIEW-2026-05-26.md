@@ -8649,3 +8649,148 @@ Completed full review of all remaining modules: broadcast, meeting, skill, issue
 | time_utils_ffi.mjs               | ✅      | 1          | Timezone handling                                                       |
 
 **ALL 43 source modules reviewed.**
+
+---
+
+## 170. MIGRATION vs ACTUAL SCHEMA — DEEP ANALYSIS v14
+
+### 170.1 Migration Coverage
+
+| Metric                           | Count  |
+| -------------------------------- | ------ |
+| Migration SQL files              | 24     |
+| Tables created by migrations     | ~20    |
+| Actual base tables in database   | 96     |
+| Tables with NO migration         | ~76    |
+| Total columns in database        | ~1200+ |
+| Columns defined in migrations    | ~150   |
+| Columns added outside migrations | ~1050+ |
+
+**87.5% of the database schema has no migration tracking.**
+
+### 170.2 Critical Type Mismatches (Migration vs Actual)
+
+| Table                  | Column         | Migration Type | Actual Type       | Impact                                            |
+| ---------------------- | -------------- | -------------- | ----------------- | ------------------------------------------------- |
+| skills                 | content        | TEXT           | JSONB             | Gleam `decode.string` fails on non-null JSONB     |
+| skills                 | reference_list | TEXT           | JSONB             | Same — decode failure                             |
+| project_communications | project_id     | TEXT           | UUID              | Migration default `''` would fail UUID constraint |
+| project_communications | metadata       | TEXT           | JSONB             | String passed for JSONB column                    |
+| activity_log           | context        | TEXT           | JSONB             | String passed for JSONB column                    |
+| issues                 | project_id     | TEXT           | UUID              | Migration default `''` would fail UUID constraint |
+| notifications          | created_at     | TIMESTAMPTZ    | TIMESTAMP (no tz) | Lost timezone info                                |
+| notifications          | read_at        | TIMESTAMPTZ    | TIMESTAMP (no tz) | Lost timezone info                                |
+
+### 170.3 Missing Columns (Migration defines fewer columns than actual)
+
+| Table                  | Migration Columns | Actual Columns | Missing                                                                                                                                                                                    |
+| ---------------------- | ----------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| skills                 | 13                | 56             | 43 (project_id, external_id, tags, scan_status, verified, downloads, rating, code_analysis, manifest, embedding, trigger_phrases, anti_patterns, examples, etc.)                           |
+| inter_reviews          | 7                 | 33             | 26 (commit_hash, branch, requester_id, reviewer_type, findings, suggestions, issues, praise, code_quality_score, test_coverage_score, documentation_score, response, review_context, etc.) |
+| issues                 | 16                | 31             | 15 (discovered_at, related_issue_id, task_id, resolution, resolved_by, tags, metadata, updated_at, assignee, review_id, dlq_id, viewers, milestone_id, etc.)                               |
+| project_communications | 8                 | 13             | 5 (to_ai, git_hash, git_branch, environment)                                                                                                                                               |
+| tasks                  | 14 (010)          | 60             | 46 (massive drift)                                                                                                                                                                         |
+| meetings               | 7+6               | 11+8           | 6 (project_id, metadata, summary, updated_at for meetings; position for meeting_opinions)                                                                                                  |
+
+### 170.4 Tables with NO Migration (76 tables)
+
+Critical untracked tables used by Gleam code:
+- `projects` — Referenced by project_id UUID across all modules. No migration. Gleam has no `Project` type.
+- `psypi_event_hooks` — Used by `event_hooks.gleam`. No migration.
+- `agent_souls` — Used by `agent_identity.gleam`. Migration 008 creates it but actual schema has 13 columns vs migration's ~8.
+- `agent_sessions` — Used by `a_db_reader.gleam`. Migration 013 creates it but actual has 11 columns vs migration's ~8.
+- `memory` — Used by `memory.gleam` and `learning.gleam`. Migration 017 creates it but actual has 14 columns vs migration's ~8.
+
+Other untracked tables (not directly used by Gleam but exist in DB):
+- `users`, `user_sessions`, `user_profiles`, `password_resets`, `email_verifications`
+- `payments`, `subscriptions`, `subscription_plans`, `payment_analytics`, `payment_refunds`, `payment_webhooks`, `user_payment_methods`
+- `conversations`, `mcp_configs`, `mcp_tools`
+- `reflections`, `system_reviews`, `review_comments`, `review_labels`
+- `dead_letter_queue`, `failure_alerts`, `failure_patterns`, `failure_root_causes`, `failure_statistics`
+- `task_outcomes`, `task_patterns`, `task_audit_log`, `task_results`, `task_templates`, `task_comments`, `task_health_metrics`
+- `skill_versions`, `skill_audit_log`, `skill_builder_config`, `skill_feedback`
+- `scheduled_tasks`, `stuck_tasks_tracking`, `long_tasks_pause`, `retry_strategies`, `retry_learning`
+- `knowledge_links`, `prompt_suggestions`, `reminder_templates`, `insert_reminders`
+- `process_pids`, `heartbeat_configs`, `agent_configs`, `agent_moods`, `agent_scores`
+- `project_docs`, `project_metrics`, `project_skills`, `project_visits`, `project_config_history`
+- `bootstrap_state`, `direct_insert_audit`, `rate_limits`, `event_log`
+- `code_versions` — Migration 014 creates it but actual has 11 columns vs migration's ~7
+- `soul`, `tool_definitions`, `api_keys`, `ai_capabilities`
+- `milestones`, `milestone_progress`, `priority_learnings`
+- `issue_events`, `issue_comments`, `issue_labels`, `labels`, `auto_tag_rules`, `auto_category_rules`
+- `archived_memory`, `memories`
+- `table_documentation`
+
+### 170.5 Migration Ordering Conflicts
+
+- Two files share number `025`: `025_add_tasks_project_id.sql` and `025_drop_system_directives.sql`
+- `simple_migrate.gleam` sorts by filename and runs alphabetically, so both will run but order between them is non-deterministic relative to each other
+
+### 170.6 New Bugs from Migration Analysis
+
+| #    | Bug                                                     | Severity | Detail                                                                                                                                                                                                                                                                                                    |
+| ---- | ------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B280 | Migration type mismatches — TEXT vs JSONB for 4 columns | CRITICAL | skills.content, skills.reference_list, project_communications.metadata, activity_log.context are JSONB in DB but TEXT in migration. If migrations are re-run (no tracking table), `CREATE TABLE IF NOT EXISTS` won't recreate, but if DB is rebuilt from migrations alone, all JSONB columns become TEXT. |
+| B281 | Migration type mismatches — TEXT vs UUID for project_id | CRITICAL | project_communications.project_id and issues.project_id are UUID in DB but TEXT in migration. Rebuilt DB would accept empty strings, breaking UUID foreign keys.                                                                                                                                          |
+| B282 | notifications lost timezone — TIMESTAMPTZ → TIMESTAMP   | HIGH     | Migration defines TIMESTAMPTZ but actual is TIMESTAMP without timezone. `created_at::text` format will differ.                                                                                                                                                                                            |
+| B283 | 76 tables have no migration at all                      | HIGH     | If database is lost, 76 tables cannot be reconstructed from migrations. No disaster recovery possible.                                                                                                                                                                                                    |
+| B284 | Duplicate migration number 025                          | MEDIUM   | Two files share migration number 025. Execution order between them is non-deterministic.                                                                                                                                                                                                                  |
+| B285 | skills.source CHECK constraint missing 'ai-built'       | HIGH     | Migration 020 CHECK allows ('clawhub', 'local', 'generated', 'imported') but actual DB constraint includes 'ai-built'. Migration is stale.                                                                                                                                                                |
+
+---
+
+## 171. REVISED BUG COUNT — FINAL v14
+
+| Category                           | Count                                                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `::text` cast missing (TSTZ+JSONB) | 20                                                                                                       |
+| Missing NOT NULL columns in INSERT | 16                                                                                                       |
+| Wrong column names                 | 6                                                                                                        |
+| Decoder mismatch                   | 17                                                                                                       |
+| Wrong column referenced in SQL     | 2                                                                                                        |
+| Missing type variants              | 3                                                                                                        |
+| Logic bugs                         | 19                                                                                                       |
+| FFI issues                         | 15                                                                                                       |
+| Config system fragmentation        | 4                                                                                                        |
+| Seed/bootstrap gaps                | 10                                                                                                       |
+| Dead code                          | 9                                                                                                        |
+| Stub implementations               | 4                                                                                                        |
+| Race conditions / concurrency      | 6                                                                                                        |
+| Extension generation bugs          | 8                                                                                                        |
+| A/S lifecycle logic failures       | 12                                                                                                       |
+| Tool execution flow bugs           | 6                                                                                                        |
+| Hook module bugs                   | 15                                                                                                       |
+| Command module bugs                | 2                                                                                                        |
+| DB module bugs                     | 8                                                                                                        |
+| A/S DB reader bugs                 | 11                                                                                                       |
+| Monitor AI bugs                    | 21                                                                                                       |
+| Monitor module bugs                | 6                                                                                                        |
+| Event hooks bugs                   | 5                                                                                                        |
+| Node PG FFI bugs                   | 1                                                                                                        |
+| Inter-review bugs                  | 13                                                                                                       |
+| Tool commit bugs                   | 7                                                                                                        |
+| Tool consult bugs                  | 4                                                                                                        |
+| Code version bugs                  | 3                                                                                                        |
+| Meeting bugs                       | 4                                                                                                        |
+| Agent identity bugs                | 7                                                                                                        |
+| Task bugs                          | 9                                                                                                        |
+| Issue bugs                         | 5                                                                                                        |
+| Broadcast bugs                     | 10                                                                                                       |
+| Skill bugs                         | 5                                                                                                        |
+| Agents bugs                        | 2                                                                                                        |
+| Stats bugs                         | 3                                                                                                        |
+| A orchestrator bugs                | 3                                                                                                        |
+| A prompt builder bugs              | 2                                                                                                        |
+| A context utils bugs               | 4                                                                                                        |
+| Simple migrate bugs                | 5                                                                                                        |
+| System prompt types bugs           | 3                                                                                                        |
+| Areflect bugs                      | 5                                                                                                        |
+| Extension generator bugs           | 2                                                                                                        |
+| FFI node_ffi.mjs bugs              | 4                                                                                                        |
+| FFI pi_extension_ffi.mjs bugs      | 8                                                                                                        |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                                                                        |
+| FFI time_utils_ffi.mjs bugs        | 1                                                                                                        |
+| Memory bugs                        | 2                                                                                                        |
+| Learning bugs                      | 1                                                                                                        |
+| Migration schema bugs              | 5 (+6: TEXT vs JSONB, TEXT vs UUID, timezone lost, 76 untracked tables, duplicate 025, stale CHECK) = 11 |
+| **TOTAL CONFIRMED BUGS**           | **285**                                                                                                  |
