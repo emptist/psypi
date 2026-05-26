@@ -12421,3 +12421,101 @@ manual psql sessions, or external tools:
 | s_db_reader         | 4      | system_directives never read                        |
 | monitor_ai          | 6      | record_review_score is dead code                    |
 | system_prompt_types | 3      | Crude token estimation                              |
+
+---
+
+## 198. TOOL IMPLEMENTATIONS — CORRECTNESS AUDIT
+
+### 198.1 Tool Inventory (34 tools)
+
+| #   | Tool Name               | Module            | Status  | Key Issue                                             |
+| --- | ----------------------- | ----------------- | ------- | ----------------------------------------------------- |
+| 1   | psypi-my-id             | agent_identity    | OK      | No decode issues                                      |
+| 2   | psypi-task-add          | task              | BROKEN  | Missing `::text` casts, missing columns               |
+| 3   | psypi-task-list         | task              | BROKEN  | Same as above                                         |
+| 4   | psypi-task-complete     | task              | BROKEN  | Same as above                                         |
+| 5   | psypi-stats-show        | stats             | OK      | Uses `COUNT(*)::INT` correctly                        |
+| 6   | psypi-doc-save          | doc               | OK      | Simple INSERT                                         |
+| 7   | psypi-doc-list          | doc               | OK      | Simple SELECT                                         |
+| 8   | psypi-issue-add         | issue             | BROKEN  | Missing `::text` casts                                |
+| 9   | psypi-issue-list        | issue             | BROKEN  | Same as above                                         |
+| 10  | psypi-issue-count       | issue             | OK      | Uses `COUNT(*)::INT`                                  |
+| 11  | psypi-issue-get         | issue             | BROKEN  | Missing `::text` casts                                |
+| 12  | psypi-issue-resolve     | issue             | OK      | Simple UPDATE                                         |
+| 13  | psypi-skill-list        | skill             | BROKEN  | `content` JSONB, missing `AiBuilt`                    |
+| 14  | psypi-skill-get         | skill             | BROKEN  | Same as above                                         |
+| 15  | psypi-skill-search      | skill             | BROKEN  | Same as above                                         |
+| 16  | psypi-meetings          | meeting           | FRAGILE | UUID without `::text`, works by pg convention         |
+| 17  | psypi-meeting-get       | meeting           | FRAGILE | Same as above                                         |
+| 18  | psypi-meeting-opinions  | meeting           | FRAGILE | Same as above                                         |
+| 19  | psypi-meeting-add       | meeting           | OK      | INSERT, returns id                                    |
+| 20  | psypi-meeting-say       | meeting           | OK      | INSERT, returns id                                    |
+| 21  | psypi-learn-save        | learning_insights | OK      | Simple INSERT                                         |
+| 22  | psypi-memory-search     | memory            | BROKEN  | `created_at` timestamptz without `::text`, `SELECT *` |
+| 23  | psypi-broadcast-send    | broadcast         | FRAGILE | `stats()` missing `::INT` cast                        |
+| 24  | psypi-broadcasts        | broadcast         | FRAGILE | Hardcoded `'sent'` status                             |
+| 25  | psypi-areflect          | areflect          | OK      | Simple INSERT                                         |
+| 26  | psypi-agents-list       | agent_identity    | OK      | No decode issues                                      |
+| 27  | psypi-autonomic-status  | monitor_ai        | OK      | Returns template string                               |
+| 28  | psypi-autonomic-health  | monitor_ai        | OK      | Uses `COUNT(*)::INT`                                  |
+| 29  | psypi-autonomic-alerts  | monitor_ai        | OK      | Uses `COUNT(*)::INT`                                  |
+| 30  | psypi-autonomic-stats   | monitor_ai        | USELESS | `overall_score` always NULL → stats always 0          |
+| 31  | psypi-autonomic-suggest | monitor_ai        | OK      | Uses `COUNT(*)::TEXT`                                 |
+| 32  | psypi-list-hooks        | event_hooks       | OK      | Simple SELECT                                         |
+| 33  | psypi-list-active-hooks | event_hooks       | OK      | Simple SELECT                                         |
+| 34  | psypi-consult           | tool_consult      | STUB    | Returns canned response                               |
+| 35  | psypi-commit            | tool_commit       | BROKEN  | Inter-review 3 independent failures                   |
+
+### 198.2 Detailed Tool Issues
+
+**BROKEN tools (8):** task-add, task-list, task-complete, issue-add, issue-list,
+issue-get, skill-list/get/search, psypi-commit, memory-search
+
+**FRAGILE tools (4):** meeting-list/get/opinions, broadcast-send/list
+
+**USELESS tools (1):** autonomic-stats (always returns 0)
+
+**STUB tools (1):** consult (no actual A-bot consultation)
+
+**OK tools (20):** The remaining tools work correctly.
+
+### 198.3 Common Failure Patterns
+
+1. **Missing `::text` cast on timestamptz columns** — `created_at`, `updated_at`,
+   `requested_at`, `completed_at` all fail when decoded as `decode.string`
+   without `::text` cast. The node-postgres driver returns JavaScript Date
+   objects for timestamptz, which `decode.string` cannot parse.
+
+2. **Missing `::text` cast on UUID columns** — `id`, `project_id`, `task_id`
+   are UUID type. The node-postgres driver returns strings for UUID by
+   convention, so this works. But it's fragile — custom type parsers
+   could break it.
+
+3. **JSONB columns decoded as `decode.string`** — `tasks.result`, `skills.content`,
+   `skills.reference_list` are JSONB but decoded as strings. The node-postgres
+   driver returns JavaScript objects for JSONB, which `decode.string` cannot
+   parse. Needs `::text` cast or `decode.dynamic`.
+
+4. **`SELECT *` returns extra columns** — `memory.search()` uses `SELECT *`
+   which returns 13 columns but the decoder only expects 7. Extra columns
+   are ignored by `decode.field`, but if column order changes, it could fail.
+
+5. **`COUNT(*)` without `::INT`** — PostgreSQL returns `bigint` for `COUNT(*)`.
+   The node-postgres driver returns this as a string. `decode.int` fails.
+   Must use `COUNT(*)::INT`. Some modules do this correctly (monitor_ai),
+   others don't (broadcast.stats).
+
+### 198.4 Tool Status Summary
+
+| Status    | Count  | Percentage                |
+| --------- | ------ | ------------------------- |
+| OK        | 20     | 57%                       |
+| BROKEN    | 8      | 23%                       |
+| FRAGILE   | 4      | 11%                       |
+| USELESS   | 1      | 3%                        |
+| STUB      | 1      | 3%                        |
+| **Total** | **34** | **97%** (3% fully broken) |
+
+**Note:** "BROKEN" means the tool will fail at runtime for non-trivial data.
+"FRAGILE" means it works now but could break with configuration changes.
+"OK" means it works correctly for typical use cases.
