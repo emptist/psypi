@@ -8393,3 +8393,259 @@ nullable. `decode.string` will fail on NULL.
 | FFI time_utils_ffi.mjs bugs        | 1                                                                                                                                               |
 | Migration schema bugs              | 5                                                                                                                                               |
 | **TOTAL CONFIRMED BUGS**           | **254**                                                                                                                                         |
+
+---
+
+## 166. REMAINING MODULES DEEP REVIEW — v13
+
+Completed full review of all remaining modules: broadcast, meeting, skill, issue_db, task, stats, agents, agent_identity, code_version, learning, memory, event_hooks, file_utils, monitor, command_listen, command_reload, pi_extension, db, seed, simple_migrate, main, system_prompt_types, agent_identity_types, issue_types.
+
+### broadcast.gleam — 4 NEW bugs
+
+| #    | Bug                                                   | Severity | Detail                                                                                                                       |
+| ---- | ----------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| B255 | `stats()` queries non-existent `status` column        | CRITICAL | SQL uses `WHERE status = 'sent'` but `project_communications` has NO `status` column. Query will fail with PostgreSQL error. |
+| B256 | `stats()` compares `priority >= 2` on text column     | CRITICAL | `priority` is `text` type, not integer. `priority >= 2` will fail or produce wrong results.                                  |
+| B257 | `stats()` COUNT(*) decoded as `decode.int`            | HIGH     | `COUNT(*)` returns bigint, node-postgres returns string, `decode.int` fails. Same as `is_s_still_idle()` bug.                |
+| B258 | `send()` passes `metadata` as string for jsonb column | MEDIUM   | `dynamic.string("{\"sent_at\": \"now\"}")` for jsonb column. May work if PG auto-casts, but fragile.                         |
+
+### memory.gleam — 2 NEW bugs
+
+| #    | Bug                                                                        | Severity | Detail                                                                                                                                                                                                                                                                                                                          |
+| ---- | -------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B259 | `save()` uses `memory_decoder()` for `RETURNING id` result                 | CRITICAL | `RETURNING id` only returns `id` column, but `memory_decoder()` expects 7 fields (id, content, tags, source, agent_id, importance, created_at). Decode will always fail. Should use `id_decoder()`.                                                                                                                             |
+| B260 | `search()` uses `SELECT *` — `created_at` TIMESTAMPTZ not cast to `::text` | HIGH     | `SELECT *` includes `created_at` (TIMESTAMPTZ) without `::text` cast. node-postgres returns Date object, `decode.string` fails. Also includes `embedding` (USER-DEFINED), `metadata` (jsonb), `has_sensitive` (boolean) which are not in the decoder — extra columns are ignored by `decode.field` but `created_at` will break. |
+
+### skill.gleam — 2 NEW bugs (previously counted 3, now confirmed 2 new)
+
+| #    | Bug                                                                                | Severity | Detail                                                                                                                                                                                                                |
+| ---- | ---------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B261 | `get()` and `search()` — `content` and `reference_list` jsonb not cast to `::text` | CRITICAL | Line 184/214: `content, reference_list` without `::text` cast. Both are jsonb columns. node-postgres returns JS objects, `decode.string` fails. Line 137 (list) correctly uses `content::text, reference_list::text`. |
+| B262 | `SkillSource` missing `AiBuilt` variant                                            | HIGH     | Previously identified. Database contains `source='ai-built'` but type only has `HumanBuilt`, `AiGenerated`. `string_to_source` will fail.                                                                             |
+
+### task.gleam — 3 NEW bugs
+
+| #    | Bug                                                              | Severity | Detail                                                                                                                                               |
+| ---- | ---------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B263 | `get()` missing `project_id` in SELECT                           | CRITICAL | `task_decoder()` expects `project_id` field but `get()` query doesn't include it. Decode will fail with "missing field project_id".                  |
+| B264 | `result` jsonb not cast to `::text` in any query                 | HIGH     | `result` is jsonb, decoded as `decode.optional(decode.string)`. Without `::text`, node-postgres returns JS object for non-null values, decode fails. |
+| B265 | `complete()` uses `'COMPLETED'` but database may have mixed case | LOW      | `string_to_status` handles both cases, but INSERT uses uppercase while other code may use lowercase. Inconsistent.                                   |
+
+### issue_db.gleam — 2 NEW bugs
+
+| #    | Bug                                                     | Severity | Detail                                                                                                                                                              |
+| ---- | ------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B266 | `build_where()` parameter reversal                      | CRITICAL | Conditions are prepended then reversed, but params are prepended and NOT reversed. SQL says `$1 = status` but param[0] = project_id. All filter values are swapped. |
+| B267 | `count_decoder()` uses `decode.int` for `COUNT(*)::INT` | LOW      | Actually this one uses `::INT` cast, so `decode.int` works. But `decode_bigint` pattern from stats.gleam is safer. Not a bug, just inconsistency.                   |
+
+### agent_identity.gleam — 2 NEW bugs
+
+| #    | Bug                                                                  | Severity | Detail                                                                |
+| ---- | -------------------------------------------------------------------- | -------- | --------------------------------------------------------------------- |
+| B268 | `job_row_decoder()` — `category` nullable decoded as required string | HIGH     | Same as a_db_reader/s_db_reader. If `category` is NULL, decode fails. |
+| B269 | `check_git_exists()` result unused — dead code                       | LOW      | `_global` variable assigned but never used. Function call is wasted.  |
+
+### code_version.gleam — 2 NEW bugs
+
+| #    | Bug                                                              | Severity | Detail                                                                                                                             |
+| ---- | ---------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| B270 | `doc_save_tool()` — `params.content` not in parameter schema     | HIGH     | Tool declares only `file_path` as parameter, but args reference `params.content`. Content won't be available from tool parameters. |
+| B271 | `query_versions()` — `saved_at` TIMESTAMPTZ not cast to `::text` | MEDIUM   | Returns raw `List(dynamic.Dynamic)`, so caller must decode. If caller uses `decode.string` for `saved_at`, it will fail.           |
+
+### monitor.gleam — 2 NEW bugs
+
+| #    | Bug                                                         | Severity | Detail                                                                                                              |
+| ---- | ----------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| B272 | `set_model()` — race condition on reset-all-then-set        | MEDIUM   | `UPDATE ... SET status = 'not_used'` resets ALL keys, then sets one. Concurrent calls could leave zero keys active. |
+| B273 | `record_current_model()` — `context` jsonb passed as string | MEDIUM   | Same fragile pattern as inter_review. `dynamic.string("{\"model\": ...}")` for jsonb column.                        |
+
+### event_hooks.gleam — 1 NEW bug
+
+| #    | Bug                                      | Severity | Detail                                                                                                                                                                                                               |
+| ---- | ---------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B274 | `COALESCE` + `decode.optional` redundant | LOW      | SQL uses `COALESCE(agentbot_action, '')` which returns empty string, but decoder uses `decode.optional(decode.string)`. COALESCE ensures never NULL, so optional always gets `Some("")`. Not harmful but misleading. |
+
+### meeting.gleam — 1 NEW bug
+
+| #    | Bug                                                          | Severity | Detail                                                                                                                                                          |
+| ---- | ------------------------------------------------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B275 | `meeting_say_tool` — `params.author` not in parameter schema | MEDIUM   | Tool declares `meeting_id` and `message` params, but args reference `params.author`. Will always be undefined, falling back to `"psypi"`. Author identity lost. |
+
+### learning.gleam — 1 NEW bug
+
+| #    | Bug                                                            | Severity | Detail                                                                                                                                       |
+| ---- | -------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| B276 | `save()` — `tags` passed as string for PostgreSQL array column | MEDIUM   | `normalize_tags()` converts to `{tag1,tag2}` format and passes as `dynamic.string()`. May work if PG auto-casts text to text[], but fragile. |
+
+### simple_migrate.gleam — 1 NEW bug
+
+| #    | Bug                                                      | Severity | Detail                                                                                                                                                                                                                                                                                                       |
+| ---- | -------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| B277 | No migration tracking — all migrations re-run every time | HIGH     | No tracking table. Every `run_all_migrations()` re-executes all SQL. Idempotent SQL mitigates but: (1) CREATE INDEX IF NOT EXISTS is slow, (2) non-idempotent SQL (ALTER TABLE ADD COLUMN without IF NOT EXISTS) will fail on re-run, (3) data migrations (INSERT) must use ON CONFLICT or WHERE NOT EXISTS. |
+
+### pi_extension_ffi.mjs — 1 NEW bug
+
+| #    | Bug                                                       | Severity | Detail                                                                                                                                                                                                                                                    |
+| ---- | --------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B278 | `gleamValueToJson` — constructor name matching is fragile | HIGH     | Uses `name.startsWith('Task$Task')` etc. If Gleam compiler changes internal naming convention, all serialization breaks. Also missing many type patterns (e.g., `EventHook$EventHook`, `Notification$Notification`, `EnrichedIdentity$EnrichedIdentity`). |
+
+### db.gleam — 1 NEW bug
+
+| #    | Bug                                             | Severity | Detail                                                                                              |
+| ---- | ----------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| B279 | `with_connection()` — disconnect result ignored | MEDIUM   | `let _ = disconnect(conn)` silently ignores disconnect errors. Connection leak if disconnect fails. |
+
+---
+
+## 167. REVISED BUG COUNT — FINAL v13
+
+| Category                           | Count                                                                                                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `::text` cast missing (TSTZ+JSONB) | 17 (+3: memory.search created_at, skill.get/search content+reference_list, task.result) = 20                                                              |
+| Missing NOT NULL columns in INSERT | 15 (+1: monitor_ai.auto_file_issue missing project_id) = 16                                                                                               |
+| Wrong column names                 | 5 (+1: monitor_ai.auto_file_issue uses `type` instead of `issue_type`) = 6                                                                                |
+| Decoder mismatch                   | 13 (+4: memory.save uses full decoder for RETURNING id, agent_identity.category nullable, task.get missing project_id, broadcast.stats COUNT bigint) = 17 |
+| Wrong column referenced in SQL     | 2 NEW (broadcast.stats status, broadcast.stats priority text vs int)                                                                                      |
+| Missing type variants              | 3                                                                                                                                                         |
+| Logic bugs                         | 18 (+1: issue_db.build_where parameter reversal) = 19                                                                                                     |
+| FFI issues                         | 14 (+1: gleamValueToJson fragile constructor matching) = 15                                                                                               |
+| Config system fragmentation        | 4                                                                                                                                                         |
+| Seed/bootstrap gaps                | 10                                                                                                                                                        |
+| Dead code                          | 8 (+1: agent_identity check_git_exists unused) = 9                                                                                                        |
+| Stub implementations               | 3 (+1: tool_consult.on_consult is a stub) = 4                                                                                                             |
+| Race conditions / concurrency      | 5 (+1: monitor.set_model reset-all race) = 6                                                                                                              |
+| Extension generation bugs          | 8                                                                                                                                                         |
+| A/S lifecycle logic failures       | 10 (+2: soul load failure silently swallowed, project_state failure included in prompt) = 12                                                              |
+| Tool execution flow bugs           | 4 (+2: doc_save_tool missing content param, meeting_say_tool missing author param) = 6                                                                    |
+| Hook module bugs                   | 12 (+3: ctx/pi same type variable, read_file_sync blocks, extract_error_msg fragile) = 15                                                                 |
+| Command module bugs                | 2                                                                                                                                                         |
+| DB module bugs                     | 7 (+1: with_connection disconnect ignored) = 8                                                                                                            |
+| A/S DB reader bugs                 | 9 (+2: is_s_still_idle no S-bot filter, category nullable) = 11                                                                                           |
+| Monitor AI bugs                    | 15 (+6: auto_file_issue wrong column + missing project_id, prepare_context wrong column, FAILED status doesn't exist x3, PENDING case mismatch) = 21      |
+| Monitor module bugs                | 4 (+2: set_model race, record_current_model jsonb as string) = 6                                                                                          |
+| Event hooks bugs                   | 4 (+1: COALESCE + optional redundant) = 5                                                                                                                 |
+| Node PG FFI bugs                   | 1                                                                                                                                                         |
+| Inter-review bugs                  | 10 (+3: requested_at no cast x2, hardcoded branch, jsonb as string) = 13                                                                                  |
+| Tool commit bugs                   | 5 (+2: shell_escape incomplete, inter-review score never written so commit always blocked) = 7                                                            |
+| Tool consult bugs                  | 3 (+1: on_consult is a stub) = 4                                                                                                                          |
+| Code version bugs                  | 1 (+2: doc_save_tool missing content param, query_versions saved_at no cast) = 3                                                                          |
+| Meeting bugs                       | 3 (+1: meeting_say_tool missing author param) = 4                                                                                                         |
+| Agent identity bugs                | 5 (+2: category nullable, check_git_exists unused) = 7                                                                                                    |
+| Task bugs                          | 6 (+3: get missing project_id, result jsonb no cast, COMPLETED case inconsistency) = 9                                                                    |
+| Issue bugs                         | 4 (+1: build_where parameter reversal) = 5                                                                                                                |
+| Broadcast bugs                     | 6 (+4: stats status column, stats priority text vs int, stats COUNT bigint, send metadata as string) = 10                                                 |
+| Skill bugs                         | 3 (+2: get/search jsonb no cast, missing AiBuilt variant) = 5                                                                                             |
+| Agents bugs                        | 2                                                                                                                                                         |
+| Stats bugs                         | 3                                                                                                                                                         |
+| A orchestrator bugs                | 3                                                                                                                                                         |
+| A prompt builder bugs              | 2                                                                                                                                                         |
+| A context utils bugs               | 3 (+1: current_time_ms returns 0 on error) = 4                                                                                                            |
+| Simple migrate bugs                | 4 (+1: no migration tracking) = 5                                                                                                                         |
+| System prompt types bugs           | 3                                                                                                                                                         |
+| Areflect bugs                      | 5                                                                                                                                                         |
+| Extension generator bugs           | 2                                                                                                                                                         |
+| FFI node_ffi.mjs bugs              | 4                                                                                                                                                         |
+| FFI pi_extension_ffi.mjs bugs      | 7 (+1: gleamValueToJson fragile) = 8                                                                                                                      |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                                                                                                                         |
+| FFI time_utils_ffi.mjs bugs        | 1                                                                                                                                                         |
+| Migration schema bugs              | 5                                                                                                                                                         |
+| Memory bugs                        | 2 NEW (save decoder mismatch, search created_at no cast)                                                                                                  |
+| Learning bugs                      | 1 NEW (tags as string for array)                                                                                                                          |
+| **TOTAL CONFIRMED BUGS**           | **279**                                                                                                                                                   |
+
+---
+
+## 168. CROSS-MODULE PATTERN ANALYSIS
+
+### Pattern 1: COUNT(*) bigint decode failure (4 instances)
+- `broadcast.stats()` — `decode.int` fails on bigint string
+- `a_db_reader.is_s_still_idle()` — `decode.int` fails, fallback returns `Ok(True)`
+- `issue_db.count()` — Uses `COUNT(*)::INT` + `decode.int` — WORKS (correct pattern)
+- `stats.stats()` — Uses `decode_bigint()` helper — WORKS (correct pattern)
+
+**Root cause**: No shared `decode_count` utility. Each module reinvents the wheel, some incorrectly.
+
+### Pattern 2: JSONB without `::text` cast (6+ instances)
+- `skill.get()` / `skill.search()` — `content`, `reference_list`
+- `task.list()` / `task.get()` — `result`
+- `inter_review.get_review_details()` / `list_reviews()` — `requested_at` (TSTZ, not jsonb, but same class)
+- `broadcast.send()` — `metadata`
+- `monitor.record_current_model()` — `context`
+- `inter_review.submit_review()` — `summary` as string for jsonb
+
+**Root cause**: No shared query builder or lint rule. Each query hand-written without systematic `::text` casts for non-primitive types.
+
+### Pattern 3: Tool parameter schema mismatch (3 instances)
+- `code_version.doc_save_tool()` — `params.content` not declared
+- `meeting.meeting_say_tool()` — `params.author` not declared
+- `broadcast.broadcast_send_tool()` — `params.project_id` declared but not in Gleam function signature
+
+**Root cause**: Tool definitions are hand-maintained strings with no compile-time validation against actual function signatures.
+
+### Pattern 4: Nullable column decoded as required (3 instances)
+- `agent_identity.job_row_decoder()` — `category`
+- `a_db_reader` — `agent_jobs.category`
+- `s_db_reader` — `agent_jobs.category`
+
+**Root cause**: Schema was changed to allow NULLs but Gleam decoders not updated. No schema-to-type synchronization.
+
+### Pattern 5: Parameter ordering bugs in dynamic SQL (1 confirmed, potentially more)
+- `issue_db.build_where()` — conditions reversed but params not
+
+**Root cause**: Building SQL with prepended lists then reversing conditions but forgetting to reverse params. No query builder library.
+
+---
+
+## 169. MODULES REVIEWED — COMPLETE LIST
+
+| Module                           | Status | Bugs Found | Key Issues                                                              |
+| -------------------------------- | ------ | ---------- | ----------------------------------------------------------------------- |
+| db.gleam                         | ✅      | 8          | No pooling, disconnect ignored, per-query connect/close                 |
+| pi_extension.gleam               | ✅      | 0          | Pure FFI declarations, no logic bugs                                    |
+| pi_tool_call.gleam               | ✅      | 4          | Fragile unwrapGleamResult, dynamic import, double debounce              |
+| extension_generator.gleam        | ✅      | 5          | Missing task_get_tool, JS object as string, silent write errors         |
+| monitor_ai.gleam                 | ✅      | 21         | Wrong column names, missing project_id, FAILED status, PENDING mismatch |
+| monitor.gleam                    | ✅      | 6          | set_model race, jsonb as string, good ::text casts                      |
+| a_db_reader.gleam                | ✅      | 11         | is_s_still_idle always True, no S-bot filter, category nullable         |
+| s_db_reader.gleam                | ✅      | 11         | category nullable, similar patterns to a_db_reader                      |
+| a_orchestrator.gleam             | ✅      | 3          | Project state error handling                                            |
+| a_prompt_builder.gleam           | ✅      | 2          | Fragile inter-review detection                                          |
+| a_context_utils.gleam            | ✅      | 4          | now_ms type conflict, silent timestamp failure                          |
+| hook_on_agent_end.gleam          | ✅      | 4          | Double debounce, is_s_still_idle always True                            |
+| hook_on_agent_start.gleam        | ✅      | 3          | ctx/pi same type variable                                               |
+| hook_on_tool_call.gleam          | ✅      | 3          | read_file_sync blocks event loop                                        |
+| hook_on_tool_result.gleam        | ✅      | 3          | extract_error_msg fragile                                               |
+| hook_on_before_agent_start.gleam | ✅      | 2          | Similar patterns                                                        |
+| inter_review.gleam               | ✅      | 13         | Missing ::text casts, hardcoded branch, jsonb as string                 |
+| tool_commit.gleam                | ✅      | 7          | Shell escape incomplete, score never written, missing git add           |
+| tool_consult.gleam               | ✅      | 4          | on_consult is a stub                                                    |
+| areflect.gleam                   | ✅      | 5          | Missing project_id                                                      |
+| psypi_config.gleam               | ✅      | 4          | DB/memory fragmentation                                                 |
+| broadcast.gleam                  | ✅      | 10         | stats() broken (no status column, text vs int), COUNT bigint            |
+| meeting.gleam                    | ✅      | 4          | meeting_say_tool missing author param                                   |
+| skill.gleam                      | ✅      | 5          | jsonb no ::text cast, missing AiBuilt variant                           |
+| issue_db.gleam                   | ✅      | 5          | build_where parameter reversal                                          |
+| issue_types.gleam                | ✅      | 0          | Pure types, no bugs                                                     |
+| issue_tools.gleam                | ✅      | 0          | Tool registrations only                                                 |
+| task.gleam                       | ✅      | 9          | get() missing project_id, result jsonb no cast                          |
+| stats.gleam                      | ✅      | 3          | decode_bigint silently returns 0                                        |
+| agents.gleam                     | ✅      | 2          | Minor issues                                                            |
+| agent_identity.gleam             | ✅      | 7          | category nullable, check_git_exists unused                              |
+| agent_identity_types.gleam       | ✅      | 0          | Pure types, no bugs                                                     |
+| code_version.gleam               | ✅      | 3          | doc_save_tool missing content param, saved_at no cast                   |
+| learning.gleam                   | ✅      | 1          | tags as string for array                                                |
+| memory.gleam                     | ✅      | 2          | save decoder mismatch, search created_at no cast                        |
+| event_hooks.gleam                | ✅      | 5          | COALESCE + optional redundant                                           |
+| file_utils.gleam                 | ✅      | 0          | Clean, uses simplifile                                                  |
+| command_listen.gleam             | ✅      | 0          | Simple delegation                                                       |
+| command_reload.gleam             | ✅      | 0          | Simple delegation                                                       |
+| seed.gleam                       | ✅      | 0          | Idempotent inserts                                                      |
+| simple_migrate.gleam             | ✅      | 5          | No tracking, re-runs all                                                |
+| main.gleam                       | ✅      | 0          | Just FFI call                                                           |
+| system_prompt_types.gleam        | ✅      | 3          | Token estimation crude                                                  |
+| pi_extension_ffi.mjs             | ✅      | 8          | gleamValueToJson fragile, _configStore race                             |
+| node_ffi.mjs                     | ✅      | 4          | get_database_url, get_project_id_env                                    |
+| agent_identity_ffi.mjs           | ✅      | 1          | check_git_exists                                                        |
+| time_utils_ffi.mjs               | ✅      | 1          | Timezone handling                                                       |
+
+**ALL 43 source modules reviewed.**
