@@ -9984,3 +9984,707 @@ The `extension_generator.gleam` module:
 | 18  | `ctx_reload` footgun in autonomic-reload           | MEDIUM       | Logic          |
 | 19  | Static imports fail fast for all tools             | LOW          | Reliability    |
 | 20  | No validation/testing in generator                 | LOW          | Quality        |
+
+---
+
+## 182. RUNNING LOGIC CHAIN — A/S AGENT LIFECYCLE: END-TO-END TRACE
+
+This section traces the complete execution flow from Pi session start to inter-review
+completion, identifying every point of failure in the running system.
+
+### 182.1 Phase 1: Pi Session Start
+
+```
+User opens Pi TUI
+  → Pi loads extension.js
+    → extension.js registers: 34 tools, 7 event hooks, 2 commands, 2 message renderers
+    → All static imports resolve at load time (if any fail, entire extension fails)
+  → Pi fires "session_start" event
+    → Hook: monitor.record_current_model(ctx.model)
+      → Reads ctx.model, writes to psypi_config or agent_sessions table
+      → PROBLEM: No error handling if ctx.model is null
+      → PROBLEM: record_current_model not traced — does it actually write to DB?
+```
+
+**Issues found:**
+1. `session_start` hook calls `monitor.record_current_model(ctx.model)` — but this function
+   is NOT defined anywhere in `monitor_ai.gleam`. The module `monitor` is imported as
+   `monitor_ai` in the extension generator. The generated JS does:
+   ```javascript
+   const monitor_record_current_model = (await import('./build/dev/javascript/psypi/monitor.mjs')).record_current_model;
+   ```
+   But the Gleam module is named `monitor_ai`, not `monitor`. The compiled file would be
+   `monitor_ai.mjs`, not `monitor.mjs`. **This hook silently fails at runtime.**
+
+2. `model_select` hook has the same problem — calls `monitor.record_current_model`
+   instead of `monitor_ai.record_current_model`.
+
+### 182.2 Phase 2: Before Agent Start (System Prompt Injection)
+
+```
+Pi fires "before_agent_start" event
+  → Hook: hook_on_before_agent_start.on_before_agent_start()
+    → Step 1: event_hooks.record_trigger("before_agent_start")
+      → UPDATE psypi_event_hooks SET last_triggered = NOW(), trigger_count = trigger_count + 1
+      → OK: This works correctly
+    → Step 2: s_db_reader.read_s_soul_from_db()
+      → SELECT content FROM agent_souls WHERE id_prefix = 'S' AND is_active = true
+      → PROBLEM: If content column is NULL, decode.string fails
+      → PROBLEM: If multiple rows match (multiple S souls), only first row is used
+    → Step 3: Return Ok(soul_content) as system prompt
+      → CRITICAL: PiSystemPromptHook returns { systemPrompt: r.value }
+      → This REPLACES the entire system prompt, not appends to it
+      → Any Pi SDK default system prompt is lost
+      → Any other before_agent_start hooks from other extensions are overwritten
+```
+
+**Issues found:**
+3. **CRITICAL: System prompt replacement** — `before_agent_start` hook returns the S-soul
+   content as the COMPLETE system prompt. This means:
+   - Pi's default system prompt (model instructions, tool usage guidelines) is discarded
+   - The S-agentbot gets ONLY its soul content as system prompt
+   - No context about available tools, project state, or current tasks is included
+   - This is a fundamental design error: the hook should return a `promptSnippet` or
+     `promptGuidelines` that Pi appends, not a full replacement
+
+4. **S-soul read failure fallback is hardcoded** — When `read_s_soul_from_db` fails,
+   the fallback prompt is a hardcoded string. This means:
+   - No project context is available
+   - No task/issue awareness
+   - The agent operates blind
+
+5. **No A-bot directives injection** — The migration `005_system_directives.sql` creates
+   a `system_directives` table for A-bot to write directives that `before_agent_start`
+   should read. But `hook_on_before_agent_start.gleam` does NOT read this table.
+   The entire directive bridge is unimplemented.
+
+### 182.3 Phase 3: Agent Start (Silent Logging)
+
+```
+Pi fires "agent_start" event
+  → Hook: hook_on_agent_start.on_agent_start()
+    → event_hooks.record_trigger("agent_start")
+    → Returns Ok(Nil)
+    → Silent — only records trigger count
+```
+
+**Issues found:**
+6. **No session tracking** — `agent_start` only increments a counter. It does NOT:
+   - Create an agent_sessions record
+   - Record which model is being used
+   - Set the agent's status to "alive"
+   - This means `is_s_still_idle()` in `a_db_reader.gleam` has no reliable way to
+     check if S is active, because session records are never created by hooks
+
+### 182.4 Phase 4: S-Agent Tool Calls
+
+```
+User prompts S-agentbot
+  → S calls a Pi tool (e.g., psypi-task-add)
+    → Pi fires "tool_call" event BEFORE execution
+      → Hook: hook_on_tool_call.on_tool_call(toolName, filePath, ctx, pi)
+        → Only processes "edit" tool (ignores all others)
+        → Reads file content via read_file_sync(filePath)
+        → Saves to code_versions table via code_version.save_version()
+        → PROBLEM: Does not handle "write" tool (new file creation)
+        → PROBLEM: read_file_sync is synchronous, blocks event loop
+    → Pi executes the tool
+    → Pi fires "tool_result" event AFTER execution
+      → Hook: hook_on_tool_result.on_tool_result(resultJson, toolName, pi)
+        → Checks if result contains error strings
+        → If error: notify_error + pi_send_message to A-bot
+        → PROBLEM: False positives on non-error strings containing "Error:"
+        → PROBLEM: pi_send_message with triggerTurn:true forces immediate S turn
+```
+
+**Issues found:**
+7. **`tool_call` hook only backs up "edit" tool** — The `write` tool (which creates new files)
+   is not backed up. If S creates a new file and it's wrong, there's no backup to revert to.
+
+8. **`tool_result` error detection is string-based and fragile** — Checking for
+   `"error"`, `"Error:"`, `"execution error"`, `"tool_execution_blocked"`, `"is_error":true`
+   in the JSON string will match legitimate content that contains these substrings.
+
+9. **Error notification triggers immediate S turn** — `pi_send_message` with
+   `triggerTurn: true` means every tool error forces S to take another turn, even if
+   S is already handling the error. This creates a feedback loop.
+
+### 182.5 Phase 5: Agent End (A-Bot Wake-Up Trigger)
+
+```
+S-agentbot finishes its turn
+  → Pi fires "agent_end" event
+    → LAYER 1: Generated debounce timer (from extension.js)
+      → Clears any existing timer
+      → Reads debounce_ms from psypi_config.get_debounce_ms()
+      → Sets setTimeout(callback, debounce_ms)
+      → When timer fires:
+        → notify_info("[AUTONOMIC] setTimeout callback fired for agent_end")
+        → Calls hook_on_agent_end.on_agent_end(ctx, pi)
+    → LAYER 2: Manual debounce check (inside on_agent_end)
+      → Checks ctx_is_idle(ctx)
+      → Checks ctx_has_pending_messages(ctx)
+      → If idle and no messages: checks idle_since timestamp
+      → If idle_since not set or "0": records current time, returns
+      → If idle_since set: calculates elapsed time
+      → If elapsed >= monitor_debounce_ms: proceeds to coordinate_with_s
+      → If elapsed < monitor_debounce_ms: returns (wait more)
+```
+
+**Issues found:**
+10. **CRITICAL: Double debounce** — Two independent debounce mechanisms:
+    - Layer 1 (JS): `setTimeout(callback, get_debounce_ms())` — reads from DB config
+    - Layer 2 (Gleam): manual idle_since + monitor_debounce_ms check — reads from
+      in-memory `_configStore`
+    
+    If DB debounce = 900000ms (15 min) and in-memory monitor_debounce_ms = 300000ms (5 min):
+    - Layer 1 waits 15 min, then calls on_agent_end
+    - Layer 2 checks idle_since: if S has been idle for 15 min, elapsed > 5 min, proceeds
+    - But if DB debounce = 300000ms and in-memory = 900000ms:
+    - Layer 1 waits 5 min, calls on_agent_end
+    - Layer 2: elapsed = 5 min < 15 min, returns without action
+    - A-bot NEVER wakes up
+    
+    The two debounce values are from DIFFERENT sources and can diverge.
+
+11. **`_configStore` is in-memory, not persisted** — `get_config("idle_since")` and
+    `get_config("monitor_debounce_ms")` read from a JavaScript object `_configStore = {}`.
+    This means:
+    - If Pi restarts, all idle_since state is lost
+    - If the extension reloads, all config is lost
+    - `set_config("idle_since", ...)` only writes to memory, not to DB
+    - There is NO synchronization between `_configStore` and `psypi_config` table
+
+12. **`is_s_still_idle()` has no S-bot filter** — The query:
+    ```sql
+    SELECT COUNT(*) as cnt FROM agent_sessions
+    WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+    ```
+    Counts ALL alive sessions, not just S-bot sessions. If A-bot has an alive session,
+    the count is > 0 and `is_s_still_idle()` returns `False`, blocking A-bot wake-up.
+    This is a self-defeating check.
+
+13. **`is_s_still_idle()` COUNT(*) returns bigint, decode.int may fail** — PostgreSQL
+    COUNT(*) returns `bigint`. The Gleam decoder uses `decode.int`. If the pg driver
+    returns bigint as string, decode fails, and the fallback returns `Ok(True)`.
+    This means the idle check always passes when decode fails.
+
+### 182.6 Phase 6: A-Bot Workflow (Orchestration)
+
+```
+on_agent_end passes debounce → coordinate_with_s → coordinate_when_idle
+  → a_context_utils.parse_context_window(usage_json)
+    → Parses JSON for "contextWindow" integer
+    → PROBLEM: If ctx.getContextUsage() returns different structure, parse fails
+  → a_orchestrator.run_a_workflow(ctx, pi, entries_json, usage_json, cwd, context_window)
+    → Step 1: a_db_reader.read_soul_from_db()
+      → SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'
+      → Decodes as formatted string: "[role | domain] responsibility"
+      → PROBLEM: Does not read 'content' column (the actual soul prompt)
+      → PROBLEM: Only reads 3 columns, ignoring activation, drive_mode, etc.
+    → Step 2: a_db_reader.read_a_jobs_from_db()
+      → SELECT j.job, j.priority, j.category FROM agent_jobs j
+        JOIN agent_souls s ON j.soul_id = s.id WHERE s.id_prefix = 'A' AND j.is_active = true
+      → OK: This query is correct
+    → Step 3: a_db_reader.read_project_state_from_db()
+      → read_active_tasks() + read_open_issues()
+      → Tasks: SELECT id::text, title, status, priority, is_stuck FROM tasks
+        WHERE status NOT IN ('COMPLETED','FAILED','FAKE_COMPLETE')
+      → Issues: SELECT id::text, title, severity FROM issues
+        WHERE status NOT IN ('resolved','closed')
+      → PROBLEM: No project_id filter — reads ALL tasks/issues across all projects
+    → Step 4: a_prompt_builder.build_system_prompt(soul, jobs, context_window)
+      → Creates PromptComposition with budget = context_window / 4
+      → Adds soul component (Critical priority)
+      → Adds soul content (Critical priority)
+      → Adds jobs as directive (High priority)
+      → PROBLEM: compose() does NOT use compose_within_budget() — no budget enforcement
+      → PROBLEM: The entire system prompt is composed but then REPLACED by before_agent_start
+    → Step 5: a_prompt_builder.build_user_prompt(usage, entries, cwd, project_state)
+      → Detects inter-review keywords in entries_json
+      → If inter-review detected: builds detailed review instructions
+      → Otherwise: builds gentle reminder prompt
+      → Truncates entries to 2000-4000 chars
+    → Step 6: call_monitor(ctx, user_prompt, system_prompt)
+      → FFI: pi_extension_ffi.mjs call_monitor()
+      → Gets ctx.model and ctx.modelRegistry
+      → Gets API key via modelRegistry.getApiKeyAndHeaders(model)
+      → Calls completeSimple(model, context, options)
+      → Extracts text from response
+      → If empty: retries with reasoning='none'
+      → Returns Ok(text) or Error(message)
+    → Step 7: handle_monitor_response(ctx, pi, result)
+      → If Ok: checks ctx_is_idle again, sends pi_send_message("autonomic-wakeup", response)
+      → If Error: sends pi_send_message("autonomic-error", error)
+      → PROBLEM: Every wake-up message triggers triggerTurn:true → immediate S turn
+```
+
+**Issues found:**
+14. **A-soul read is incomplete** — `read_soul_from_db()` reads only `role, domain, responsibility`
+    but the `agent_souls` table has a `content` column with the full soul prompt. The A-bot
+    never sees its own detailed soul content — only a summary line.
+
+15. **No budget enforcement in prompt composition** — `build_system_prompt` creates a
+    `PromptComposition` with a budget, but then calls `compose()` instead of
+    `compose_within_budget()`. The budget is calculated but never enforced. If soul + jobs
+    + content exceeds context_window/4, the prompt is sent anyway, potentially causing
+    LLM truncation or errors.
+
+16. **No project_id filter in project state** — `read_active_tasks()` and `read_open_issues()`
+    query ALL tasks/issues without filtering by project_id. In a multi-project database,
+    A-bot would see tasks from other projects.
+
+17. **A-bot response always triggers S turn** — `pi_send_message` with `triggerTurn: true`
+    means every A-bot message forces S to take an immediate turn. This prevents S from
+    staying idle and can create a ping-pong loop between A and S.
+
+### 182.7 Phase 7: Inter-Review Flow (Commit Pipeline)
+
+```
+S-agentbot calls psypi-commit tool
+  → Phase 1: No review_id provided
+    → tool_commit.trigger_review(message)
+      → exec_sync("git diff && git diff --cached") → gets diff
+      → exec_sync("git diff --name-only && git diff --cached --name-only") → gets files
+      → inter_review.request_review(None, None, "autonomic", context)
+        → Calls SQL function: request_inter_review($1, $2, $3, $4, $5)
+        → Parameters: task_id=NULL, commit_hash=NULL, branch="main",
+          reviewer_id="autonomic", context=JSON
+        → Returns review_id
+      → Returns: "Inter-review triggered (ID: xxx). Call psypi-commit again with review_id."
+
+  → A-bot should review and write score...
+    → BUT: A-bot workflow does NOT check for pending inter_reviews
+    → A-bot prompt builder does NOT include pending review requests
+    → A-bot has NO code path to call monitor_ai.record_review_score()
+    → The review score is NEVER written to the database
+
+  → Phase 2: S calls psypi-commit with review_id
+    → tool_commit.commit_if_reviewed(message, review_id)
+      → inter_review.get_review_details(review_id)
+        → SELECT id, task_id, status, summary, overall_score, requested_at
+          FROM inter_reviews WHERE id = $1
+        → PROBLEM: requested_at is timestamptz, not cast to ::text
+        → Decode fails → Error("Failed to decode review")
+      → Even if decode succeeds: overall_score is NULL (never written)
+      → Returns: Error("Review not yet complete. A-bot is still reviewing.")
+    → COMMIT IS PERMANENTLY BLOCKED
+```
+
+**Issues found:**
+18. **CRITICAL: Inter-review score is never written** — The complete chain:
+    - `tool_commit.trigger_review()` creates an inter_reviews row with `overall_score = NULL`
+    - A-bot's `run_a_workflow()` does NOT check `inter_reviews` table for pending reviews
+    - A-bot's `a_prompt_builder` does NOT include pending review context
+    - `monitor_ai.record_review_score()` EXISTS but is NEVER CALLED by any code path
+    - Result: `overall_score` stays NULL forever, commits are permanently blocked
+
+19. **`get_review_details` decode fails on `requested_at`** — The SQL query:
+    ```sql
+    SELECT id, task_id, status, summary, overall_score, requested_at
+    FROM inter_reviews WHERE id = $1
+    ```
+    `requested_at` is `timestamptz` in PostgreSQL. Without `::text` cast, the pg driver
+    returns a JavaScript Date object. `decode.string` fails on a Date object.
+    This means even if the score were written, the review details could not be decoded.
+
+20. **`request_inter_review` SQL function may not exist** — The code calls:
+    ```sql
+    SELECT request_inter_review($1, $2, $3, $4, $5) as review_id
+    ```
+    This is a PostgreSQL function. If the function was not created by migrations, this
+    call fails with "function request_inter_review does not exist".
+
+21. **Inter-review context is truncated to 8000 chars** — The diff is sliced to 8000
+    characters. For large changes, this may miss critical context, leading to incomplete
+    reviews.
+
+22. **Branch is hardcoded to "main"** — `let branch = "main"` with a TODO comment.
+    The actual git branch is never read.
+
+### 182.8 Phase 8: Consult Tool (No-Op)
+
+```
+S-agentbot calls psypi-consult-autonomic tool
+  → tool_consult.on_consult(question, ctx)
+    → notify_info(ctx, "[AUTONOMIC] Consult: " + question)
+    → Returns: Ok("[Autonomic] Consult request: " + question + "\n\nThe S-worker should address this in its next turn.")
+```
+
+**Issues found:**
+23. **CRITICAL: Consult is a complete no-op** — The tool:
+    - Does NOT call A-bot
+    - Does NOT create any database record
+    - Does NOT send any message to A-bot
+    - Does NOT trigger A-bot wake-up
+    - Simply returns a string telling S to "address this in its next turn"
+    - The entire purpose of consulting the autonomic agent is defeated
+
+### 182.9 Phase 9: Error Propagation Chain
+
+```
+Any tool error occurs
+  → hook_on_tool_result detects error via string matching
+    → notify_error(pi, "Tool error: ...")
+    → pi_send_message(pi, "autonomic-error", "[from A-agentbot:] Tool error: ...", "persistent")
+      → triggerTurn: true → S takes immediate turn
+    → monitor_ai.auto_file_issue(tool_name, error_message)
+      → WAIT: auto_file_issue is NEVER CALLED by any hook
+      → It exists as a function but is not wired into any event handler
+```
+
+**Issues found:**
+24. **`auto_file_issue` is dead code** — The function exists in `monitor_ai.gleam` but
+    is never called by any hook or tool. Tool errors are notified to S but never
+    automatically filed as issues.
+
+25. **Error messages from A-bot trigger S turns** — Every error notification via
+    `pi_send_message` with `triggerTurn: true` forces S to respond, even if S is
+    already handling the error or is in the middle of another task.
+
+26. **`auto_file_issue` has wrong column name** — The INSERT uses `type` instead of
+    `issue_type`:
+    ```sql
+    INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+    ```
+    If the actual column is `issue_type`, this INSERT would fail.
+
+27. **`auto_file_issue` missing project_id** — The INSERT does not include `project_id`.
+    If the `issues` table has a NOT NULL constraint on `project_id` (or RLS requires it),
+    the INSERT would fail.
+
+### 182.10 Complete Failure Cascade Map
+
+```
+SESSION START
+  └─ session_start hook: module name mismatch → SILENT FAILURE (model not recorded)
+  └─ No agent_sessions record created → is_s_still_idle() unreliable
+
+BEFORE AGENT START
+  └─ System prompt REPLACED (not appended) → S loses Pi SDK instructions
+  └─ system_directives table NOT read → A→S directive bridge broken
+  └─ S-soul read may fail → hardcoded fallback, no project context
+
+AGENT START
+  └─ Only trigger count recorded → no session tracking
+
+TOOL CALLS
+  └─ Only "edit" backed up → "write" tool changes lost
+  └─ read_file_sync blocks event loop → UI freezes on large files
+
+TOOL RESULTS
+  └─ String-based error detection → false positives
+  └─ Error notifications trigger S turns → feedback loop
+
+AGENT END
+  └─ Double debounce (JS + Gleam) → A-bot may never wake up
+  └─ _configStore not persisted → state lost on reload
+  └─ is_s_still_idle() counts ALL sessions → self-blocking
+  └─ COUNT(*) bigint decode failure → always returns idle
+
+A-BOT WORKFLOW
+  └─ Soul read incomplete (3 cols, not content) → A has no personality
+  └─ No budget enforcement → oversized prompts
+  └─ No project_id filter → cross-project data leakage
+  └─ Response triggers S turn → ping-pong loop
+
+INTER-REVIEW
+  └─ Score never written → commits permanently blocked
+  └─ requested_at not cast → decode fails
+  └─ request_inter_review function may not exist
+  └─ Branch hardcoded → wrong context
+  └─ Diff truncated → incomplete review
+
+CONSULT
+  └─ Complete no-op → A-bot never consulted
+
+ERROR HANDLING
+  └─ auto_file_issue dead code → errors not tracked
+  └─ Wrong column name in auto_file_issue → would fail if called
+  └─ Missing project_id in auto_file_issue → would fail if called
+```
+
+### 182.11 Summary: Running Logic Chain Issues
+
+| #   | Issue                                                       | Severity     | Phase              |
+| --- | ----------------------------------------------------------- | ------------ | ------------------ |
+| 1   | session_start: module name mismatch (monitor vs monitor_ai) | **CRITICAL** | Session Start      |
+| 2   | before_agent_start replaces entire system prompt            | **CRITICAL** | Before Agent Start |
+| 3   | system_directives table never read by before_agent_start    | **CRITICAL** | Before Agent Start |
+| 4   | agent_start creates no session record                       | HIGH         | Agent Start        |
+| 5   | tool_call hook only backs up "edit", not "write"            | MEDIUM       | Tool Calls         |
+| 6   | tool_result string-based error detection                    | HIGH         | Tool Results       |
+| 7   | Error notifications trigger S turns (feedback loop)         | HIGH         | Tool Results       |
+| 8   | Double debounce in agent_end (JS + Gleam)                   | **CRITICAL** | Agent End          |
+| 9   | _configStore not persisted, lost on reload                  | HIGH         | Agent End          |
+| 10  | is_s_still_idle() counts ALL sessions, no S-bot filter      | **CRITICAL** | Agent End          |
+| 11  | COUNT(*) bigint decode failure → always returns idle        | HIGH         | Agent End          |
+| 12  | A-soul read incomplete (role/domain only, not content)      | HIGH         | A-Bot Workflow     |
+| 13  | No budget enforcement in prompt composition                 | MEDIUM       | A-Bot Workflow     |
+| 14  | No project_id filter in project state queries               | HIGH         | A-Bot Workflow     |
+| 15  | A-bot response triggers S turn (ping-pong)                  | HIGH         | A-Bot Workflow     |
+| 16  | Inter-review score never written → commits blocked          | **CRITICAL** | Inter-Review       |
+| 17  | requested_at not cast to ::text → decode fails              | **CRITICAL** | Inter-Review       |
+| 18  | request_inter_review SQL function may not exist             | HIGH         | Inter-Review       |
+| 19  | Branch hardcoded to "main"                                  | MEDIUM       | Inter-Review       |
+| 20  | Diff truncated to 8000 chars                                | MEDIUM       | Inter-Review       |
+| 21  | Consult tool is a complete no-op                            | **CRITICAL** | Consult            |
+| 22  | auto_file_issue is dead code                                | HIGH         | Error Handling     |
+| 23  | auto_file_issue wrong column name (type vs issue_type)      | HIGH         | Error Handling     |
+| 24  | auto_file_issue missing project_id                          | HIGH         | Error Handling     |
+| 25  | model_select hook has same module name mismatch             | **CRITICAL** | Session Start      |
+
+**CRITICAL count: 7 | HIGH count: 11 | MEDIUM count: 4 | Total: 22**
+
+---
+
+## 183. DATA FLOW ANALYSIS — CROSS-MODULE DEPENDENCY CHAIN
+
+This section maps every data dependency between modules, identifying where
+incorrect or missing data propagates through the system.
+
+### 183.1 Configuration Data Flow
+
+```
+psypi_config table (PostgreSQL)
+  ↓ NEVER READ by _configStore
+  ↓
+_configStore (JavaScript in-memory object)
+  ↑ Written by: set_config(key, value) — only in pi_extension_ffi.mjs
+  ↑ Read by: get_config(key) — only in pi_extension_ffi.mjs
+  ↓
+hook_on_agent_end.gleam
+  → get_config("idle_since") → in-memory only
+  → get_config("monitor_debounce_ms") → in-memory only
+  → set_config("idle_since", ...) → in-memory only
+  ↓
+psypi_config.gleam
+  → get_value(key) → reads from PostgreSQL
+  → set_value(key, value) → writes to PostgreSQL
+  ↓
+THESE TWO CONFIG SYSTEMS NEVER SYNCHRONIZE
+```
+
+**Issue:** Two completely independent configuration systems:
+1. `_configStore` in `pi_extension_ffi.mjs` — in-memory, not persisted
+2. `psypi_config` table via `psypi_config.gleam` — persisted in PostgreSQL
+
+The `agent_end` hook reads debounce from `_configStore` (always null on first run),
+while the generated JS debounce reads from `psypi_config.get_debounce_ms()` (from DB).
+These can return completely different values.
+
+### 183.2 Agent Identity Data Flow
+
+```
+agent_souls table (PostgreSQL)
+  ↓
+s_db_reader.read_s_soul_from_db()
+  → SELECT content FROM agent_souls WHERE id_prefix = 'S' AND is_active = true
+  → Used by: hook_on_before_agent_start (system prompt)
+  ↓
+a_db_reader.read_soul_from_db()
+  → SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'
+  → Used by: a_orchestrator (A-bot workflow)
+  ↓
+PROBLEM: S-reader reads "content" column, A-reader reads "role, domain, responsibility"
+PROBLEM: Neither reads the full row — different subsets of the same data
+```
+
+**Issue:** S-bot and A-bot read different columns from the same table. S-bot gets the
+full soul content (markdown), while A-bot gets only a summary line. This asymmetry
+means A-bot has no access to its own detailed personality/instructions.
+
+### 183.3 Project ID Data Flow
+
+```
+projects table (PostgreSQL)
+  → id = '0d324e68-b399-4b85-bd8a-6b1ef7b46168' (hardcoded)
+  ↓
+db.gleam: connect()
+  → SET app.current_project_id = $1 (from env or hardcoded UUID)
+  ↓
+RLS policies use app.current_project_id for row-level security
+  ↓
+BUT: Most queries in the codebase do NOT filter by project_id
+  → a_db_reader.read_active_tasks() — no project_id filter
+  → a_db_reader.read_open_issues() — no project_id filter
+  → task.gleam task_list — no project_id filter
+  → issue_db.gleam — no project_id filter
+  ↓
+RLS may filter, but application-level queries don't
+```
+
+**Issue:** `project_id` is set at connection level for RLS, but most Gleam queries
+don't include `WHERE project_id = ...`. This works IF RLS is properly configured,
+but if RLS is disabled or misconfigured, cross-project data leakage occurs.
+
+### 183.4 Inter-Review Data Flow (BROKEN)
+
+```
+tool_commit.trigger_review()
+  → inter_review.request_review(None, None, "autonomic", context)
+    → SQL: SELECT request_inter_review($1, $2, $3, $4, $5)
+    → Creates row in inter_reviews with overall_score = NULL
+  ↓
+A-bot workflow (a_orchestrator.run_a_workflow)
+  → Does NOT query inter_reviews table
+  → Does NOT include pending reviews in prompt
+  → Does NOT call record_review_score()
+  ↓
+inter_reviews.overall_score stays NULL FOREVER
+  ↓
+tool_commit.commit_if_reviewed()
+  → inter_review.get_review_details(review_id)
+    → Decode fails on requested_at (no ::text cast)
+    → Even if decode succeeds: overall_score is NULL
+  → Returns: Error("Review not yet complete")
+  ↓
+COMMIT IS PERMANENTLY BLOCKED
+```
+
+**Issue:** The inter-review data flow has a complete break. The review is created but
+never completed. The score is never written. The commit tool can never succeed.
+
+### 183.5 Error Propagation Data Flow
+
+```
+Tool error occurs
+  → hook_on_tool_result.on_tool_result()
+    → String matching for error detection
+    → notify_error(pi, ...) → UI notification
+    → pi_send_message(pi, "autonomic-error", ..., "persistent")
+      → triggerTurn: true → S takes immediate turn
+  ↓
+monitor_ai.auto_file_issue() — EXISTS BUT NEVER CALLED
+  ↓
+No issue is created in the database
+  ↓
+A-bot never learns about the error through its workflow
+  ↓
+Error is only visible as a UI notification, not in any queryable data
+```
+
+**Issue:** Error propagation is notification-only. Errors are not persisted (auto_file_issue
+is dead code), so A-bot's project state queries never show tool errors. The only way A-bot
+learns about errors is through `pi_send_message`, which forces an immediate S turn.
+
+---
+
+## 184. MODULE FUNCTIONALITY ASSESSMENT
+
+Every Gleam module rated by: Does it work? Does it fulfill its purpose? What's broken?
+
+| Module                             | Purpose                           | Works?  | Key Failures                                                                                                           |
+| ---------------------------------- | --------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `db.gleam`                         | Database connection management    | PARTIAL | No pooling, new connection per query, project_id from env only                                                         |
+| `task.gleam`                       | Task CRUD tools                   | PARTIAL | Missing project_id in decoder, JSONB columns not cast                                                                  |
+| `issue_types.gleam`                | Issue type definitions            | OK      | Basic types work                                                                                                       |
+| `issue_db.gleam`                   | Issue database operations         | PARTIAL | Filter parameter reversal, missing project_id                                                                          |
+| `issue_tools.gleam`                | Issue Pi tools                    | PARTIAL | Depends on broken issue_db                                                                                             |
+| `skill.gleam`                      | Skill retrieval tools             | BROKEN  | Missing AiBuilt variant, JSONB decode failures                                                                         |
+| `inter_review.gleam`               | Inter-review submission/retrieval | BROKEN  | requested_at not cast, score never written, request_inter_review may not exist                                         |
+| `meeting.gleam`                    | Meeting tools                     | OK      | Basic operations work                                                                                                  |
+| `memory.gleam`                     | Memory/learning search            | PARTIAL | source='learn' not in audit allowed_sources                                                                            |
+| `broadcast.gleam`                  | Cross-agent communication         | PARTIAL | INSERT works, type incomplete                                                                                          |
+| `agents.gleam`                     | Agent listing                     | PARTIAL | Reads agent_sessions but hooks don't create records                                                                    |
+| `agent_identity.gleam`             | Agent identity management         | PARTIAL | my_id_tool works, but identity resolution incomplete                                                                   |
+| `areflect.gleam`                   | Learning insights                 | PARTIAL | INSERT only, no read type                                                                                              |
+| `monitor_ai.gleam`                 | System health monitoring          | PARTIAL | check_system_health queries FAILED status (may not exist), auto_file_issue dead code, record_review_score never called |
+| `event_hooks.gleam`                | Event hook tracking               | OK      | Trigger recording works, error counting works                                                                          |
+| `psypi_config.gleam`               | Configuration management          | PARTIAL | Dual store (DB + in-memory) not synchronized                                                                           |
+| `simple_migrate.gleam`             | Database migrations               | BROKEN  | No tracking table, repeated execution, schema drift                                                                    |
+| `code_version.gleam`               | File versioning/backup            | OK      | doc_save and doc_list work                                                                                             |
+| `stats.gleam`                      | Statistics display                | PARTIAL | Depends on correct data in tables                                                                                      |
+| `learning.gleam`                   | Learning save tool                | OK      | Basic save works                                                                                                       |
+| `file_utils.gleam`                 | File write utility                | OK      | Simple wrapper works                                                                                                   |
+| `pi_extension.gleam`               | FFI declarations                  | PARTIAL | All FFI declared, but pi_send_message ignores display param                                                            |
+| `pi_extension_ffi.mjs`             | FFI implementations               | PARTIAL | gleamValueToJson missing constructors, _configStore not persisted, call_monitor retry logic fragile                    |
+| `pi_tool_call.gleam`               | Tool/hook type definitions        | OK      | Type system is sound, JS generation works                                                                              |
+| `extension_generator.gleam`        | Extension.js generation           | PARTIAL | Module name mismatch (monitor vs monitor_ai), no validation                                                            |
+| `hook_on_before_agent_start.gleam` | System prompt injection           | BROKEN  | Replaces entire prompt, doesn't read system_directives                                                                 |
+| `hook_on_agent_start.gleam`        | Agent start logging               | PARTIAL | Only counts triggers, no session tracking                                                                              |
+| `hook_on_agent_end.gleam`          | A-bot wake-up trigger             | BROKEN  | Double debounce, _configStore state loss, is_s_still_idle broken                                                       |
+| `hook_on_tool_call.gleam`          | File backup on edit               | PARTIAL | Only handles "edit", not "write"                                                                                       |
+| `hook_on_tool_result.gleam`        | Error detection                   | PARTIAL | String-based detection, false positives, triggers S turns                                                              |
+| `tool_commit.gleam`                | Inter-review commit flow          | BROKEN  | Score never written, decode fails, commits permanently blocked                                                         |
+| `tool_consult.gleam`               | Consult A-bot                     | BROKEN  | Complete no-op, never contacts A-bot                                                                                   |
+| `command_listen.gleam`             | /autonomic-listen command         | OK      | Direct A-bot communication works                                                                                       |
+| `command_reload.gleam`             | /autonomic-reload command         | PARTIAL | ctx_reload footgun — post-reload code runs with old ctx                                                                |
+| `a_orchestrator.gleam`             | A-bot workflow                    | PARTIAL | Missing inter-review integration, incomplete soul read                                                                 |
+| `a_prompt_builder.gleam`           | A-bot prompt construction         | PARTIAL | No budget enforcement, inter-review detection is keyword-based                                                         |
+| `a_db_reader.gleam`                | A-bot database reads              | PARTIAL | is_s_still_idle broken, soul read incomplete, no project_id filter                                                     |
+| `a_context_utils.gleam`            | Context window parsing            | OK      | JSON parsing works                                                                                                     |
+| `s_db_reader.gleam`                | S-bot database reads              | PARTIAL | Soul read works but content column may be NULL                                                                         |
+| `system_prompt_types.gleam`        | Prompt composition types          | OK      | Type system sound, but compose() doesn't enforce budget                                                                |
+| `seed.gleam`                       | Database seeding                  | PARTIAL | Seeds A and S souls, but no validation of existing data                                                                |
+
+**Summary: 6 BROKEN | 20 PARTIAL | 14 OK | 0 FULLY WORKING**
+
+No module in the entire system is fully working without issues.
+
+---
+
+## 185. SYSTEMIC ROOT CAUSES
+
+The 22+ critical/high issues traced above are not independent bugs. They share
+common root causes that must be addressed systematically.
+
+### 185.1 Root Cause 1: No Integration Testing
+
+Gleam unit tests validate pure functions (decoders, parsers, formatters) but never
+test the actual running system. The test suite passes while the system is broken because:
+- No test verifies that `session_start` hook actually records the model
+- No test verifies that `before_agent_start` returns a valid system prompt
+- No test verifies that `agent_end` debounce logic works end-to-end
+- No test verifies that inter-review score gets written
+- No test verifies that `is_s_still_idle()` returns correct results
+- No test verifies FFI bindings match actual JS implementations
+
+### 185.2 Root Cause 2: Module Name Mismatches
+
+The extension generator references modules by names that don't match compiled output:
+- `monitor` → should be `monitor_ai` (Gleam module name)
+- This causes silent runtime failures in `session_start` and `model_select` hooks
+- No validation exists to catch these mismatches at generation time
+
+### 185.3 Root Cause 3: Dual Configuration Systems
+
+Two independent config systems that never synchronize:
+1. `_configStore` (in-memory JS) — used by `hook_on_agent_end`
+2. `psypi_config` table (PostgreSQL) — used by `psypi_config.gleam`
+
+This causes:
+- Debounce values diverging between JS and Gleam layers
+- `idle_since` state lost on extension reload
+- No single source of truth for configuration
+
+### 185.4 Root Cause 4: Incomplete Data Flow Design
+
+The inter-review flow was designed but never completed:
+- Review creation works (Phase 1)
+- Review scoring was implemented (`record_review_score`) but never wired
+- Review reading has decode bugs (missing `::text` casts)
+- The A-bot workflow never checks for pending reviews
+
+This is a pattern: features are partially implemented, with the "last mile"
+(connection between components) missing.
+
+### 185.5 Root Cause 5: No Session Lifecycle Management
+
+The agent session lifecycle is not tracked:
+- `agent_start` hook only increments a counter
+- `agent_end` hook tries to check `agent_sessions` but nothing creates records
+- `is_s_still_idle()` queries a table that's never populated by hooks
+- The entire idle-detection mechanism is built on a foundation that doesn't exist
+
+### 185.6 Root Cause 6: FFI Type Serialization Fragility
+
+`gleamValueToJson` in `pi_extension_ffi.mjs` relies on JavaScript constructor names
+to determine Gleam types. This is fragile because:
+- Constructor names change between Gleam versions
+- Minification can rename constructors
+- New Gleam types must be manually added to the whitelist
+- Missing constructors cause silent data loss (objects returned as empty)
+
+These 6 root causes account for the majority of the 22 critical/high issues.
+Fixing root causes would resolve many individual bugs simultaneously.
