@@ -8067,3 +8067,329 @@ Instead, the actual debounce is 20-30 minutes due to double layering.
 | FFI time_utils_ffi.mjs bugs        | 1                                                                                                                                           |
 | Migration schema bugs              | 5                                                                                                                                           |
 | **TOTAL CONFIRMED BUGS**           | **230**                                                                                                                                     |
+
+---
+
+## 158. HOOK MODULES DEEP REVIEW
+
+### 158a. hook_on_before_agent_start.gleam
+
+**File:** [hook_on_before_agent_start.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/hook_on_before_agent_start.gleam)
+
+**Bug 1: Soul load failure returns Ok(fallback) — error silently swallowed**
+When `read_s_soul_from_db()` fails, the hook returns `Ok(fallback_text)`.
+The agent starts with a degraded soul but no error is recorded. The
+agent has no way to know its soul is incomplete.
+
+### 158b. hook_on_agent_start.gleam
+
+No bugs — simple trigger recording.
+
+### 158c. hook_on_agent_end.gleam
+
+**File:** [hook_on_agent_end.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/hook_on_agent_end.gleam)
+
+**Bug 1: Double debounce** (documented in §156)
+
+**Bug 2: `ctx: a, pi: b` — untyped parameters**
+Both `ctx` and `pi` use different type variables (`a` and `b`), which
+is correct for avoiding type conflicts. But Gleam can't verify the
+actual types at compile time.
+
+**Bug 3: `is_s_still_idle()` always returns True** (documented in §a_db_reader)
+The `coordinate_with_s` function calls `a_db_reader.is_s_still_idle()`
+which always returns `Ok(True)` due to COUNT(*) decode failure. This
+means the idle check is a no-op — A-bot always proceeds regardless
+of S-bot's actual state.
+
+**Bug 4: `Some("0")` string comparison for cleared idle_since**
+The `check_idle_since` function uses `option.Some("0")` to detect
+cleared state. This is fragile — if `set_config` stores the integer
+0 instead of the string "0", the match will fail.
+
+### 158d. hook_on_tool_call.gleam
+
+**File:** [hook_on_tool_call.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/hook_on_tool_call.gleam)
+
+**Bug 1: `ctx: a, pi: a` — SAME type variable for different types**
+Both `ctx` and `pi` use type variable `a`, meaning Gleam thinks they
+are the same type. But `ctx` is a Pi context and `pi` is the Pi API.
+This is a type safety violation that could cause runtime errors if
+the parameters are swapped.
+
+**Bug 2: `read_file_sync` blocks the event loop**
+The hook reads files synchronously in an async event handler. This
+blocks the Node.js event loop during file I/O.
+
+### 158e. hook_on_tool_result.gleam
+
+**File:** [hook_on_tool_result.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/hook_on_tool_result.gleam)
+
+**Bug 1: Returns synchronous Result but hook is awaited**
+The function returns `Result(Nil, String)` (synchronous), but the
+generated JS code `await`s the result. Since `await` on a non-Promise
+resolves immediately, this works but is inconsistent.
+
+**Bug 2: `extract_error_msg` uses fragile string splitting**
+The function splits JSON on `"error"` string, which could match
+non-error content (e.g., a variable named `error_count`).
+
+**Bug 3: `pi_send_message` 4th arg `"persistent"` is ignored**
+The `display` parameter is always set to `true` in the FFI
+implementation, so the `"persistent"` value is meaningless.
+
+---
+
+## 159. MONITOR_AI.GLEAM DEEP REVIEW
+
+**File:** [monitor_ai.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/monitor_ai.gleam)
+
+**Bug 1: `auto_file_issue()` uses column `type` instead of `issue_type`**
+```sql
+INSERT INTO issues (title, description, severity, type, created_by, ...)
+```
+The actual column name is `issue_type`, not `type`. This INSERT will
+FAIL with: "column 'type' does not exist".
+
+**Bug 2: `auto_file_issue()` missing `project_id` (NOT NULL, no default)**
+Even after fixing the column name, the INSERT will fail because
+`project_id` is NOT NULL with no default value.
+
+**Bug 3: `prepare_context()` references `memory.saved_at` which doesn't exist**
+```sql
+SELECT 'learning' as type_, content, saved_at::text FROM memory
+```
+The `memory` table has `created_at`, not `saved_at`. This SQL will
+FAIL with: "column saved_at does not exist".
+
+**Bug 4: `check_system_health()` queries `status = 'FAILED'` — no such status**
+The `tasks` table only has `COMPLETED` and `PENDING` statuses.
+`status = 'FAILED'` will ALWAYS return 0. The health check
+permanently reports 0 failed tasks.
+
+**Bug 5: `get_alerts()` also queries `status = 'FAILED'` — same issue**
+
+**Bug 6: `analyze_and_act()` also queries `status = 'FAILED'` — same issue**
+
+**Bug 7: `get_work_suggestions()` uses `status = 'PENDING'` (uppercase)**
+The `skills` table has `pending` (lowercase). PostgreSQL is
+case-sensitive for text comparisons. This query will ALWAYS return
+0 pending skills.
+
+**Bug 8: `check_system_health()` — `activity_log.timestamp` column exists**
+Verified: `activity_log.timestamp` is a valid column. No bug here.
+
+**Bug 9: `monitor_status_tool()` maps to `start_monitor_loop`**
+The `psypi-autonomic-status` tool calls `start_monitor_loop()` which
+is actually `check_system_health()`. This is misleading — the tool
+name says "status" but it returns health metrics.
+
+**Bug 10: `record_review_score()` uses `dynamic.string(review_id)`**
+The `inter_reviews.id` column is UUID. Passing a string for a UUID
+parameter works in node-postgres (auto-cast), but it's not type-safe.
+
+---
+
+## 160. A_DB_READER.GLEAM DEEP REVIEW
+
+**File:** [a_db_reader.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/a_db_reader.gleam)
+
+**Bug 1: `is_s_still_idle()` — COUNT(*) returns bigint, decode.int fails**
+`COUNT(*)` returns `bigint` in PostgreSQL. Node-postgres returns this
+as a string. `decode.int` expects a number, not a string. The decode
+fails, and the `Error(_)` branch returns `Ok(True)`. This function
+ALWAYS returns `Ok(True)` regardless of actual session state.
+
+**Bug 2: `is_s_still_idle()` doesn't filter for S-bot sessions**
+The query counts ALL sessions with `status = 'alive'`, including
+A-bot sessions. Since A-bot is running when it calls this, it will
+find at least 1 active session. But Bug 1 masks this — the decode
+fails before the count is checked.
+
+**Bug 3: `a_job_row_decoder()` — `category` is nullable, decode.string fails**
+The `agent_jobs.category` column is nullable. `decode.string` will
+fail on NULL values. Should use `decode.optional(decode.string)`.
+
+**Bug 4: `s_job_row_decoder()` in s_db_reader.gleam — same category issue**
+Same nullable `category` column, same decode failure.
+
+---
+
+## 161. A_ORCHESTRATOR.GLEAM AND A_PROMPT_BUILDER.GLEAM REVIEW
+
+### 161a. a_orchestrator.gleam
+
+**File:** [a_orchestrator.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/a_orchestrator.gleam)
+
+**Bug 1: `read_project_state_from_db()` failure is non-fatal**
+When `read_project_state_from_db()` fails, the error message is
+included in the prompt as `project_state`. This means A-bot sees
+"Failed to read project state: ..." as its project context, which
+could confuse it.
+
+**Bug 2: `call_monitor` result is used directly as wake-up message**
+The `handle_monitor_response` function sends the raw LLM response
+as the wake-up message. If the LLM returns markdown or code blocks,
+they're sent verbatim to S-bot without any formatting.
+
+### 161b. a_prompt_builder.gleam
+
+**File:** [a_prompt_builder.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/a_prompt_builder.gleam)
+
+**Bug 1: `build_user_prompt` — inter-review detection is fragile**
+The function checks for "inter-review", "Inter-Review", "issue report",
+"fix plan", "root cause" strings in `entries_json`. This is fragile —
+if S-bot uses different phrasing, the inter-review mode won't activate.
+
+**Bug 2: `truncate` uses `string.length` which counts graphemes**
+`string.length` in Gleam counts grapheme clusters, not bytes. For
+JSON content with Unicode, this could truncate at wrong positions.
+
+### 161c. a_context_utils.gleam
+
+**File:** [a_context_utils.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/a_context_utils.gleam)
+
+**Bug 1: `now_ms()` FFI returns `Result(Int, String)` but `pi_extension.now_ms()` returns `Int`**
+Two different `now_ms()` functions with incompatible return types:
+- `a_context_utils.gleam`: `fn now_ms() -> Result(Int, String)` (from `node_ffi.mjs`)
+- `pi_extension.gleam`: `fn now_ms() -> Int` (from `pi_extension_ffi.mjs`)
+
+The `node_ffi.mjs` version wraps in `Ok()`, which is correct for
+`Result(Int, String)`. But this creates confusion about which `now_ms`
+to use.
+
+**Bug 2: `current_time_ms()` silently returns 0 on error**
+If `now_ms()` returns `Error(_)`, `current_time_ms()` returns 0.
+A timestamp of 0 (Jan 1, 1970) could cause serious issues in
+time-based calculations.
+
+---
+
+## 162. TOOL_COMMIT.GLEAM AND TOOL_CONSULT.GLEAM REVIEW
+
+### 162a. tool_commit.gleam
+
+**File:** [tool_commit.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/tool_commit.gleam)
+
+**Bug 1: `shell_escape` doesn't escape single quotes or newlines**
+The escape function handles backticks, dollar signs, double quotes,
+and backslashes. But it doesn't escape single quotes or newlines.
+A commit message with newlines will break the `git commit -m "..."`
+command.
+
+**Bug 2: `exec_sync("git commit -m ...")` doesn't add files**
+The commit command doesn't include `git add`. If files aren't
+staged, the commit will fail with "nothing to commit".
+
+**Bug 3: Inter-review score check `>= 50` — but A-bot never writes score**
+The `commit_if_reviewed` function checks `overall_score >= 50`. But
+as documented earlier, A-bot's review results are never written back
+to the `inter_reviews` table. `overall_score` remains NULL forever.
+This means `commit_if_reviewed` will ALWAYS return
+"Review not yet complete".
+
+### 162b. tool_consult.gleam
+
+**File:** [tool_consult.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/tool_consult.gleam)
+
+**Bug 1: `on_consult` is a STUB — doesn't actually consult A-bot**
+The function just returns a message saying "S-worker should address
+this". It doesn't call `call_monitor` or `pi_send_message` to
+actually consult the A-bot. The consult feature is non-functional.
+
+---
+
+## 163. INTER_REVIEW.GLEAM DEEP REVIEW
+
+**File:** [inter_review.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/inter_review.gleam)
+
+**Bug 1: `get_review_details()` — `requested_at` TIMESTAMPTZ decoded as string without `::text`**
+```sql
+SELECT id, task_id, status, summary, overall_score, requested_at
+FROM inter_reviews WHERE id = $1
+```
+`requested_at` is TIMESTAMPTZ. Node-postgres returns a Date object.
+`decode.string` will fail. Need `requested_at::text`.
+
+**Bug 2: `list_reviews()` — same `requested_at` issue**
+
+**Bug 3: `request_review()` hardcodes `branch = "main"`**
+The branch should be read from git, but it's hardcoded. If the
+developer is working on a feature branch, the review will be
+associated with the wrong branch.
+
+**Bug 4: `request_review()` passes jsonb as string**
+The `p_review_context` parameter is `jsonb`, but the Gleam code
+passes `dynamic.string(context_json)`. PostgreSQL can cast text to
+jsonb, but it's fragile — if the JSON is malformed, the cast will
+fail at runtime.
+
+**Bug 5: `request_review()` parameter order verified correct**
+The SQL function `request_inter_review(p_task_id, p_commit_hash,
+p_branch, p_requester_id, p_review_context)` matches the Gleam
+parameter order. No bug here.
+
+---
+
+## 164. S_DB_READER.GLEAM REVIEW
+
+**File:** [s_db_reader.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/s_db_reader.gleam)
+
+**Bug 1: `s_job_row_decoder()` — `category` is nullable, decode.string fails**
+Same as a_db_reader Bug 3. The `agent_jobs.category` column is
+nullable. `decode.string` will fail on NULL.
+
+---
+
+## 165. REVISED BUG COUNT — FINAL v12
+
+| Category                           | Count                                                                                                                                           |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `::text` cast missing (TSTZ+JSONB) | 17 (+2: inter_review requested_at in get_review_details and list_reviews)                                                                       |
+| Missing NOT NULL columns in INSERT | 15 (+1: monitor_ai.auto_file_issue missing project_id)                                                                                          |
+| Wrong column names                 | 5 (+1: monitor_ai.auto_file_issue uses `type` instead of `issue_type`)                                                                          |
+| Decoder mismatch                   | 13 (+2: agent_jobs.category nullable decoded as required string in a_db_reader and s_db_reader)                                                 |
+| Missing type variants              | 3                                                                                                                                               |
+| Logic bugs                         | 18 (+3: double debounce, is_s_still_idle always True, skills PENDING case mismatch)                                                             |
+| FFI issues                         | 14                                                                                                                                              |
+| Config system fragmentation        | 4                                                                                                                                               |
+| Seed/bootstrap gaps                | 10                                                                                                                                              |
+| Dead code                          | 8                                                                                                                                               |
+| Stub implementations               | 3 (+1: tool_consult.on_consult is a stub)                                                                                                       |
+| Race conditions / concurrency      | 5                                                                                                                                               |
+| Extension generation bugs          | 8                                                                                                                                               |
+| A/S lifecycle logic failures       | 10 (+2: soul load failure silently swallowed, project_state failure included in prompt)                                                         |
+| Tool execution flow bugs           | 4                                                                                                                                               |
+| Hook module bugs                   | 12 (+3: ctx/pi same type variable, read_file_sync blocks, extract_error_msg fragile)                                                            |
+| Command module bugs                | 2                                                                                                                                               |
+| DB module bugs                     | 7                                                                                                                                               |
+| A/S DB reader bugs                 | 9 (+2: is_s_still_idle no S-bot filter, category nullable)                                                                                      |
+| Monitor AI bugs                    | 15 (+6: auto_file_issue wrong column + missing project_id, prepare_context wrong column, FAILED status doesn't exist x3, PENDING case mismatch) |
+| Monitor module bugs                | 4                                                                                                                                               |
+| Event hooks bugs                   | 4                                                                                                                                               |
+| Node PG FFI bugs                   | 1                                                                                                                                               |
+| Inter-review bugs                  | 10 (+3: requested_at no cast x2, hardcoded branch, jsonb as string)                                                                             |
+| Tool commit bugs                   | 5 (+2: shell_escape incomplete, inter-review score never written so commit always blocked)                                                      |
+| Tool consult bugs                  | 3 (+1: on_consult is a stub)                                                                                                                    |
+| Code version bugs                  | 1                                                                                                                                               |
+| Meeting bugs                       | 3                                                                                                                                               |
+| Agent identity bugs                | 5                                                                                                                                               |
+| Task bugs                          | 6                                                                                                                                               |
+| Issue bugs                         | 4                                                                                                                                               |
+| Broadcast bugs                     | 6                                                                                                                                               |
+| Skill bugs                         | 3                                                                                                                                               |
+| Agents bugs                        | 2                                                                                                                                               |
+| Stats bugs                         | 3                                                                                                                                               |
+| A orchestrator bugs                | 3                                                                                                                                               |
+| A prompt builder bugs              | 2                                                                                                                                               |
+| A context utils bugs               | 3 (+1: current_time_ms returns 0 on error)                                                                                                      |
+| Simple migrate bugs                | 4                                                                                                                                               |
+| System prompt types bugs           | 3                                                                                                                                               |
+| Areflect bugs                      | 5                                                                                                                                               |
+| Extension generator bugs           | 2                                                                                                                                               |
+| FFI node_ffi.mjs bugs              | 4                                                                                                                                               |
+| FFI pi_extension_ffi.mjs bugs      | 7                                                                                                                                               |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                                                                                                               |
+| FFI time_utils_ffi.mjs bugs        | 1                                                                                                                                               |
+| Migration schema bugs              | 5                                                                                                                                               |
+| **TOTAL CONFIRMED BUGS**           | **254**                                                                                                                                         |
