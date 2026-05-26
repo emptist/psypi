@@ -294,9 +294,12 @@ Every decode failure produces `"Failed to decode X"` with no information about w
 
 ### 9d. `SkillSource` Missing `AiBuilt` Variant
 
-DB constraint allows: `clawhub, local, generated, imported, ai-built`
+**VERIFIED**: DB has `source='ai-built'` in skills table.
 Gleam type has: `Clawhub, Local, Generated, Imported`
 Missing: `AiBuilt` — will fail to decode any skill with `source='ai-built'`
+
+**Also missing**: `Generated` maps to `'generated'` but no skills currently use that source.
+The `string_to_source` function will return Error for `'ai-built'`.
 
 ---
 
@@ -342,40 +345,38 @@ Last 50 commits show 20+ "fix" commits. Pattern:
 
 ## 12. FIX PRIORITY ORDER
 
-### P0 — System Completely Broken (must fix first)
+### P0 — Confirmed Runtime Bugs
 
-1. Fix `audit_direct_insert` trigger — remove `priority` from INSERT into `project_communications`
-2. Create `projects` table row for default UUID, OR implement `PLAN-project-id-lookup.md`
-3. Fix `issue_db.gleam` — remove 7 phantom columns, use actual schema
-4. Fix `monitor_ai.gleam:auto_file_issue` — `type` → `issue_type`, remove phantom columns
-5. Fix `task.gleam` — remove `source` column reference
-6. Fix `inter_review.gleam` — add `::text` casts to all timestamp columns
-7. Fix `skill.gleam` — remove `reference_list`, add `AiBuilt` variant
-8. Fix `broadcast.gleam` — remove `priority` from INSERT
+1. Fix `monitor_ai.gleam:auto_file_issue` — `type` → `issue_type` (INSERT fails)
+2. Fix `inter_review.gleam` — add `::text` casts to `requested_at` and other timestamps (decode fails)
+3. Fix `skill.gleam` — add `AiBuilt` variant to `SkillSource` (decode fails for `source='ai-built'`)
+4. Fix `learning.gleam` — change `source='learn'` to `'areflect'` or add `'learn'` to audit trigger's `allowed_sources`
+5. Fix `gleamValueToJson` — replace `constructor.name` checks with `instanceof` or `$CustomType` detection
 
-### P1 — Major Features Broken
+### P1 — Type Coverage & Architecture
 
-9. Create `agent_souls` VIEW or fix code to use `soul` table
-10. Create `agent_jobs` table or remove references
-11. Create `code_versions` table/functions or remove `code_version.gleam`
-12. Create `psypi_event_hooks` table or remove `event_hooks.gleam` DB queries
-13. Fix `learning.gleam` — change `source='learn'` to allowed value
+6. Create Gleam type for `projects` table (currently no type, 1 row exists)
+7. Implement `PLAN-project-id-lookup.md` for dynamic project_id resolution
+8. Add `project_id` to `areflect.gleam` INSERT INTO tasks (inconsistent with task.add)
+9. Fix `task.gleam` — add `::text` cast to `result` (JSONB) column in SELECT
+10. Create Gleam types for high-value missing tables: `soul`, `system_reviews`, `conversations`
 
 ### P2 — Code Quality
 
-14. Extract `decode_all_results` to shared module
-15. Fix `gleamValueToJson` — remove `constructor.name` dependency
-16. Deduplicate `now_ms` FFI
-17. Remove orphan `time_utils_ffi.mjs`
-18. Add field names to DecodeError messages
-19. Remove error swallowing in `issue_db.gleam` and `a_db_reader.gleam`
+11. Extract `decode_all_results` to shared `decode_utils.gleam` module
+12. Deduplicate `now_ms` FFI (two different return types)
+13. Remove orphan `time_utils_ffi.mjs`
+14. Add field names to DecodeError messages
+15. Remove error swallowing in `issue_db.gleam` and `a_db_reader.gleam`
+16. Update `@mariozechner/pi-tui` → `@earendil-works/pi-tui` in extension_generator.gleam
 
-### P3 — Architecture
+### P3 — Architecture & Testing
 
-20. Create Gleam types for all 66 missing tables (at minimum: projects, soul, conversations, reviews)
-21. Add integration tests that verify SQL against real DB
-22. Add schema validation at build time
-23. Implement `PLAN-project-id-lookup.md`
+17. Evaluate `squirrel` for type-safe SQL queries (prevents phantom column issues at compile time)
+18. Add integration tests that verify SQL queries against real DB
+19. Add schema validation at build time
+20. Implement missing Pi extension API features (signal/cancellation, streaming, custom rendering)
+21. Replace dynamic `await import()` in hooks with static imports
 
 ---
 
@@ -509,7 +510,9 @@ result.map(result, fn(value) { do_something(value) })
 
 `decode.optional` in Gleam decodes `null` as `None`. But PostgreSQL returns `null` for NULL columns only when the column is actually NULL. If the column doesn't exist in the query, `decode.field` will fail entirely — `decode.optional` does NOT handle missing fields.
 
-This is the root cause of many "Failed to decode" errors: phantom columns cause `decode.field` to look for a key that doesn't exist in the row object, and `decode.optional` doesn't help because it only handles `null` values, not missing keys.
+This is the root cause of many "Failed to decode" errors: when a SELECT query references a column that doesn't exist, the query itself fails (SQL error), not the decode. But when a column exists in the query but the Gleam decoder expects a different type (e.g., string vs timestamptz), the decode fails because the pg driver returns a Date object, not a string.
+
+**Key insight**: The `::text` cast pattern is needed because the Node.js `pg` driver returns JavaScript Date objects for `timestamptz` columns, which Gleam's `decode.string` cannot decode. Casting to `::text` makes PostgreSQL return the timestamp as a string.
 
 ### 14d. No Custom Type for SQL Queries
 
