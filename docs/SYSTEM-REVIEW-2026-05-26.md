@@ -17303,4 +17303,1812 @@ the fallthrough could mask the error.
 | Hooks completely broken    | 1 (14.3%)  |
 | Total commands registered  | 2          |
 | Commands working           | 2 (100%)   |
-| Total issues found         | 71         |
+
+---
+
+## 279. before_agent_start HOOK — CODE GENERATION ORDER BUG (VERIFIED)
+
+**File**: [pi_tool_call.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/pi_tool_call.gleam) (lines ~390-410)
+**Severity**: CRITICAL
+
+The generated JS for `PiSystemPromptHook` returns `{ systemPrompt: r.value }` BEFORE calling `event_hooks_record_trigger()`. The `return` statement exits the handler immediately, so `record_trigger` is never reached.
+
+Generated code (simplified):
+```javascript
+pi.on('before_agent_start', async (event, ctx) => {
+  try {
+    const result = await hook_on_before_agent_start_on_before_agent_start();
+    const r = unwrapGleamResult(result);
+    if (r.ok) { return { systemPrompt: r.value }; }  // ← EXITS HERE
+    else { ctx.ui.notify('...'); }
+    await event_hooks_record_trigger('before_agent_start');  // ← UNREACHABLE
+  } catch(e) { ... }
+});
+```
+
+**Impact**: `psypi_event_hooks` table never gets `trigger_count` incremented or `last_triggered` updated for `before_agent_start`. The hook fires and works, but monitoring data is lost.
+
+**Fix**: Move `record_trigger` before the `return` statement.
+
+---
+
+## 280. skill.get() AND skill.search() — MISSING ::text CASTS ON JSONB COLUMNS
+
+**File**: [skill.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/skill.gleam) (lines ~220-260)
+**Severity**: HIGH
+
+The `get()` and `search()` functions query `content` and `reference_list` columns WITHOUT `::text` casts:
+
+```sql
+-- get() — NO ::text on content, reference_list
+SELECT id, name, description, source, status, safety_score, version, author,
+       created_at::text, content, reference_list
+FROM skills WHERE name = $1
+
+-- search() — same issue
+SELECT id, name, description, source, status, safety_score, version, author,
+       created_at::text, content, reference_list
+FROM skills WHERE name ILIKE $1 OR description ILIKE $1
+```
+
+But the `list()` function DOES cast them:
+```sql
+SELECT id, name, description, source, status, safety_score, version, author,
+       created_at::text, content::text, reference_list::text
+FROM skills
+```
+
+**DB schema**: `content` is `jsonb`, `reference_list` is `jsonb`. The pg driver returns JS objects for jsonb, which `decode.string` cannot parse.
+
+**Impact**: `skill.get()` and `skill.search()` will fail with `DecodeError` for any skill that has non-null `content` or `reference_list`. Only `skill.list()` works correctly.
+
+---
+
+## 281. inter_review.gleam — MISSING ::text CAST ON requested_at
+
+**File**: [inter_review.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/inter_review.gleam) (lines ~130-170)
+**Severity**: HIGH
+
+All queries selecting `requested_at` from `inter_reviews` lack `::text` cast:
+
+```sql
+-- get_review_details()
+SELECT id, task_id, status, summary, overall_score, requested_at
+FROM inter_reviews WHERE id = $1
+
+-- list_reviews()
+SELECT id, task_id, status, summary, overall_score, requested_at
+FROM inter_reviews WHERE status = $1 ORDER BY requested_at DESC LIMIT 100
+```
+
+**DB schema**: `requested_at` is `timestamp with time zone`. The pg driver returns a JS Date object, which `decode.string` cannot parse.
+
+**Impact**: Every call to `get_review_details()` and `list_reviews()` fails with `DecodeError("Failed to decode review row")`. This blocks the entire inter-review commit flow at Phase 2.
+
+---
+
+## 282. areflect.gleam — INSERT WITHOUT project_id VIOLATES NOT NULL CONSTRAINT
+
+**File**: [areflect.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/areflect.gleam) (lines ~230-250, ~260-280)
+**Severity**: CRITICAL
+
+The `save_issue()` and `save_task()` functions INSERT without `project_id`:
+
+```sql
+-- save_issue() — missing project_id
+INSERT INTO issues (title, description, severity, created_by)
+VALUES ($1, $2, 'medium', $3)
+
+-- save_task() — missing project_id
+INSERT INTO tasks (title, description, priority, created_by)
+VALUES ($1, $2, 5, $3)
+```
+
+**DB schema**: Both `issues.project_id` and `tasks.project_id` are `uuid NOT NULL`.
+
+**Impact**: Every `[ISSUE]` and `[TASK]` marker in areflect text causes a database constraint violation. The entire areflect pipeline is broken for issue and task creation. Only `[LEARN]` markers work (they insert into `learning_insights` which has no project_id).
+
+---
+
+## 283. broadcast.gleam — stats() QUERY USES NON-EXISTENT COLUMNS
+
+**File**: [broadcast.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/broadcast.gleam) (lines ~230-245)
+**Severity**: HIGH
+
+The `stats()` function queries `project_communications` with columns that don't exist:
+
+```sql
+SELECT
+  COUNT(*) as total,
+  COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
+  COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+FROM project_communications
+WHERE from_ai = $1 AND message_type = 'broadcast'
+```
+
+The `project_communications` table has no `status` column and `priority` is `text` (not integer). This query will fail with:
+- `column "status" does not exist`
+- `operator does not exist: text >= integer`
+
+**Impact**: `broadcast.stats()` always fails with QueryError.
+
+---
+
+## 284. DUPLICATE now_ms() — TWO FFI IMPLEMENTATIONS WITH DIFFERENT RETURN TYPES
+
+**File**: [pi_extension_ffi.mjs](file:///Users/jk/gits/hub/tools_ai/psypi/src/pi_extension_ffi.mjs) line 130, [node_ffi.mjs](file:///Users/jk/gits/hub/tools_ai/psypi/src/node_ffi.mjs) line 74
+**Severity**: HIGH
+
+`now_ms()` is defined in TWO FFI files with different return types:
+
+```javascript
+// pi_extension_ffi.mjs — returns Int directly
+export function now_ms() {
+  return Date.now();
+}
+
+// node_ffi.mjs — returns Result(Int, String)
+export function now_ms() {
+  return new Ok(Date.now());
+}
+```
+
+Gleam imports:
+- `pi_extension.gleam` → `pi_extension_ffi.mjs` → returns `Int`
+- `a_context_utils.gleam` → `node_ffi.mjs` → returns `Result(Int, String)`
+
+The `a_context_utils.gleam` code handles this:
+```gleam
+pub fn current_time_ms() -> Int {
+  let res = now_ms()
+  case res {
+    Ok(t) -> t
+    Error(_) -> 0
+  }
+}
+```
+
+But `hook_on_agent_end.gleam` imports `now_ms` from `pi_extension.gleam` which returns `Int` directly — no Result wrapping needed. This works but is confusing and fragile. If someone changes the import source, it breaks silently.
+
+**Impact**: Code maintenance hazard. Two functions with the same name doing the same thing but with different signatures.
+
+---
+
+## 285. doc_save_tool — CONTENT PARAMETER MISSING FROM TOOL DEFINITION
+
+**File**: [code_version.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/code_version.gleam) (lines ~140-160)
+**Severity**: HIGH
+
+The `doc_save_tool()` PiToolCall defines only `file_path` as a parameter, but the `args` list passes `params.content`:
+
+```gleam
+PiToolCall(
+  name: "psypi-doc-save",
+  params: [string_param("file_path")],  // ← Only file_path defined
+  args: [
+    from_param("params.file_path || \"\""),
+    from_param("params.content || \"\""),  // ← params.content is UNDEFINED
+    from_param("params.saved_by || \"unknown\""),
+    from_param("params.commit_hash || \"\""),
+    from_param("params.reason || \"manual save\""),
+  ],
+)
+```
+
+The Pi SDK passes `params` object based on the `parameters` JSON schema. Since `content` is not in the schema, `params.content` is always `undefined`, which becomes `""` via the `|| ""` fallback.
+
+**Impact**: `doc_save_tool` always saves with empty content. The auto-backup hook (`hook_on_tool_call.gleam`) reads the file content directly via `read_file_sync` and passes it to `save_version()`, so the auto-backup works. But the Pi tool itself (when called by the AI agent) can never save actual content.
+
+---
+
+## 286. task.get() — MISSING project_id IN SELECT BUT DECODER EXPECTS IT
+
+**File**: [task.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/task.gleam) (lines ~230-250)
+**Severity**: MEDIUM
+
+The `get()` function SELECT does not include `project_id`:
+
+```sql
+SELECT id, title, description, status, priority, result, error, retry_count,
+       created_at::text, updated_at::text, completed_at::text, created_by, source
+FROM tasks WHERE id = $1
+```
+
+But the `task_decoder()` expects `project_id`:
+```gleam
+use project_id <- decode.field("project_id", decode.optional(decode.string))
+```
+
+**Impact**: `task.get()` will fail with DecodeError because `project_id` field is missing from the query result. The `list()` function correctly includes `project_id::text`.
+
+---
+
+## 287. compose() DOES NOT ENFORCE BUDGET — TOKEN BUDGET IS DECORATIVE
+
+**File**: [system_prompt_types.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/system_prompt_types.gleam) (lines ~130-140)
+**Severity**: HIGH
+
+The `compose()` function sorts components by priority but concatenates ALL of them regardless of budget:
+
+```gleam
+pub fn compose(comp: PromptComposition) -> String {
+  let sorted = list.sort(comp.components, compare_by_priority)
+  sorted
+  |> list.map(fn(c) { ... })
+  |> string.join("\n\n")
+}
+```
+
+There IS a `compose_within_budget()` function that properly enforces the budget, but `a_orchestrator.gleam` calls `compose()` instead:
+
+```gleam
+let system_prompt = compose(a_prompt_builder.build_system_prompt(...))
+```
+
+**Impact**: The A-bot's system prompt can exceed the token budget, potentially causing LLM API errors or truncated responses. The budget tracking in `PromptComposition` is computed but never enforced.
+
+---
+
+## 288. inter_review.request_review() — PARAMETER ORDER MISMATCH WITH SQL FUNCTION
+
+**File**: [inter_review.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/inter_review.gleam) (lines ~160-210)
+**Severity**: CRITICAL
+
+The Gleam code passes parameters in this order:
+```gleam
+let params = [
+  task_id_param,       // $1
+  commit_hash_param,   // $2
+  branch_str,          // $3 — "main"
+  reviewer_id_param,   // $4 — "autonomic"
+  context_json_str,    // $5 — JSON string
+]
+```
+
+But the SQL function signature is:
+```sql
+request_inter_review(
+  p_task_id uuid,        -- $1 ✓
+  p_commit_hash text,    -- $2 ✓
+  p_branch text,         -- $3 ✓
+  p_requester_id text,   -- $4 ← Gleam passes "autonomic" as reviewer_id
+  p_review_context jsonb  -- $5 ← Gleam passes JSON string
+)
+```
+
+The parameter names match, but the SEMANTICS are wrong:
+- Gleam calls it `reviewer_id` but the SQL parameter is `p_requester_id`
+- The value `"autonomic"` is passed as the requester, but the actual reviewer should be different
+- The `reviewer_id` column in `inter_reviews` table is separate and never set by this function call
+
+**Impact**: The `requester_id` in `inter_reviews` is always "autonomic" regardless of who actually requested the review. The `reviewer_id` column remains NULL because the SQL function doesn't set it.
+
+---
+
+## 289. broadcast.send() — project_id TYPE MISMATCH (String vs UUID)
+
+**File**: [broadcast.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/broadcast.gleam) (lines ~140-170)
+**Severity**: MEDIUM
+
+The `send()` function passes `project_id` as a string parameter:
+```gleam
+let params = [
+  dynamic.string(project_id),  // ← String
+  ...
+]
+```
+
+But `project_communications.project_id` is `uuid` type. The `dynamic.string()` call sends a text parameter, which PostgreSQL can auto-cast to uuid IF the string is a valid UUID. But the tool's default is empty string `""`:
+
+```gleam
+from_param("params.project_id || \"\"")  // ← Empty string is NOT a valid UUID
+```
+
+**Impact**: If `project_id` is not provided, the INSERT fails with `invalid input syntax for type uuid: ""`. Only works if a valid UUID is explicitly passed.
+
+---
+
+## 290. monitor.gleam — notifications TABLE EXISTS (CORRECTING PREVIOUS CLAIM)
+
+**File**: [monitor.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/monitor.gleam) (lines ~180-290)
+**Severity**: INFO (correction)
+
+Previous review sections listed `notifications` as a "phantom table". Verified against live DB: the `notifications` table DOES exist with columns `id (uuid), agent_id (text), priority (text), title (text), body (text), created_at (timestamp), read_at (timestamp)`.
+
+However, the `get_pending_notifications()` function has a bug:
+```sql
+SELECT id, agent_id, priority, title, body,
+       created_at::text as created_at, read_at::text as read_at
+FROM notifications
+WHERE agent_id = $1 AND read_at IS NULL
+```
+
+The `read_at::text` cast will fail when `read_at IS NULL` because `NULL::text` returns NULL, not an empty string. The Gleam decoder uses `decode.optional(decode.string)`, which should handle NULL correctly. But the `id` column is UUID without `::text` cast, which will fail with `decode.string`.
+
+**Impact**: `get_pending_notifications()` fails because `id` (uuid) is not cast to text. The `create_notification()` function returns `id::text` correctly but the SELECT in `get_pending_notifications` does not.
+
+---
+
+## 291. agent_identity.gleam — semantic_id() PREFIX BASED ON is_idle (NOT ROLE)
+
+**File**: [agent_identity.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/agent_identity.gleam) (lines ~60-80)
+**Severity**: HIGH (design flaw, previously noted but now fully traced)
+
+The semantic ID changes prefix based on `ctx.is_idle`:
+```gleam
+fn semantic_id(ctx: IdentityContext) -> Result(String, IdentityError) {
+  let prefix = case ctx.is_idle {
+    True -> "A"   // ← Autonomic when idle
+    False -> "S"  // ← Somatic when busy
+  }
+  ...
+}
+```
+
+This means the SAME agent has DIFFERENT IDs at different times:
+- When S-bot is idle: `S-project-source-model` → but prefix is "A" → `A-project-source-model`
+- When S-bot is busy: prefix is "S" → `S-project-source-model`
+
+The `get_enriched_identity()` function then uses this prefix to look up soul data:
+```gleam
+let prefix = case string.contains(id, "A-") || ctx.is_idle {
+  True -> "A"
+  False -> "S"
+}
+```
+
+So when S-bot is idle, it gets A-bot's soul and jobs. This is the INTENDED design (idle S-bot triggers A-bot behavior), but it means:
+1. The agent's identity is not stable — it changes based on transient state
+2. Database records (activity_log, etc.) will show different agent_ids for the same session
+3. The `psypi-my-id` tool returns different results depending on when it's called
+
+**Impact**: Identity confusion across the system. Activity logs, session tracking, and audit trails are unreliable because the same agent has different IDs at different times.
+
+---
+
+## 292. hook_on_tool_result.gleam — FALSE POSITIVE ERROR DETECTION
+
+**File**: [hook_on_tool_result.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/hook_on_tool_result.gleam) (lines ~8-15)
+**Severity**: MEDIUM (previously noted but now fully traced)
+
+The error detection uses string matching:
+```gleam
+let is_error =
+  string.contains(result_json, "\"error\"")
+  || string.contains(result_json, "Error:")
+  || string.contains(result_json, "execution error")
+  || string.contains(result_json, "tool_execution_blocked")
+  || string.contains(result_json, "\"is_error\":true")
+```
+
+This triggers on ANY result containing the word "error" even in legitimate content:
+- A task listing with `status: "error_recovery"` → false positive
+- A skill with `description: "Error handling patterns"` → false positive
+- A broadcast about `"tool_execution_blocked"` resolution → false positive
+- Any JSON with an `error_count` field → false positive
+
+**Impact**: A-bot receives spurious error notifications, leading to unnecessary wake-ups and auto-filed issues for non-errors.
+
+---
+
+## 293. hook_on_tool_call.gleam — AUTO-BACKUP READS FILE THEN SAVES TO code_versions
+
+**File**: [hook_on_tool_call.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/hook_on_tool_call.gleam) (lines ~15-59)
+**Severity**: MEDIUM
+
+The auto-backup hook reads the file content via `read_file_sync(file_path)` and saves it to `code_versions`. However:
+
+1. The `save_version()` function calls a SQL function `save_code_version()` which may not exist (no migration creates it)
+2. The `read_file_sync()` reads the file AFTER the edit tool has already modified it, so it saves the POST-edit version, not the PRE-edit version
+3. The hook only triggers on `tool_name == "edit"` — other file-modifying tools (Write, etc.) are not caught
+
+**Impact**: Auto-backup saves the wrong version (post-edit instead of pre-edit). If the SQL function doesn't exist, every auto-backup fails silently.
+
+---
+
+## 294. seed.gleam — DEBOUNCE VALUE MISMATCH
+
+**File**: [seed.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/seed.gleam) (line ~65)
+**Severity**: MEDIUM (previously noted)
+
+Seed data inserts `monitor_debounce_ms` = `300000` (5 minutes), but:
+- The JS debounce timer in generated extension.js reads from `psypi_config.get_debounce_ms()` which returns this value
+- The Gleam manual debounce in `hook_on_agent_end.gleam` reads from `get_config("monitor_debounce_ms")` which reads from the IN-MEMORY config store
+- The in-memory config store is NEVER populated from the database
+- So the Gleam debounce uses the hardcoded default of `300000` (5 min) while the JS timer uses the DB value
+
+If someone changes the DB value, only the JS timer respects it. The Gleam debounce still uses 5 minutes.
+
+---
+
+## 295. event_hooks.gleam — list_all_hooks() AND list_active_hooks() MISSING ::text ON id
+
+**File**: [event_hooks.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/event_hooks.gleam) (lines ~60-120)
+**Severity**: MEDIUM
+
+Both functions correctly cast `id::text` and `last_triggered::text`, so they should work. However, the `event_hook_decoder()` expects `trigger_count` and `error_count` as `decode.int`. The DB columns are `integer`, which the pg driver returns as a JS number. This should work correctly.
+
+VERIFIED: These functions appear correct after the `::text` casts were added.
+
+---
+
+## 296. areflect.gleam — save_issue() USES WRONG COLUMN NAME
+
+**File**: [areflect.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/areflect.gleam) (lines ~230-250)
+**Severity**: CRITICAL
+
+```sql
+INSERT INTO issues (title, description, severity, created_by)
+VALUES ($1, $2, 'medium', $3)
+```
+
+Two problems:
+1. Missing `project_id` (NOT NULL constraint — see §282)
+2. Missing `issue_type` (NOT NULL constraint — DB default is 'bug', so this might work)
+3. Column `created_by` maps to `created_by` in the issues table — this is correct
+
+Wait — checking the DB schema again: `issues.created_by` is `text NOT NULL`. And `issues.issue_type` has default `'bug'::text`. And `issues.project_id` is `uuid NOT NULL` with NO default.
+
+So the INSERT will fail on `project_id` NOT NULL violation. Confirmed: §282 covers this.
+
+---
+
+## 297. UPDATED CONSOLIDATED ISSUE COUNT — v4
+
+### New issues added in this session (§279-296):
+
+| #   | Category        | Issue                                                              | Severity |
+| --- | --------------- | ------------------------------------------------------------------ | -------- |
+| 101 | Code gen bug    | before_agent_start record_trigger unreachable (return before call) | CRITICAL |
+| 102 | Missing ::text  | skill.get()/search() content, reference_list JSONB not cast        | HIGH     |
+| 103 | Missing ::text  | inter_review requested_at not cast to text                         | HIGH     |
+| 104 | NOT NULL viol.  | areflect save_issue() missing project_id                           | CRITICAL |
+| 105 | NOT NULL viol.  | areflect save_task() missing project_id                            | CRITICAL |
+| 106 | Wrong SQL       | broadcast.stats() uses non-existent status column, text>=int       | HIGH     |
+| 107 | Duplicate FFI   | now_ms() in two files with different return types                  | HIGH     |
+| 108 | Missing param   | doc_save_tool content not in parameters schema                     | HIGH     |
+| 109 | Missing column  | task.get() SELECT missing project_id, decoder expects it           | MEDIUM   |
+| 110 | Budget ignored  | compose() doesn't enforce budget, compose_within_budget() unused   | HIGH     |
+| 111 | Param mismatch  | inter_review requester_id vs reviewer_id semantics                 | CRITICAL |
+| 112 | Type mismatch   | broadcast.send() project_id string vs uuid, empty string fails     | MEDIUM   |
+| 113 | Missing ::text  | monitor.gleam get_pending_notifications id (uuid) not cast         | MEDIUM   |
+| 114 | Design flaw     | semantic_id prefix based on is_idle, not role (identity confusion) | HIGH     |
+| 115 | False positive  | hook_on_tool_result error detection triggers on legitimate content | MEDIUM   |
+| 116 | Wrong version   | auto-backup saves post-edit, not pre-edit                          | MEDIUM   |
+| 117 | Config mismatch | debounce value not synced between DB and in-memory store           | MEDIUM   |
+
+### 297.2 Updated Total
+
+| Category                                     | Count   | Severity |
+| -------------------------------------------- | ------- | -------- |
+| Phantom tables (referenced but don't exist)  | 3       | CRITICAL |
+| Phantom columns (referenced but don't exist) | 11      | CRITICAL |
+| SQL column name wrong                        | 2       | CRITICAL |
+| NOT NULL violation (missing required column) | 3       | CRITICAL |
+| Code gen bug (unreachable code)              | 1       | CRITICAL |
+| Parameter order/semantics mismatch           | 1       | CRITICAL |
+| UUID not cast to text                        | 9       | HIGH     |
+| Timestamp not cast to text                   | 4       | HIGH     |
+| JSONB not cast to text                       | 4       | HIGH     |
+| Missing Gleam type variants                  | 1       | MEDIUM   |
+| Template format bugs                         | 3       | HIGH     |
+| gleamValueToJson field names lost            | 1       | HIGH     |
+| gleamValueToJson incomplete type list        | 1       | MEDIUM   |
+| unwrapGleamResult double stringify           | 1       | MEDIUM   |
+| Error swallowing / silent degradation        | 6       | HIGH     |
+| Double debounce logic                        | 1       | HIGH     |
+| is_s_still_idle catch-22                     | 1       | HIGH     |
+| is_s_still_idle no S-bot filter              | 1       | MEDIUM   |
+| Review score never written                   | 1       | CRITICAL |
+| Commit flow permanently blocked              | 1       | CRITICAL |
+| Dual config store                            | 1       | MEDIUM   |
+| Config not synced (idle_since, debounce_ms)  | 3       | HIGH     |
+| SQL function parameter type mismatch         | 1       | MEDIUM   |
+| Extension generation bugs                    | 2       | MEDIUM   |
+| Missing parameter schema fields              | 9       | MEDIUM   |
+| Hardcoded project_id UUID                    | 1       | MEDIUM   |
+| Projects table empty                         | 1       | HIGH     |
+| No connection pooling                        | 1       | MEDIUM   |
+| No migration tracking                        | 1       | MEDIUM   |
+| tool_consult is a stub                       | 1       | LOW      |
+| Shell injection risk                         | 1       | MEDIUM   |
+| Unreachable record_trigger                   | 1       | MEDIUM   |
+| Schema drift (58 untracked tables)           | 1       | HIGH     |
+| False positive error detection               | 1       | MEDIUM   |
+| Sync/async mismatch                          | 1       | LOW      |
+| No transaction safety                        | 1       | MEDIUM   |
+| Token budget incomplete                      | 1       | LOW      |
+| Static template ignores result               | 1       | MEDIUM   |
+| Doc-save can't get content                   | 1       | MEDIUM   |
+| Status case sensitivity                      | 1       | MEDIUM   |
+| FFI: pi_send_message ignores display         | 1       | MEDIUM   |
+| FFI: get_config empty string → None          | 1       | HIGH     |
+| FFI: call_monitor manual Ok/Error            | 1       | MEDIUM   |
+| LLM: no conversation history                 | 1       | HIGH     |
+| LLM: retry with degraded reasoning           | 1       | MEDIUM   |
+| LLM: no timeout                              | 1       | HIGH     |
+| LLM: no response validation                  | 1       | MEDIUM   |
+| Semantic ID based on state not role          | 1       | HIGH     |
+| compose doesn't enforce budget               | 1       | HIGH     |
+| User prompt truncation hardcoded             | 1       | MEDIUM   |
+| Migration statement splitting bug            | 1       | MEDIUM   |
+| Seed data debounce mismatch                  | 1       | MEDIUM   |
+| Stale sessions not cleaned                   | 1       | LOW      |
+| FFI dead code (5 unused functions)           | 1       | LOW      |
+| Orphan config data (last_wakeup)             | 1       | LOW      |
+| Duplicate now_ms with different signatures   | 1       | HIGH     |
+| Auto-backup saves post-edit not pre-edit     | 1       | MEDIUM   |
+| **TOTAL**                                    | **117** |          |
+
+### 297.3 Severity Breakdown — Updated
+
+| Severity | Count | Percentage |
+| -------- | ----- | ---------- |
+| CRITICAL | 15    | 12.8%      |
+| HIGH     | 32    | 27.4%      |
+| MEDIUM   | 47    | 40.2%      |
+| LOW      | 23    | 19.7%      |
+
+### 297.4 Module-by-Module Health Assessment
+
+| Module                           | Status  | Key Issues                                                                                   |
+| -------------------------------- | ------- | -------------------------------------------------------------------------------------------- |
+| main.gleam                       | OK      | Just spawns Pi                                                                               |
+| db.gleam                         | PARTIAL | No pooling, hardcoded project_id, error swallowing                                           |
+| pi_extension.gleam               | OK      | FFI declarations correct                                                                     |
+| pi_extension_ffi.mjs             | BROKEN  | gleamValueToJson, unwrapGleamResult, get_config, pi_send_message bugs                        |
+| node_ffi.mjs                     | PARTIAL | Duplicate now_ms, shell injection in execute()                                               |
+| agent_identity_ffi.mjs           | OK      | Simple check_git_exists                                                                      |
+| time_utils_ffi.mjs               | OK      | Simple now_iso8601                                                                           |
+| pi_tool_call.gleam               | BROKEN  | Code gen: record_trigger unreachable, template bugs                                          |
+| extension_generator.gleam        | PARTIAL | Composes correctly but inherits pi_tool_call bugs                                            |
+| task.gleam                       | PARTIAL | get() missing project_id in SELECT, source column phantom                                    |
+| issue_types.gleam                | OK      | Type definitions correct                                                                     |
+| issue_db.gleam                   | OK      | Proper ::text casts, correct column names                                                    |
+| issue_tools.gleam                | OK      | Tool definitions correct                                                                     |
+| skill.gleam                      | BROKEN  | get()/search() missing ::text on JSONB, missing AiBuilt variant                              |
+| memory.gleam                     | PARTIAL | search() tags::text cast works, save() missing project_id                                    |
+| meeting.gleam                    | OK      | Proper ::text casts                                                                          |
+| broadcast.gleam                  | BROKEN  | stats() wrong columns, send() project_id type mismatch                                       |
+| inter_review.gleam               | BROKEN  | Missing ::text on requested_at, param order mismatch                                         |
+| code_version.gleam               | PARTIAL | doc_save_tool missing content param, query_versions missing ::text                           |
+| learning.gleam                   | OK      | INSERT only, works correctly                                                                 |
+| areflect.gleam                   | BROKEN  | save_issue/save_task missing project_id (NOT NULL violation)                                 |
+| agents.gleam                     | OK      | Proper ::text casts                                                                          |
+| agent_identity.gleam             | PARTIAL | semantic_id based on is_idle, fetches wrong soul when idle                                   |
+| agent_identity_types.gleam       | OK      | Type definitions correct                                                                     |
+| a_db_reader.gleam                | BROKEN  | is_s_still_idle catch-22, no S-bot filter, phantom table refs                                |
+| s_db_reader.gleam                | BROKEN  | References agent_souls (exists), agent_jobs (exists) — but JOIN may fail                     |
+| a_orchestrator.gleam             | BROKEN  | compose() doesn't enforce budget, error swallowing, no review score                          |
+| a_prompt_builder.gleam           | PARTIAL | Hardcoded truncation, inter-review detection by string match                                 |
+| a_context_utils.gleam            | PARTIAL | Uses wrong now_ms (from node_ffi instead of pi_extension_ffi)                                |
+| system_prompt_types.gleam        | PARTIAL | compose() ignores budget, compose_within_budget() unused                                     |
+| hook_on_agent_end.gleam          | BROKEN  | Double debounce, in-memory config not synced, is_s_still_idle broken                         |
+| hook_on_before_agent_start.gleam | OK      | Correctly records trigger then reads soul                                                    |
+| hook_on_agent_start.gleam        | OK      | Simple record_trigger call                                                                   |
+| hook_on_tool_call.gleam          | PARTIAL | Auto-backup saves post-edit, only catches "edit" tool                                        |
+| hook_on_tool_result.gleam        | PARTIAL | False positive error detection                                                               |
+| event_hooks.gleam                | OK      | Proper ::text casts, correct CRUD                                                            |
+| monitor_ai.gleam                 | BROKEN  | auto_file_issue wrong column, prepare_context wrong column, record_review_score never called |
+| monitor.gleam                    | PARTIAL | get_pending_notifications id not cast, notifications table exists                            |
+| psypi_config.gleam               | OK      | Proper DB read/write                                                                         |
+| seed.gleam                       | PARTIAL | Debounce value mismatch with in-memory store                                                 |
+| simple_migrate.gleam             | PARTIAL | No tracking table, statement splitting bug                                                   |
+| stats.gleam                      | OK      | Proper bigint→string→int decoding                                                            |
+| file_utils.gleam                 | OK      | Simple read/write wrappers                                                                   |
+| command_listen.gleam             | PARTIAL | Depends on call_monitor which has LLM pipeline issues                                        |
+| command_reload.gleam             | OK      | Simple ctx.reload wrapper                                                                    |
+| tool_commit.gleam                | BROKEN  | Depends on inter_review which is broken (missing ::text, no score)                           |
+| tool_consult.gleam               | STUB    | Just returns a string, doesn't actually consult A-bot                                        |
+
+### 297.5 Critical Path Summary — Which Features Actually Work End-to-End?
+
+| Feature                       | Works?  | Blockers                                                  |
+| ----------------------------- | ------- | --------------------------------------------------------- |
+| Task CRUD (add/list/complete) | PARTIAL | task.get() broken (missing project_id in SELECT)          |
+| Issue CRUD                    | YES     | issue_db.gleam has proper casts                           |
+| Skill list                    | YES     | list() has ::text casts on JSONB                          |
+| Skill get/search              | NO      | Missing ::text on content/reference_list JSONB            |
+| Meeting CRUD                  | YES     | Proper ::text casts                                       |
+| Memory search                 | YES     | tags::text cast works                                     |
+| Memory save                   | PARTIAL | Missing project_id in INSERT (has DB default?)            |
+| Broadcast send                | PARTIAL | project_id empty string fails uuid cast                   |
+| Broadcast list                | YES     | Proper ::text casts                                       |
+| Broadcast stats               | NO      | Non-existent columns in query                             |
+| Learning save                 | YES     | INSERT only, no read-back needed                          |
+| Areflect                      | PARTIAL | [LEARN] works, [ISSUE] and [TASK] fail (NOT NULL)         |
+| Inter-review request          | PARTIAL | Creates record but param semantics wrong                  |
+| Inter-review get details      | NO      | Missing ::text on requested_at                            |
+| Commit with review            | NO      | Blocked by inter_review + no score written                |
+| Auto-backup on edit           | PARTIAL | Saves post-edit, not pre-edit                             |
+| A-bot wake-up                 | NO      | Double debounce + is_s_still_idle broken + phantom tables |
+| A-bot workflow                | NO      | compose() ignores budget, LLM pipeline issues             |
+| S-bot soul load               | YES     | before_agent_start reads soul correctly                   |
+| Agent identity                | PARTIAL | Changes based on idle state, not role                     |
+| Monitor health/stats          | YES     | Proper ::int casts                                        |
+| Monitor alerts                | YES     | Proper ::int casts                                        |
+| Monitor suggestions           | PARTIAL | skills status 'PENDING' vs 'pending' case mismatch        |
+| Event hooks list              | YES     | Proper ::text casts                                       |
+| Notifications                 | NO      | id (uuid) not cast to text in SELECT                      |
+| /autonomic-listen             | PARTIAL | Depends on call_monitor LLM pipeline                      |
+| /autonomic-reload             | YES     | Simple ctx.reload                                         |
+| Total issues found            | 71      |
+
+---
+
+## 261. FFI SIGNATURE AUDIT — Gleam @external vs JS Implementation
+
+### 261.1 Signature Comparison
+
+Every `@external` declaration in `pi_extension.gleam` compared against
+the actual JS implementation in `pi_extension_ffi.mjs`:
+
+| Gleam Declaration                                                                      | JS Signature                                        | Match? | Issue                                                                                                                           |
+| -------------------------------------------------------------------------------------- | --------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `notify_error(ctx: a, message: String) -> Nil`                                         | `notify_error(ctx, message)`                        | ✅      | Returns undefined (≈Nil)                                                                                                        |
+| `notify_warning(ctx: a, message: String) -> Nil`                                       | `notify_warning(ctx, message)`                      | ✅      | Returns undefined                                                                                                               |
+| `notify_info(ctx: a, message: String) -> Nil`                                          | `notify_info(ctx, message)`                         | ✅      | Returns undefined                                                                                                               |
+| `set_status(ctx: a, key: String, text: String) -> Nil`                                 | `set_status(ctx, key, text)`                        | ✅      | Returns undefined                                                                                                               |
+| `ctx_is_idle(ctx: a) -> Bool`                                                          | `ctx_is_idle(ctx)`                                  | ✅      | Returns boolean                                                                                                                 |
+| `ctx_has_pending_messages(ctx: a) -> Bool`                                             | `ctx_has_pending_messages(ctx)`                     | ✅      | Returns boolean                                                                                                                 |
+| `ctx_get_entries_json(ctx: a) -> String`                                               | `ctx_get_entries_json(ctx)`                         | ⚠️      | If `sessionManager` undefined, `JSON.stringify(undefined)` returns string `"undefined"` not JSON                                |
+| `ctx_get_context_usage_json(ctx: a) -> String`                                         | `ctx_get_context_usage_json(ctx)`                   | ⚠️      | Same issue                                                                                                                      |
+| `ctx_get_cwd(ctx: a) -> String`                                                        | `ctx_get_cwd(ctx)`                                  | ⚠️      | Returns `''` on error — caller can't distinguish empty cwd from error                                                           |
+| `pi_send_message(pi: a, custom_type: String, content: String, display: String) -> Nil` | `pi_send_message(pi, customType, content, display)` | ❌      | **4th arg `display` is IGNORED** — JS hardcodes `display: true`                                                                 |
+| `read_file_sync(path: String) -> Result(String, String)`                               | `read_file_sync(path)`                              | ✅      | Returns Ok/Error correctly                                                                                                      |
+| `call_monitor(ctx: a, ...) -> Promise(Result(String, String))`                         | `async call_monitor(ctx, ...)`                      | ⚠️      | Returns manually-constructed `new Ok(text)` / `new Error(msg)` — fragile if Gleam runtime changes                               |
+| `ctx_reload(ctx: a) -> Promise(Nil)`                                                   | `async ctx_reload(ctx)`                             | ✅      | Returns Promise<void>                                                                                                           |
+| `exec_sync(command: String) -> Result(String, String)`                                 | `exec_sync(command)`                                | ✅      | Returns Ok/Error                                                                                                                |
+| `unwrap_gleam_result(result: a) -> b`                                                  | `unwrapGleamResult(result)`                         | ⚠️      | Returns JS `{ok, value/error}` object, not a Gleam type — used only in generated JS                                             |
+| `gleam_value_to_json(val: a) -> b`                                                     | `gleamValueToJson(val)`                             | ⚠️      | Returns JS value, not a Gleam type — used only in generated JS                                                                  |
+| `now_ms() -> Int`                                                                      | `now_ms()`                                          | ✅      | Returns `Date.now()`                                                                                                            |
+| `get_config(key: String) -> Option(String)`                                            | `get_config(key)`                                   | ❌      | **Empty string bug**: `_configStore[key] \|\| null` — if value is `""`, returns `null` (mapped to `None`) instead of `Some("")` |
+| `set_config(key: String, value: String) -> Nil`                                        | `set_config(key, value)`                            | ✅      | Returns undefined                                                                                                               |
+
+### 261.2 Critical FFI Bugs
+
+**Bug 1: `pi_send_message` ignores `display` parameter**
+
+Gleam declares `display: String` but JS hardcodes `display: true`:
+```javascript
+export function pi_send_message(pi, customType, content, display) {
+  pi.sendMessage({
+    customType: String(customType),
+    content: String(content),
+    display: true,  // ← 4th arg IGNORED
+  }, { triggerTurn: true });
+}
+```
+
+Impact: The `display` parameter passed from Gleam is silently discarded.
+If `display: "persistent"` was intended to persist the message, it never works.
+
+**Bug 2: `get_config` empty string → None**
+
+```javascript
+export function get_config(key) {
+  return _configStore[key] || null;
+}
+```
+
+If `_configStore["idle_since"]` is `""` (empty string), the `||` operator
+falsifies it and returns `null`, which Gleam maps to `None`.
+But `""` is a valid value (e.g., "idle_since was cleared").
+The fix would be: `return key in _configStore ? _configStore[key] : null;`
+
+**Bug 3: `call_monitor` manually constructs Gleam constructors**
+
+```javascript
+import { Ok, Error } from './gleam.mjs';
+// ...
+return new Ok(text);
+return new Error(e.message || 'callMonitor failed');
+```
+
+This imports `Ok`/`Error` from `./gleam.mjs` and manually constructs them.
+If the Gleam runtime changes how Result constructors are represented
+(e.g., different module path, different constructor names), this breaks silently.
+The correct approach is to return the value and let the Gleam FFI layer wrap it.
+
+### 261.3 node_ffi.mjs Signature Audit
+
+| Function                                | Declared In               | JS Return                                   | Match? | Issue                                                       |
+| --------------------------------------- | ------------------------- | ------------------------------------------- | ------ | ----------------------------------------------------------- |
+| `get_project_root() -> String`          | extension_generator.gleam | `process.cwd()`                             | ✅      |                                                             |
+| `spawn_pi(args) -> Promise(Int)`        | main.gleam                | `Promise<exit_code>`                        | ✅      |                                                             |
+| `execute(cmd, timeout) -> Result(...)`  | (unused?)                 | `Ok({stdout,stderr,status})` / `Error(...)` | ⚠️      | Returns custom object, not used by any current Gleam module |
+| `exists(cmd) -> Bool`                   | (unused?)                 | `true`/`false`                              | ⚠️      | Not used by any current Gleam module                        |
+| `get_env(name) -> String`               | (unused?)                 | `process.env[name] \|\| ''`                 | ⚠️      | Not used by any current Gleam module                        |
+| `get_project_id_env() -> String`        | db.gleam                  | `process.env['PSYPI_PROJECT_ID'] \|\| ''`   | ✅      |                                                             |
+| `get_database_url() -> String`          | db.gleam                  | `process.env['DATABASE_URL'] \|\| ''`       | ✅      |                                                             |
+| `now_ms() -> Result(Int, String)`       | a_context_utils.gleam     | `new Ok(Date.now())`                        | ✅      | Different from pi_extension_ffi version                     |
+| `ensure_dir(path) -> Nil`               | (unused?)                 | `undefined`                                 | ⚠️      | Not used by any current Gleam module                        |
+| `write_text_file(path, content) -> Nil` | (unused?)                 | `undefined`                                 | ⚠️      | Not used by any current Gleam module                        |
+
+**Note**: `node_ffi.mjs` has 5 functions that appear unused by any current Gleam module:
+`execute`, `exists`, `get_env`, `ensure_dir`, `write_text_file`.
+These may be remnants of previous code or planned for future use.
+
+### 261.4 Dual `now_ms()` Implementation
+
+There are TWO `now_ms()` functions with DIFFERENT return types:
+
+1. **pi_extension_ffi.mjs**: `return Date.now();` → returns plain `Int`
+   - Used by: `pi_extension.gleam` → `now_ms() -> Int`
+   - Used in: `hook_on_agent_end.gleam` for idle_since tracking
+
+2. **node_ffi.mjs**: `return new Ok(Date.now());` → returns `Result(Int, String)`
+   - Used by: `a_context_utils.gleam` → `now_ms() -> Result(Int, String)`
+   - Used in: `current_time_ms()` which unwraps with `Ok(t) -> t, Error(_) -> 0`
+
+These are separate FFI bindings for separate Gleam modules, so no conflict.
+But the `a_context_utils.current_time_ms()` silently returns `0` on error,
+which could cause timestamp bugs if the FFI call ever fails.
+
+---
+
+## 262. call_monitor() DEEP ANALYSIS — LLM Call Pipeline
+
+### 262.1 Complete Flow Trace
+
+```
+a_orchestrator.run_full_workflow()
+  → a_db_reader.read_soul_from_db()          [DB query 1]
+  → a_db_reader.read_a_jobs_from_db()         [DB query 2]
+  → a_db_reader.read_project_state_from_db()
+      → read_active_tasks()                   [DB query 3]
+      → read_open_issues()                    [DB query 4]
+  → a_prompt_builder.build_system_prompt()
+  → a_prompt_builder.build_user_prompt()
+  → call_monitor(ctx, user_prompt, system_prompt)
+      → ctx.model                             [Pi SDK]
+      → modelRegistry.getApiKeyAndHeaders()   [API auth]
+      → completeSimple(model, context, opts)  [LLM call]
+      → extractText(result)                   [Response parse]
+      → [optional] retry with reasoning:none  [LLM call 2]
+  → handle_monitor_response()
+      → ctx_is_idle(ctx)                      [Pi SDK]
+      → pi_send_message(pi, "autonomic-wakeup", response)
+```
+
+### 262.2 Issues Found
+
+**Issue 1: No conversation history**
+The `context` object contains only a single user message:
+```javascript
+const context = {
+  systemPrompt: String(systemPrompt),
+  messages: [
+    { role: 'user', content: [{ type: 'text', text: String(userPrompt) }], timestamp: Date.now() },
+  ],
+};
+```
+The LLM has NO memory of previous A-bot interactions. Each wake-up starts fresh.
+This means the A-bot cannot track whether it already reminded S about something,
+leading to repeated reminders about the same topic.
+
+**Issue 2: Retry with degraded reasoning**
+```javascript
+const shouldRetry = !text || (result?.errorMessage && (result.errorMessage === 'terminated' || result.errorMessage.includes('rate')));
+if (shouldRetry) {
+  result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'none' });
+```
+If the first call fails, retry without reasoning. This means:
+- If the model was "thinking too hard" and produced no text, the retry
+  produces a lower-quality response without reasoning.
+- The retry has no limit — if the second call also fails, it returns an error.
+- Rate limit detection is fragile: `result.errorMessage.includes('rate')`
+  could match unrelated error messages containing "rate" (e.g., "exchange rate").
+
+**Issue 3: No timeout**
+The `completeSimple` call has no timeout. If the LLM hangs:
+- The entire A-bot workflow hangs indefinitely
+- The `agent_end` hook never completes
+- The debounce timer in `extension.js` is already elapsed, so no retry
+- The S-bot continues working without A-bot oversight
+
+**Issue 4: Fragile Ok/Error construction**
+```javascript
+import { Ok, Error } from './gleam.mjs';
+return new Ok(text);
+return new Error(e.message || 'callMonitor failed');
+```
+This manually constructs Gleam Result types. If the Gleam compiler changes
+how `Ok`/`Error` are represented (different module, different constructor pattern),
+this breaks silently. The `./gleam.mjs` import path assumes a specific build output.
+
+**Issue 5: No response validation**
+The LLM response is sent directly to S-bot via `pi_send_message` without
+any validation or parsing. If the LLM produces:
+- An empty response → S receives an empty wake-up message
+- A very long response → S's context window is consumed
+- A response containing code → S might execute it without review
+- A hallucinated command → S might follow incorrect instructions
+
+**Issue 6: Thinking-only responses**
+```javascript
+if (hasThinking) {
+  return new Error('LLM only thought, no text output. stopReason=' + ...);
+}
+```
+If the LLM uses extended thinking but produces no text output, this is
+treated as an error. But some models (e.g., Claude with thinking) might
+produce useful thinking that should be extracted and used.
+
+---
+
+## 263. exec_sync() SHELL INJECTION ANALYSIS
+
+### 263.1 Attack Surface
+
+`exec_sync` is called from two places:
+
+1. **tool_commit.gleam**: `git diff` and `git commit -m "message"`
+2. **hook_on_tool_call.gleam**: Does NOT use `exec_sync` — uses `read_file_sync`
+
+### 263.2 Shell Escaping Analysis
+
+The `shell_escape` function in `tool_commit.gleam`:
+```gleam
+fn shell_escape(s: String) -> String {
+  s
+  |> string.replace("\\", "\\\\")
+  |> string.replace("\"", "\\\"")
+  |> string.replace("`", "\\`")
+  |> string.replace("$", "\\$")
+}
+```
+
+The escaped message is placed inside double quotes:
+```gleam
+let cmd = "git commit -m \"" <> escaped <> "\""
+```
+
+Inside double quotes in bash, only these characters are special:
+`$`, `` ` ``, `\`, `"`, `!`
+
+The `shell_escape` function correctly escapes `$`, `` ` ``, `\`, `"`.
+It does NOT escape `!` (history expansion in interactive bash),
+but `execSync` runs in non-interactive mode where `!` is not special.
+
+**Verdict**: Shell injection risk is LOW for the current usage.
+The escaping is correct for double-quoted strings in non-interactive bash.
+
+### 263.3 Remaining Risks
+
+1. **Newline in message**: If the commit message contains `\n`, it's preserved
+   inside double quotes and does NOT break the command. Safe.
+
+2. **Future usage**: If `exec_sync` is used elsewhere without `shell_escape`,
+   it becomes a direct shell injection vector. The function itself has no
+   protection — it trusts the caller to escape properly.
+
+3. **`git diff` commands**: These don't include user input, so they're safe.
+
+---
+
+## 264. CONFIG STORE RACE CONDITIONS — DETAILED ANALYSIS
+
+### 264.1 Two Config Stores
+
+| Store     | Location                              | Persistence             | Used By                            |
+| --------- | ------------------------------------- | ----------------------- | ---------------------------------- |
+| In-memory | `pi_extension_ffi.mjs` `_configStore` | Lost on process restart | `hook_on_agent_end.gleam`          |
+| Database  | `psypi_config` table                  | Persistent              | `psypi_config.gleam`, generated JS |
+
+### 264.2 Current DB Config Values (verified 2026-05-27)
+
+| Key                   | Value                      | Set By                                              |
+| --------------------- | -------------------------- | --------------------------------------------------- |
+| `idle_since`          | `0`                        | hook_on_agent_end (via in-memory, NOT synced to DB) |
+| `last_wakeup`         | (long A-bot response text) | Unknown — no code writes this                       |
+| `monitor_debounce_ms` | `900000` (15 min)          | seed.gleam or manual                                |
+| `monitor_enabled`     | `true`                     | seed.gleam or manual                                |
+
+### 264.3 Synchronization Issues
+
+**Issue 1: `idle_since` is in-memory only**
+
+The `hook_on_agent_end.gleam` uses `get_config("idle_since")` and
+`set_config("idle_since", ...)` which read/write the in-memory store.
+The database `psypi_config` table has `idle_since = '0'` but this is
+never read or updated by the Gleam code.
+
+Result: On process restart, `idle_since` is lost (in-memory store is empty).
+The `get_config("idle_since")` returns `None`, which triggers the
+"first time seeing idle" branch, recording a new timestamp.
+This means after every restart, the A-bot may wake up immediately
+if S is idle, bypassing the debounce.
+
+**Issue 2: `monitor_debounce_ms` is read from DB by generated JS, but from in-memory by Gleam**
+
+The generated `extension.js` reads debounce from DB:
+```javascript
+const psypi_config_get_debounce_ms = (await import('...')).get_debounce_ms;
+const debounceResult = await psypi_config_get_debounce_ms();
+```
+
+The Gleam `hook_on_agent_end.gleam` reads from in-memory:
+```gleam
+case get_config("monitor_debounce_ms") {
+  option.Some(debounce_str) -> ...
+  option.None -> ... // default 300000ms
+}
+```
+
+But `set_config("monitor_debounce_ms", ...)` is never called in the Gleam code,
+so the in-memory store NEVER has this key. The Gleam code always falls through
+to the default `300000ms` (5 minutes), while the DB has `900000ms` (15 minutes).
+
+**This creates a DOUBLE DEBOUNCE with DIFFERENT values:**
+- JS timer: 15 minutes (from DB)
+- Gleam check: 5 minutes (default, because in-memory is empty)
+
+The effective debounce is 15 + 5 = 20 minutes, not the intended 15 minutes.
+
+**Issue 3: `last_wakeup` in DB is never written by current code**
+
+The `psypi_config` table has a `last_wakeup` key with a long A-bot response,
+but no current Gleam code writes to this key. It may have been written by:
+- A previous version of the code
+- A direct SQL insert
+- The A-bot's LLM response being accidentally stored
+
+This is a data integrity issue — the config table contains stale/orphan data.
+
+---
+
+## 265. is_s_still_idle() CATCH-22 — VERIFIED WITH LIVE DATA
+
+### 265.1 The Bug
+
+```gleam
+pub fn is_s_still_idle() -> promise.Promise(Result(Bool, String)) {
+  db.with_connection(fn(conn) {
+    let sql = "SELECT COUNT(*) as cnt FROM agent_sessions "
+      <> "WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'"
+    // ...
+    case decode.run(row, count_decoder()) {
+      Ok(cnt) -> Ok(cnt == 0)
+      Error(_) -> Ok(True)  // ← ALWAYS RETURNS "IDLE" ON DECODE ERROR
+    }
+  })
+}
+```
+
+### 265.2 Why Decode Fails
+
+Live DB verification:
+```sql
+SELECT COUNT(*) as cnt FROM agent_sessions
+WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes';
+-- Result: cnt = 0 (type: bigint)
+```
+
+PostgreSQL `COUNT(*)` returns `bigint` (`int8`).
+The Node.js `pg` driver returns `bigint` as a **string** (e.g., `"0"`)
+to avoid JavaScript number precision issues.
+
+`decode.int` expects a JavaScript **number**, not a string.
+So `decode.run(row, count_decoder())` fails with a decode error.
+
+The `Error(_)` branch returns `Ok(True)` — "S is idle".
+
+### 265.3 Additional Bug: No S-bot Filter
+
+The query counts ALL alive sessions, not just S-bot sessions:
+```sql
+WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+
+It should filter for S-bot:
+```sql
+WHERE status = 'alive' AND identity_id LIKE 'S-%' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+
+Without this filter, if A-bot has an active session (which it doesn't currently,
+but could in the future), `is_s_still_idle` would return `False` even when S is idle.
+
+### 265.4 Current Impact
+
+Currently, there are 0 active sessions (last heartbeat > 5 min ago),
+so `COUNT(*)` returns `0`. The decode fails, and the fallback returns `Ok(True)`.
+
+**The result is CORRECT by accident** — S IS idle, and the function
+returns `True`. But if there WERE active sessions, the decode would still
+fail, and the function would STILL return `True`, which would be WRONG.
+
+### 265.5 Fix Required
+
+1. Add `::INT` cast: `SELECT COUNT(*)::INT as cnt`
+2. Add S-bot filter: `AND identity_id LIKE 'S-%'`
+3. Remove the `Error(_) -> Ok(True)` fallback — should be `Error(e) -> Error(e)`
+
+---
+
+## 266. INTER-REVIEW COMMIT FLOW — DEAD END (VERIFIED)
+
+### 266.1 Live Data Verification
+
+```sql
+SELECT id::text, status, overall_score, requested_at::text
+FROM inter_reviews ORDER BY requested_at DESC LIMIT 5;
+
+-- Result: 2 rows, BOTH with status='pending' and overall_score=NULL
+```
+
+| ID           | Status  | Overall Score | Requested At        |
+| ------------ | ------- | ------------- | ------------------- |
+| df31f009-... | pending | NULL          | 2026-05-26 05:44:13 |
+| 3c292699-... | pending | NULL          | 2026-05-26 05:42:42 |
+
+### 266.2 The Dead End Chain
+
+```
+1. S calls psypi-commit with message
+2. tool_commit.trigger_review() runs
+3. inter_review.request_review(None, None, "autonomic", context) runs
+4. SQL: SELECT request_inter_review(NULL, NULL, 'main', 'autonomic', '{"text":...}')
+5. Returns review_id (e.g., "df31f009-...")
+6. S receives: "Inter-review triggered (ID: df31f009-...). Call psypi-commit again with review_id."
+7. A-bot is supposed to review the code...
+   BUT: A-bot's workflow does NOT update inter_reviews table
+8. S calls psypi-commit with review_id
+9. tool_commit.commit_if_reviewed() runs
+10. inter_review.get_review_details(review_id) runs
+11. Review has overall_score = NULL
+12. Returns: "Review not yet complete. A-bot is still reviewing. Try again later."
+13. DEAD END — score is never updated, commit is permanently blocked
+```
+
+### 266.3 Why A-bot Never Updates the Review
+
+The A-bot workflow in `a_orchestrator.gleam`:
+1. Reads soul, jobs, project state from DB
+2. Composes prompts
+3. Calls `call_monitor()` — LLM generates response
+4. Sends wake-up message to S via `pi_send_message()`
+5. **DONE** — no review score update
+
+The missing step: After the LLM generates a review response, the code should:
+1. Parse the response for a review score
+2. Find the pending review in `inter_reviews`
+3. Call `monitor_ai.record_review_score(review_id, score)`
+4. Update the review status to "completed"
+
+But `record_review_score` is NEVER called by any code path.
+It exists as a function in `monitor_ai.gleam` but has zero callers.
+
+### 266.4 The `request_inter_review` SQL Function
+
+Verified to exist in the database:
+```sql
+\df request_inter_review
+-- Schema: public, Name: request_inter_review
+-- Result: uuid
+-- Arguments: p_task_id uuid, p_commit_hash text, p_branch text,
+--            p_requester_id text, p_review_context jsonb DEFAULT '{}'::jsonb
+```
+
+The Gleam code passes:
+- `task_id`: `dynamic.nil()` (NULL) — OK, uuid accepts NULL
+- `commit_hash`: `dynamic.nil()` (NULL) — OK
+- `branch`: `dynamic.string("main")` — OK
+- `reviewer_id`: `dynamic.string("autonomic")` — OK
+- `context`: `dynamic.string(json_string)` — **POTENTIAL ISSUE**: passing JSON string
+  to a `jsonb` parameter. The pg driver should handle this, but it depends on
+  whether the driver parses the string as JSON or passes it as a text parameter.
+
+---
+
+## 267. BEFORE_AGENT_START HOOK — TRIGGER RECORDING ANALYSIS
+
+### 267.1 The Gleam Function
+
+```gleam
+pub fn on_before_agent_start() -> promise.Promise(Result(String, String)) {
+  let trigger = promise.map(event_hooks.record_trigger("before_agent_start"), fn(r) {
+    result.map_error(r, fn(e) { string.inspect(e) })
+  })
+  promise.await(trigger, fn(_) {
+    promise.await(s_db_reader.read_s_soul_from_db(), fn(soul_result) {
+      case soul_result {
+        Ok(soul_content) -> promise.resolve(Ok(soul_content))
+        Error(e) -> promise.resolve(Ok("...fallback prompt..."))
+      }
+    })
+  })
+}
+```
+
+The trigger IS recorded inside the Gleam function (line 2-4).
+The function then reads S-bot's soul from DB and returns it as the system prompt.
+
+### 267.2 The Generated JS Code
+
+```javascript
+pi.on('before_agent_start', async (event, ctx) => {
+  try {
+    const result = await hook_on_before_agent_start_on_before_agent_start();
+    const r = unwrapGleamResult(result);
+    if (r.ok) { return { systemPrompt: r.value }; }  // ← RETURNS HERE
+    else { ctx.ui.notify('Hook before_agent_start failed: ' + r.error, 'error'); }
+    await event_hooks_record_trigger('before_agent_start');  // ← DEAD CODE
+  } catch(e) { ... }
+});
+```
+
+The generated JS has `await event_hooks_record_trigger('before_agent_start')`
+AFTER the `return` statement. This is unreachable dead code.
+
+**But the trigger IS recorded** — inside the Gleam function.
+So the trigger count in `psypi_event_hooks` is correct (142 triggers for `before_agent_start`).
+
+### 267.3 The Real Issue
+
+The real issue is not the dead code, but the code generation bug in
+`pi_tool_call.gleam` that places `record_trigger` after the `return` statement.
+For `system_prompt_hook` type hooks, the `return { systemPrompt: r.value }`
+exits the function before `record_trigger` can execute.
+
+The Gleam function compensates by recording the trigger internally,
+but this creates an inconsistency:
+- For `system_prompt_hook`: trigger recorded by Gleam (works)
+- For `event_hook` and `debounced_hook`: trigger recorded by generated JS (works)
+- For `agent_start`: trigger recorded by BOTH Gleam AND generated JS (double count)
+
+---
+
+## 268. AGENT_START HOOK — DOUBLE TRIGGER RECORDING
+
+### 268.1 The Gleam Function
+
+```gleam
+pub fn on_agent_start() -> promise.Promise(Result(Nil, String)) {
+  promise.map(event_hooks.record_trigger("agent_start"), fn(r) {
+    result.map_error(r, fn(e) { string.inspect(e) })
+  })
+}
+```
+
+This function ONLY records the trigger. It does nothing else.
+
+### 268.2 The Generated JS Code
+
+The generated JS for `event_hook` type also calls `record_trigger`:
+```javascript
+pi.on('agent_start', async (event, ctx) => {
+  try {
+    const result = await hook_on_agent_start_on_agent_start();
+    const r = unwrapGleamResult(result);
+    if (r.ok) { /* success action */ }
+    else { ctx.ui.notify('Hook agent_start failed: ' + r.error, 'error'); }
+    await event_hooks_record_trigger('agent_start');  // ← SECOND RECORDING
+  } catch(e) { ... }
+});
+```
+
+### 268.3 Impact
+
+The `agent_start` trigger is recorded TWICE per event:
+1. Inside `on_agent_start()` Gleam function
+2. In the generated JS code after the function returns
+
+The `psypi_event_hooks` table shows `trigger_count = 553` for `agent_start`.
+The actual number of `agent_start` events is approximately 553/2 ≈ 276.
+
+This is a LOW severity issue — the trigger count is inflated but doesn't
+affect functionality. However, it makes monitoring data unreliable.
+
+---
+
+## 269. TOOL_RESULT HOOK — FALSE POSITIVE ERROR DETECTION
+
+### 269.1 Detection Logic
+
+```gleam
+let is_error =
+  string.contains(result_json, "\"error\"")
+  || string.contains(result_json, "Error:")
+  || string.contains(result_json, "execution error")
+  || string.contains(result_json, "tool_execution_blocked")
+  || string.contains(result_json, "\"is_error\":true")
+```
+
+### 269.2 False Positive Examples
+
+| Pattern                                         | Matches                  | Is Actually Error?       |
+| ----------------------------------------------- | ------------------------ | ------------------------ |
+| `{"description": "Error handling module"}`      | `"error"`                | ❌ No — description text  |
+| `{"status": "error", "title": "Bug in parser"}` | `"error"`                | ❌ No — task/issue status |
+| `{"skill": "Error recovery patterns"}`          | `"Error:`                | ❌ No — skill name        |
+| `{"result": "No execution error found"}`        | `execution error`        | ❌ No — negation          |
+| `{"type": "tool_execution_blocked"}`            | `tool_execution_blocked` | ✅ Yes — but rare         |
+
+### 269.3 Impact
+
+Every false positive triggers:
+1. `notify_error(pi, ...)` — error notification in Pi TUI
+2. `pi_send_message(pi, "autonomic-error", ...)` — A-bot error message
+
+This means the A-bot receives spurious error notifications, which:
+- Distracts from real errors
+- May cause the A-bot to take unnecessary actions
+- Increases noise in the monitoring system
+
+### 269.4 Fix Required
+
+The detection should check for error patterns in the **structure** of the JSON,
+not just string containment. For example:
+- Check `result.isError === true` (if Pi SDK provides this)
+- Check for `{"error": "..."}` at the top level of the JSON
+- Use JSON parsing instead of string matching
+
+---
+
+## 270. PREPARE_CONTEXT COLUMN BUG — VERIFIED
+
+### 270.1 The SQL Query
+
+```sql
+SELECT 'learning' as type_, content, saved_at::text
+FROM memory
+WHERE agent_id = $1 AND source = 'learn'
+UNION ALL
+SELECT 'backup' as type_, file_path as content, saved_at::text
+FROM code_versions
+WHERE saved_by = $1
+ORDER BY saved_at DESC
+LIMIT 10
+```
+
+### 270.2 Column Verification
+
+| Table           | Has `saved_at`? | Has `created_at`? | Actual Columns                                                                                                                               |
+| --------------- | --------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `memory`        | ❌ NO            | ✅ YES             | id, project_id, content, source, tags, metadata, created_at, updated_at, embedding, importance, agent_id, session_id, viewers, has_sensitive |
+| `code_versions` | ✅ YES           | ❌ NO              | id, file_path, content, version_hash, saved_by, saved_at, commit_hash, reason, project_name, file_size, line_count                           |
+
+### 270.3 Impact
+
+The UNION query will FAIL because:
+1. The first SELECT references `saved_at::text` from `memory` table
+2. The `memory` table does NOT have a `saved_at` column
+3. PostgreSQL returns: `ERROR: column "saved_at" does not exist`
+
+The `monitor_ai.prepare_context()` function will always return an error,
+preventing the A-bot from accessing recent learning and backup context.
+
+### 270.4 Fix Required
+
+Change `saved_at::text` to `created_at::text` in the first SELECT:
+```sql
+SELECT 'learning' as type_, content, created_at::text as saved_at
+FROM memory
+WHERE agent_id = $1 AND source = 'learn'
+UNION ALL
+SELECT 'backup' as type_, file_path as content, saved_at::text
+FROM code_versions
+WHERE saved_by = $1
+ORDER BY saved_at DESC
+LIMIT 10
+```
+
+Also, the `ORDER BY saved_at DESC` sorts by text representation of timestamps,
+which is lexicographic. For ISO 8601 timestamps, this happens to work correctly,
+but it's fragile. Better to use `ORDER BY 3 DESC` (column position) or
+cast back to timestamp.
+
+---
+
+## 271. AUTO_FILE_ISSUE COLUMN BUG — VERIFIED
+
+### 271.1 The SQL Query
+
+```sql
+INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'development')
+```
+
+### 271.2 Column Verification
+
+The `issues` table has `issue_type`, NOT `type`:
+```
+id, title, description, issue_type, severity, status, created_by, discovered_at,
+related_issue_id, task_id, resolution, resolved_at, resolved_by, tags, metadata,
+created_at, updated_at, assignee, assignee_type, review_id, dlq_id, viewers,
+milestone_id, related_review_id, discovered_by, environment, git_branch, git_hash,
+reported_by, source, project_id
+```
+
+### 271.3 Impact
+
+The INSERT will fail with:
+`ERROR: column "type" of relation "issues" does not exist`
+
+This means `auto_file_issue` is completely non-functional.
+Tool errors that should be auto-filed as issues are silently lost.
+
+---
+
+## 272. SEMANTIC ID LOGIC — AGENT IDENTITY ANALYSIS
+
+### 272.1 The Semantic ID Algorithm
+
+```gleam
+fn semantic_id(ctx: IdentityContext) -> Result(String, IdentityError) {
+  let prefix = case ctx.is_idle {
+    True -> "A"    // idle → Autonomic
+    False -> "S"   // busy → Somatic
+  }
+  let global_prefix = case ctx.global {
+    True -> "G-"
+    False -> ""
+  }
+  case ctx.model {
+    "" -> Error(MissingSessionId)
+    _ -> Ok(global_prefix <> prefix <> "-" <> ctx.project <> "-" <> ctx.source <> "-" <> ctx.model <> ...)
+  }
+}
+```
+
+### 272.2 The Fundamental Design Flaw
+
+The semantic ID is determined by `ctx.is_idle`:
+- If the agent is idle → it gets prefix "A" (Autonomic)
+- If the agent is busy → it gets prefix "S" (Somatic)
+
+But there's only ONE agent running (the Pi TUI session).
+The same agent switches between "A" and "S" based on its idle state.
+
+This means:
+1. When the agent is idle, it identifies as "A-psypi-..."
+2. When the agent is busy, it identifies as "S-psypi-..."
+3. The identity changes dynamically during a session
+
+### 272.3 Problems
+
+**Problem 1: Soul lookup is prefix-based**
+
+```gleam
+let prefix = case string.contains(id, "A-") || ctx.is_idle {
+  True -> "A"
+  False -> "S"
+}
+promise.await(fetch_soul_by_prefix(prefix), ...)
+```
+
+The soul is fetched based on the current prefix. If the agent is idle,
+it gets the A-bot soul. If busy, it gets the S-bot soul.
+
+But the A-bot and S-bot have DIFFERENT souls with DIFFERENT responsibilities.
+An agent that switches between them would have inconsistent behavior.
+
+**Problem 2: The `my_id_tool` returns different identities**
+
+The `psypi-my-id` tool calls `get_enriched_identity` which uses `semantic_id`.
+If S calls `psypi-my-id` while busy, it gets an S identity.
+If S calls `psypi-my-id` while idle, it gets an A identity.
+
+This is confusing and incorrect — S should always have an S identity.
+
+**Problem 3: Jobs are prefix-based**
+
+```gleam
+fn fetch_jobs_by_prefix(prefix: String) -> ...
+```
+
+The jobs fetched depend on the current prefix. If the agent switches
+from S to A (by becoming idle), it gets A-bot jobs instead of S-bot jobs.
+
+### 272.4 Root Cause
+
+The semantic ID conflates two concepts:
+1. **Agent role** (Autonomic vs Somatic) — should be fixed per session
+2. **Agent state** (idle vs busy) — changes dynamically
+
+The ID should be based on the agent's ROLE, not its STATE.
+The A-bot and S-bot are supposed to be separate entities with separate
+sessions, not the same entity switching roles.
+
+---
+
+## 273. SYSTEM PROMPT COMPOSITION — BUDGET ANALYSIS
+
+### 273.1 Budget Calculation
+
+```gleam
+let budget = context_window / 4
+```
+
+If `context_window = 200000`, budget = 50000 tokens.
+
+### 273.2 Component Assembly
+
+```gleam
+new_composition(budget)
+|> add_component(soul_component(a_identity_prompt()))  // ~200 tokens
+|> add_soul_content(soul_content)                       // variable
+|> add_a_jobs(a_jobs)                                   // variable
+```
+
+### 273.3 Issues
+
+**Issue 1: `compose` doesn't enforce budget**
+
+The `compose` function in `system_prompt_types.gleam`:
+```gleam
+pub fn compose(comp: PromptComposition) -> String {
+  let sorted = list.sort(comp.components, compare_by_priority)
+  sorted |> list.map(fn(c) { ... }) |> string.join("\n\n")
+}
+```
+
+This assembles ALL components regardless of budget.
+The `compose_within_budget` function exists but is NEVER CALLED.
+
+If the soul content is very long (e.g., a detailed agent_souls record),
+the system prompt could exceed the budget, consuming tokens that should
+be reserved for the conversation.
+
+**Issue 2: Token estimation is crude**
+
+```gleam
+pub fn estimate_tokens(text: String) -> Int {
+  string.length(text) / 4 + 1
+}
+```
+
+This assumes 4 characters per token, which is a rough approximation.
+For English text, this is reasonable. For code or special characters,
+it can be off by 2-3x.
+
+**Issue 3: User prompt is unbounded**
+
+The `build_user_prompt` function includes:
+- `entries_json` — full conversation history, truncated to 2000-4000 chars
+- `project_state` — active tasks and issues
+- `usage_json` — context usage info
+
+The `entries_json` truncation is hardcoded:
+- Normal: 2000 chars ≈ 500 tokens
+- Inter-review: 4000 chars ≈ 1000 tokens
+
+These limits are arbitrary and don't account for the actual context window size.
+
+**Issue 4: Missing components**
+
+The system prompt only includes soul and jobs. It doesn't include:
+- Recent tool errors (from `hook_on_tool_result`)
+- Current project state (this goes in the user prompt, not system prompt)
+- Active alerts (from `monitor_ai`)
+- Recent learnings (from `memory` table)
+
+---
+
+## 274. MIGRATION SYSTEM — SCHEMA DRIFT ANALYSIS
+
+### 274.1 No Tracking Table
+
+The `simple_migrate.gleam` module runs ALL `.sql` files in `src/migrations/`
+every time it's executed. There's no tracking table to record which
+migrations have already been run.
+
+### 274.2 Idempotent Reliance
+
+The migrations rely on SQL idempotency patterns:
+```sql
+CREATE TABLE IF NOT EXISTS ...
+ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...
+```
+
+But not all migrations use these patterns. Some use plain `CREATE TABLE`
+or `ALTER TABLE ... ADD COLUMN` which fail on re-execution.
+
+### 274.3 Statement Splitting Bug
+
+```gleam
+fn split_statements(sql: String) -> List(String) {
+  sql |> string.split(";\n") |> ...
+}
+```
+
+This splits on `;\n` (semicolon + newline). But:
+- SQL statements can have semicolons inside strings: `'hello; world'`
+- SQL statements can have semicolons in comments: `-- comment; more`
+- Some statements use `;` without a following newline
+
+This can cause:
+- False splits (breaking a string that contains `;\n`)
+- Missed splits (statements separated by `;` without newline)
+
+### 274.4 Schema Drift Evidence
+
+The database has 78+ tables, but migrations only create ~20.
+The remaining 58 tables were created outside the migration system,
+likely by direct SQL execution or other tools.
+
+Key examples of schema drift:
+- `tasks` table: migration defines 14 columns, DB has 56 columns
+- `skills` table: migration defines 15 columns, DB has 54 columns
+- `inter_reviews` table: migration defines 8 columns, DB has 31 columns
+
+This means 42+ columns were added to `tasks`, 39+ to `skills`,
+and 23+ to `inter_reviews` without any migration record.
+
+---
+
+## 275. SEED DATA ANALYSIS
+
+### 275.1 What Gets Seeded
+
+The `seed.gleam` module seeds three tables:
+
+1. **agent_souls**: A-bot and S-bot soul entries
+2. **psypi_config**: `monitor_debounce_ms=300000`, `last_wakeup=''`
+3. **agent_prefixes**: A, S, G prefix definitions
+
+### 275.2 Issues
+
+**Issue 1: Debounce mismatch**
+
+Seed sets `monitor_debounce_ms=300000` (5 minutes),
+but the current DB value is `900000` (15 minutes).
+Someone changed it manually after seeding.
+
+The Gleam default in `hook_on_agent_end.gleam` is also `300000` (5 minutes).
+So there are THREE different debounce values:
+- Seed: 300000ms (5 min)
+- DB: 900000ms (15 min)
+- Gleam default: 300000ms (5 min)
+
+**Issue 2: `last_wakeup` is seeded as empty string**
+
+```sql
+INSERT INTO psypi_config (key, value) VALUES ('last_wakeup','')
+```
+
+But the current DB has a long A-bot response as the value.
+This suggests the `last_wakeup` key is being written to somewhere,
+but no current code does this. It's an orphan write.
+
+**Issue 3: No `idle_since` seeding**
+
+The seed doesn't insert `idle_since` into `psypi_config`,
+but the DB has `idle_since = '0'`. This was likely added manually
+or by a previous version of the code.
+
+---
+
+## 276. INTER_REVIEW SQL FUNCTION — PARAMETER TYPE MISMATCH
+
+### 276.1 Function Signature (from DB)
+
+```sql
+request_inter_review(
+  p_task_id uuid,
+  p_commit_hash text,
+  p_branch text,
+  p_requester_id text,
+  p_review_context jsonb DEFAULT '{}'::jsonb
+) RETURNS uuid
+```
+
+### 276.2 Gleam Code Parameters
+
+```gleam
+let task_id_param = case task_id {
+  Some(id) -> dynamic.string(id)   // ← STRING, not UUID
+  None -> dynamic.nil()            // ← NULL (OK for uuid)
+}
+let commit_hash_param = case commit_hash {
+  Some(h) -> dynamic.string(h)     // ← STRING (OK for text)
+  None -> dynamic.nil()            // ← NULL (OK for text)
+}
+let branch_str = dynamic.string("main")  // ← STRING (OK for text)
+let reviewer_id_param = dynamic.string("autonomic")  // ← STRING (OK for text)
+let context_json_str = dynamic.string(context_json)  // ← STRING for JSONB!
+```
+
+### 276.3 The JSONB Parameter Issue
+
+The `p_review_context` parameter is `jsonb`, but the Gleam code passes
+a `dynamic.string()` containing a JSON string.
+
+The Node.js `pg` driver handles this by:
+1. Detecting the parameter type from the SQL function signature
+2. Parsing the string as JSON if the target type is `jsonb`
+3. Or passing the string as-is if type inference fails
+
+If the pg driver CANNOT infer the type (e.g., the function is overloaded),
+it may pass the string as a text parameter, causing:
+`ERROR: function request_inter_review(uuid, text, text, text, text) does not exist`
+
+This is a potential runtime error depending on pg driver behavior.
+
+### 276.4 The `task_id` UUID Issue
+
+If `task_id` is `Some("9d6b6b02-...")`, the Gleam code passes it as
+`dynamic.string("9d6b6b02-...")`. The pg driver should cast this to UUID
+automatically based on the function signature. But if the string is not
+a valid UUID format, the function will fail with:
+`ERROR: invalid input syntax for type uuid`
+
+---
+
+## 277. AGENT_SESSIONS TABLE — HEARTBEAT TRACKING
+
+### 277.1 Current Data
+
+```sql
+SELECT id::text, identity_id, status, last_heartbeat::text
+FROM agent_sessions ORDER BY last_heartbeat DESC LIMIT 5;
+```
+
+| Identity ID                | Status | Last Heartbeat      |
+| -------------------------- | ------ | ------------------- |
+| S-psypi-psypi-019dff39-... | alive  | 2026-05-07 06:59:23 |
+| S-psypi-psypi-019dfea0-... | alive  | 2026-05-07 03:42:58 |
+| S-psypi-psypi-019dfeba-... | alive  | 2026-05-07 03:18:23 |
+| S-psypi-psypi-019dfeaf-... | alive  | 2026-05-07 03:07:35 |
+| P-tencent/hy3-preview:...  | alive  | 2026-05-07 03:06:31 |
+
+### 277.2 Issues
+
+**Issue 1: Stale sessions not cleaned up**
+
+All sessions have `status = 'alive'` but `last_heartbeat` is from 2026-05-07
+(20 days ago). The `is_s_still_idle` query checks for heartbeats within
+5 minutes, so these stale sessions are correctly excluded.
+
+But the sessions should have been marked as `ended` when the process stopped.
+There's no cleanup mechanism for stale sessions.
+
+**Issue 2: No heartbeat update mechanism**
+
+No current Gleam code updates the `last_heartbeat` column.
+The `agent_sessions` table is written to by the Pi SDK's session management,
+not by the Gleam code. But the Gleam code reads from it for `is_s_still_idle`.
+
+If the Pi SDK stops updating heartbeats (e.g., process crash, network issue),
+the sessions remain `alive` indefinitely until the 5-minute timeout expires.
+
+**Issue 3: `identity_id` format inconsistency**
+
+The `identity_id` values use different formats:
+- `S-psypi-psypi-019dff39-6056-72a7-94f1-fef04f67e6ca` (S-bot with model ID)
+- `P-tencent/hy3-preview:free-psypi` (Provider with model name)
+
+The `is_s_still_idle` query doesn't filter by `identity_id LIKE 'S-%'`,
+so it counts ALL sessions including provider sessions.
+
+---
+
+## 278. UPDATED CONSOLIDATED ISSUE COUNT — v3
+
+### 278.1 New Issues Found in This Session (sections 261-277)
+
+| #   | Category      | Description                                                                        | Severity |
+| --- | ------------- | ---------------------------------------------------------------------------------- | -------- |
+| 72  | FFI bug       | `pi_send_message` ignores `display` parameter                                      | MEDIUM   |
+| 73  | FFI bug       | `get_config` empty string → None (falsy value bug)                                 | HIGH     |
+| 74  | FFI fragility | `call_monitor` manually constructs Gleam Ok/Error                                  | MEDIUM   |
+| 75  | LLM pipeline  | No conversation history in A-bot LLM calls                                         | HIGH     |
+| 76  | LLM pipeline  | Retry with degraded reasoning (no fallback limit)                                  | MEDIUM   |
+| 77  | LLM pipeline  | No timeout on LLM calls                                                            | HIGH     |
+| 78  | LLM pipeline  | No response validation before sending to S-bot                                     | MEDIUM   |
+| 79  | Config sync   | `idle_since` in-memory only, lost on restart                                       | HIGH     |
+| 80  | Config sync   | `monitor_debounce_ms` read from different stores (DB vs in-memory)                 | HIGH     |
+| 81  | Config sync   | Double debounce with different values (15min JS + 5min Gleam)                      | HIGH     |
+| 82  | Config sync   | `last_wakeup` in DB is orphan data (no code writes it)                             | LOW      |
+| 83  | Decode bug    | `is_s_still_idle` no S-bot filter in query                                         | MEDIUM   |
+| 84  | Commit flow   | `request_inter_review` JSONB parameter type mismatch risk                          | MEDIUM   |
+| 85  | Code gen      | `before_agent_start` dead code (trigger after return)                              | LOW      |
+| 86  | Code gen      | `agent_start` double trigger recording                                             | LOW      |
+| 87  | Detection     | `tool_result` false positive error detection                                       | MEDIUM   |
+| 88  | SQL bug       | `prepare_context` references `saved_at` in `memory` table (should be `created_at`) | CRITICAL |
+| 89  | SQL bug       | `auto_file_issue` references `type` column (should be `issue_type`)                | CRITICAL |
+| 90  | Design flaw   | Semantic ID based on idle state, not agent role                                    | HIGH     |
+| 91  | Design flaw   | `compose` doesn't enforce budget (only `compose_within_budget` does)               | MEDIUM   |
+| 92  | Design flaw   | Token estimation is crude (4 chars/token)                                          | LOW      |
+| 93  | Design flaw   | User prompt truncation is hardcoded, not budget-aware                              | MEDIUM   |
+| 94  | Migration     | No tracking table, re-runs all migrations                                          | MEDIUM   |
+| 95  | Migration     | Statement splitting on `;\n` breaks strings with semicolons                        | MEDIUM   |
+| 96  | Schema drift  | 58 tables created outside migrations                                               | HIGH     |
+| 97  | Seed data     | Three different debounce values (seed/DB/Gleam default)                            | MEDIUM   |
+| 98  | Session mgmt  | Stale `agent_sessions` not cleaned up                                              | LOW      |
+| 99  | Session mgmt  | No heartbeat update from Gleam code                                                | LOW      |
+| 100 | FFI dead code | 5 unused functions in `node_ffi.mjs`                                               | LOW      |
+
+### 278.2 Updated Total
+
+| Category                                                                   | Count   | Severity |
+| -------------------------------------------------------------------------- | ------- | -------- |
+| Phantom tables (referenced but don't exist)                                | 5       | CRITICAL |
+| Phantom columns (referenced but don't exist)                               | 11      | CRITICAL |
+| SQL column name wrong (`type` vs `issue_type`, `saved_at` vs `created_at`) | 2       | CRITICAL |
+| UUID not cast to text                                                      | 8       | HIGH     |
+| Timestamp not cast to text                                                 | 3       | HIGH     |
+| JSONB not cast to text                                                     | 2       | MEDIUM   |
+| Missing Gleam type variants                                                | 1       | MEDIUM   |
+| Template format bugs                                                       | 3       | HIGH     |
+| gleamValueToJson field names lost                                          | 1       | HIGH     |
+| gleamValueToJson incomplete type list                                      | 1       | MEDIUM   |
+| unwrapGleamResult double stringify                                         | 1       | MEDIUM   |
+| Error swallowing / silent degradation                                      | 6       | HIGH     |
+| Double debounce logic                                                      | 1       | HIGH     |
+| Double trigger recording                                                   | 1       | LOW      |
+| is_s_still_idle catch-22                                                   | 1       | HIGH     |
+| is_s_still_idle no S-bot filter                                            | 1       | MEDIUM   |
+| Review score never written                                                 | 1       | CRITICAL |
+| Commit flow permanently blocked                                            | 1       | CRITICAL |
+| Dual config store                                                          | 1       | MEDIUM   |
+| Config not synced (idle_since, debounce_ms)                                | 3       | HIGH     |
+| SQL function parameter type mismatch                                       | 1       | MEDIUM   |
+| Extension generation bugs                                                  | 2       | MEDIUM   |
+| Missing parameter schema fields                                            | 8       | MEDIUM   |
+| Hardcoded project_id UUID                                                  | 1       | MEDIUM   |
+| Projects table empty                                                       | 1       | HIGH     |
+| No connection pooling                                                      | 1       | MEDIUM   |
+| No migration tracking                                                      | 1       | MEDIUM   |
+| tool_consult is a stub                                                     | 1       | LOW      |
+| Shell injection risk                                                       | 1       | MEDIUM   |
+| Unreachable record_trigger                                                 | 1       | MEDIUM   |
+| Schema drift (58 untracked tables)                                         | 1       | HIGH     |
+| False positive error detection                                             | 1       | MEDIUM   |
+| Sync/async mismatch                                                        | 1       | LOW      |
+| No transaction safety                                                      | 1       | MEDIUM   |
+| Token budget incomplete                                                    | 1       | LOW      |
+| Static template ignores result                                             | 1       | MEDIUM   |
+| Doc-save can't get content                                                 | 1       | MEDIUM   |
+| Status case sensitivity                                                    | 1       | MEDIUM   |
+| FFI: pi_send_message ignores display                                       | 1       | MEDIUM   |
+| FFI: get_config empty string → None                                        | 1       | HIGH     |
+| FFI: call_monitor manual Ok/Error                                          | 1       | MEDIUM   |
+| LLM: no conversation history                                               | 1       | HIGH     |
+| LLM: retry with degraded reasoning                                         | 1       | MEDIUM   |
+| LLM: no timeout                                                            | 1       | HIGH     |
+| LLM: no response validation                                                | 1       | MEDIUM   |
+| Semantic ID based on state not role                                        | 1       | HIGH     |
+| compose doesn't enforce budget                                             | 1       | MEDIUM   |
+| User prompt truncation hardcoded                                           | 1       | MEDIUM   |
+| Migration statement splitting bug                                          | 1       | MEDIUM   |
+| Seed data debounce mismatch                                                | 1       | MEDIUM   |
+| Stale sessions not cleaned                                                 | 1       | LOW      |
+| FFI dead code (5 unused functions)                                         | 1       | LOW      |
+| Orphan config data (last_wakeup)                                           | 1       | LOW      |
+| **TOTAL**                                                                  | **100** |          |
+
+### 278.3 Severity Breakdown
+
+| Severity | Count | Percentage |
+| -------- | ----- | ---------- |
+| CRITICAL | 10    | 10%        |
+| HIGH     | 25    | 25%        |
+| MEDIUM   | 43    | 43%        |
+| LOW      | 22    | 22%        |
+
+### 278.4 System Health Summary — Updated
+
+| Metric                     | Value      |
+| -------------------------- | ---------- |
+| Total Gleam modules        | 43         |
+| Working correctly          | 2 (4.7%)   |
+| Partially working          | 7 (16.3%)  |
+| Completely broken          | 16 (37.2%) |
+| Stub/dead end              | 2 (4.7%)   |
+| Utility/infrastructure     | 16 (37.2%) |
+| Total DB tables            | 78         |
+| Tables with Gleam coverage | 15 (19.2%) |
+| Tables completely unused   | 63 (80.8%) |
+| Total tools registered     | 35         |
+| Tools working end-to-end   | 18 (51.4%) |
+| Tools partially broken     | 12 (34.3%) |
+| Tools completely broken    | 5 (14.3%)  |
+| Total hooks registered     | 7          |
+| Hooks working correctly    | 2 (28.6%)  |
+| Hooks partially broken     | 4 (57.1%)  |
+| Hooks completely broken    | 1 (14.3%)  |
+| Total commands registered  | 2          |
+| Commands working           | 2 (100%)   |
+| Total issues found         | 100        |
