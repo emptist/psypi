@@ -3760,4 +3760,430 @@ for optional values.
 | Monitor AI bugs                    | 4 (activity_log may not exist, case sensitivity, score without status, wrong threshold)                                                                                                                  |
 | Event hooks bugs                   | 3 (UPDATE no match check, auto-disable ineffective, optional vs COALESCE)                                                                                                                                |
 | Node PG FFI bugs                   | 1 (optional parameter handling)                                                                                                                                                                          |
-| **TOTAL CONFIRMED BUGS**           | **97**                                                                                                                                                                                                   |
+| Inter-review bugs                  | 4 (requested_at missing ::text, id missing ::text, branch hardcoded, context JSON double-encoded)                                                                                                        |
+| Tool commit bugs                   | 2 (shell_escape missing newline, git add not called before commit)                                                                                                                                       |
+| Tool consult bugs                  | 1 (stub — returns canned response, never calls A-bot)                                                                                                                                                    |
+| Code version bugs                  | 1 (get_versions returns raw Dynamic, no type safety)                                                                                                                                                     |
+| Meeting bugs                       | 2 (consensus_at missing ::text in some queries, opinion position field unused)                                                                                                                           |
+| Agent identity bugs                | 3 (identity flip on idle, check_git_exists dead code, soul fallback silent)                                                                                                                              |
+| **TOTAL CONFIRMED BUGS**           | **112**                                                                                                                                                                                                  |
+
+---
+
+## 85. INTER_REVIEW MODULE ANALYSIS
+
+### 85a. `get_review_details` — Missing `::text` Casts
+
+File: [inter_review.gleam:131](src/inter_review.gleam#L131)
+
+```sql
+SELECT id, task_id, status, summary, overall_score, requested_at FROM inter_reviews WHERE id = $1
+```
+
+- `id` is UUID → needs `id::text`
+- `requested_at` is timestamptz → needs `requested_at::text`
+- Without these casts, `decode.string` will fail on Date objects and UUID objects
+
+### 85b. `list_reviews` — Same Missing `::text` Casts
+
+File: [inter_review.gleam:260](src/inter_review.gleam#L260)
+
+```sql
+SELECT id, task_id, status, summary, overall_score, requested_at FROM inter_reviews
+```
+
+Same issue as §85a.
+
+### 85c. `request_review` — Branch Hardcoded to "main"
+
+File: [inter_review.gleam:219-221](src/inter_review.gleam#L219-L221)
+
+```gleam
+let branch = "main"
+// TODO: get from git
+```
+
+The branch is hardcoded to "main". If the user is working on a feature branch,
+the review will be recorded against "main" instead of the actual branch.
+The `exec_sync("git branch --show-current")` call is available but not used.
+
+### 85d. `request_review` — Context JSON May Be Double-Encoded
+
+File: [inter_review.gleam:224-230](src/inter_review.gleam#L224-L230)
+
+```gleam
+let context_json =
+  json.to_string(
+    json.object([
+      #("text", json.string(context)),
+      #("source", json.string("psypi-inter-review-request")),
+    ]),
+  )
+let context_json_str = dynamic.string(context_json)
+```
+
+The `context` variable already contains the diff text with newlines and special
+characters. `json.string(context)` properly escapes these for JSON. But then
+`context_json_str` is passed as a `dynamic.string()` parameter to the SQL query.
+If the `request_inter_review` SQL function expects a `jsonb` parameter, the
+`dynamic.string()` will send it as a text parameter, and PostgreSQL will try to
+cast it. If the function expects `text`, the JSON string is sent as-is, which
+is correct.
+
+But there's a risk: if `context` itself contains JSON-like content (e.g., the
+diff includes JSON files), the double encoding could produce invalid JSON.
+
+### 85e. `request_review` — `dynamic.nil()` for NULL Parameters
+
+File: [inter_review.gleam:207-210](src/inter_review.gleam#L207-L210)
+
+```gleam
+let task_id_param = case task_id {
+  Some(id) -> dynamic.string(id)
+  None -> dynamic.nil()
+}
+```
+
+`dynamic.nil()` creates a JavaScript `null` value. The `pg` library receives
+this as `null` and sends it as a SQL NULL parameter. This is correct behavior
+for PostgreSQL. However, the `request_inter_review` SQL function must accept
+NULL for these parameters. If the function has `NOT NULL` constraints on these
+parameters, the call will fail.
+
+---
+
+## 86. TOOL_COMMIT MODULE ANALYSIS
+
+### 86a. `shell_escape` — Missing Newline Escape
+
+File: [tool_commit.gleam:10-16](src/tool_commit.gleam#L10-L16)
+
+As documented in §73l, the `shell_escape` function doesn't escape newlines.
+A multi-line commit message will break the `git commit -m "..."` command.
+
+### 86b. `commit_if_reviewed` — No `git add` Before Commit
+
+File: [tool_commit.gleam:74-76](src/tool_commit.gleam#L74-L76)
+
+```gleam
+let cmd = "git commit -m \"" <> escaped <> "\""
+```
+
+The commit command doesn't include `git add`. If the files aren't staged,
+the commit will fail with "nothing to commit". The `trigger_review` function
+reads `git diff --cached`, which implies the user should have staged files.
+But there's no check or guidance for this.
+
+### 86c. `trigger_review` — Diff Truncation Loses Context
+
+File: [tool_commit.gleam:38-42](src/tool_commit.gleam#L38-L42)
+
+```gleam
+let diff = case exec_sync("git diff && git diff --cached") {
+  Ok(out) ->
+    case string.length(out) > 8000 {
+      True -> string.slice(out, 0, 8000)
+      False -> out
+    }
+  Error(_) -> ""
+}
+```
+
+The diff is truncated to 8000 characters. For large changes, this may cut off
+the most important parts — the actual code changes — while keeping the
+less important parts (like import statements or boilerplate).
+
+---
+
+## 87. TOOL_CONSULT MODULE ANALYSIS
+
+### 87a. Stub Implementation — Never Calls A-bot
+
+File: [tool_consult.gleam:7-17](src/tool_consult.gleam#L7-L17)
+
+```gleam
+pub fn on_consult(
+  question: String,
+  ctx: a,
+) -> promise.Promise(Result(String, String)) {
+  let user_question = case question == "" {
+    True -> "What should I consider?"
+    False -> question
+  }
+  notify_info(ctx, "[AUTONOMIC] Consult: " <> user_question)
+  promise.resolve(Ok("[Autonomic] Consult request: " <> user_question <> "\n\nThe S-worker should address this in its next turn."))
+}
+```
+
+This is a stub. It:
+1. Never calls `call_monitor` to invoke A-bot's LLM
+2. Never sends a message to A-bot
+3. Returns a canned response that tells S-bot to "address this in its next turn"
+4. The `psypi-consult-autonomic` tool is registered but effectively does nothing
+
+The tool description says "Consult the Autonomic Worker for difficult decisions"
+but it never actually consults A-bot. S-bot will call this tool expecting a
+thoughtful response from A-bot, but receives a generic placeholder.
+
+---
+
+## 88. CODE_VERSION MODULE ANALYSIS
+
+### 88a. `get_versions` — Returns Raw Dynamic, No Type Safety
+
+File: [code_version.gleam:62-64](src/code_version.gleam#L62-L64)
+
+```gleam
+pub fn get_versions(
+  file_path: String,
+  limit: Int,
+) -> promise.Promise(Result(List(dynamic.Dynamic), DbError)) {
+```
+
+The function returns `List(dynamic.Dynamic)` — untyped rows. The caller must
+manually decode each row. This defeats the purpose of Gleam's type system.
+A proper implementation would define a `CodeVersion` type and decode rows
+into it.
+
+### 88b. `save_version` — Calls SQL Function That May Not Exist
+
+File: [code_version.gleam:14-16](src/code_version.gleam#L14-L16)
+
+```sql
+SELECT save_code_version($1::TEXT, $2::TEXT, $3::VARCHAR, $4::VARCHAR, $5::TEXT) as version_id
+```
+
+The `save_code_version` SQL function must exist in the database. If the
+migration that creates this function hasn't been run, the query will fail
+with "function save_code_version does not exist".
+
+Similarly, `get_code_versions` and `restore_code_version` are SQL functions
+that must exist. These are not standard PostgreSQL functions — they must be
+created by a migration.
+
+---
+
+## 89. MEETING MODULE ANALYSIS
+
+### 89a. `consensus_at` — Missing `::text` Cast in Some Queries
+
+The `list()` function correctly casts `created_at::text` and `consensus_at::text`.
+But the `complete()` function doesn't read `consensus_at` back, so this isn't
+an issue there. The `meeting_decoder()` expects `consensus_at` as
+`decode.optional(decode.string)`, which works with the `::text` cast.
+
+However, the `id` field is UUID without `::text` cast in all meeting queries.
+This will cause `decode.string` to fail on UUID objects.
+
+### 89b. `add_opinion` — `position` Field Unused in Decoder
+
+File: [meeting.gleam:229-234](src/meeting.gleam#L229-L234)
+
+```sql
+INSERT INTO meeting_opinions (meeting_id, author, perspective, reasoning, position)
+VALUES ($1, $2, $3, $4, $5)
+```
+
+The `position` parameter is inserted but never read back. The `opinion_decoder()`
+doesn't include `position`. If the `meeting_opinions` table has a `position`
+column, it's written but never used by the Gleam code.
+
+### 89c. `list_opinions` — `id` Missing `::text` Cast
+
+File: [meeting.gleam:268-271](src/meeting.gleam#L268-L271)
+
+```sql
+SELECT id, meeting_id, author, perspective, reasoning, created_at::text
+FROM meeting_opinions
+```
+
+`id` and `meeting_id` are UUIDs without `::text` casts. `decode.string` will
+fail on these.
+
+---
+
+## 90. AGENT_IDENTITY MODULE ANALYSIS
+
+### 90a. Identity Flip on Idle State
+
+File: [agent_identity.gleam:68-72](src/agent_identity.gleam#L68-L72)
+
+As documented in §73a, the agent identity is determined by `ctx.is_idle`:
+- Idle → A-bot prefix
+- Not idle → S-bot prefix
+
+This means the same session can flip between A-bot and S-bot identity as
+S-bot becomes idle/busy. The `psypi-my-id` tool returns different results
+depending on when it's called.
+
+### 90b. `check_git_exists` Result Ignored
+
+File: [agent_identity.gleam:86-89](src/agent_identity.gleam#L86-L89)
+
+As documented in §73b, the result of `check_git_exists` is assigned to
+`_global` and never used. The `semantic_id` function uses `ctx.global`
+directly.
+
+### 90c. Soul Fallback Is Silent
+
+File: [agent_identity.gleam:227-238](src/agent_identity.gleam#L227-L238)
+
+When `fetch_soul_by_prefix` fails, the function returns a fallback
+`EnrichedIdentity` with `domain: "unknown"` and `responsibilities: ""`.
+The error is silently discarded. The caller has no way to know the
+identity was generated from fallback values.
+
+### 90d. `my_id_tool` — `ctx.model` Access May Fail
+
+File: [agent_identity.gleam:261-265](src/agent_identity.gleam#L261-L265)
+
+```javascript
+({ is_idle: ctx.isIdle(), source: (ctx.model?.provider || ''),
+   model: (ctx.model?.id || ''),
+   thinking_level: (ctx.model?.thinkingLevel || ''),
+   cwd: (ctx.cwd || '') })
+```
+
+The `ctx.model` access uses optional chaining (`?.`), which is correct.
+But `ctx.isIdle()` is a method call, not a property access. If the Pi SDK
+changes `isIdle` from a method to a property, this will break.
+
+### 90e. `fetch_soul_by_prefix` — `id` Missing `::text` Cast
+
+File: [agent_identity.gleam:127](src/agent_identity.gleam#L127)
+
+```sql
+SELECT id, name, domain, responsibility, trigger_type, drive_mode, activation FROM agent_souls WHERE id_prefix = $1
+```
+
+`id` is UUID without `::text` cast. `decode.string` will fail on UUID objects.
+
+---
+
+## 91. CROSS-MODULE DEPENDENCY ISSUES
+
+### 91a. `a_db_reader` vs `s_db_reader` — Inconsistent Soul Reading
+
+| Module      | SQL Columns Read               | Returns             |
+| ----------- | ------------------------------ | ------------------- |
+| a_db_reader | `role, domain, responsibility` | Concatenated string |
+| s_db_reader | `content`                      | Full soul content   |
+
+A-bot gets a summary string; S-bot gets the full soul content. This asymmetry
+means A-bot's behavior is guided by a 3-field summary, while S-bot gets the
+complete prompt. A-bot's soul content in the database is effectively dead code.
+
+### 91b. `psypi_config` vs `_configStore` — Two Config Systems
+
+| System         | Storage      | Read By                     | Written By                   |
+| -------------- | ------------ | --------------------------- | ---------------------------- |
+| `psypi_config` | PostgreSQL   | `debounced_hook` (JS)       | `psypi_config.set()` (Gleam) |
+| `_configStore` | In-memory JS | `hook_on_agent_end` (Gleam) | `set_config()` (FFI)         |
+
+These two systems are never synchronized. The `debounced_hook` reads
+`monitor_debounce_ms` from the database, but `hook_on_agent_end` reads it
+from in-memory. If the database value is changed, the JS debounce updates
+but the Gleam debounce doesn't (and vice versa).
+
+### 91c. `event_hooks.record_trigger` Called Twice for Some Hooks
+
+For `before_agent_start`:
+1. Gleam code: `on_before_agent_start()` calls `event_hooks.record_trigger("before_agent_start")`
+2. Generated JS: After the hook returns, the wrapper calls `event_hooks_record_trigger("before_agent_start")`
+
+But the JS wrapper's call is unreachable (see §76a). So the trigger is only
+recorded once (by the Gleam code). This is correct but fragile — if the
+Gleam code is refactored to remove the `record_trigger` call, the JS wrapper's
+unreachable call won't save it.
+
+For other hooks (e.g., `agent_start`):
+1. Gleam code: `on_agent_start()` calls `event_hooks.record_trigger("agent_start")`
+2. Generated JS: After the hook returns, the wrapper calls `event_hooks_record_trigger("agent_start")`
+
+Both calls execute. The trigger is recorded TWICE per event. The `trigger_count`
+increments by 2 instead of 1.
+
+### 91d. `gleamValueToJson` Affects ALL Tool Results
+
+Every tool that uses `raw_json()` or `template()` format depends on
+`gleamValueToJson` to serialize Gleam types to JSON. Since this function
+is broken (see §15), ALL tool results are affected. This is a single point
+of failure that impacts 15+ tools.
+
+---
+
+## 92. FINAL SYSTEMIC ASSESSMENT
+
+### 92a. The Inter-Review System Has NEVER Worked
+
+The inter-review commit flow (§71d) has a fatal design flaw:
+1. S-bot triggers a review → creates `inter_reviews` row with `status='pending'`
+2. A-bot should review → but never writes back to `inter_reviews`
+3. S-bot checks review status → finds `overall_score=NULL` → stuck forever
+
+This means `psypi-commit` has never successfully committed code through the
+inter-review process. Every attempt results in "Review not yet complete."
+
+### 92b. The A-bot Wake-up System Has a 10-Minute Delay
+
+The dual debounce system (§76d) means:
+1. Pi SDK debounce: 5 minutes after S-bot's last `agent_end`
+2. Gleam debounce: 5 minutes from first idle detection
+3. Total: up to 10 minutes before A-bot wakes up
+
+In practice, the Gleam debounce often requires TWO `agent_end` events
+(because the first one records the timestamp and returns). So the actual
+delay can be 15+ minutes.
+
+### 92c. The Agent Identity System Is Fundamentally Broken
+
+The identity prefix (A or S) is determined by `ctx.is_idle`, which is the
+S-bot's idle state. This means:
+- When S-bot is idle → identity resolves to A-bot
+- When S-bot is busy → identity resolves to S-bot
+- The same session flips between identities
+
+This breaks the entire A/S dual-agent model. A-bot and S-bot should have
+stable, separate identities determined at session creation, not by transient
+state.
+
+### 92d. The Seed System Is Incomplete
+
+`seed.gleam` only seeds 3 tables: `agent_souls`, `psypi_config`, `agent_prefixes`.
+But the system requires data in at least 7 more tables:
+- `agent_jobs` — A/S bot jobs (both readers return "no active jobs")
+- `agent_sessions` — session tracking (`is_s_still_idle` always returns True)
+- `psypi_event_hooks` — hook status tracking (all UPDATEs affect 0 rows)
+- `projects` — project context (hardcoded UUID works but isn't seeded)
+- `agent_identities` — identity resolution (not used but referenced)
+- `provider_api_keys` — API key storage (not used but referenced)
+- `activity_log` — activity tracking (query fails if table doesn't exist)
+
+Without proper seeding, the system starts in a degraded state where many
+features silently fail.
+
+### 92e. The `gleamValueToJson` Function Is a System-Wide Failure Point
+
+This single broken function affects:
+- 15+ tool results (all using `raw_json()` or `template()`)
+- All custom types returned from Gleam to Pi SDK
+- The LLM's ability to understand tool results
+
+Without fixing this function, the LLM receives garbled data like
+`{0: 5, 1: 3}` instead of `{tasks: 5, issues: 3}`. This makes most
+tools effectively useless — the LLM can't interpret the results.
+
+### 92f. No Path to Production
+
+Given the 112 confirmed bugs, the system cannot be considered production-ready.
+The most critical issues are:
+1. Inter-review never completes (blocks all commits)
+2. `gleamValueToJson` breaks all tool results
+3. Agent identity flips based on idle state
+4. Dual debounce causes 10+ minute delays
+5. No integration tests to catch regressions
+
+These issues are not independent — they compound. For example, the inter-review
+failure (1) is caused by A-bot never writing back (2), which is caused by the
+identity system not distinguishing A-bot from S-bot (3), which is caused by
+the idle-state identity logic (4).
