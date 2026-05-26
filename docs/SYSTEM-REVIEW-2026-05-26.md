@@ -10925,3 +10925,250 @@ let context_json_str = dynamic.string(context_json)  // string, not jsonb
 | 7   | projects: no Gleam type, dynamic lookup unimplemented                   | HIGH         | ✅ DB has 1 project row           |
 | 8   | agent_souls: A-bot reads 3 cols, misses 1906-char content               | HIGH         | ✅ DB content lengths             |
 | 9   | request_inter_review: uuid param gets string, jsonb param gets string   | MEDIUM       | ✅ Function signature verified    |
+
+---
+
+## 187. GLEAM CODE — DETAILED MODULE AUDIT
+
+Each Gleam module examined for type coverage, decode correctness, and functional gaps.
+
+### 187.1 `task.gleam` — 60 DB columns, 14 Gleam fields
+
+**DB table `tasks` has 60 columns.** Gleam `Task` type covers 14 fields.
+
+**Critical decode issues:**
+- `result` column is `jsonb` but decoded as `decode.optional(decode.string)` — fails for non-null JSONB
+- `created_at`, `updated_at`, `completed_at` are `timestamptz` — only work because `::text` cast is used in SQL
+- `project_id` is `uuid` — works because `::text` cast is used in `list()` but NOT in `get()`
+
+**Missing from Gleam type (46 columns):**
+- `depends_on uuid[]`, `blocking uuid[]` — dependency tracking
+- `tags text[]`, `auto_tagged boolean` — categorization
+- `is_long_running boolean`, `timeout_seconds integer` — execution control
+- `is_stuck boolean`, `stuck_at timestamptz`, `watchdog_kills integer` — stuck detection
+- `consecutive_failures integer`, `last_failed_at timestamptz` — failure tracking
+- `agent_id text`, `agent_name text`, `session_id varchar(50)` — agent attribution
+- `git_hash text`, `git_branch text` — version control
+- `executor_type varchar(50)`, `executor_model varchar(100)`, `executor_provider varchar(50)` — execution metadata
+- `metadata jsonb` — arbitrary key-value data
+- `type text` — task type (implementation, review, etc.)
+- `assigned_to text`, `category text`, `error_category text` — classification
+- `encrypted_result jsonb`, `result_iv text`, `result_salt text`, `encrypted_at timestamptz` — encryption
+- `template_id uuid` — template reference
+- `created_by_identity varchar(100)` — identity tracking
+- `pause_reason text`, `paused_until timestamptz` — pause management
+- `progress_percent integer`, `last_progress_at timestamptz` — progress tracking
+- `base_priority integer`, `weighted_priority integer` — priority weighting
+- `delegate_to varchar(50)`, `delegated_from varchar(50)`, `executor_source varchar(50)` — delegation
+
+**`TaskStatus` missing variants:**
+- DB has `FAKE_COMPLETE` (used in `a_db_reader.read_active_tasks()`)
+- Gleam type only has: `Pending, Running, Completed, Failed`
+- Any task with `FAKE_COMPLETE` status would decode as `Pending` (fallback)
+
+**`task_add_tool()` hardcodes:**
+- `priority = 5` (no user control)
+- `created_by = "cli"` (always CLI, never actual agent identity)
+- `description = ""` (empty, no way to set)
+
+### 187.2 `skill.gleam` — 56 DB columns, 11 Gleam fields
+
+**DB table `skills` has 56 columns.** Gleam `Skill` type covers 11 fields.
+
+**Critical decode issues:**
+- `content` column is `jsonb` — `list()` casts to `::text` (works), but `get()` and `search()` do NOT (fails for non-null)
+- `reference_list` column is `jsonb` — same issue as `content`
+- `SkillSource` missing `AiBuilt` variant — DB has `source='ai-built'` which causes decode failure
+
+**`SkillSource` vs DB values:**
+| Gleam Type | DB Values | Missing     |
+| ---------- | --------- | ----------- |
+| Clawhub    | clawhub   |             |
+| Local      | local     |             |
+| Generated  |           |             |
+| Imported   | imported  |             |
+|            | ai-built  | **AiBuilt** |
+
+Note: `Generated` exists in Gleam but NOT in DB. `AiBuilt` exists in DB but NOT in Gleam.
+
+**`create()` missing `project_id`:**
+```sql
+INSERT INTO skills (name, description, status, safety_score, author)
+-- Missing: project_id (NOT NULL with default '0d324e68-...')
+-- Works only because of the default value
+```
+
+### 187.3 `inter_review.gleam` — 33 DB columns, 6 Gleam fields
+
+**DB table `inter_reviews` has 33 columns.** Gleam `Review` type covers 6 fields.
+
+**Critical decode issue:**
+- `requested_at` is `timestamptz` but NOT cast to `::text` in ANY query
+- This causes `DecodeError("Failed to decode review")` for EVERY review
+- The `get_review_details` function (used by `tool_commit.gleam`) ALWAYS fails
+- Therefore `commit_if_reviewed` can NEVER succeed — commits are permanently blocked
+
+**All reviews stuck at `pending`:**
+```sql
+SELECT DISTINCT status FROM inter_reviews;
+-- Result: pending (only)
+```
+
+**The complete inter-review flow is broken:**
+1. S-bot calls `psypi-commit` → `trigger_review` → creates review with `status='pending'` ✓
+2. A-bot wakes up → `call_monitor` → gets review response ✓
+3. A-bot sends `pi_send_message("autonomic-wakeup", response)` → message to S ✓
+4. A-bot does NOT write `overall_score` to `inter_reviews` → **score stays NULL** ✗
+5. S-bot calls `psypi-commit <review_id>` → `get_review_details` → **DecodeError** ✗
+6. Even if decode worked: `overall_score = None` → "Review not yet complete" ✗
+
+**The inter-review system has THREE independent failures:**
+1. `requested_at` not cast → decode always fails
+2. `overall_score` never written → always NULL
+3. `record_review_score` exists but never called → dead code
+
+### 187.4 `a_db_reader.gleam` — Soul Read Asymmetry
+
+**`read_soul_from_db()` reads only 3 columns:**
+```sql
+SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'
+```
+
+**Compared to `s_db_reader.read_s_soul_from_db()`:**
+```sql
+SELECT content FROM agent_souls WHERE id_prefix = 'S' AND is_active = true
+```
+
+**Impact:**
+- S-bot gets its full 938-char personality with specific instructions
+- A-bot gets a summary line like "[AutonomicBot | autonomic] Quality guardian: ongoing review..."
+- A-bot's 1906-char `content` with detailed behavioral guidelines is invisible
+- The `is_active = true` filter is also missing from A-bot's query
+
+**`is_s_still_idle()` — COUNT(*) type issue:**
+- PostgreSQL `COUNT(*)` returns `bigint`
+- pg driver may return this as a string or BigInt, not a JS number
+- `decode.int` expects a JS number → decode may fail
+- On failure, returns `Ok(True)` (assumes idle) — unsafe default
+
+### 187.5 `a_orchestrator.gleam` — Missing Review Score Write
+
+**The A-bot workflow:**
+1. `read_soul_from_db()` → gets summary (not full content)
+2. `read_a_jobs_from_db()` → gets job list
+3. `read_project_state_from_db()` → gets tasks + issues
+4. `call_monitor()` → calls LLM with system + user prompts
+5. `handle_monitor_response()` → sends wake-up message OR error
+
+**What's missing:**
+- No call to `monitor_ai.record_review_score()` after review completion
+- No call to update `inter_reviews.status` from 'pending' to 'completed'
+- No call to write `inter_reviews.response` or `inter_reviews.raw_response`
+- The review result goes ONLY to `pi_send_message` as a chat message
+- The database is never updated with the review outcome
+
+**This is the root cause of the permanently blocked commit flow.**
+
+### 187.6 `hook_on_before_agent_start.gleam` — Missing Directives
+
+**Current behavior:**
+1. Records trigger event
+2. Reads S-bot soul from DB
+3. Returns soul content as system prompt
+
+**What's missing:**
+- No query to `system_directives` table (8 active rows exist)
+- No injection of A-bot directives into S-bot's system prompt
+- The entire A→S directive bridge (designed in migration 005) is unimplemented
+
+**The `before_agent_start` hook REPLACES the entire system prompt** with the soul content.
+This means:
+- Any Pi system prompt configuration is lost
+- Directives from A-bot are never seen by S-bot
+- The soul content becomes the ONLY system prompt
+
+### 187.7 `hook_on_agent_end.gleam` — Double Debounce Analysis
+
+**Complete debounce flow:**
+
+```
+JS Layer (extension.js):
+  agent_end event → debounce(900000ms from DB) → on_agent_end()
+
+Gleam Layer (hook_on_agent_end.gleam):
+  on_agent_end() → check_idle_since()
+  → get_config("idle_since") from _configStore (in-memory)
+  → if None: record now_ms(), return (no wake-up)
+  → if Some: check elapsed vs get_config("monitor_debounce_ms")
+  → if None: default 300000ms (5 min)
+  → if Some: use parsed value
+```
+
+**`_configStore` is a plain JS object (pi_extension_ffi.mjs line 150):**
+- Never initialized from database
+- Never persisted across extension reloads
+- Not synchronized with `psypi_config` table
+- `monitor_debounce_ms` is never in `_configStore` → always defaults to 300000ms
+
+**Effective total debounce:**
+- JS timer: 15 min (from DB `psypi_config`)
+- Gleam timer: 5 min (from hardcoded default)
+- Total: 15 + 5 = **20 minutes minimum** (because Gleam timer starts AFTER JS fires)
+- If S was active between fires, `idle_since` is reset → Gleam timer restarts
+
+**Race condition:**
+- `set_config("idle_since", "0")` when S is not idle (line 21)
+- `set_config("idle_since", now_ms)` when first seen idle
+- These are async operations on a shared JS object with no locking
+
+### 187.8 `psypi_config.gleam` — Dual Store Problem
+
+**Two independent config stores:**
+1. `psypi_config` table (PostgreSQL) — persistent, used by JS layer
+2. `_configStore` object (in-memory JS) — ephemeral, used by Gleam layer
+
+**`psypi_config.get()` reads from DB.** `get_config()` reads from `_configStore`.
+These are DIFFERENT functions reading from DIFFERENT stores.
+
+**No synchronization mechanism exists.** Changes to `psypi_config` table are not
+reflected in `_configStore`. Changes to `_configStore` are not persisted to DB.
+
+**This means:**
+- `get_debounce_ms()` returns 900000 (from DB)
+- `get_config("monitor_debounce_ms")` returns null → defaults to 300000
+- Two different debounce values from two different sources
+
+### 187.9 `monitor_ai.gleam` — Dead Code Analysis
+
+**Functions that exist but are never called:**
+1. `record_review_score(review_id, score)` — would update `inter_reviews.overall_score`
+2. `auto_file_issue(title, description, severity)` — would insert into `issues` table
+3. `check_system_health()` — would query for FAILED tasks (but status is uppercase, DB uses mixed)
+
+**`auto_file_issue` has two bugs:**
+1. Uses column `type` instead of `issue_type`
+2. Missing `project_id` (NOT NULL column)
+
+**`check_system_health` queries for non-existent status:**
+```sql
+SELECT COUNT(*) FROM tasks WHERE status = 'FAILED'
+-- But tasks table uses 'FAILED' (uppercase) which IS correct
+-- However, the health check also looks for 'STUCK' tasks using is_stuck column
+-- which is a boolean, not a status
+```
+
+### 187.10 Summary: Module Audit Findings
+
+| Module                     | DB Cols | Gleam Fields | Coverage | Critical Issues                                                    |
+| -------------------------- | ------- | ------------ | -------- | ------------------------------------------------------------------ |
+| task.gleam                 | 60      | 14           | 23%      | jsonb decode, missing status, get() missing project_id             |
+| skill.gleam                | 56      | 11           | 20%      | jsonb decode in get/search, missing AiBuilt source                 |
+| inter_review.gleam         | 33      | 6            | 18%      | requested_at not cast, score never written, 3 independent failures |
+| a_db_reader.gleam          | N/A     | N/A          | N/A      | soul asymmetry, COUNT(*) type, missing S-filter                    |
+| a_orchestrator.gleam       | N/A     | N/A          | N/A      | no review score write, no status update                            |
+| hook_on_before_agent_start | N/A     | N/A          | N/A      | missing system_directives read                                     |
+| hook_on_agent_end          | N/A     | N/A          | N/A      | double debounce, _configStore unsynchronized                       |
+| psypi_config.gleam         | N/A     | N/A          | N/A      | dual store problem                                                 |
+| monitor_ai.gleam           | N/A     | N/A          | N/A      | dead code: record_review_score, auto_file_issue                    |
+
+**Average Gleam type coverage: ~20% of database columns.**
