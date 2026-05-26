@@ -122,18 +122,35 @@ schema drift going undetected.
 
 ---
 
-## 4. MISSING `::text` CASTS — Timestamp Decode Failures
+## 4. MISSING `::text` CASTS — Timestamp & JSONB Decode Failures
 
-PostgreSQL timestamp columns must be cast to `::text` for Gleam string decoders.
-Missing casts cause `DecodeError` at runtime.
+PostgreSQL `timestamptz` columns return JavaScript Date objects from the Node.js pg driver.
+PostgreSQL `jsonb` columns return JavaScript objects from the Node.js pg driver.
+Both need `::text` cast for Gleam `decode.string` to work. Missing casts cause `DecodeError`.
 
-| File               | Line | Column           | Status           |
-| ------------------ | ---- | ---------------- | ---------------- |
-| inter_review.gleam | 67+  | `requested_at`   | MISSING `::text` |
-| inter_review.gleam | 67+  | `started_at`     | MISSING `::text` |
-| inter_review.gleam | 67+  | `completed_at`   | MISSING `::text` |
-| inter_review.gleam | 67+  | `response_at`    | MISSING `::text` |
-| task.gleam         | 198  | `result` (JSONB) | MISSING `::text` |
+### 4a. Timestamp columns missing `::text` cast
+
+| File               | Line | Column         | SQL Has Cast?  |
+| ------------------ | ---- | -------------- | -------------- |
+| inter_review.gleam | 148  | `requested_at` | NO — will fail |
+| inter_review.gleam | 283  | `requested_at` | NO — will fail |
+| inter_review.gleam | 285  | `requested_at` | NO — will fail |
+
+Note: `inter_review.gleam` does NOT query `started_at`, `completed_at`, or `response_at`
+in its SELECT statements, so those don't need casts (they're simply not read).
+
+### 4b. JSONB columns missing `::text` cast
+
+| File        | Line | Column           | Decoder Used                     | SQL Has Cast?               |
+| ----------- | ---- | ---------------- | -------------------------------- | --------------------------- |
+| task.gleam  | 183  | `result`         | `decode.optional(decode.string)` | NO — will fail for non-null |
+| skill.gleam | 184  | `content`        | `decode.optional(decode.string)` | NO — will fail for non-null |
+| skill.gleam | 184  | `reference_list` | `decode.optional(decode.string)` | NO — will fail for non-null |
+| skill.gleam | 214  | `content`        | `decode.optional(decode.string)` | NO — will fail for non-null |
+| skill.gleam | 214  | `reference_list` | `decode.optional(decode.string)` | NO — will fail for non-null |
+
+Note: `skill.gleam` lines 137, 144 DO have `content::text, reference_list::text` casts.
+But lines 184, 214 (get_skill_by_name, update_skill_status) do NOT.
 
 ---
 
