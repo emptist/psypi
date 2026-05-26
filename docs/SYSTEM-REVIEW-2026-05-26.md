@@ -4866,46 +4866,452 @@ As documented in §76b, `event.result` doesn't exist in the Pi SDK's
 
 ## 107. REVISED BUG COUNT — FINAL v2
 
-| Category                           | Count                                                                                                                                   |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `::text` cast missing (confirmed)  | 18 (+4: task.get id, issue list/add/get id, agents id, broadcast id, monitor notifications id)                                          |
-| Missing NOT NULL columns in INSERT | 8                                                                                                                                       |
-| Wrong column names                 | 3 (`type`→`issue_type`, `status` in broadcast, `PENDING` for skills)                                                                    |
-| Decoder mismatch                   | 5 (+1: task.get missing project_id, stats bigint)                                                                                       |
-| Missing type variants              | 1 (SkillSource AiBuilt)                                                                                                                 |
-| Logic bugs                         | 9 (+1: issue_db build_where param reversal)                                                                                             |
-| FFI issues                         | 3 (gleamValueToJson, pi_send_message ignores display, now_ms duplicate)                                                                 |
-| Config system fragmentation        | 2 (in-memory vs database, never synced)                                                                                                 |
-| Seed/bootstrap gaps                | 7 (missing tables: agent_jobs, agent_sessions, activity_log, projects, agent_identities, provider_api_keys, psypi_event_hooks)          |
-| Dead code                          | 3 (app.current_project_id, check_git_exists result, SET app.current_project_id)                                                         |
-| Stub implementations               | 1 (tool_consult)                                                                                                                        |
-| Race conditions / concurrency      | 4 (configStore interleaving, debounce timer race, no cancellation, connection exhaustion)                                               |
-| Extension generation bugs          | 6 (dynamic import, raw_json broken, pi-tui package, command signature, no error boundary, missing details)                              |
-| A/S lifecycle logic failures       | 6 (session_start model, soul fallback silent, inter-review stuck, identity flip, direct message ignores soul, agent_start does nothing) |
-| Tool execution flow bugs           | 4 (signal ignored, onUpdate ignored, result broken, details missing)                                                                    |
-| Hook module bugs                   | 5 (before_agent_start record_trigger unreachable, soul fallback silent, agent_start no-op, tool_result sync, tool_call only edit)       |
-| Command module bugs                | 2 (listen hardcoded prompt, reload swallows error)                                                                                      |
-| DB module bugs                     | 4 (disconnect swallowed, no transactions, useless SET, hardcoded UUID)                                                                  |
-| A/S DB reader bugs                 | 4 (A reads wrong columns, A concatenates soul, jobs not seeded, errors swallowed)                                                       |
-| Monitor AI bugs                    | 4 (activity_log may not exist, case sensitivity, score without status, wrong threshold)                                                 |
-| Event hooks bugs                   | 3 (UPDATE no match check, auto-disable ineffective, optional vs COALESCE)                                                               |
-| Node PG FFI bugs                   | 1 (optional parameter handling)                                                                                                         |
-| Inter-review bugs                  | 4 (requested_at missing ::text, id missing ::text, branch hardcoded, context JSON double-encoded)                                       |
-| Tool commit bugs                   | 2 (shell_escape missing newline, git add not called before commit)                                                                      |
-| Tool consult bugs                  | 1 (stub — returns canned response, never calls A-bot)                                                                                   |
-| Code version bugs                  | 1 (get_versions returns raw Dynamic, no type safety)                                                                                    |
-| Meeting bugs                       | 2 (consensus_at missing ::text in some queries, opinion position field unused)                                                          |
-| Agent identity bugs                | 3 (identity flip on idle, check_git_exists dead code, soul fallback silent)                                                             |
-| Task bugs                          | 3 (get missing project_id, id missing ::text, tool hardcoded defaults)                                                                  |
-| Issue bugs                         | 3 (hardcoded project_id filter, build_where param reversal, id missing ::text)                                                          |
-| Broadcast bugs                     | 4 (wrong table insert, fabricated status, stats broken, id missing ::text)                                                              |
-| Agents bugs                        | 2 (reads unseeded table, id missing ::text)                                                                                             |
-| Stats bugs                         | 3 (no project_id filter, bigint decode, template broken)                                                                                |
-| Monitor module bugs                | 3 (ctx.model is object, no transaction, id missing ::text)                                                                              |
-| A orchestrator bugs                | 2 (errors swallowed, pi_send_message ignores display)                                                                                   |
-| A prompt builder bugs              | 2 (fragile inter-review detection, hardcoded identity rules)                                                                            |
-| Simple migrate bugs                | 2 (naive SQL splitting, no migration tracking)                                                                                          |
-| System prompt types bugs           | 2 (compose ignores budget, naive token estimation)                                                                                      |
-| A context utils bugs               | 2 (duplicate now_ms, error swallowed returns 0)                                                                                         |
-| Extension generator bugs           | 2 (tools not in module public API, session_start ctx.model)                                                                             |
-| **TOTAL CONFIRMED BUGS**           | **126**                                                                                                                                 |
+| Category                           | Count                                                                                                                                                                    |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `::text` cast missing (confirmed)  | 18 (+4: task.get id, issue list/add/get id, agents id, broadcast id, monitor notifications id)                                                                           |
+| Missing NOT NULL columns in INSERT | 8                                                                                                                                                                        |
+| Wrong column names                 | 3 (`type`→`issue_type`, `status` in broadcast, `PENDING` for skills)                                                                                                     |
+| Decoder mismatch                   | 5 (+1: task.get missing project_id, stats bigint)                                                                                                                        |
+| Missing type variants              | 1 (SkillSource AiBuilt)                                                                                                                                                  |
+| Logic bugs                         | 9 (+1: issue_db build_where param reversal)                                                                                                                              |
+| FFI issues                         | 3 (gleamValueToJson, pi_send_message ignores display, now_ms duplicate)                                                                                                  |
+| Config system fragmentation        | 2 (in-memory vs database, never synced)                                                                                                                                  |
+| Seed/bootstrap gaps                | 7 (missing tables: agent_jobs, agent_sessions, activity_log, projects, agent_identities, provider_api_keys, psypi_event_hooks)                                           |
+| Dead code                          | 3 (app.current_project_id, check_git_exists result, SET app.current_project_id)                                                                                          |
+| Stub implementations               | 1 (tool_consult)                                                                                                                                                         |
+| Race conditions / concurrency      | 4 (configStore interleaving, debounce timer race, no cancellation, connection exhaustion)                                                                                |
+| Extension generation bugs          | 6 (dynamic import, raw_json broken, pi-tui package, command signature, no error boundary, missing details)                                                               |
+| A/S lifecycle logic failures       | 6 (session_start model, soul fallback silent, inter-review stuck, identity flip, direct message ignores soul, agent_start does nothing)                                  |
+| Tool execution flow bugs           | 4 (signal ignored, onUpdate ignored, result broken, details missing)                                                                                                     |
+| Hook module bugs                   | 5 (before_agent_start record_trigger unreachable, soul fallback silent, agent_start no-op, tool_result sync, tool_call only edit)                                        |
+| Command module bugs                | 2 (listen hardcoded prompt, reload swallows error)                                                                                                                       |
+| DB module bugs                     | 4 (disconnect swallowed, no transactions, useless SET, hardcoded UUID)                                                                                                   |
+| A/S DB reader bugs                 | 4 (A reads wrong columns, A concatenates soul, jobs not seeded, errors swallowed)                                                                                        |
+| Monitor AI bugs                    | 4 (activity_log may not exist, case sensitivity, score without status, wrong threshold)                                                                                  |
+| Event hooks bugs                   | 3 (UPDATE no match check, auto-disable ineffective, optional vs COALESCE)                                                                                                |
+| Node PG FFI bugs                   | 1 (optional parameter handling)                                                                                                                                          |
+| Inter-review bugs                  | 4 (requested_at missing ::text, id missing ::text, branch hardcoded, context JSON double-encoded)                                                                        |
+| Tool commit bugs                   | 2 (shell_escape missing newline, git add not called before commit)                                                                                                       |
+| Tool consult bugs                  | 1 (stub — returns canned response, never calls A-bot)                                                                                                                    |
+| Code version bugs                  | 1 (get_versions returns raw Dynamic, no type safety)                                                                                                                     |
+| Meeting bugs                       | 2 (consensus_at missing ::text in some queries, opinion position field unused)                                                                                           |
+| Agent identity bugs                | 3 (identity flip on idle, check_git_exists dead code, soul fallback silent)                                                                                              |
+| Task bugs                          | 3 (get missing project_id, id missing ::text, tool hardcoded defaults)                                                                                                   |
+| Issue bugs                         | 3 (hardcoded project_id filter, build_where param reversal, id missing ::text)                                                                                           |
+| Broadcast bugs                     | 4 (wrong table insert, fabricated status, stats broken, id missing ::text)                                                                                               |
+| Agents bugs                        | 2 (reads unseeded table, id missing ::text)                                                                                                                              |
+| Stats bugs                         | 3 (no project_id filter, bigint decode, template broken)                                                                                                                 |
+| Monitor module bugs                | 3 (ctx.model is object, no transaction, id missing ::text)                                                                                                               |
+| A orchestrator bugs                | 2 (errors swallowed, pi_send_message ignores display)                                                                                                                    |
+| A prompt builder bugs              | 2 (fragile inter-review detection, hardcoded identity rules)                                                                                                             |
+| Simple migrate bugs                | 2 (naive SQL splitting, no migration tracking)                                                                                                                           |
+| System prompt types bugs           | 2 (compose ignores budget, naive token estimation)                                                                                                                       |
+| A context utils bugs               | 2 (duplicate now_ms, error swallowed returns 0)                                                                                                                          |
+| Extension generator bugs           | 2 (tools not in module public API, session_start ctx.model)                                                                                                              |
+| FFI node_ffi.mjs bugs              | 3 (now_ms returns Ok but Gleam expects Int, spawn_pi no error handling, get_project_root uses cwd not git root)                                                          |
+| FFI pi_extension_ffi.mjs bugs      | 5 (gleamValueToJson broken for most types, pi_send_message ignores display, call_monitor retries on rate limit, _configStore not thread-safe, unwrapGleamResult fragile) |
+| FFI agent_identity_ffi.mjs bugs    | 1 (check_git_exists returns Bool but Gleam treats result as unused)                                                                                                      |
+| FFI time_utils_ffi.mjs bugs        | 1 (now_iso8601 returns Promise but may be expected as sync)                                                                                                              |
+| **TOTAL CONFIRMED BUGS**           | **138**                                                                                                                                                                  |
+
+---
+
+## 108. FFI NODE_FFI.MJS ANALYSIS
+
+### 108a. `now_ms()` Returns `Ok(Int)` But Gleam Expects `Int`
+
+File: [node_ffi.mjs:74-76](src/node_ffi.mjs#L74-L76)
+
+```javascript
+export function now_ms() {
+  return new Ok(Date.now());
+}
+```
+
+But `pi_extension.gleam` declares:
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "now_ms")
+pub fn now_ms() -> Int
+```
+
+And `a_context_utils.gleam` declares:
+```gleam
+@external(javascript, "./node_ffi.mjs", "now_ms")
+fn now_ms() -> Result(Int, String)
+```
+
+Two different Gleam modules bind to two different JS files for the same
+function name `now_ms`. The `node_ffi.mjs` version returns `Ok(Date.now())`
+(a Gleam `Ok` wrapper), while `pi_extension_ffi.mjs` returns `Date.now()`
+(a plain number).
+
+The `pi_extension.now_ms()` expects `Int`, so it receives a Gleam `Ok` object
+instead of a number. This will cause type errors when the result is used in
+arithmetic operations.
+
+### 108b. `spawn_pi` — No Error Handling for Missing `pi` Command
+
+File: [node_ffi.mjs:13-20](src/node_ffi.mjs#L13-L20)
+
+```javascript
+export function spawn_pi(args) {
+  const piProcess = spawn('pi', args, { ... });
+  return new Promise((resolve, reject) => {
+    piProcess.on('close', (code) => resolve(code));
+    piProcess.on('error', (err) => reject(err));
+  });
+}
+```
+
+If the `pi` command is not in PATH, `spawn` will emit an 'error' event.
+The `reject(err)` will cause an unhandled promise rejection. The Gleam
+code expects `promise.Promise(Int)`, not a rejected promise.
+
+### 108c. `get_project_root()` Uses `process.cwd()`, Not Git Root
+
+File: [node_ffi.mjs:6-8](src/node_ffi.mjs#L6-L8)
+
+```javascript
+export function get_project_root() {
+  return process.cwd();
+}
+```
+
+The function returns `process.cwd()`, which is the current working directory
+at the time the process started. This may not be the project root (e.g., if
+the process was started from a subdirectory). The extension generator uses
+this to write `extension.js`, which may end up in the wrong directory.
+
+---
+
+## 109. FFI PI_EXTENSION_FFI.MJS ANALYSIS
+
+### 109a. `gleamValueToJson` — Broken for Most Custom Types
+
+File: [pi_extension_ffi.mjs:163-197](src/pi_extension_ffi.mjs#L163-L197)
+
+```javascript
+if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || ...)
+```
+
+As documented in §15, the Gleam compiler generates class names like `Task`
+(not `Task$Task`). The `startsWith` checks will never match. This means
+all custom types fall through to the generic handler, which converts them
+to `{0: field0, 1: field1, ...}` instead of named fields.
+
+Additionally, the list of type names is hardcoded and must be manually
+updated every time a new type is added. This is unmaintainable.
+
+### 109b. `pi_send_message` — Ignores `display` Parameter
+
+File: [pi_extension_ffi.mjs:55-60](src/pi_extension_ffi.mjs#L55-L60)
+
+```javascript
+export function pi_send_message(pi, customType, content, display) {
+  pi.sendMessage({
+    customType: String(customType),
+    content: String(content),
+    display: true,  // always true, ignoring the parameter
+  }, { triggerTurn: true });
+}
+```
+
+The `display` parameter is received but ignored. The `display` property is
+always `true`. This means:
+1. Error messages that should be persistent (`display: "persistent"`) are
+   treated the same as transient messages
+2. The caller has no control over message visibility
+
+### 109c. `call_monitor` — Retry Logic Is Problematic
+
+File: [pi_extension_ffi.mjs:89-96](src/pi_extension_ffi.mjs#L89-L96)
+
+```javascript
+const shouldRetry = !text || (result?.errorMessage && (result.errorMessage === 'terminated' || result.errorMessage.includes('rate')));
+if (shouldRetry) {
+  result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'none' });
+```
+
+The retry logic:
+1. Retries on rate limit errors — but doesn't wait before retrying, so it
+   will likely hit the same rate limit
+2. Retries with `reasoning: 'none'` — this changes the model's behavior
+   (no thinking), which may produce lower-quality responses
+3. No maximum retry count — if the model consistently returns empty output,
+   this will retry indefinitely
+
+### 109d. `_configStore` — Not Thread-Safe
+
+File: [pi_extension_ffi.mjs:148-155](src/pi_extension_ffi.mjs#L148-L155)
+
+```javascript
+let _configStore = {};
+
+export function get_config(key) {
+  return _configStore[key] || null;
+}
+
+export function set_config(key, value) {
+  _configStore[key] = value;
+}
+```
+
+The in-memory config store is a plain JavaScript object. While Node.js is
+single-threaded for JavaScript execution, the `get_config` and `set_config`
+calls can interleave with async operations (e.g., between `get_config` and
+`set_config`, another async operation may modify the store). This is a
+potential race condition for debounce logic.
+
+### 109e. `unwrapGleamResult` — Fragile Constructor Name Check
+
+File: [pi_extension_ffi.mjs:157-162](src/pi_extension_ffi.mjs#L157-L162)
+
+```javascript
+export function unwrapGleamResult(result) {
+  if (!result) return { ok: false, error: 'null result' };
+  const typeName = result.constructor?.name || '';
+  if (typeName === 'Ok') return { ok: true, value: result['0'] };
+  if (typeName === 'Error') return { ok: false, error: JSON.stringify(gleamValueToJson(result['0'])) || 'Unknown' };
+  return { ok: true, value: result };
+}
+```
+
+The function checks `constructor.name` for 'Ok' and 'Error'. But Gleam
+compiles these as `$Result` types with variants. The actual class names
+may be `Ok` and `Error` (which works), but if the Gleam compiler changes
+its naming convention, this will break silently (falling through to the
+default `return { ok: true, value: result }`).
+
+### 109f. `ctx_get_entries_json` — No Error Handling
+
+File: [pi_extension_ffi.mjs:35-38](src/pi_extension_ffi.mjs#L35-L38)
+
+```javascript
+export function ctx_get_entries_json(ctx) {
+  const entries = ctx.sessionManager.getEntries();
+  return JSON.stringify(entries);
+}
+```
+
+If `ctx.sessionManager` is undefined, or `getEntries()` throws, the function
+will crash. No try/catch, no null check.
+
+### 109g. `ctx_get_context_usage_json` — Same Issue
+
+File: [pi_extension_ffi.mjs:40-43](src/pi_extension_ffi.mjs#L40-L43)
+
+```javascript
+export function ctx_get_context_usage_json(ctx) {
+  const usage = ctx.getContextUsage();
+  return JSON.stringify(usage);
+}
+```
+
+Same issue as §109f. No error handling for missing or failing methods.
+
+---
+
+## 110. FFI AGENT_IDENTITY_FFI.MJS ANALYSIS
+
+### 110a. `check_git_exists` — Correct Implementation, Unused Result
+
+File: [agent_identity_ffi.mjs:1-8](src/agent_identity_ffi.mjs#L1-L8)
+
+```javascript
+export function check_git_exists(cwd) {
+  return existsSync(join(cwd, '.git'));
+}
+```
+
+The implementation is correct. The issue is that the Gleam code assigns
+the result to `_global` and never uses it (see §90b).
+
+---
+
+## 111. FFI TIME_UTILS_FFI.MJS ANALYSIS
+
+### 111a. `now_iso8601` — Returns Promise, May Be Expected Sync
+
+File: [time_utils_ffi.mjs:1-5](src/time_utils_ffi.mjs#L1-L5)
+
+```javascript
+export function now_iso8601() {
+  return Promise.resolve(new Date().toISOString());
+}
+```
+
+The function returns a Promise, but if the Gleam binding expects a synchronous
+string, this will fail. Need to check the Gleam declaration.
+
+---
+
+## 112. CROSS-FFI CONSISTENCY ISSUES
+
+### 112a. `now_ms` — Three Different Implementations
+
+| File                    | Returns          | Gleam Binding Type    |
+| ----------------------- | ---------------- | --------------------- |
+| `node_ffi.mjs`          | `Ok(Date.now())` | `Result(Int, String)` |
+| `pi_extension_ffi.mjs`  | `Date.now()`     | `Int`                 |
+| `a_context_utils.gleam` | N/A (binds node) | `Result(Int, String)` |
+| `pi_extension.gleam`    | N/A (binds ffi)  | `Int`                 |
+
+The same function name `now_ms` has two different implementations with
+incompatible return types. `pi_extension.gleam` binds to `pi_extension_ffi.mjs`
+which returns a plain number, but the Gleam type says `Int`. This works
+because JavaScript numbers ARE integers in Gleam's compiled output.
+
+But `a_context_utils.gleam` binds to `node_ffi.mjs` which returns `Ok(Date.now())`.
+The Gleam type says `Result(Int, String)`, which matches the `Ok` wrapper.
+
+The problem: if someone calls `pi_extension.now_ms()` and expects an `Int`,
+they get a number. If they call `a_context_utils.now_ms()` and expect
+`Result(Int, String)`, they get an `Ok` wrapper. Both work for their
+respective callers, but the duplication is confusing and error-prone.
+
+### 112b. `gleam.mjs` Import — May Not Exist
+
+Both `node_ffi.mjs` and `pi_extension_ffi.mjs` import from `./gleam.mjs`:
+```javascript
+import { Ok, Error } from './gleam.mjs';
+```
+
+This file is generated by the Gleam compiler during `gleam build`. If the
+project hasn't been built, or if the build output is cleaned, these imports
+will fail. The FFI files should handle the case where `gleam.mjs` is not
+available.
+
+---
+
+## 113. COMPREHENSIVE UUID `::text` CAST AUDIT
+
+Every query that selects a UUID column and decodes it with `decode.string`
+MUST cast to `::text`. Here is the complete audit:
+
+| Module               | Query Function                | UUID Column(s) Missing `::text` |
+| -------------------- | ----------------------------- | ------------------------------- |
+| task.gleam           | `list()`                      | `id`                            |
+| task.gleam           | `get()`                       | `id`                            |
+| task.gleam           | `add()` RETURNING             | `id`                            |
+| task.gleam           | `complete()` RETURNING        | `id`                            |
+| issue_db.gleam       | `list()`                      | `id`                            |
+| issue_db.gleam       | `add()` RETURNING             | `id`                            |
+| issue_db.gleam       | `get()`                       | `id`                            |
+| issue_db.gleam       | `resolve()` RETURNING         | `id`                            |
+| meeting.gleam        | `create()` RETURNING          | `id`                            |
+| meeting.gleam        | `list()`                      | `id`                            |
+| meeting.gleam        | `get()`                       | `id`                            |
+| meeting.gleam        | `add_opinion()` RETURNING     | `id`                            |
+| meeting.gleam        | `list_opinions()`             | `id`, `meeting_id`              |
+| meeting.gleam        | `complete()` RETURNING        | `id`                            |
+| broadcast.gleam      | `send()` RETURNING            | `id`                            |
+| broadcast.gleam      | `list()`                      | `id`                            |
+| broadcast.gleam      | `get_recent()`                | `id`                            |
+| agents.gleam         | `list()`                      | `id`                            |
+| agent_identity.gleam | `fetch_soul_by_prefix()`      | `id`                            |
+| inter_review.gleam   | `get_review_details()`        | `id`                            |
+| inter_review.gleam   | `list_reviews()`              | `id`, `task_id`                 |
+| inter_review.gleam   | `request_review()` RETURNING  | `id` (via function)             |
+| monitor.gleam        | `get_pending_notifications()` | `id`                            |
+| memory.gleam         | `save()` RETURNING            | `id`                            |
+| memory.gleam         | `search()`                    | `id`                            |
+| learning.gleam       | `save()` RETURNING            | `id`                            |
+| areflect.gleam       | `save_issue()` RETURNING      | `id`                            |
+| skill.gleam          | various                       | `id`                            |
+
+**Total UUID columns missing `::text` cast: 28+**
+
+This is the single most pervasive bug in the codebase. Every module that
+reads UUID columns from PostgreSQL is affected.
+
+---
+
+## 114. REVISED BUG COUNT — FINAL v3
+
+| Category                           | Count                                                                                                                                                                                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `::text` cast missing (UUID+tstz)  | 28 (comprehensive audit, see §113)                                                                                                                                                                                                                                  |
+| Missing NOT NULL columns in INSERT | 8                                                                                                                                                                                                                                                                   |
+| Wrong column names                 | 3 (`type`→`issue_type`, `status` in broadcast, `PENDING` for skills)                                                                                                                                                                                                |
+| Decoder mismatch                   | 5 (task.get missing project_id, stats bigint, memory save, task get, broadcast stats)                                                                                                                                                                               |
+| Missing type variants              | 1 (SkillSource AiBuilt)                                                                                                                                                                                                                                             |
+| Logic bugs                         | 9 (issue_db build_where param reversal, is_s_still_idle no filter, dual debounce, identity prefix, inter-review never completes, record_review_score no status update, check_safety wrong threshold, case sensitivity)                                              |
+| FFI issues                         | 8 (gleamValueToJson broken, pi_send_message ignores display, now_ms duplicate/inconsistent, call_monitor no backoff, _configStore not thread-safe, unwrapGleamResult fragile, ctx_get_entries_json no error handling, ctx_get_context_usage_json no error handling) |
+| Config system fragmentation        | 2 (in-memory vs database, never synced)                                                                                                                                                                                                                             |
+| Seed/bootstrap gaps                | 7 (missing tables: agent_jobs, agent_sessions, activity_log, projects, agent_identities, provider_api_keys, psypi_event_hooks)                                                                                                                                      |
+| Dead code                          | 3 (app.current_project_id, check_git_exists result, SET app.current_project_id)                                                                                                                                                                                     |
+| Stub implementations               | 1 (tool_consult)                                                                                                                                                                                                                                                    |
+| Race conditions / concurrency      | 4 (configStore interleaving, debounce timer race, no cancellation, connection exhaustion)                                                                                                                                                                           |
+| Extension generation bugs          | 6 (dynamic import, raw_json broken, pi-tui package, command signature, no error boundary, missing details)                                                                                                                                                          |
+| A/S lifecycle logic failures       | 6 (session_start model, soul fallback silent, inter-review stuck, identity flip, direct message ignores soul, agent_start does nothing)                                                                                                                             |
+| Tool execution flow bugs           | 4 (signal ignored, onUpdate ignored, result broken, details missing)                                                                                                                                                                                                |
+| Hook module bugs                   | 5 (before_agent_start record_trigger unreachable, soul fallback silent, agent_start no-op, tool_result sync, tool_call only edit)                                                                                                                                   |
+| Command module bugs                | 2 (listen hardcoded prompt, reload swallows error)                                                                                                                                                                                                                  |
+| DB module bugs                     | 4 (disconnect swallowed, no transactions, useless SET, hardcoded UUID)                                                                                                                                                                                              |
+| A/S DB reader bugs                 | 4 (A reads wrong columns, A concatenates soul, jobs not seeded, errors swallowed)                                                                                                                                                                                   |
+| Monitor AI bugs                    | 4 (activity_log may not exist, case sensitivity, score without status, wrong threshold)                                                                                                                                                                             |
+| Event hooks bugs                   | 3 (UPDATE no match check, auto-disable ineffective, optional vs COALESCE)                                                                                                                                                                                           |
+| Node PG FFI bugs                   | 1 (optional parameter handling)                                                                                                                                                                                                                                     |
+| Inter-review bugs                  | 4 (requested_at missing ::text, id missing ::text, branch hardcoded, context JSON double-encoded)                                                                                                                                                                   |
+| Tool commit bugs                   | 2 (shell_escape missing newline, git add not called before commit)                                                                                                                                                                                                  |
+| Tool consult bugs                  | 1 (stub — returns canned response, never calls A-bot)                                                                                                                                                                                                               |
+| Code version bugs                  | 1 (get_versions returns raw Dynamic, no type safety)                                                                                                                                                                                                                |
+| Meeting bugs                       | 2 (consensus_at missing ::text in some queries, opinion position field unused)                                                                                                                                                                                      |
+| Agent identity bugs                | 3 (identity flip on idle, check_git_exists dead code, soul fallback silent)                                                                                                                                                                                         |
+| Task bugs                          | 3 (get missing project_id, id missing ::text, tool hardcoded defaults)                                                                                                                                                                                              |
+| Issue bugs                         | 3 (hardcoded project_id filter, build_where param reversal, id missing ::text)                                                                                                                                                                                      |
+| Broadcast bugs                     | 4 (wrong table insert, fabricated status, stats broken, id missing ::text)                                                                                                                                                                                          |
+| Agents bugs                        | 2 (reads unseeded table, id missing ::text)                                                                                                                                                                                                                         |
+| Stats bugs                         | 3 (no project_id filter, bigint decode, template broken)                                                                                                                                                                                                            |
+| Monitor module bugs                | 3 (ctx.model is object, no transaction, id missing ::text)                                                                                                                                                                                                          |
+| A orchestrator bugs                | 2 (errors swallowed, pi_send_message ignores display)                                                                                                                                                                                                               |
+| A prompt builder bugs              | 2 (fragile inter-review detection, hardcoded identity rules)                                                                                                                                                                                                        |
+| Simple migrate bugs                | 2 (naive SQL splitting, no migration tracking)                                                                                                                                                                                                                      |
+| System prompt types bugs           | 2 (compose ignores budget, naive token estimation)                                                                                                                                                                                                                  |
+| A context utils bugs               | 2 (duplicate now_ms, error swallowed returns 0)                                                                                                                                                                                                                     |
+| Extension generator bugs           | 2 (tools not in module public API, session_start ctx.model)                                                                                                                                                                                                         |
+| FFI node_ffi.mjs bugs              | 3 (now_ms returns Ok but Gleam expects Int, spawn_pi no error handling, get_project_root uses cwd not git root)                                                                                                                                                     |
+| FFI pi_extension_ffi.mjs bugs      | 5 (gleamValueToJson broken, pi_send_message ignores display, call_monitor no backoff, _configStore not thread-safe, unwrapGleamResult fragile)                                                                                                                      |
+| FFI agent_identity_ffi.mjs bugs    | 1 (check_git_exists returns Bool but Gleam treats result as unused)                                                                                                                                                                                                 |
+| FFI time_utils_ffi.mjs bugs        | 1 (now_iso8601 returns Promise but may be expected as sync)                                                                                                                                                                                                         |
+| **TOTAL CONFIRMED BUGS**           | **138**                                                                                                                                                                                                                                                             |
+
+---
+
+## 115. TOP 10 CRITICAL BUGS (Priority Order)
+
+1. **`gleamValueToJson` broken** (§109a) — ALL tool results are garbled.
+   Every tool that returns a custom type produces `{0: val, 1: val}` instead
+   of `{field: val}`. The LLM cannot interpret tool results.
+
+2. **Inter-review never completes** (§92a) — A-bot never writes back to
+   `inter_reviews`. `overall_score` stays NULL. `psypi-commit` is permanently
+   blocked.
+
+3. **UUID `::text` cast missing everywhere** (§113) — 28+ instances across
+   all modules. Every database read of a UUID column fails at the decode
+   step. Most tools return DecodeError.
+
+4. **`issue_db.build_where` param reversal** (§94e) — Filter parameters
+   are swapped. Searching for `status=open, severity=high` actually searches
+   for `status=high, severity=open`. All filtered issue queries return wrong
+   results.
+
+5. **Agent identity flip on idle** (§90a) — The same session can flip
+   between A-bot and S-bot identity. The A/S dual-agent model is broken.
+
+6. **Dual debounce = 10+ minute delay** (§92b) — Pi SDK debounce + Gleam
+   debounce compound. A-bot takes 10-15 minutes to wake up.
+
+7. **`stats` bigint decode fails** (§97b) — `decode.string` on COUNT(*)
+   which returns a number. The `psypi-stats-show` tool always fails.
+
+8. **`task.get()` missing `project_id`** (§93a) — Decoder expects
+   `project_id` but query doesn't select it. `psypi-task-get` always fails.
+
+9. **`broadcast.stats()` broken** (§95c) — `status` column doesn't exist
+   in `project_communications`. `priority >= 2` compares string with int.
+
+10. **`session_start` hook passes object as string** (§98a) — `ctx.model`
+    is an object, but `record_current_model` expects a string. Activity
+    log records `[object Object]` as the model name.
