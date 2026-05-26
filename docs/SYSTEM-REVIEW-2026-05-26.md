@@ -386,30 +386,46 @@ Last 50 commits show 20+ "fix" commits. Pattern:
 
 ## 12. FIX PRIORITY ORDER
 
-### P0 — Confirmed Runtime Bugs
+### P0 — Confirmed Runtime Bugs (System Is Broken)
 
-1. Fix `monitor_ai.gleam:auto_file_issue` — `type` → `issue_type` (INSERT fails)
-2. Fix `inter_review.gleam` — add `::text` casts to `requested_at` and other timestamps (decode fails)
-3. Fix `skill.gleam` — add `AiBuilt` variant to `SkillSource` (decode fails for `source='ai-built'`)
-4. Fix `learning.gleam` — change `source='learn'` to `'areflect'` or add `'learn'` to audit trigger's `allowed_sources`
-5. Fix `gleamValueToJson` — replace `constructor.name` checks with `instanceof` or `$CustomType` detection
+1. **`memory.gleam:save()`** — `RETURNING id` decoded with `memory_decoder()` (expects 7 fields, gets 1)
+   → save() ALWAYS returns Error even though INSERT succeeds → callers may create duplicates
+2. **`memory.gleam:search()`** — `SELECT *` returns `created_at` as Date, decoder uses `decode.string`
+   → search() ALWAYS fails on decode
+3. **`monitor_ai.gleam:auto_file_issue()`** — `type` column doesn't exist (should be `issue_type`)
+   → INSERT always fails with "column 'type' does not exist"
+4. **`inter_review.gleam`** — add `::text` casts to `requested_at` (3 locations)
+   → decode fails with DecodeError
+5. **`skill.gleam`** — add `AiBuilt` variant to `SkillSource`
+   → decode fails for `source='ai-built'`
+6. **`gleamValueToJson`** — ALL `startsWith('X$X')` checks are dead code
+   → enum variants serialize as `{}` losing variant name; tool output to Pi LLM is malformed
+7. **`skill.gleam:184,214`** — JSONB columns `content`, `reference_list` missing `::text` cast
+   → decode fails for non-null values
 
-### P1 — Type Coverage & Architecture
+### P1 — Logic Bugs & Data Integrity
 
-6. Create Gleam type for `projects` table (currently no type, 1 row exists)
-7. Implement `PLAN-project-id-lookup.md` for dynamic project_id resolution
-8. Add `project_id` to `areflect.gleam` INSERT INTO tasks (inconsistent with task.add)
-9. Fix `task.gleam` — add `::text` cast to `result` (JSONB) column in SELECT
-10. Create Gleam types for high-value missing tables: `soul`, `system_reviews`, `conversations`
+8. **`a_db_reader.gleam:44`** — `Error(_) -> Ok(True)` assumes S is idle on decode failure
+   → A-bot may wake up inappropriately; should be `Ok(False)`
+9. **`is_s_still_idle`** — counts ALL sessions, not just S-bot (no `agent_type` filter)
+   → A-bot's own session counts as "S is busy"
+10. **`learning.gleam`** — `source='learn'` triggers audit false-positive
+    → Every INSERT logged as "direct insert violation"
+11. **9 decoders** silently fall back to default enum values on unknown variants
+    → Masks data integrity issues; should return Error instead
+12. Fix `task.gleam` — add `::text` cast to `result` (JSONB) column in SELECT
+13. Add `project_id` to `areflect.gleam` INSERT INTO tasks (inconsistent with task.add)
 
-### P2 — Code Quality
+### P2 — Architecture & Type Coverage
 
-11. Extract `decode_all_results` to shared `decode_utils.gleam` module
-12. Deduplicate `now_ms` FFI (two different return types)
-13. Remove orphan `time_utils_ffi.mjs`
-14. Add field names to DecodeError messages
-15. Remove error swallowing in `issue_db.gleam` and `a_db_reader.gleam`
-16. Update `@mariozechner/pi-tui` → `@earendil-works/pi-tui` in extension_generator.gleam
+14. Create Gleam type for `projects` table (currently no type, 1 row exists)
+15. Implement `PLAN-project-id-lookup.md` for dynamic project_id resolution
+16. Create Gleam types for high-value missing tables: `soul`, `system_reviews`, `conversations`
+17. Extract `decode_all_results` to shared `decode_utils.gleam` module
+18. Deduplicate `now_ms` FFI (two different return types)
+19. Remove orphan `time_utils_ffi.mjs`
+20. Update `@mariozechner/pi-tui` → `@earendil-works/pi-tui` in extension_generator.gleam
+21. Resolve dual heartbeat columns in `agent_sessions` (`last_heartbeat` vs `last_heartbeat_at`)
 
 ### P3 — Architecture & Testing
 
