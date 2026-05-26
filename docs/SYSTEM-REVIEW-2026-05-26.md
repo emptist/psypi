@@ -11816,3 +11816,268 @@ Memory, AgentIdentity, Directive, InterReview, CodeVersion, ActivityLog, Config,
 | EP5 | gleamValueToJson: Task$Task never matches         | MEDIUM   | Dead code, fallback works but with duplicate keys             |
 | EP6 | consult_tool is a stub                            | MEDIUM   | No actual A-bot consultation                                  |
 | EP7 | commit_tool depends on broken inter-review        | CRITICAL | Commits permanently blocked                                   |
+
+---
+
+## 194. A/S AGENT LIFECYCLE — COMPLETE RUNNING LOGIC CHAIN
+
+This section traces the complete A/S agent lifecycle from session start to
+inter-review, identifying every failure point in the running logic chain.
+
+### 194.1 Phase 1: Session Start
+
+```
+Pi TUI starts → extension.js loaded → pi.on('session_start', ...) fires
+```
+
+**What happens:**
+1. `session_start` hook fires
+2. Checks `if (ctx.model)` — if no model, ENTIRE hook body is skipped
+3. If model exists: imports `monitor.mjs`, calls `record_current_model(ctx.model)`
+4. `record_current_model` inserts into `activity_log` table
+5. `event_hooks_record_trigger('session_start')` — only called if ctx.model exists
+
+**Failure points:**
+- F1: If `ctx.model` is undefined, trigger is never recorded
+- F2: `activity_log.context` is jsonb but passed as string — relies on auto-cast
+
+### 194.2 Phase 2: S-bot Agent Start (before_agent_start)
+
+```
+S-bot starts → pi.on('before_agent_start', ...) fires
+```
+
+**What happens:**
+1. `before_agent_start` hook fires (system prompt hook)
+2. Imports `hook_on_before_agent_start.mjs`, calls `on_before_agent_start()`
+3. `on_before_agent_start()` calls `event_hooks.record_trigger("before_agent_start")`
+4. Then calls `s_db_reader.read_s_soul_from_db()`
+5. Reads `content` column from `agent_souls WHERE id_prefix='S' AND is_active=true`
+6. Returns `{ systemPrompt: soul_content }`
+7. `event_hooks_record_trigger('before_agent_start')` — **UNREACHABLE** (after return)
+
+**Failure points:**
+- F3: `system_directives` table is NEVER read — A→S directive bridge broken
+- F4: Trigger recording is unreachable code — never recorded in DB
+- F5: If soul read fails, hardcoded fallback personality is used
+
+### 194.3 Phase 3: S-bot Agent Start (agent_start)
+
+```
+S-bot starts → pi.on('agent_start', ...) fires
+```
+
+**What happens:**
+1. `agent_start` hook fires
+2. Calls `event_hooks.record_trigger("agent_start")`
+3. That's it — no other logic
+
+**No failure points** — this hook only records the trigger.
+
+### 194.4 Phase 4: S-bot Working (tool_call + tool_result)
+
+```
+S-bot uses a tool → pi.on('tool_call', ...) fires
+S-bot gets tool result → pi.on('tool_result', ...) fires
+```
+
+**tool_call hook:**
+1. Only fires for `tool_name == "edit"` (file edit tool)
+2. Reads the file content before edit
+3. Calls `code_version.save_version()` to auto-backup
+4. If read fails, shows error and returns `Error(msg)`
+
+**tool_result hook:**
+1. Checks for error patterns in result JSON
+2. If error detected: sends `pi_send_message("autonomic-error", ...)` to A-bot
+3. Does NOT call `monitor_ai.auto_file_issue()` — dead code
+4. Errors are notified but never persisted as issues
+
+**Failure points:**
+- F6: Auto-backup only for "edit" tool — not for "write" or other file-modifying tools
+- F7: Tool errors are not persisted as issues — no tracking over time
+
+### 194.5 Phase 5: S-bot Agent End (agent_end) — THE CRITICAL PATH
+
+```
+S-bot finishes → pi.on('agent_end', ...) fires
+```
+
+**This is the most complex and broken part of the system.**
+
+**Step-by-step flow:**
+
+1. `agent_end` event fires
+2. **Generated debounce timer** (from extension.js):
+   - Clears any existing `setTimeout`
+   - Reads `psypi_config.get_debounce_ms()` from DB (900000ms = 15 min)
+   - Caches the value in `_debounceMs` (never re-read)
+   - Sets `setTimeout(callback, 900000)` — waits 15 minutes
+
+3. **After 15 minutes, setTimeout callback fires:**
+   - Logs `[AUTONOMIC] setTimeout callback fired for agent_end`
+   - Imports `hook_on_agent_end.mjs`, calls `on_agent_end(ctx, pi)`
+
+4. **`on_agent_end()` — Manual debounce check:**
+   - Checks `ctx_is_idle(ctx)` and `ctx_has_pending_messages(ctx)`
+   - If S is not idle → clears `idle_since` and returns
+   - If S is idle but has messages → skips
+   - If S is idle and no messages → calls `check_idle_since()`
+
+5. **`check_idle_since()` — In-memory debounce:**
+   - Reads `get_config("idle_since")` from `_configStore` (in-memory)
+   - If `idle_since` is None or "0" → records current timestamp and returns
+   - If `idle_since` has a value → calculates elapsed time
+   - Reads `get_config("monitor_debounce_ms")` from `_configStore` (in-memory)
+   - If `_configStore["monitor_debounce_ms"]` is undefined → uses default 300000ms (5 min)
+   - If elapsed >= debounce_ms → proceeds to coordinate_with_s()
+   - If elapsed < debounce_ms → waits (returns without action)
+
+6. **`coordinate_with_s()` — Double idle check:**
+   - Checks `ctx_is_idle(ctx)` again
+   - If S became busy → aborts
+   - If S is idle → calls `a_db_reader.is_s_still_idle()`
+   - `is_s_still_idle()` queries `agent_sessions` — but heartbeats are never
+     updated, so it always returns True (accidentally correct)
+   - Proceeds to `coordinate_when_idle()`
+
+7. **`coordinate_when_idle()` — Parse context and run A-bot:**
+   - Parses `contextWindow` from usage JSON
+   - Calls `a_orchestrator.run_a_workflow()`
+
+**THE DOUBLE DEBOUNCE PROBLEM:**
+- **First debounce**: Generated `setTimeout` waits 15 minutes (from DB)
+- **Second debounce**: `check_idle_since()` waits another 5 minutes (from in-memory)
+- **Total delay**: 15 + 5 = 20 minutes minimum before A-bot wakes up
+- **Worse case**: If `idle_since` was set before the first debounce,
+  the second debounce starts from that earlier timestamp, potentially
+  reducing the total delay. But if `idle_since` was cleared (S was active),
+  the second debounce starts fresh, adding 5 minutes.
+
+**Failure points:**
+- F8: Double debounce — 20+ minute delay instead of intended 15 min
+- F9: `_configStore` never synced with DB — config values diverge
+- F10: `is_s_still_idle()` always returns True (heartbeats never updated)
+- F11: `_debounceMs` cached forever — DB changes not reflected
+- F12: `get_config("monitor_debounce_ms")` returns undefined from `_configStore`
+  → defaults to 300000ms, which differs from DB value 900000ms
+
+### 194.6 Phase 6: A-bot Workflow (a_orchestrator)
+
+```
+a_orchestrator.run_a_workflow() → read soul → read jobs → read state → call LLM
+```
+
+**Step-by-step flow:**
+
+1. `read_soul_from_db()` — reads `role, domain, responsibility` (3 of 12 columns)
+   - Gets `"[Autonomic | autonomic] System health monitoring"` — tiny fragment
+   - The 1906-char personality in `content` column is IGNORED
+
+2. `read_a_jobs_from_db()` — reads active jobs for A-bot
+   - Joins `agent_jobs` with `agent_souls` on `soul_id`
+   - Returns formatted job list
+
+3. `read_project_state_from_db()` — reads tasks and issues
+   - `read_active_tasks()` — reads 10 active tasks (missing `wont_fix`/`duplicate` filter)
+   - `read_open_issues()` — reads 10 open issues (incomplete status filter)
+   - If either fails, error string is used as project state
+
+4. **Build prompts:**
+   - `build_system_prompt()` — adds identity + soul + jobs
+   - `build_user_prompt()` — adds context + usage + state + recent conversation
+   - Inter-review detection: string matching for "inter-review", "issue report", etc.
+
+5. **Call LLM:**
+   - `call_monitor(ctx, user_prompt, system_prompt)`
+   - Gets API key from `modelRegistry`
+   - Calls `completeSimple()` with `reasoning: 'medium'`
+   - If empty/rate-limited, retries with `reasoning: 'none'`
+   - Returns response text
+
+6. **Handle response:**
+   - Checks `ctx_is_idle(ctx)` — if S became busy during LLM call, aborts
+   - If S is still idle → sends `pi_send_message("autonomic-wakeup", response, "persistent")`
+   - **NO review score written** — `inter_reviews.overall_score` stays NULL
+
+**Failure points:**
+- F13: A-bot soul is only 3 fields, not full personality
+- F14: No review score written to `inter_reviews` — ROOT CAUSE of commit blocking
+- F15: Error swallowing — `Ok(Nil)` on all failures
+- F16: Race condition — S may become busy during LLM call, wasting the result
+- F17: No timeout on LLM call — if it hangs, A-bot workflow hangs
+
+### 194.7 Phase 7: Inter-Review (BROKEN)
+
+```
+S-bot calls psypi-commit → tool_commit.on_commit() → inter_review flow
+```
+
+**Step-by-step flow:**
+
+1. S-bot calls `psypi-commit` with message and optional review_id
+2. `on_commit()` checks if review_id is provided
+3. If no review_id → creates a new review request
+   - `inter_review.submit_review()` inserts into `inter_reviews`
+   - **BUG**: `requested_at` not cast to `::text` → decode fails
+   - Returns error "Failed to decode review row"
+
+4. If review_id provided → tries to check review status
+   - `inter_review.get_review_details(review_id)` reads from DB
+   - **BUG**: `requested_at` not cast to `::text` → decode fails here too
+   - Returns error "Review not found"
+
+5. Even if decode worked, `commit_if_reviewed()` checks `overall_score`:
+   - `overall_score` is always NULL (A-bot never writes it)
+   - Returns "Review not yet complete. A-bot is still reviewing."
+
+**THE INTER-REVIEW IS COMPLETELY BROKEN AT 3 INDEPENDENT POINTS:**
+1. `requested_at` not cast to `::text` → decode fails
+2. A-bot never writes `overall_score` → always NULL
+3. Even if score existed, `record_review_score` is never called
+
+**Failure points:**
+- F18: `requested_at` timestamptz not cast → decode always fails
+- F19: `overall_score` never written → commits permanently blocked
+- F20: `record_review_score` is dead code → never called by orchestrator
+
+### 194.8 Phase 8: Model Select
+
+```
+User changes model → pi.on('model_select', ...) fires
+```
+
+**What happens:**
+1. `model_select` hook fires
+2. Checks `if (event.model)` — if no model, hook body skipped
+3. Calls `monitor.record_current_model(event.model)` — same as session_start
+4. `event_hooks_record_trigger('model_select')` — only if event.model exists
+
+**No additional failure points** — same as session_start.
+
+### 194.9 Complete Failure Point Summary
+
+| Phase | #   | Failure                                          | Severity | Root Cause                     |
+| ----- | --- | ------------------------------------------------ | -------- | ------------------------------ |
+| 1     | F1  | session_start trigger not recorded when no model | MEDIUM   | Guard placement in generator   |
+| 2     | F3  | system_directives never read                     | CRITICAL | Missing DB query in hook       |
+| 2     | F4  | before_agent_start trigger unreachable           | HIGH     | Return before record_trigger   |
+| 2     | F5  | Hardcoded fallback personality                   | LOW      | Missing DB resilience          |
+| 4     | F6  | Auto-backup only for "edit" tool                 | LOW      | Hardcoded tool name check      |
+| 4     | F7  | Tool errors not persisted                        | MEDIUM   | Dead code in monitor_ai        |
+| 5     | F8  | Double debounce (20+ min delay)                  | CRITICAL | Two separate debounce systems  |
+| 5     | F9  | _configStore never synced with DB                | HIGH     | Dual config architecture       |
+| 5     | F10 | is_s_still_idle() always True                    | CRITICAL | Heartbeats never updated       |
+| 5     | F11 | _debounceMs cached forever                       | MEDIUM   | No cache invalidation          |
+| 5     | F12 | In-memory debounce differs from DB               | HIGH     | Config value mismatch          |
+| 6     | F13 | A-bot soul only 3 fields                         | HIGH     | Wrong SQL query                |
+| 6     | F14 | Review score never written                       | CRITICAL | Missing orchestrator logic     |
+| 6     | F15 | Error swallowing                                 | MEDIUM   | Ok(Nil) on failures            |
+| 6     | F16 | Race condition on LLM call                       | MEDIUM   | No locking mechanism           |
+| 6     | F17 | No LLM timeout                                   | MEDIUM   | Missing timeout config         |
+| 7     | F18 | requested_at decode fails                        | CRITICAL | Missing ::text cast            |
+| 7     | F19 | overall_score always NULL                        | CRITICAL | Dead code path                 |
+| 7     | F20 | record_review_score never called                 | CRITICAL | Disconnected from orchestrator |
+
+**Total: 20 failure points across 8 lifecycle phases.**
+**CRITICAL: 6 | HIGH: 4 | MEDIUM: 7 | LOW: 3**
