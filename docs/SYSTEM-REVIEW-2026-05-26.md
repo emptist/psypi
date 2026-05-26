@@ -6545,3 +6545,326 @@ potentially a notification to the project_communications table.
 | FFI time_utils_ffi.mjs bugs        | 1                                                                                              |
 | Migration schema bugs              | 5                                                                                              |
 | **TOTAL CONFIRMED BUGS**           | **170**                                                                                        |
+
+---
+
+## 137. `a_db_reader.gleam:is_s_still_idle()` — ALWAYS RETURNS TRUE
+
+### 137a. COUNT(*) Returns String, Not Number
+
+The `count_decoder()` uses `decode.int`:
+```gleam
+fn count_decoder() -> decode.Decoder(Int) {
+  use cnt <- decode.field("cnt", decode.int)
+  decode.success(cnt)
+}
+```
+
+But PostgreSQL `COUNT(*)` returns `bigint`, which node-postgres returns
+as a JavaScript `string` (e.g., `"19"`). `decode.int` expects a
+JavaScript `number`, so this decode ALWAYS fails.
+
+Verified with live test:
+```
+typeof cnt: string
+cnt: 19
+```
+
+### 137b. Decode Failure Fallback Returns True (S is idle)
+
+When the decode fails, the code falls through to:
+```gleam
+Error(_) -> Ok(True)
+```
+
+This means `is_s_still_idle()` ALWAYS returns `Ok(True)`, regardless
+of how many active sessions exist. The A-bot will ALWAYS think S is
+idle and proceed with wake-up.
+
+### 137c. Query Doesn't Filter by Agent Type
+
+Even if the decode worked, the query:
+```sql
+SELECT COUNT(*) as cnt FROM agent_sessions
+WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+
+Counts ALL alive sessions (S-bot, A-bot, P-bot). The `agent_sessions`
+table uses `agent_type = 'psypi'` for all entries and distinguishes
+agents by `identity_id` prefix (`S-`, `A-`, `P-`). The query should
+filter by `identity_id LIKE 'S-%'` to count only S-bot sessions.
+
+### 137d. Fix
+
+1. Use `COUNT(*)::INT as cnt` to cast to integer (like `issue_db.gleam`)
+2. Add `AND identity_id LIKE 'S-%'` to filter by S-bot sessions
+3. Or use `decode.string` then `int.parse` (like `stats.gleam`)
+
+---
+
+## 138. `issue_db.gleam:build_where()` — FILTER PARAMETER REVERSAL
+
+### 138a. The Bug
+
+The `build_where()` function builds conditions by PREPENDING:
+```gleam
+let #(conditions, params) = case status {
+  Some(s) -> {
+    let idx = list.length(params) + 1
+    #(["status = $" <> string.inspect(idx), ..conditions],
+      [dynamic.string(s), ..params])
+  }
+  ...
+}
+```
+
+Then reverses conditions but NOT params:
+```gleam
+" WHERE " <> string.join(list.reverse(conditions), " AND ")
+```
+
+### 138b. Example
+
+If `status = Some("open")` and `severity = Some("high")`:
+
+After first case: conditions = ["status = $1"], params = ["open"]
+After second case: conditions = ["severity = $2", "status = $1"], params = ["high", "open"]
+
+After `list.reverse(conditions)`: ["status = $1", "severity = $2"]
+But params = ["high", "open"]
+
+So `$1` gets "high" (intended as severity) and `$2` gets "open"
+(intended as status). **Filter values are swapped.**
+
+### 138c. Impact
+
+Any query with multiple filters will have the filter values swapped.
+For example, listing issues with `status="open"` and `severity="high"`
+would return issues with `status="high"` and `severity="open"`.
+
+---
+
+## 139. `broadcast.gleam:stats()` — PRIORITY TEXT COMPARISON
+
+### 139a. The Bug
+
+```sql
+COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+```
+
+The `priority` column is `text` type, not `integer`. The comparison
+`priority >= 2` does string comparison, which is meaningless.
+
+In ASCII, `'critical' >= '2'` is TRUE (because 'c' > '2'), so ALL
+broadcasts would be counted as "high priority".
+
+### 139b. Fix
+
+Use string-based comparison:
+```sql
+COUNT(*) FILTER (WHERE priority IN ('high', 'critical'))
+```
+
+---
+
+## 140. `broadcast.gleam:list()` — SEMANTIC MISMATCH: `read_at` AS `sent_at`
+
+### 140a. The Bug
+
+```sql
+SELECT id, from_ai as agent_id, content as message, priority,
+       'sent' as status, created_at::text, read_at::text as sent_at
+FROM project_communications
+```
+
+The query maps `read_at` (when the broadcast was read) as `sent_at`
+(when it was sent). These are semantically different. The
+`project_communications` table doesn't have a `sent_at` column —
+broadcasts are sent immediately on INSERT.
+
+### 140b. Impact
+
+The `Broadcast.sent_at` field shows when the broadcast was READ, not
+when it was SENT. For unread broadcasts, `sent_at` will be NULL.
+
+---
+
+## 141. `skill.gleam:get()` AND `search()` — MISSING JSONB `::text` CASTS
+
+### 141a. `list()` Has the Casts
+
+```sql
+SELECT id, name, description, source, status, safety_score, version, author,
+       created_at::text, content::text, reference_list::text
+FROM skills
+```
+
+### 141b. `get()` Does NOT
+
+```sql
+SELECT id, name, description, source, status, safety_score, version, author,
+       created_at::text, content, reference_list
+FROM skills
+WHERE name = $1
+```
+
+`content` and `reference_list` are JSONB columns. Without `::text`,
+node-postgres returns JavaScript objects, which `decode.optional(decode.string)`
+cannot parse.
+
+### 141c. `search()` Does NOT
+
+Same issue — `content` and `reference_list` are missing `::text` casts.
+
+### 141d. `SkillSource` Missing `AiBuilt` Variant
+
+Database contains `source='ai-built'` but the Gleam type only has:
+`Clawhub`, `Local`, `Generated`, `Imported`. The `ai-built` value
+will cause `string_to_source()` to return `Error`, and the skill
+will fail to decode.
+
+---
+
+## 142. `task.gleam` — JSONB `result` AND MISSING `project_id` IN SELECT
+
+### 142a. `list()` — `result` Not Cast to `::text`
+
+```sql
+SELECT id, title, description, status, priority, result, error, retry_count,
+       created_at::text, updated_at::text, completed_at::text, created_by, source,
+       project_id::text
+FROM tasks
+```
+
+`result` is JSONB but not cast to `::text`. `decode.optional(decode.string)`
+will fail for non-null JSONB values.
+
+### 142b. `get()` — `result` Not Cast AND `project_id` Missing
+
+```sql
+SELECT id, title, description, status, priority, result, error, retry_count,
+       created_at::text, updated_at::text, completed_at::text, created_by, source
+FROM tasks
+WHERE id = $1
+```
+
+Two bugs:
+1. `result` (JSONB) not cast to `::text`
+2. `project_id` is NOT in the SELECT list, but `task_decoder()` expects it
+
+The `task_decoder()` has:
+```gleam
+use project_id <- decode.field("project_id", decode.optional(decode.string))
+```
+
+Since `project_id` is missing from the query, `decode.field` will fail
+with a missing field error. `task.get()` will ALWAYS return DecodeError.
+
+---
+
+## 143. `a_orchestrator.gleam` — NO BUDGET ENFORCEMENT
+
+### 143a. `compose()` vs `compose_within_budget()`
+
+The `system_prompt_types.gleam` module provides two functions:
+- `compose()` — assembles all components into a string, no budget check
+- `compose_within_budget()` — filters components to fit within token budget
+
+The orchestrator uses `compose()`:
+```gleam
+let system_prompt = compose(a_prompt_builder.build_system_prompt(...))
+```
+
+This means the system prompt can exceed the token budget without any
+warning or truncation. If the soul content, jobs, and context are large,
+the prompt could exceed the model's context window.
+
+### 143b. `compose_within_budget()` Has Order Bug
+
+The `compose_within_budget()` function builds the `kept` list by
+prepending (`[component, ..components]`), which reverses the order.
+While `compose()` sorts by priority, any other consumer of the
+`PromptComposition` returned by `compose_within_budget()` would get
+components in reverse insertion order.
+
+---
+
+## 144. `meeting.gleam:create()` — MISSING `project_id`
+
+```sql
+INSERT INTO meetings (topic, created_by) VALUES ($1, $2) RETURNING id
+```
+
+The `meetings.project_id` column is nullable, so this INSERT succeeds,
+but the meeting is created without a project association. All meetings
+created through the Pi tool will have `project_id = NULL`.
+
+---
+
+## 145. `code_version.gleam:query_versions()` — `saved_at` NOT CAST
+
+```sql
+SELECT id, file_path, saved_by, saved_at,
+       LEFT(content, 200) as content_preview,
+       LENGTH(content) as content_length
+FROM code_versions
+```
+
+`saved_at` is TIMESTAMPTZ but not cast to `::text`. However, this
+function returns raw `List(dynamic.Dynamic)` without decoding, so
+the TIMESTAMPTZ issue doesn't cause a decode failure. It would only
+be a problem if the caller tries to use the `saved_at` field.
+
+---
+
+## 146. REVISED BUG COUNT — FINAL v7
+
+| Category                           | Count                                                                                        |
+| ---------------------------------- | -------------------------------------------------------------------------------------------- |
+| `::text` cast missing (TSTZ+JSONB) | 15 (+4: skill.get/search JSONB, task.list/get JSONB result)                                  |
+| Missing NOT NULL columns in INSERT | 10                                                                                           |
+| Wrong column names                 | 4                                                                                            |
+| Decoder mismatch                   | 11 (+3: a_db_reader COUNT as int, task.get missing project_id, memory.save decoder mismatch) |
+| Missing type variants              | 3 (+1: SkillSource missing AiBuilt)                                                          |
+| Logic bugs                         | 12 (+1: broadcast.stats text comparison)                                                     |
+| FFI issues                         | 9                                                                                            |
+| Config system fragmentation        | 3                                                                                            |
+| Seed/bootstrap gaps                | 9                                                                                            |
+| Dead code                          | 4                                                                                            |
+| Stub implementations               | 2                                                                                            |
+| Race conditions / concurrency      | 4                                                                                            |
+| Extension generation bugs          | 6                                                                                            |
+| A/S lifecycle logic failures       | 8 (+1: is_s_still_idle always returns True)                                                  |
+| Tool execution flow bugs           | 4                                                                                            |
+| Hook module bugs                   | 7                                                                                            |
+| Command module bugs                | 2                                                                                            |
+| DB module bugs                     | 4                                                                                            |
+| A/S DB reader bugs                 | 7 (+2: COUNT bigint as string, no agent type filter)                                         |
+| Monitor AI bugs                    | 6                                                                                            |
+| Event hooks bugs                   | 3                                                                                            |
+| Node PG FFI bugs                   | 1                                                                                            |
+| Inter-review bugs                  | 7                                                                                            |
+| Tool commit bugs                   | 3                                                                                            |
+| Tool consult bugs                  | 2                                                                                            |
+| Code version bugs                  | 1 (+1: saved_at not cast but returns raw Dynamic)                                            |
+| Meeting bugs                       | 3 (+1: missing project_id in create)                                                         |
+| Agent identity bugs                | 4                                                                                            |
+| Task bugs                          | 6 (+2: result JSONB not cast, get() missing project_id in SELECT)                            |
+| Issue bugs                         | 4 (+1: build_where filter parameter reversal)                                                |
+| Broadcast bugs                     | 6 (+2: stats text comparison, read_at as sent_at)                                            |
+| Skill bugs                         | 3 (+1: get/search missing JSONB casts)                                                       |
+| Agents bugs                        | 2                                                                                            |
+| Stats bugs                         | 3                                                                                            |
+| Monitor module bugs                | 3                                                                                            |
+| A orchestrator bugs                | 3 (+1: no budget enforcement)                                                                |
+| A prompt builder bugs              | 2                                                                                            |
+| Simple migrate bugs                | 4                                                                                            |
+| System prompt types bugs           | 3 (+1: compose_within_budget order reversal)                                                 |
+| A context utils bugs               | 2                                                                                            |
+| Extension generator bugs           | 2                                                                                            |
+| FFI node_ffi.mjs bugs              | 3                                                                                            |
+| FFI pi_extension_ffi.mjs bugs      | 6                                                                                            |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                                                            |
+| FFI time_utils_ffi.mjs bugs        | 1                                                                                            |
+| Migration schema bugs              | 5                                                                                            |
+| **TOTAL CONFIRMED BUGS**           | **189**                                                                                      |
