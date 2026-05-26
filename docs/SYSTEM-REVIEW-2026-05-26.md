@@ -11369,7 +11369,6 @@ or `issue_type='proposal'` will fail to decode.
 ### 189.10 Summary: Second Pass Module Audit
 
 | Module             | Key Issue                                                               | Severity     |
-| ------------------ | ----------------------------------------------------------------------- | ------------ |
 | memory.gleam       | RLS policy blocks access, missing project_id, SELECT * with timestamptz | **CRITICAL** |
 | learning.gleam     | Missing project_id, RLS blocks access                                   | **CRITICAL** |
 | areflect.gleam     | save_issue/save_task missing project_id (NOT NULL) — always fails       | **CRITICAL** |
@@ -11379,3 +11378,171 @@ or `issue_type='proposal'` will fail to decode.
 | stats.gleam        | No project_id filter, counts all projects                               | LOW          |
 | monitor.gleam      | set_model() blanket reset race condition                                | MEDIUM       |
 | issue_types.gleam  | Missing 3 status variants + 1 type variant                              | HIGH         |
+
+---
+
+## 190. DB.GLEAM — CONNECTION MANAGEMENT & RLS ANALYSIS
+
+### 190.1 Connection Lifecycle
+
+**`with_connection()` creates a NEW connection for every query:**
+```gleam
+pub fn with_connection(callback, error_mapper) {
+  promise.await(connect(), fn(conn_result) {
+    case conn_result {
+      Error(e) -> promise.resolve(Error(error_mapper(e)))
+      Ok(conn) -> {
+        promise.await(callback(conn), fn(result) {
+          let _ = disconnect(conn)  // ← disconnect error swallowed
+          promise.resolve(result)
+        })
+      }
+    }
+  })
+}
+```
+
+**Performance impact:**
+- Each query: TCP connect → auth → SET app.current_project_id → query → disconnect
+- No connection pooling — every DB operation pays full connection overhead
+- For the `agent_end` hook which makes 4-5 DB queries, this means 4-5 separate connections
+
+### 190.2 RLS Policy — Enabled But Not Enforced for Owner
+
+**`db.connect()` sets `app.current_project_id`:**
+```gleam
+let set_sql = "SET app.current_project_id = $1"
+let set_params = [dynamic.string(project_id)]
+```
+
+This IS done correctly. The RLS policy for `memory` table uses:
+```sql
+USING (project_id = (current_setting('app.current_project_id', true))::uuid
+       OR current_setting('app.current_project_id', true) = 'ALL')
+```
+
+**But RLS is not enforced for the table owner:**
+- `relrowsecurity = true` (RLS enabled)
+- `relforcerowsecurity = false` (not forced on owner)
+- The app connects as the table owner (local user `jk`)
+- Therefore RLS is effectively BYPASSED in the current deployment
+
+**If the app connected as a non-owner user, RLS would:**
+- Block SELECT on `memory` rows where `project_id` doesn't match
+- Allow INSERT with any `project_id` (no WITH CHECK policy)
+- New rows with `project_id = NULL` would be inserted but invisible to subsequent SELECTs
+
+### 190.3 `memory.save()` — project_id NULL → Invisible Rows
+
+**The `memory` table RLS policy only has USING (for SELECT), no WITH CHECK (for INSERT).**
+
+This means:
+1. `memory.save()` inserts without `project_id` → `project_id = NULL` ✓ (INSERT succeeds)
+2. `memory.search()` SELECTs with RLS → `NULL != uuid_value` → row is INVISIBLE ✗
+
+**Rows saved by `memory.save()` are written but can never be read back** (if RLS were enforced).
+Currently RLS is bypassed because the app connects as table owner.
+
+### 190.4 `seed.gleam` — Debounce Mismatch
+
+**`seed_psypi_config()` inserts `monitor_debounce_ms = '300000'` (5 min).**
+**Current DB value: `monitor_debounce_ms = '900000'` (15 min).**
+
+The seed value was either manually changed or updated by another process.
+This creates confusion about the intended debounce duration.
+
+### 190.5 `broadcast.stats()` — Non-existent `status` Column
+
+**The query references `status` column:**
+```sql
+COUNT(*) FILTER (WHERE status = 'sent') as sent_count
+```
+
+**But `project_communications` table has NO `status` column.**
+The table has: `id, project_id, from_ai, to_ai, message_type, content, metadata,
+created_at, read_at, priority, git_hash, git_branch, environment`.
+
+This query will FAIL with: `column "status" does not exist`.
+
+### 190.6 `hook_on_tool_result.gleam` — Error Detection Without Persistence
+
+**Current behavior:**
+1. Detects errors in tool results (string matching for "error", "Error:", etc.)
+2. Sends error notification to A-bot via `pi_send_message`
+3. Does NOT call `monitor_ai.auto_file_issue()` — that function is dead code
+4. Errors are notified but never persisted as issues
+
+**This means:** Tool errors are visible in chat but not tracked in the `issues` table.
+There's no systematic way to review recurring tool errors over time.
+
+---
+
+## 191. COMPREHENSIVE ISSUE CATALOG — ALL FINDINGS
+
+### 191.1 CRITICAL Issues (System-Breaking)
+
+| #   | Issue                                                              | Module                           | Impact                                                        |
+| --- | ------------------------------------------------------------------ | -------------------------------- | ------------------------------------------------------------- |
+| C1  | `inter_review.requested_at` not cast to `::text`                   | inter_review.gleam               | EVERY review decode fails, commits permanently blocked        |
+| C2  | A-bot never writes `overall_score` to `inter_reviews`              | a_orchestrator.gleam             | Review score always NULL, commits permanently blocked         |
+| C3  | `is_s_still_idle()` always returns True (heartbeats never updated) | a_db_reader.gleam                | A-bot idle check non-functional                               |
+| C4  | Double debounce: DB=15min, in-memory=5min, total=20min             | hook_on_agent_end.gleam          | A-bot wake-up delayed 20+ minutes                             |
+| C5  | `system_directives` never read by `before_agent_start`             | hook_on_before_agent_start.gleam | A→S directive bridge completely broken                        |
+| C6  | `areflect.save_issue/save_task` missing `project_id` (NOT NULL)    | areflect.gleam                   | INSERT always fails, areflect non-functional for issues/tasks |
+| C7  | `memory.search()` uses `SELECT *` with `created_at` timestamptz    | memory.gleam                     | Decode fails for non-null timestamps                          |
+| C8  | `skill.get()/search()` don't cast `content`/`reference_list` JSONB | skill.gleam                      | Decode fails for non-null JSONB values                        |
+| C9  | `task.result` is JSONB decoded as `decode.string`                  | task.gleam                       | Decode fails for non-null JSONB results                       |
+
+### 191.2 HIGH Issues (Functional Failures)
+
+| #   | Issue                                                       | Module               | Impact                                                    |
+| --- | ----------------------------------------------------------- | -------------------- | --------------------------------------------------------- |
+| H1  | `SkillSource` missing `AiBuilt` variant                     | skill.gleam          | Skills with source='ai-built' fail to decode              |
+| H2  | A-bot reads only 3 of 12 `agent_souls` columns              | a_db_reader.gleam    | A-bot misses 1906-char personality content                |
+| H3  | `auto_file_issue` uses wrong column + missing project_id    | monitor_ai.gleam     | Would fail if ever called                                 |
+| H4  | `record_review_score` never called                          | monitor_ai.gleam     | Dead code, review scores never written                    |
+| H5  | `issue_types` missing 3 status + 1 type variants            | issue_types.gleam    | Decode fails for acknowledged/wont_fix/duplicate/proposal |
+| H6  | `projects` table has no Gleam type                          | (none)               | No type-safe project access                               |
+| H7  | `_configStore` never synced with `psypi_config` table       | pi_extension_ffi.mjs | Config values diverge between JS and Gleam layers         |
+| H8  | `broadcast.stats()` references non-existent `status` column | broadcast.gleam      | Query always fails                                        |
+
+### 191.3 MEDIUM Issues (Degraded Functionality)
+
+| #   | Issue                                                            | Module                    | Impact                                      |
+| --- | ---------------------------------------------------------------- | ------------------------- | ------------------------------------------- |
+| M1  | `session_start` trigger recording conditional on `ctx.model`     | extension.js              | Trigger not recorded when model unavailable |
+| M2  | `monitor.set_model()` blanket reset race condition               | monitor.gleam             | Temporary 'not_used' for all providers      |
+| M3  | `broadcast.send()` passes metadata as string for jsonb           | broadcast.gleam           | Depends on pg driver auto-cast              |
+| M4  | No connection pooling in `db.gleam`                              | db.gleam                  | Performance overhead per query              |
+| M5  | `disconnect` error silently swallowed                            | db.gleam                  | Connection leaks possible                   |
+| M6  | `seed.gleam` debounce value (300000) ≠ current DB value (900000) | seed.gleam                | Confusion about intended debounce           |
+| M7  | `tool_consult.gleam` is a stub — no actual A-bot consultation    | tool_consult.gleam        | Consult tool returns canned response        |
+| M8  | `hook_on_tool_result` doesn't persist errors as issues           | hook_on_tool_result.gleam | Errors notified but not tracked             |
+
+### 191.4 LOW Issues (Minor Gaps)
+
+| #   | Issue                                                             | Module             | Impact                                  |
+| --- | ----------------------------------------------------------------- | ------------------ | --------------------------------------- |
+| L1  | `meeting.create()` missing `project_id`                           | meeting.gleam      | Meetings without project association    |
+| L2  | `code_version.get_versions()` returns untyped dynamics            | code_version.gleam | No compile-time type safety             |
+| L3  | `stats.gleam` counts all projects                                 | stats.gleam        | Incorrect for multi-project             |
+| L4  | `task_add_tool()` hardcodes priority=5, created_by="cli"          | task.gleam         | No user control over these fields       |
+| L5  | `task.get()` missing `project_id` in SELECT                       | task.gleam         | project_id always None for single task  |
+| L6  | `TaskStatus` missing `FAKE_COMPLETE` variant                      | task.gleam         | Fallback to Pending for this status     |
+| L7  | `memory.save()` missing `project_id` (NULL → invisible under RLS) | memory.gleam       | Rows written but potentially unreadable |
+| L8  | `learning.save()` missing `project_id`                            | learning.gleam     | Same as L7                              |
+| L9  | `broadcast.list()` hardcodes `'sent' as status`                   | broadcast.gleam    | All broadcasts appear as "sent"         |
+
+### 191.5 Issue Count Summary
+
+| Severity  | Count  |
+| --------- | ------ |
+| CRITICAL  | 9      |
+| HIGH      | 8      |
+| MEDIUM    | 8      |
+| LOW       | 9      |
+| **Total** | **34** |
+
+**Note:** This count covers only the database-oriented and module-level review.
+The running logic chain review (section 182) identified 22 additional issues.
+Combined total: **56 verified issues**.
