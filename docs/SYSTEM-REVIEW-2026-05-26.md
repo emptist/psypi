@@ -67,15 +67,15 @@ These tables exist in PostgreSQL but have NO Gleam type definition:
 
 Live DB verification shows ALL referenced tables exist. Earlier "phantom table" claims were WRONG.
 
-| Table               | Referenced In                        | Exists in DB | Notes                             |
-| ------------------- | ------------------------------------ | ------------ | --------------------------------- |
-| `agent_souls`       | a_db_reader.gleam, s_db_reader.gleam | YES          | Has `id_prefix`, `role`, `domain` |
-| `agent_jobs`        | a_db_reader.gleam, s_db_reader.gleam | YES          | Has `job`, `priority`, `category` |
-| `code_versions`     | code_version.gleam                   | YES          | Has columns                       |
-| `notifications`     | monitor.gleam                        | YES          | Has `priority`, `title`, `body`   |
-| `psypi_event_hooks` | event_hooks.gleam                    | YES          | Has hook registration data        |
-| `soul`              | (separate from agent_souls)          | YES          | Has `agent_id`, `name`, `content` |
-| `projects`          | db.gleam (hardcoded UUID)            | YES (1 row)  | Has `path`, `git_remote`, `name`  |
+| Table               | Referenced In                        | Exists in DB | Notes                                         |
+| ------------------- | ------------------------------------ | ------------ | --------------------------------------------- |
+| `agent_souls`       | a_db_reader.gleam, s_db_reader.gleam | YES          | Has `id_prefix`, `role`, `domain`             |
+| `agent_jobs`        | a_db_reader.gleam, s_db_reader.gleam | YES          | Has `job`, `priority`, `category`             |
+| `code_versions`     | code_version.gleam                   | YES          | 11 cols; save/get/restore functions all EXIST |
+| `notifications`     | monitor.gleam                        | YES          | Has `priority`, `title`, `body`               |
+| `psypi_event_hooks` | event_hooks.gleam                    | YES          | Has hook registration data                    |
+| `soul`              | (separate from agent_souls)          | YES          | Has `agent_id`, `name`, `content`             |
+| `projects`          | db.gleam (hardcoded UUID)            | YES (1 row)  | Has `path`, `git_remote`, `name`              |
 
 **Note**: There are TWO soul tables: `agent_souls` (with `id_prefix`) and `soul` (with `agent_id`).
 The code correctly uses `agent_souls` for its queries.
@@ -626,3 +626,133 @@ The Pi ecosystem underwent a package rename from `@mariozechner/` to `@earendil-
 ### 16b. Stale Reference Documentation
 
 The `ppi_skills/pi-platform/references/` directory contains outdated documentation using old package names. These references should be updated or removed to avoid confusing future AI sessions.
+
+---
+
+## 17. ERROR HANDLING ANTI-PATTERNS
+
+### 17a. Silent Fallback to Default Values on Decode Errors
+
+Multiple decoders silently fall back to default enum values when they encounter
+an unknown variant. This masks data integrity issues — the code proceeds as if
+everything is fine while the actual data is different.
+
+| File            | Line | Fallback                     | Should Be                             |
+| --------------- | ---- | ---------------------------- | ------------------------------------- |
+| task.gleam      | 69   | `Pending` on unknown status  | Return Error                          |
+| issue_db.gleam  | 37   | `Medium` on unknown severity | Return Error                          |
+| issue_db.gleam  | 40   | `Open` on unknown status     | Return Error                          |
+| issue_db.gleam  | 43   | `Bug` on unknown issue_type  | Return Error                          |
+| skill.gleam     | 84   | `Clawhub` on unknown source  | Return Error (also missing `AiBuilt`) |
+| skill.gleam     | 87   | `Pending` on unknown status  | Return Error                          |
+| meeting.gleam   | 66   | `Pending` on unknown status  | Return Error                          |
+| broadcast.gleam | 86   | `Low` on unknown priority    | Return Error                          |
+| broadcast.gleam | 89   | `Pending` on unknown status  | Return Error                          |
+
+**Impact**: If a new enum variant is added to the DB (e.g., `status='cancelled'`),
+the code silently treats it as the default instead of failing. This makes debugging
+extremely difficult because the data appears correct but the behavior is wrong.
+
+### 17b. Swallowed Errors — Dangerous Defaults
+
+| File                  | Line | Code                                    | Risk                                |
+| --------------------- | ---- | --------------------------------------- | ----------------------------------- |
+| a_db_reader.gleam     | 44   | `Error(_) -> Ok(True)`                  | Assumes S is idle on decode failure |
+| a_db_reader.gleam     | 98   | `Error(_) -> "(tasks unavailable)"`     | Hides DB errors from A-bot prompt   |
+| a_db_reader.gleam     | 103  | `Error(_) -> "(issues unavailable)"`    | Hides DB errors from A-bot prompt   |
+| a_context_utils.gleam | 47   | `Error(_) -> 0`                         | Hides context parse errors          |
+| stats.gleam           | 48   | `Error(_) -> 0`                         | Returns 0 stats on error            |
+| agent_identity.gleam  | 49   | `Error(_) -> "non-project"`             | Hides project lookup failure        |
+| tool_commit.gleam     | 40   | `Error(_) -> ""` (git diff)             | Proceeds without diff on error      |
+| tool_commit.gleam     | 47   | `Error(_) -> ""` (git diff --name-only) | Proceeds without file list on error |
+| monitor_ai.gleam      | 134  | `Error(_) -> ""`                        | Hides activity read errors          |
+| monitor_ai.gleam      | 371  | `Error(_) -> []`                        | Hides alert list errors             |
+
+**Critical**: `a_db_reader.gleam:44` — `Error(_) -> Ok(True)` means if the DB query
+to check if S is idle fails, A-bot assumes S IS idle and may wake up inappropriately.
+The safe default should be `Ok(False)` (assume S is busy).
+
+---
+
+## 18. A/S AGENT MODEL — LOGIC BUGS
+
+### 18a. `is_s_still_idle` Counts ALL Sessions, Not Just S-bot
+
+```gleam
+// a_db_reader.gleam:35-38
+let sql =
+  "SELECT COUNT(*) as cnt FROM agent_sessions "
+  <> "WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'"
+```
+
+This query counts ALL alive sessions regardless of `agent_type`. Currently all
+sessions have `agent_type = 'psypi'`, so there's no way to distinguish A-bot
+from S-bot sessions. If A-bot itself has a session, it would count as "S is busy"
+and prevent its own wake-up.
+
+**Fix**: Add `AND agent_type = 'somatic'` filter, or add an `agent_type` column
+value that distinguishes A-bot from S-bot sessions.
+
+### 18b. Dual Heartbeat Columns — Ambiguity
+
+The `agent_sessions` table has TWO heartbeat columns:
+- `last_heartbeat` (timestamp with time zone)
+- `last_heartbeat_at` (timestamp with time zone)
+
+Both are populated. The code uses `last_heartbeat` but it's unclear which column
+is the "canonical" heartbeat. If the wrong column is used, idle detection could
+be incorrect.
+
+### 18c. `monitor_ai.gleam` INSERT Uses Wrong Column Name `type` vs `issue_type`
+
+```gleam
+// monitor_ai.gleam:561
+INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+```
+
+The `issues` table has `issue_type`, NOT `type`. This INSERT will FAIL with:
+`ERROR: column "type" does not exist`.
+
+**Verified**: `SELECT column_name FROM information_schema.columns WHERE table_name = 'issues'`
+shows `issue_type` at ordinal position 4, no column named `type`.
+
+### 18d. `learning.gleam` Uses `source='learn'` Not in Audit Trigger Allowed Sources
+
+```gleam
+// learning.gleam
+INSERT INTO memory (content, tags, source, importance, agent_id)
+VALUES ($1, $2, 'learn', $3, $4)
+```
+
+The `audit_direct_insert` trigger on the `memory` table validates `source` against
+an allowed list. If `'learn'` is not in the allowed sources, the INSERT will be
+blocked or flagged. This needs verification against the trigger definition.
+
+---
+
+## 19. SQL INJECTION ANALYSIS
+
+### 19a. `tool_commit.gleam` Shell Injection (Low Severity)
+
+```gleam
+// tool_commit.gleam:10-16
+fn shell_escape(s: String) -> String {
+  s
+  |> string.replace("\\", "\\\\")
+  |> string.replace("\"", "\\\"")
+  |> string.replace("$", "\\$")
+  |> string.replace("`", "\\`")
+}
+```
+
+Missing escapes:
+- Newlines (`\n`) — could break the `git commit -m "..."` command
+- Single quotes (safe since message is in double quotes)
+
+**Impact**: Low — commit messages come from Pi agent, not directly from user input.
+But a multi-line commit message could cause unexpected behavior.
+
+### 19b. All SQL Queries Use Parameterized Queries ✅
+
+All database queries use `$1`, `$2`, etc. with `dynamic.string()` for values.
+No SQL injection vectors found in database code.
