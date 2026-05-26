@@ -12975,3 +12975,240 @@ The project's problems stem from **three systemic failures**:
 
 5. **Fix `is_idle` vs role distinction** — The A/S prefix should be based on
    agent role, not current idle state.
+
+---
+
+## 204. COMPLETE TABLE-TO-CODE CROSS-REFERENCE
+
+### 204.1 All Tables Referenced in Gleam Code vs DB Reality
+
+| #   | Table in Gleam           | Exists? | Column Count | Gleam Modules                                  | Status                                            |
+| --- | ------------------------ | ------- | ------------ | ---------------------------------------------- | ------------------------------------------------- |
+| 1   | `tasks`                  | YES     | 56           | task, a_db_reader, areflect                    | MISMATCH (Gleam expects ~14 cols)                 |
+| 2   | `issues`                 | YES     | 24           | issue_db, areflect, monitor_ai                 | MISMATCH (7 cols missing, `type` vs `issue_type`) |
+| 3   | `skills`                 | YES     | 54           | skill, monitor_ai                              | MISMATCH (Gleam expects ~15 cols)                 |
+| 4   | `inter_reviews`          | YES     | 31           | inter_review, monitor_ai                       | MISMATCH (Gleam expects ~8 cols)                  |
+| 5   | `memory`                 | YES     | 13           | memory, monitor_ai                             | OK                                                |
+| 6   | `meetings`               | YES     | 8            | meeting                                        | OK                                                |
+| 7   | `meeting_opinions`       | YES     | 8            | meeting                                        | OK                                                |
+| 8   | `learning_insights`      | YES     | 13           | areflect                                       | OK                                                |
+| 9   | `psypi_config`           | YES     | 6            | psypi_config                                   | OK                                                |
+| 10  | `provider_api_keys`      | YES     | 10           | monitor                                        | OK                                                |
+| 11  | `activity_log`           | YES     | 8            | monitor_ai                                     | OK                                                |
+| 12  | `project_communications` | YES     | 9            | broadcast                                      | OK                                                |
+| 13  | `agent_identities`       | YES     | 9            | agents                                         | **BROKEN** — no `agent_type` column               |
+| 14  | `agent_sessions`         | YES     | 11           | a_db_reader                                    | OK                                                |
+| 15  | `agent_souls`            | **NO**  | 0            | agent_identity, s_db_reader, a_db_reader, seed | **PHANTOM**                                       |
+| 16  | `agent_jobs`             | **NO**  | 0            | a_db_reader, s_db_reader, agent_identity       | **PHANTOM**                                       |
+| 17  | `agent_prefixes`         | **NO**  | 0            | seed                                           | **PHANTOM**                                       |
+| 18  | `notifications`          | **NO**  | 0            | monitor                                        | **PHANTOM**                                       |
+| 19  | `psypi_event_hooks`      | **NO**  | 0            | event_hooks                                    | **PHANTOM**                                       |
+| 20  | `code_versions`          | **NO**  | 0            | code_version                                   | **PHANTOM**                                       |
+| 21  | `get_code_versions()`    | **NO**  | —            | code_version                                   | **PHANTOM FUNCTION**                              |
+
+### 204.2 DB Tables NOT Referenced in Any Gleam Code (77 - 21 = 56 orphan tables)
+
+These tables exist in the database but NO Gleam code references them:
+
+| #   | Table                        | Column Count | Likely Purpose                                        |
+| --- | ---------------------------- | ------------ | ----------------------------------------------------- |
+| 1   | `soul`                       | 12           | Agent soul definitions (SHOULD replace `agent_souls`) |
+| 2   | `system_directives`          | 9            | A→S directive bridge (EMPTY, never written)           |
+| 3   | `agent_identity`             | 8            | Agent registration (separate from `agent_identities`) |
+| 4   | `agent_scores`               | 13           | Agent performance tracking                            |
+| 5   | `code_versions`              | 0            | Empty shell (no columns)                              |
+| 6   | `conversations`              | ?            | Chat history                                          |
+| 7   | `users`                      | ?            | User accounts                                         |
+| 8   | `user_sessions`              | ?            | Session management                                    |
+| 9   | `api_keys`                   | ?            | API key storage                                       |
+| 10  | `approved_skills`            | ?            | Skill approval workflow                               |
+| 11  | `archived_memory`            | ?            | Old memory entries                                    |
+| 12  | `auto_category_rules`        | ?            | Task auto-categorization                              |
+| 13  | `auto_tag_rules`             | ?            | Task auto-tagging                                     |
+| 14  | `bootstrap_state`            | ?            | System bootstrap tracking                             |
+| 15  | `dead_letter_queue`          | ?            | Failed message processing                             |
+| 16  | `direct_insert_audit`        | ?            | Audit trail for direct inserts                        |
+| 17  | `email_verifications`        | ?            | Email verification tokens                             |
+| 18  | `event_log`                  | ?            | General event logging                                 |
+| 19  | `failure_alerts`             | ?            | Failure notification system                           |
+| 20  | `failure_patterns`           | ?            | Failure pattern recognition                           |
+| 21  | `failure_root_causes`        | ?            | Root cause analysis                                   |
+| 22  | `failure_statistics`         | ?            | Failure stats aggregation                             |
+| 23  | `failure_trend_analysis`     | ?            | Failure trend tracking                                |
+| 24  | `insert_reminders`           | ?            | Insert reminder system                                |
+| 25  | `inter_review_stats`         | ?            | Review statistics (view?)                             |
+| 26  | `internally_built_skills`    | ?            | AI-built skill tracking                               |
+| 27  | `issue_comments`             | ?            | Issue discussion                                      |
+| 28  | `issue_events`               | ?            | Issue event log                                       |
+| 29  | `issue_labels`               | ?            | Issue categorization                                  |
+| 30  | `issue_stats`                | ?            | Issue statistics (view?)                              |
+| 31  | `issue_timeline`             | ?            | Issue timeline view                                   |
+| 32  | `issues_by_severity`         | ?            | Issues by severity (view?)                            |
+| 33  | `issues_with_labels`         | ?            | Issues with labels (view?)                            |
+| 34  | `knowledge_links`            | ?            | Knowledge graph connections                           |
+| 35  | `labels`                     | ?            | Label definitions                                     |
+| 36  | `long_tasks_pause`           | ?            | Long-running task pause tracking                      |
+| 37  | `mcp_configs`                | ?            | MCP server configurations                             |
+| 38  | `mcp_tools`                  | ?            | MCP tool definitions                                  |
+| 39  | `password_resets`            | ?            | Password reset tokens                                 |
+| 40  | `payment_analytics`          | ?            | Payment analytics                                     |
+| 41  | `payment_refunds`            | ?            | Refund tracking                                       |
+| 42  | `payment_webhooks`           | ?            | Payment webhook logs                                  |
+| 43  | `payments`                   | ?            | Payment records                                       |
+| 44  | `pending_inter_reviews`      | ?            | Pending reviews (view?)                               |
+| 45  | `pending_skill_reviews`      | ?            | Pending skill reviews (view?)                         |
+| 46  | `process_pids`               | ?            | Process tracking                                      |
+| 47  | `project_communications`     | 9            | Already counted above                                 |
+| 48  | `project_config_history`     | ?            | Config change tracking                                |
+| 49  | `project_docs`               | ?            | Project documentation                                 |
+| 50  | `project_metrics`            | ?            | Project metrics                                       |
+| 51  | `project_skills`             | ?            | Project-skill associations                            |
+| 52  | `projects`                   | ?            | Project definitions                                   |
+| 53  | `prompt_suggestions`         | ?            | Prompt suggestion system                              |
+| 54  | `rate_limits`                | ?            | Rate limiting                                         |
+| 55  | `reflection_summary`         | ?            | Reflection aggregation                                |
+| 56  | `reflections`                | ?            | Agent reflections                                     |
+| 57  | `reminder_templates`         | ?            | Reminder templates                                    |
+| 58  | `retry_learning`             | ?            | Retry pattern learning                                |
+| 59  | `retry_strategies`           | ?            | Retry strategy definitions                            |
+| 60  | `review_comments`            | ?            | Review discussion                                     |
+| 61  | `review_labels`              | ?            | Review categorization                                 |
+| 62  | `reviews`                    | ?            | Review records                                        |
+| 63  | `scheduled_tasks`            | ?            | Scheduled task tracking                               |
+| 64  | `skill_audit_log`            | ?            | Skill change audit                                    |
+| 65  | `skill_builder_config`       | ?            | Skill builder settings                                |
+| 66  | `skill_feedback`             | ?            | Skill feedback                                        |
+| 67  | `skill_versions`             | ?            | Skill version history                                 |
+| 68  | `stuck_tasks_tracking`       | ?            | Stuck task monitoring                                 |
+| 69  | `subscription_plans`         | ?            | Subscription plan definitions                         |
+| 70  | `subscriptions`              | ?            | Active subscriptions                                  |
+| 71  | `table_documentation`        | ?            | Table documentation                                   |
+| 72  | `task_audit_log`             | ?            | Task change audit                                     |
+| 73  | `task_health_metrics`        | ?            | Task health monitoring                                |
+| 74  | `task_outcome_features`      | ?            | Task outcome ML features                              |
+| 75  | `task_outcomes`              | ?            | Task outcome records                                  |
+| 76  | `task_patterns`              | ?            | Task pattern recognition                              |
+| 77  | `task_templates`             | ?            | Task template definitions                             |
+| 78  | `user_payment_methods`       | ?            | User payment methods                                  |
+| 79  | `v_direct_insert_violations` | ?            | Direct insert violations (view)                       |
+| 80  | `v_table_documentation`      | ?            | Table documentation (view)                            |
+| 81  | `active_processes`           | ?            | Active process tracking                               |
+| 82  | `orphaned_processes_summary` | ?            | Orphaned process summary (view?)                      |
+
+### 204.3 Key Tables That SHOULD Be Used But Aren't
+
+| Table               | Why It Should Be Used                    | Current Gleam Approach                                   |
+| ------------------- | ---------------------------------------- | -------------------------------------------------------- |
+| `soul`              | Has 9 rows with Monitor/Worker roles     | Gleam queries phantom `agent_souls`                      |
+| `system_directives` | A→S directive bridge exists but empty    | `before_agent_start` reads it but gets nothing           |
+| `agent_identity`    | Has agent registration with capabilities | Not used; `agent_identity.gleam` uses `agent_identities` |
+| `agent_scores`      | Has performance tracking                 | Not used at all                                          |
+| `projects`          | Has project definitions                  | Hardcoded UUID used instead                              |
+
+### 204.4 DB Functions That Exist But Gleam Doesn't Use
+
+| Function                        | Purpose                                | Gleam Module That Should Use It                  |
+| ------------------------------- | -------------------------------------- | ------------------------------------------------ |
+| `create_issue()`                | Type-safe issue creation with defaults | `issue_db.gleam` (does raw INSERT instead)       |
+| `create_task_with_project()`    | Type-safe task creation                | `task.gleam` (does raw INSERT instead)           |
+| `register_agent()`              | Type-safe agent registration           | `agent_identity.gleam` (does raw INSERT instead) |
+| `respond_to_inter_review()`     | Write review response                  | `a_orchestrator.gleam` (NEVER CALLS IT)          |
+| `update_inter_review()`         | Update review record                   | `a_orchestrator.gleam` (NEVER CALLS IT)          |
+| `set_config()` / `get_config()` | Type-safe config management            | `psypi_config.gleam` (does raw INSERT instead)   |
+| `save_code_version()`           | Save file version                      | `code_version.gleam` (FUNCTION DOESN'T EXIST)    |
+| `get_code_versions()`           | Get version history                    | `code_version.gleam` (FUNCTION DOESN'T EXIST)    |
+| `restore_code_version()`        | Restore a version                      | `code_version.gleam` (FUNCTION DOESN'T EXIST)    |
+
+### 204.5 CRITICAL: `request_inter_review` Parameter Order Mismatch
+
+**DB function signature:**
+```sql
+request_inter_review(
+  p_task_id uuid,
+  p_commit_hash text,
+  p_branch text,           -- $3 = branch
+  p_requester_id text,     -- $4 = requester_id
+  p_review_context jsonb   -- $5 = review_context
+)
+```
+
+**Gleam call:**
+```gleam
+request_inter_review($1, $2, $3, $4, $5)
+-- $1 = task_id         ✓
+-- $2 = commit_hash     ✓
+-- $3 = reviewer_id     ✗ (DB expects branch)
+-- $4 = context         ✗ (DB expects requester_id)
+-- $5 = branch          ✗ (DB expects review_context jsonb)
+```
+
+**Result:** Every inter-review request has parameters 3-5 in the wrong order.
+- `reviewer_id` is stored as `branch`
+- `context` is stored as `requester_id`
+- `branch` is stored as `review_context`
+
+This is a **CRITICAL data corruption bug**.
+
+### 204.6 CRITICAL: `agents.gleam` Queries Non-Existent Column
+
+```sql
+-- agents.gleam:
+SELECT id, agent_type, created_at::text FROM agent_identities
+
+-- Actual agent_identities columns:
+-- id, project, git_hash, machine_fingerprint, created_at, updated_at,
+-- display_name, description, owner
+-- NO "agent_type" COLUMN!
+```
+
+The `agents.gleam` module will fail with "column agent_type does not exist".
+
+### 204.7 CRITICAL: `event_hooks.gleam` Queries Non-Existent Table
+
+All 5 functions in `event_hooks.gleam` query `psypi_event_hooks` which doesn't exist:
+- `list_all_hooks()` — FAILS
+- `list_active_hooks()` — FAILS
+- `record_trigger()` — FAILS (called by hooks, errors swallowed)
+- `record_error()` — FAILS
+- `set_hook_status()` — FAILS
+
+This means the entire hook tracking system is non-functional. Hook trigger
+counts, error counts, and status are never recorded.
+
+### 204.8 CRITICAL: `code_version.gleam` Uses Non-Existent Functions AND Table
+
+The module has 4 operations:
+1. `save_version()` — calls `save_code_version()` function — **DOESN'T EXIST**
+2. `get_versions()` — calls `get_code_versions()` function — **DOESN'T EXIST**
+3. `restore_version()` — calls `restore_code_version()` function — **DOESN'T EXIST**
+4. `query_versions()` — queries `code_versions` table directly — **DOESN'T EXIST**
+
+Every operation in `code_version.gleam` fails. The entire file version
+backup/restore system is non-functional.
+
+### 204.9 Updated Phantom Table Count
+
+| #   | Phantom Table       | Referenced By                                  | Impact                             |
+| --- | ------------------- | ---------------------------------------------- | ---------------------------------- |
+| 1   | `agent_souls`       | agent_identity, s_db_reader, a_db_reader, seed | All soul reads fail                |
+| 2   | `agent_jobs`        | a_db_reader, s_db_reader, agent_identity       | All job reads fail                 |
+| 3   | `agent_prefixes`    | seed                                           | Seed fails                         |
+| 4   | `notifications`     | monitor                                        | Notification system non-functional |
+| 5   | `psypi_event_hooks` | event_hooks                                    | Hook tracking non-functional       |
+| 6   | `code_versions`     | code_version                                   | File version system non-functional |
+
+**Total: 6 phantom tables** (up from 3 in earlier review)
+
+### 204.10 Updated Critical Findings Count
+
+Adding to the 7 critical findings from §203.2:
+
+| #   | New Critical Finding                                               | Impact                                        |
+| --- | ------------------------------------------------------------------ | --------------------------------------------- |
+| C8  | `request_inter_review` parameter order wrong                       | Data corruption in every review request       |
+| C9  | `agents.gleam` queries non-existent `agent_type` column            | Agent listing tool broken                     |
+| C10 | `event_hooks.gleam` queries non-existent `psypi_event_hooks` table | Hook tracking system non-functional           |
+| C11 | `code_version.gleam` uses non-existent functions and table         | File version system completely non-functional |
+| C12 | `auto_file_issue` uses wrong column names (`type` vs `issue_type`) | Auto-issue filing broken                      |
+
+**Total critical findings: 12** (up from 7)
