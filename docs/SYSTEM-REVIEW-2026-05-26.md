@@ -12779,3 +12779,199 @@ This is dangerous if multiple providers should be active simultaneously.
 | `code_versions`                    | YES           | code_version                             |
 | `learning_insights`                | YES           | areflect                                 |
 | `tasks`                            | YES           | task, a_db_reader, areflect              |
+
+---
+
+## 202. REMAINING MODULE REVIEWS
+
+### 202.1 `agents.gleam` — Agent Listing
+
+**Issues:**
+1. **Queries `agent_identities` table** — This table EXISTS, so the query works.
+2. **`created_at::text` cast present** — Correct.
+3. **`id` decoded as `decode.string` without `::text`** — UUID column, relies on node-postgres convention.
+4. **Only returns 3 columns** — `id, agent_type, created_at`. The `agent_identities` table likely has more columns, but the decoder only reads these 3. This is OK.
+
+### 202.2 `hook_on_tool_result.gleam` — Error Detection
+
+**Issues:**
+1. **Error detection by string matching** — Checks for `"error"`, `"Error:"`, `"execution error"`, `"tool_execution_blocked"`, `"is_error":true` in the result JSON. This is fragile and could match on non-error results.
+2. **`extract_error_msg` is crude JSON parsing** — Splits on `"error"` then on `"`, which could extract the wrong text from complex JSON structures.
+3. **No `monitor_ai.auto_file_issue` call** — Tool errors are notified but never persisted as issues. The `auto_file_issue` function exists in `monitor_ai` but is never called.
+
+### 202.3 `command_listen.gleam` — Direct A-bot Communication
+
+**Issues:**
+1. **Hardcoded system prompt** — The A-bot personality is hardcoded, not read from the `soul` table. Since the soul table query fails anyway (§199), this is actually a reasonable fallback.
+2. **No context from database** — The A-bot is called without any soul, jobs, or project state. It's a bare LLM call with no context about the project.
+3. **`call_monitor` may hang** — No timeout on the LLM call.
+
+### 202.4 `command_reload.gleam` — Extension Reload
+
+**Issues:**
+1. **`ctx_reload` result ignored** — The result of `ctx_reload(ctx)` is discarded with `fn(_)`. If the reload fails, the user is told "Extensions reloaded" anyway.
+
+### 202.5 `seed.gleam` — Database Seeding
+
+**Issues:**
+1. **`seed_agent_souls()` queries `agent_souls`** — Table doesn't exist. Seed fails.
+2. **`seed_agent_prefixes()` queries `agent_prefixes`** — Table doesn't exist. Seed fails.
+3. **Only `seed_psypi_config()` works** — Out of 3 seed operations, 2 fail.
+4. **`agent_souls` INSERT includes `id_prefix`** — The actual `soul` table doesn't have this column.
+5. **Seed is not idempotent in the right way** — Uses `WHERE NOT EXISTS` which is correct, but the table doesn't exist so it always fails.
+
+### 202.6 `file_utils.gleam` — File Operations
+
+**Issues:**
+1. **Uses `simplifile` library** — This is a pure Gleam file I/O library. But it's not used by any other module. The rest of the codebase uses `pi_extension.read_file_sync` for FFI-based file reading.
+2. **Dead code** — No other module imports `file_utils`.
+
+### 202.7 `main.gleam` — Entry Point
+
+**Issues:**
+1. **Only calls `spawn_pi`** — The main function just spawns Pi with the given arguments. No initialization, no health checks, no migration runs.
+2. **`spawn_pi` FFI** — Delegates to `node_ffi.mjs`. If this function fails, there's no error handling.
+
+### 202.8 `a_context_utils.gleam` — Context Parsing
+
+**Issues:**
+1. **`current_time_ms()` returns 0 on error** — Could cause incorrect debounce calculations in `hook_on_agent_end`.
+2. **`parse_context_window` expects specific JSON structure** — If the actual `ctx_get_context_usage_json` returns a different structure, this will fail.
+
+### 202.9 `agent_identity_types.gleam` — Identity Types
+
+**Issues:**
+1. **`semantic_id` uses `is_idle` for A/S prefix** — FUNDAMENTALLY WRONG. `is_idle` means the agent is currently idle, not that it's the A-bot. An idle S-bot gets prefix "A", and a busy A-bot gets prefix "S". The A/S distinction should be based on the agent's ROLE, not its current activity state.
+2. **`resolved_identity` creates placeholder identity** — Most fields are empty or None.
+
+### 202.10 `issue_types.gleam` — Issue Types
+
+**Issues:**
+1. **`Issue` type includes columns that don't exist in DB** — `created_by`, `environment`, `git_branch`, `git_hash`, `reported_by`, `source` are defined in the type but don't exist in the `issues` table.
+2. **`IssueStatus` doesn't include all DB statuses** — The DB has `discovered` status (from `discovered_at` column), but the type only has `Open, InProgress, Resolved, Closed`.
+
+### 202.11 Remaining Module Summary
+
+| Module               | Issues | Most Critical                             |
+| -------------------- | ------ | ----------------------------------------- |
+| agents               | 3      | UUID without `::text` (fragile)           |
+| hook_on_tool_result  | 3      | Error detection by string matching        |
+| command_listen       | 3      | No DB context for A-bot                   |
+| command_reload       | 1      | Reload result ignored                     |
+| seed                 | 5      | 2/3 seed operations fail (phantom tables) |
+| file_utils           | 2      | Dead code                                 |
+| main                 | 2      | No initialization or health checks        |
+| a_context_utils      | 2      | `current_time_ms()` returns 0 on error    |
+| agent_identity_types | 2      | `is_idle` used for A/S prefix (WRONG)     |
+| issue_types          | 2      | Type includes non-existent columns        |
+
+---
+
+## 203. EXECUTIVE SUMMARY — SYSTEM REVIEW FINDINGS
+
+### 203.1 Overall Assessment
+
+The psypi project is in a **critically broken state**. The core A/S agent system
+does not function because Gleam code references database tables that don't exist,
+and the actual database schema has diverged significantly from what the code expects.
+Tests pass because they test pure functions, not the DB/FFI integration layer.
+
+### 203.2 Critical Findings (System-Stopping)
+
+| #   | Finding                                   | Impact                            | Affected Systems             |
+| --- | ----------------------------------------- | --------------------------------- | ---------------------------- |
+| C1  | `agent_souls` table doesn't exist         | All soul reads fail               | A-bot, S-bot, agent_identity |
+| C2  | `agent_jobs` table doesn't exist          | All job reads fail                | A-bot, S-bot                 |
+| C3  | `notifications` table doesn't exist       | No agent notifications            | monitor                      |
+| C4  | `issues` table missing 7 expected columns | All issue CRUD fails              | issue_db, areflect           |
+| C5  | Inter-review score never written          | Commits permanently blocked       | tool_commit                  |
+| C6  | `system_directives` never read            | A→S directive bridge broken       | before_agent_start hook      |
+| C7  | `is_s_still_idle()` always returns True   | A-bot can't detect S-bot activity | agent_end hook               |
+
+### 203.3 High Findings (Feature-Breaking)
+
+| #   | Finding                                     | Impact                                       |
+| --- | ------------------------------------------- | -------------------------------------------- |
+| H1  | JSONB columns decoded as `decode.string`    | task.result, skill.content fail for non-null |
+| H2  | Missing `::text` casts on timestamptz       | Multiple tools fail at runtime               |
+| H3  | `SkillSource` missing `AiBuilt` variant     | skill tools fail for AI-built skills         |
+| H4  | Double debounce (JS timer + manual)         | 20-30 min delays instead of 15 min           |
+| H5  | `semantic_id` uses `is_idle` for A/S prefix | Wrong agent identity assignment              |
+| H6  | `record_review_score` is dead code          | Review scores never persisted                |
+| H7  | `auto_file_issue` is dead code              | Tool errors never filed as issues            |
+| H8  | Dual config system not synchronized         | DB config changes invisible to hooks         |
+| H9  | No connection pooling                       | 50-100ms overhead per query                  |
+| H10 | `seed.gleam` 2/3 operations fail            | Database never properly seeded               |
+
+### 203.4 Medium Findings (Degraded Functionality)
+
+| #   | Finding                                                  | Impact                           |
+| --- | -------------------------------------------------------- | -------------------------------- |
+| M1  | `consult` tool is a stub                                 | No actual A-bot consultation     |
+| M2  | `autonomic-stats` always returns 0                       | Stats are useless                |
+| M3  | `broadcast.stats` missing `::INT` cast                   | Stats query fails                |
+| M4  | `broadcast.list` hardcodes `'sent'` status               | All broadcasts appear as "sent"  |
+| M5  | `memory.search` uses `SELECT *`                          | Fragile against schema changes   |
+| M6  | `hook_on_tool_call` only handles "edit"                  | Other file tools not backed up   |
+| M7  | `hook_on_tool_result` error detection by string matching | False positives/negatives        |
+| M8  | `agent_start` hook only records trigger                  | No functional behavior           |
+| M9  | `command_reload` ignores result                          | False success reported           |
+| M10 | `file_utils.gleam` is dead code                          | Unused module                    |
+| M11 | SQL migration has no tracking table                      | Repeated execution, schema drift |
+| M12 | 77 DB tables vs ~20 in migrations                        | 57 tables from unknown sources   |
+
+### 203.5 Tool Status Summary
+
+| Status    | Count  | Percentage |
+| --------- | ------ | ---------- |
+| OK        | 20     | 57%        |
+| BROKEN    | 8      | 23%        |
+| FRAGILE   | 4      | 11%        |
+| USELESS   | 1      | 3%         |
+| STUB      | 1      | 3%         |
+| **Total** | **34** |            |
+
+### 203.6 Module Status Summary
+
+| Status                    | Module Count |
+| ------------------------- | ------------ |
+| Functional (with issues)  | 8            |
+| Partially broken          | 12           |
+| Completely non-functional | 7            |
+| Dead code                 | 2            |
+
+### 203.7 Root Cause Analysis
+
+The project's problems stem from **three systemic failures**:
+
+1. **Schema-Code Disconnect**: Gleam code was written against a planned schema
+   (`agent_souls`, `agent_jobs`, `notifications`) that was never created. The
+   actual database has different tables (`soul`, `agent_identities`) with
+   different column structures. No verification step exists to catch this.
+
+2. **Test-Reality Gap**: Gleam tests validate pure functions and type conversions
+   but never exercise the DB/FFI integration layer. The tests pass while the
+   system is broken because they don't test the actual failure points.
+
+3. **Silent Failure Pattern**: Every error path returns `Ok(Nil)` or falls back
+   to hardcoded defaults. The system appears to run but produces no useful
+   output. Soul reads fail → fallback personality. Job reads fail → empty list.
+   Review scores never written → commits blocked. No error is surfaced to the
+   user because all failures are swallowed.
+
+### 203.8 Recommended Fix Priority
+
+1. **Fix phantom table references** — Either create the missing tables or update
+   Gleam code to use the actual `soul` table schema. This alone would fix C1-C4.
+
+2. **Fix inter-review score writing** — Connect `record_review_score` to the
+   A-bot orchestrator. This would fix C5 and unblock commits.
+
+3. **Add `::text` casts everywhere** — Systematic fix for all timestamptz and
+   JSONB columns. This would fix H1-H2.
+
+4. **Add integration tests** — Test actual DB queries against a real database,
+   not just pure function unit tests.
+
+5. **Fix `is_idle` vs role distinction** — The A/S prefix should be based on
+   agent role, not current idle state.
