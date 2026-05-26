@@ -5315,3 +5315,648 @@ reads UUID columns from PostgreSQL is affected.
 10. **`session_start` hook passes object as string** (§98a) — `ctx.model`
     is an object, but `record_current_model` expects a string. Activity
     log records `[object Object]` as the model name.
+
+---
+
+## 116. SQL MIGRATION ANALYSIS
+
+### 116a. Migration Numbering Collision — Two Files Share `025`
+
+Files:
+- [025_add_tasks_project_id.sql](src/migrations/025_add_tasks_project_id.sql)
+- [025_drop_system_directives.sql](src/migrations/025_drop_system_directives.sql)
+
+Both have migration number `025`. `simple_migrate.gleam` sorts by filename
+and runs sequentially. The order depends on alphabetical sorting:
+`025_add...` < `025_drop...`, so `add_tasks_project_id` runs first.
+
+But this is fragile and confusing. If `025_drop_system_directives` runs
+before `025_add_tasks_project_id` in some environments (e.g., different
+filesystem sort order), the results could differ.
+
+### 116b. `simple_migrate` — No Migration Tracking
+
+File: [simple_migrate.gleam](src/simple_migrate.gleam)
+
+The migration system has no tracking table. Every time `run_all_migrations()`
+is called, ALL migrations are re-executed. This means:
+
+1. `CREATE TABLE IF NOT EXISTS` — safe, but wasteful
+2. `INSERT INTO ... ON CONFLICT DO NOTHING` — safe, but wasteful
+3. `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — safe, but wasteful
+4. `CREATE INDEX IF NOT EXISTS` — safe, but wasteful
+5. `INSERT INTO agent_souls ...` in migration 008 — **DANGEROUS**: The
+   `agent_souls` INSERT has no `ON CONFLICT` clause for the soul content.
+   The `UNIQUE` constraint on `id_prefix` prevents duplicate A/S entries,
+   but if the soul content changes in the migration file, the old content
+   remains in the database.
+
+### 116c. `split_statements` — Naive SQL Splitting
+
+File: [simple_migrate.gleam:21-29](src/simple_migrate.gleam#L21-L29)
+
+```gleam
+fn split_statements(sql: String) -> List(String) {
+  sql
+  |> string.split(";\n")
+  |> list.map(fn(s) { string.trim(s) })
+  |> list.filter(fn(s) { ... })
+}
+```
+
+The function splits on `;\n`. This breaks if:
+1. A string literal contains `;\n` (e.g., in soul content)
+2. A PL/pgSQL function body contains `;\n` (e.g., `save_code_version`)
+3. A comment line ends with `;`
+
+The migration `008_agent_soul.sql` contains multi-line string literals
+with semicolons in the soul content. The `014_code_versions.sql` contains
+PL/pgSQL functions with `$$ ... $$` delimiters. These WILL be split
+incorrectly.
+
+**This is a CRITICAL bug**: Running `simple_migrate` on a fresh database
+will fail because the SQL statements are split mid-function or mid-string.
+
+### 116d. `strip_comment_line` — Only Strips Full-Line Comments
+
+File: [simple_migrate.gleam:31-35](src/simple_migrate.gleam#L31-L35)
+
+```gleam
+fn strip_comment_line(stmt: String) -> String {
+  case string.starts_with(stmt, "--") {
+    True -> ""
+    False -> stmt
+  }
+}
+```
+
+This only strips comments that are the ENTIRE statement. It does not strip
+inline comments like `SELECT 1 -- comment`. Since `split_statements` splits
+on `;\n`, a comment-only "statement" (after splitting) will be stripped.
+But inline comments within a statement will be sent to PostgreSQL as-is,
+which is fine (PostgreSQL handles them).
+
+### 116e. `seed.gleam` — Only Seeds 3 Tables
+
+File: [seed.gleam](src/seed.gleam)
+
+The seed module only seeds:
+1. `agent_souls` — with minimal content (`'# A'` and `'# S'`)
+2. `psypi_config` — `monitor_debounce_ms` and `last_wakeup`
+3. `agent_prefixes` — A, S, G prefixes
+
+Missing seed data:
+- `projects` — No row for the hardcoded UUID
+- `agent_identities` — No initial identity
+- `provider_api_keys` — No API key entries
+- `agent_jobs` — Seeded in migration 009, but `seed.gleam` doesn't cover it
+- `psypi_event_hooks` — Seeded in migration 003, but `seed.gleam` doesn't cover it
+
+The `agent_souls` seed uses minimal content (`'# A'`), while the migration
+008 uses full soul content. If `seed.gleam` runs AFTER migration 008, the
+`WHERE NOT EXISTS` check prevents overwriting. But if `seed.gleam` runs
+FIRST, the full soul content from migration 008 will be inserted. This
+ordering dependency is fragile.
+
+### 116f. Migration 005 vs 025 — `system_directives` Created Then Dropped
+
+Migration 005 creates `system_directives` table. Migration 025 drops it.
+But if any Gleam code still references `system_directives`, it will fail.
+The `a_db_reader.gleam` and `a_prompt_builder.gleam` should be checked
+for any remaining references.
+
+### 116g. Migration 010 — `tasks.status` CHECK Allows Both Cases
+
+File: [010_create_tasks_table.sql](src/migrations/010_create_tasks_table.sql)
+
+```sql
+status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN (
+  'PENDING', 'RUNNING', 'COMPLETED', 'FAILED',
+  'pending', 'running', 'completed', 'failed',
+  'FAKE_COMPLETE'))
+```
+
+The CHECK constraint allows both uppercase and lowercase status values.
+But the Gleam code uses uppercase (`'COMPLETED'`, `'FAILED'`) for writes
+and the decoder expects specific casing. This inconsistency means:
+- `task.gleam:complete()` writes `'COMPLETED'`
+- `monitor_ai.gleam` queries `WHERE status = 'FAILED'`
+- But nothing prevents lowercase values from being inserted
+
+### 116h. Migration 020 — `skills.source` Missing `'ai-built'`
+
+File: [020_skills.sql](src/migrations/020_skills.sql)
+
+```sql
+source TEXT NOT NULL DEFAULT 'local' CHECK (source IN (
+  'clawhub', 'local', 'generated', 'imported'))
+```
+
+The CHECK constraint does NOT include `'ai-built'`. If `skill.gleam`
+tries to insert a row with `source='ai-built'`, PostgreSQL will reject
+it with a constraint violation.
+
+Conversely, `skill.gleam`'s `string_to_source` function doesn't handle
+`'generated'` or `'imported'` either — it only handles `'clawhub'`,
+`'local'`, and `'ai-built'`.
+
+This is a **bidirectional mismatch**: the database rejects what Gleam
+tries to insert, and Gleam can't decode what the database allows.
+
+### 116i. Migration 022 — `project_communications.priority` is TEXT, Not INT
+
+File: [022_project_communications.sql](src/migrations/022_project_communications.sql)
+
+```sql
+priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN (
+  'low', 'normal', 'high', 'critical'))
+```
+
+But `broadcast.gleam:stats()` queries:
+```sql
+COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+```
+
+`priority` is TEXT. `priority >= 2` compares a string with an integer.
+In PostgreSQL, this will either:
+- Cast `2` to text and do string comparison (`'high' >= '2'` = true, `'low' >= '2'` = false)
+- Throw a type error
+
+Neither produces the intended result (counting high/critical priority items).
+
+### 116j. Migration 024 — `inter_reviews` Missing `branch` and `context` Columns
+
+File: [024_inter_reviews.sql](src/migrations/024_inter_reviews.sql)
+
+```sql
+CREATE TABLE IF NOT EXISTS inter_reviews (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID,
+    status TEXT NOT NULL DEFAULT 'requested',
+    summary TEXT,
+    overall_score INTEGER,
+    requested_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+```
+
+But `inter_review.gleam:request_review()` inserts `branch` and `context`
+columns that don't exist in the migration. If the migration was run on a
+fresh database, these columns won't exist and the INSERT will fail.
+
+Wait — let me verify this against the live database. The columns may have
+been added manually or via a missing migration.
+
+---
+
+## 117. INTER-REVIEW MODULE DEEP ANALYSIS
+
+### 117a. `inter_review.gleam:request_review()` — INSERT Into Non-Existent Columns
+
+The `request_review()` function inserts `branch` and `context` columns
+that are not in migration 024. If these columns were added manually,
+there's no migration tracking them. On a fresh database setup, the
+INSERT will fail.
+
+### 117b. `inter_review.gleam` — No `complete_review()` Function
+
+The `inter_reviews` table has `status IN ('requested', 'in_progress',
+'completed', 'failed')`, but there is no Gleam function that transitions
+a review from `'requested'` to `'completed'`. The `record_review_score()`
+in `monitor_ai.gleam` only updates `overall_score`, not `status`.
+
+This means:
+1. A-bot reviews the code and produces a score
+2. `record_review_score()` writes the score but leaves `status='requested'`
+3. `tool_commit.gleam` checks `overall_score` (which may now be set)
+4. But `status` is still `'requested'`, not `'completed'`
+
+If `tool_commit` only checks `overall_score >= 50`, this works. But if
+any code checks `status = 'completed'`, it will never find completed
+reviews.
+
+### 117c. `inter_review.gleam` — `context` Column Double-Encoded JSON
+
+The `request_review()` function receives `context` as a JSON string and
+inserts it as-is. But if the caller already serialized the context to
+JSON, and the database column is TEXT (not JSONB), the value is stored
+as a JSON string. When read back, it's a string containing JSON — which
+is correct for TEXT storage.
+
+However, if the column were JSONB, PostgreSQL would reject a
+double-encoded JSON string. And if any code tries to parse the `context`
+field as a nested object, it would need to JSON.parse twice.
+
+---
+
+## 118. HOOK MODULE DEEP ANALYSIS
+
+### 118a. `hook_on_before_agent_start` — Soul Fallback Is Silent
+
+File: [hook_on_before_agent_start.gleam:14-27](src/hook_on_before_agent_start.gleam#L14-L27)
+
+```gleam
+Error(e) ->
+  promise.resolve(Ok(
+    "You are the Somatic Agentbot (S-agentbot). ..."
+    <> "[SOUL LOAD FAILED: " <> e <> "]"
+  ))
+```
+
+When soul loading fails, the hook returns `Ok(...)` with a fallback prompt.
+The error is embedded in the prompt text but NOT logged to the database
+or event_hooks table. The A-bot has no way to know that S's soul failed
+to load.
+
+### 118b. `hook_on_agent_start` — Does Nothing Useful
+
+File: [hook_on_agent_start.gleam](src/hook_on_agent_start.gleam)
+
+```gleam
+pub fn on_agent_start() -> promise.Promise(Result(Nil, String)) {
+  promise.map(event_hooks.record_trigger("agent_start"), fn(r) {
+    result.map_error(r, fn(e) { string.inspect(e) })
+  })
+}
+```
+
+This hook only records a trigger in `psypi_event_hooks`. It doesn't:
+- Start a session in `agent_sessions`
+- Record the agent identity
+- Notify A-bot that S is starting
+
+The `agent_sessions` table is never populated by any hook, making
+`a_db_reader.is_s_still_idle()` always return `True` (count of 0 sessions).
+
+### 118c. `hook_on_tool_result` — Synchronous Return Type
+
+File: [hook_on_tool_result.gleam](src/hook_on_tool_result.gleam)
+
+```gleam
+pub fn on_tool_result(
+  result_json: String,
+  tool_name: String,
+  pi: a,
+) -> Result(Nil, String) {
+```
+
+This hook returns `Result(Nil, String)` synchronously, not wrapped in
+`promise.Promise`. But the extension generator registers it as an event
+hook that returns a Promise. If the Pi SDK expects an async function,
+returning a synchronous `Result` may cause issues.
+
+### 118d. `hook_on_tool_call` — Only Handles `edit` Tool
+
+File: [hook_on_tool_call.gleam:17-18](src/hook_on_tool_call.gleam#L17-L18)
+
+```gleam
+case tool_name == "edit" {
+  False -> promise.resolve(Ok(Nil))
+  True -> {
+```
+
+The auto-backup only fires for the `edit` tool. Other write tools like
+`write` and `bash` are not backed up. If S uses `write` to create a new
+file, there's no auto-backup.
+
+### 118e. `hook_on_agent_end` — `now_ms()` Type Mismatch
+
+File: [hook_on_agent_end.gleam:42](src/hook_on_agent_end.gleam#L42)
+
+```gleam
+let now = now_ms()
+```
+
+This calls `pi_extension.now_ms()` which returns `Int` (per the Gleam
+declaration). But `pi_extension_ffi.mjs` returns `Date.now()` (a plain
+number), which works. However, `a_context_utils.now_ms()` returns
+`Result(Int, String)` from `node_ffi.mjs` which returns `Ok(Date.now())`.
+
+If `hook_on_agent_end` uses `pi_extension.now_ms()` and another module
+uses `a_context_utils.now_ms()`, they get different types. The code in
+`hook_on_agent_end` uses `now_ms()` directly for arithmetic
+(`elapsed = now - idle_since`), which works only if `now_ms()` returns
+an `Int`, not a `Result`.
+
+---
+
+## 119. COMMAND MODULE DEEP ANALYSIS
+
+### 119a. `command_listen.gleam` — Hardcoded System Prompt
+
+File: [command_listen.gleam:17-21](src/command_listen.gleam#L17-L21)
+
+```gleam
+let system_prompt =
+  "You are the Autonomic Agentbot (A-agentbot). ..."
+```
+
+The system prompt is hardcoded instead of being loaded from the database
+(`agent_souls` table). This means:
+1. Any changes to the soul content in the database are ignored
+2. The prompt doesn't include A's jobs or project state
+3. It's a simplified version of the full A prompt
+
+### 119b. `command_reload.gleam` — Swallows Errors
+
+File: [command_reload.gleam:8-10](src/command_reload.gleam#L8-L10)
+
+```gleam
+promise.map(ctx_reload(ctx), fn(_) {
+  notify_info(ctx, "Extensions reloaded. Monitor updated.")
+  Ok("Extensions reloaded.")
+})
+```
+
+The `fn(_)` ignores the result of `ctx_reload()`. If the reload fails,
+the user still sees "Extensions reloaded." This is misleading.
+
+---
+
+## 120. SYSTEM PROMPT COMPOSITION BUGS
+
+### 120a. `compose()` Ignores Budget
+
+File: [system_prompt_types.gleam](src/system_prompt_types.gleam)
+
+```gleam
+pub fn compose(comp: PromptComposition) -> String {
+  let sorted = list.sort(comp.components, compare_by_priority)
+  sorted
+  |> list.map(fn(c) { ... })
+  |> string.join("\n\n")
+}
+```
+
+The `compose()` function includes ALL components regardless of budget.
+There's a separate `compose_within_budget()` function that respects the
+budget, but `a_prompt_builder.gleam` calls `compose()`, not
+`compose_within_budget()`.
+
+This means the token budget is calculated but never enforced. The system
+prompt could exceed the context window.
+
+### 120b. `estimate_tokens` — Naive Character-Based Estimation
+
+```gleam
+pub fn estimate_tokens(text: String) -> Int {
+  string.length(text) / 4 + 1
+}
+```
+
+This estimates 1 token per 4 characters. For English text, the actual
+ratio is closer to 1 token per 4 characters (for GPT-style tokenizers).
+But for code with many short identifiers, the ratio is much higher
+(closer to 1:2). This underestimates token count for code-heavy prompts.
+
+---
+
+## 121. MONITOR_AI DEEP ANALYSIS
+
+### 121a. `auto_file_issue()` — Uses `type` Instead of `issue_type`
+
+File: [monitor_ai.gleam:562-564](src/monitor_ai.gleam#L562-L564)
+
+```sql
+INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+```
+
+The column is `issue_type` in the database (migration 015), but the
+INSERT uses `type`. This will fail with:
+```
+ERROR: column "type" of relation "issues" does not exist
+```
+
+### 121b. `auto_file_issue()` — Missing `project_id` Column
+
+The INSERT also doesn't include `project_id`, which has no default value
+in the migration (it's nullable but should be set). This will insert
+rows with `project_id = NULL`, which won't be found by the default
+filter in `issue_db.list()`.
+
+### 121c. `check_safety()` — Wrong Threshold Logic
+
+File: [monitor_ai.gleam:410-415](src/monitor_ai.gleam#L410-L415)
+
+```gleam
+let critical_threshold = 3
+let critical_issues = health.open_issues
+let should_block = critical_issues > critical_threshold
+```
+
+The function uses `open_issues` (ALL open issues, not just critical ones)
+and compares against a threshold of 3. The variable name `critical_issues`
+is misleading — it's actually `open_issues`. The safety check blocks
+when there are more than 3 open issues of ANY severity, not just critical.
+
+### 121d. `get_work_suggestions()` — `skills WHERE status = 'PENDING'`
+
+File: [monitor_ai.gleam:354](src/monitor_ai.gleam#L354)
+
+```sql
+FROM skills WHERE status = 'PENDING'
+```
+
+But the migration 020 defines the CHECK constraint as:
+```sql
+CHECK (status IN ('pending', 'approved', 'rejected', 'blocked', 'installed', 'uninstalled'))
+```
+
+The CHECK allows lowercase `'pending'`, but the query uses uppercase
+`'PENDING'`. This is case-sensitive in PostgreSQL. The query will return
+0 rows if skills have lowercase status values.
+
+### 121e. `prepare_context()` — UNION ALL Between `memory` and `code_versions`
+
+File: [monitor_ai.gleam:107-117](src/monitor_ai.gleam#L107-L117)
+
+```sql
+SELECT 'learning' as type_, content, saved_at::text 
+FROM memory 
+WHERE agent_id = $1 AND source = 'learn'
+UNION ALL
+SELECT 'backup' as type_, file_path as content, saved_at::text
+FROM code_versions
+WHERE saved_by = $1
+ORDER BY saved_at DESC
+```
+
+The `UNION ALL` combines rows from `memory` and `code_versions` but:
+1. The `content` column from `memory` is the actual content text
+2. The `file_path` from `code_versions` is aliased as `content`
+3. These are semantically different things being mixed in the same column
+
+The decoder (`context_row_decoder`) treats them identically, producing
+output like `learning: some insight text` and `backup: /path/to/file`.
+This is confusing for the LLM.
+
+---
+
+## 122. A_DB_READER DEEP ANALYSIS
+
+### 122a. `is_s_still_idle()` — Missing `agent_type = 'S'` Filter
+
+File: [a_db_reader.gleam:31-34](src/a_db_reader.gleam#L31-L34)
+
+```sql
+SELECT COUNT(*) as cnt FROM agent_sessions 
+WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+
+This counts ALL alive sessions, not just S-bot sessions. If A-bot has
+an active session, the count will be > 0 and `is_s_still_idle` returns
+`False`, even though S is idle.
+
+But since `agent_sessions` is never populated (see §118b), this function
+always returns `True` (count = 0). The bug is latent — it will manifest
+once `agent_sessions` is actually used.
+
+### 122b. `read_soul_from_db()` — Concatenates Soul Content
+
+File: [a_db_reader.gleam:60+](src/a_db_reader.gleam#L60)
+
+The function reads the `content` column from `agent_souls` where
+`id_prefix = 'A'`. But the A-bot's soul content in the database is a
+full markdown document (see migration 008). The function returns this
+as a single string, which is then used as a system prompt component.
+
+The issue: if the soul content in the database is outdated (e.g., the
+migration was run with an older version), the A-bot will use stale
+instructions. There's no mechanism to update the soul content from the
+codebase.
+
+### 122c. `read_active_tasks()` — References `is_stuck` Column
+
+File: [a_db_reader.gleam:114](src/a_db_reader.gleam#L114)
+
+```sql
+SELECT id::text, title, status, priority, is_stuck
+FROM tasks WHERE status NOT IN ('COMPLETED','FAILED','FAKE_COMPLETE')
+```
+
+The `is_stuck` column doesn't exist in migration 010. If it was added
+manually, there's no migration for it. On a fresh database, this query
+will fail.
+
+---
+
+## 123. REVISED BUG COUNT — FINAL v4
+
+| Category                           | Count                                                                                                                 |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `::text` cast missing (UUID+tstz)  | 28 (comprehensive audit, see §113)                                                                                    |
+| Missing NOT NULL columns in INSERT | 10 (+2: auto_file_issue missing project_id, inter_review missing columns from migration)                              |
+| Wrong column names                 | 4 (+1: auto_file_issue `type`→`issue_type`)                                                                           |
+| Decoder mismatch                   | 5                                                                                                                     |
+| Missing type variants              | 2 (+1: skill source `generated`/`imported` not in Gleam, `ai-built` not in DB CHECK)                                  |
+| Logic bugs                         | 11 (+2: check_safety wrong variable, get_work_suggestions case mismatch)                                              |
+| FFI issues                         | 8                                                                                                                     |
+| Config system fragmentation        | 2                                                                                                                     |
+| Seed/bootstrap gaps                | 8 (+1: seed.gleam uses minimal soul content vs migration full content)                                                |
+| Dead code                          | 3                                                                                                                     |
+| Stub implementations               | 1                                                                                                                     |
+| Race conditions / concurrency      | 4                                                                                                                     |
+| Extension generation bugs          | 6                                                                                                                     |
+| A/S lifecycle logic failures       | 7 (+1: agent_start doesn't create session, so is_s_still_idle always True)                                            |
+| Tool execution flow bugs           | 4                                                                                                                     |
+| Hook module bugs                   | 7 (+2: hook_on_tool_result sync vs async, hook_on_agent_end now_ms type mismatch)                                     |
+| Command module bugs                | 2                                                                                                                     |
+| DB module bugs                     | 4                                                                                                                     |
+| A/S DB reader bugs                 | 5 (+1: read_active_tasks references is_stuck column not in migration)                                                 |
+| Monitor AI bugs                    | 6 (+2: auto_file_issue wrong column + missing project_id, prepare_context semantic mismatch)                          |
+| Event hooks bugs                   | 3                                                                                                                     |
+| Node PG FFI bugs                   | 1                                                                                                                     |
+| Inter-review bugs                  | 5 (+1: missing migration for branch/context columns)                                                                  |
+| Tool commit bugs                   | 2                                                                                                                     |
+| Tool consult bugs                  | 1                                                                                                                     |
+| Code version bugs                  | 1                                                                                                                     |
+| Meeting bugs                       | 2                                                                                                                     |
+| Agent identity bugs                | 3                                                                                                                     |
+| Task bugs                          | 3                                                                                                                     |
+| Issue bugs                         | 3                                                                                                                     |
+| Broadcast bugs                     | 4                                                                                                                     |
+| Agents bugs                        | 2                                                                                                                     |
+| Stats bugs                         | 3                                                                                                                     |
+| Monitor module bugs                | 3                                                                                                                     |
+| A orchestrator bugs                | 2                                                                                                                     |
+| A prompt builder bugs              | 2                                                                                                                     |
+| Simple migrate bugs                | 4 (+2: migration numbering collision, split_statements breaks PL/pgSQL)                                               |
+| System prompt types bugs           | 2                                                                                                                     |
+| A context utils bugs               | 2                                                                                                                     |
+| Extension generator bugs           | 2                                                                                                                     |
+| FFI node_ffi.mjs bugs              | 3                                                                                                                     |
+| FFI pi_extension_ffi.mjs bugs      | 5                                                                                                                     |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                                                                                     |
+| FFI time_utils_ffi.mjs bugs        | 1                                                                                                                     |
+| Migration schema bugs              | 4 (numbering collision, skills source CHECK mismatch, tasks status case inconsistency, inter_reviews missing columns) |
+| **TOTAL CONFIRMED BUGS**           | **155**                                                                                                               |
+
+---
+
+## 124. SYSTEMIC ROOT CAUSES
+
+### 124a. No Integration Testing
+
+Gleam unit tests validate pure functions (decoders, type conversions) but
+never test against a real database or Pi SDK. The `::text` cast bugs,
+column name mismatches, and decoder mismatches would all be caught by
+integration tests that run a query and decode the result.
+
+### 124b. No Schema Validation
+
+There is no mechanism to verify that Gleam code matches the database
+schema. The Squirrel library (type-safe SQL query builder for Gleam)
+was mentioned in the refers directory but is not used. Without it, every
+SQL query is a string that can drift from the schema.
+
+### 124c. No Migration Tracking
+
+`simple_migrate.gleam` re-runs all migrations every time. There is no
+`schema_migrations` table to track which migrations have been applied.
+This means:
+1. Migrations must be idempotent (all use `IF NOT EXISTS`)
+2. No way to add destructive changes (ALTER COLUMN, DROP COLUMN)
+3. No way to know the current schema version
+4. Performance waste on every startup
+
+### 124d. Dual Config Systems
+
+The `psypi_config` database table and the in-memory `_configStore` in
+`pi_extension_ffi.mjs` are never synchronized. The database has
+`monitor_debounce_ms = 300000` (5 minutes), but the in-memory store
+may have a different value. The debounce logic in `hook_on_agent_end`
+reads from the in-memory store, not the database.
+
+### 124e. No Error Propagation
+
+Many functions swallow errors and return `Ok(Nil)` or `Ok("...")`:
+- `hook_on_before_agent_start` returns Ok with fallback prompt on soul load failure
+- `command_reload` returns Ok on reload failure
+- `a_db_reader.is_s_still_idle` returns True on decode failure
+- `monitor_ai.analyze_and_act` returns Ok with "unknown" action on decode failure
+- `event_hooks.record_trigger` returns Ok even if UPDATE matches 0 rows
+
+This makes debugging extremely difficult because errors are silently
+swallowed and the system appears to work while producing wrong results.
+
+### 124f. No Type-Safe Database Access
+
+Every SQL query is a raw string with no compile-time verification.
+Column names, table names, and parameter types are all unchecked until
+runtime. This is the root cause of the `type` vs `issue_type`,
+`status` vs `issue_status`, and missing `::text` cast bugs.
+
+### 124g. FFI Boundary Is Unvalidated
+
+The Gleam-to-JavaScript FFI boundary has no validation layer. Functions
+like `gleamValueToJson`, `unwrapGleamResult`, and `call_monitor` make
+assumptions about JavaScript object shapes that may not hold. When they
+fail, they fail silently or produce garbage output.
+
+### 124h. Circular Dependency Between Config Systems
+
+The debounce value is stored in `psypi_config` (database) but read from
+`_configStore` (in-memory). The in-memory store is populated by
+`set_config()` calls, but `psypi_config` is populated by `seed.gleam`
+and migrations. Neither system reads from the other, creating a
+configuration gap.
