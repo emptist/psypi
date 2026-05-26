@@ -6868,3 +6868,427 @@ be a problem if the caller tries to use the `saved_at` field.
 | FFI time_utils_ffi.mjs bugs        | 1                                                                                            |
 | Migration schema bugs              | 5                                                                                            |
 | **TOTAL CONFIRMED BUGS**           | **189**                                                                                      |
+
+---
+
+## 147. CROSS-MODULE FLOW ANALYSIS — A/S LIFECYCLE AS RUNNING LOGIC CHAIN
+
+This section traces the complete A/S agent lifecycle from session
+start to A-bot wake-up, identifying every point where bugs compound
+to break the intended behavior.
+
+### 147a. Session Start Flow
+
+```
+Pi TUI starts → extension.js loaded → hooks registered
+     ↓
+session_start hook fires → event_hooks.record_trigger("session_start")
+     ↓
+before_agent_start hook fires → hook_on_before_agent_start.gleam
+     ↓
+  1. event_hooks.record_trigger("before_agent_start") — records trigger
+  2. s_db_reader.read_s_soul_from_db() — loads S-bot soul
+     ↓
+  Soul content returned → injected into S-bot's system prompt
+```
+
+**Bugs in this flow:**
+- `session_start` hook only records trigger, doesn't create
+  `agent_sessions` entry. No session tracking exists.
+- `before_agent_start` loads soul but doesn't create `agent_sessions`
+  entry either. The `is_s_still_idle()` query relies on
+  `agent_sessions` but nothing populates it.
+
+### 147b. S-bot Working Flow
+
+```
+S-bot receives prompt → executes tools → tool_call hook fires
+     ↓
+hook_on_tool_call.gleam → if tool is "edit", auto-backup file
+     ↓
+tool_result hook fires → hook_on_tool_result.gleam
+     ↓
+  If result contains error → notify A-bot via pi_send_message
+  If result is OK → do nothing
+```
+
+**Bugs in this flow:**
+- `hook_on_tool_result` checks for error strings but doesn't record
+  the tool result in any database table. No audit trail.
+- `pi_send_message` sends message with type "autonomic-error" but
+  nobody listens for this message type. The A-bot only wakes up on
+  `agent_end` debounce.
+
+### 147c. S-bot Finishes Turn → agent_end Hook
+
+```
+S-bot finishes → agent_end hook fires → hook_on_agent_end.gleam
+     ↓
+  1. Check ctx_is_idle(ctx) — is S still idle?
+  2. Check ctx_has_pending_messages(ctx) — any pending messages?
+  3. If idle and no pending messages → check idle_since
+     ↓
+  If first time idle → record idle_since = now_ms()
+  If idle_since exists → check debounce elapsed
+     ↓
+  Debounce config: get_config("monitor_debounce_ms")
+  → Returns null (in-memory store empty)
+  → Falls back to hardcoded 300000ms (5 minutes)
+  → Database has 900000ms (15 minutes) — IGNORED
+     ↓
+  If debounce satisfied → coordinate_with_s()
+     ↓
+  1. Check ctx_is_idle again (race condition check)
+  2. Check a_db_reader.is_s_still_idle()
+     ↓
+  is_s_still_idle() → COUNT(*) from agent_sessions
+  → COUNT returns bigint as string → decode.int fails
+  → Error(_) -> Ok(True) — ALWAYS returns True
+     ↓
+  coordinate_when_idle() → parse context window → run A workflow
+```
+
+**Bugs in this flow:**
+1. `get_config("monitor_debounce_ms")` reads from in-memory store,
+   not database. Database value (15min) is never used.
+2. `is_s_still_idle()` ALWAYS returns True due to COUNT(*) decode
+   failure. The A-bot will wake up even if S is still working.
+3. Even if COUNT(*) decode worked, the query doesn't filter by
+   agent type — it counts ALL sessions, not just S-bot.
+4. No `agent_sessions` entries are ever created, so COUNT(*) would
+   return 0 even if sessions were being tracked.
+
+### 147d. A-bot Wake-up Flow
+
+```
+a_orchestrator.run_a_workflow()
+     ↓
+  1. a_db_reader.read_soul_from_db() — loads A-bot soul
+     ↓
+  2. a_db_reader.read_a_jobs_from_db() — loads A-bot jobs
+     ↓
+  3. a_db_reader.read_project_state_from_db()
+     → read_active_tasks() — tasks with status NOT IN (COMPLETED,FAILED,FAKE_COMPLETE)
+     → read_open_issues() — issues with status NOT IN (resolved,closed)
+     ↓
+  4. a_prompt_builder.build_system_prompt() — assembles prompt
+     → Uses compose() NOT compose_within_budget() — no budget enforcement
+     ↓
+  5. a_prompt_builder.build_user_prompt() — user message
+     → Detects inter-review request by string matching
+     → Truncates entries_json to 2000/4000 chars
+     ↓
+  6. call_monitor(ctx, user_prompt, system_prompt) — calls LLM
+     ↓
+  7. handle_monitor_response() — processes LLM response
+     → If S is still idle → pi_send_message("autonomic-wakeup", response)
+     → If S is busy → abort
+```
+
+**Bugs in this flow:**
+1. `read_active_tasks()` uses `decode.int` for `priority` — works
+   (INTEGER type), but `is_stuck` uses `decode.bool` — works (BOOLEAN).
+2. `read_open_issues()` doesn't cast `created_at` in SELECT, but
+   it's only in ORDER BY, so no decode issue.
+3. `build_system_prompt()` uses `compose()` which doesn't enforce
+   budget. If soul + jobs + context exceed token limit, the prompt
+   will be truncated by the LLM provider, not by the code.
+4. `build_user_prompt()` detects inter-review by string matching
+   (`entries_json` contains "inter-review" etc.). This is fragile —
+   it could false-positive on casual mentions.
+5. `call_monitor()` is an FFI function that calls the Pi SDK's
+   model inference. If the model is not configured, it will fail
+   silently.
+
+### 147e. Inter-Review Flow (Broken)
+
+```
+S-bot calls psypi-commit tool → tool_commit.on_commit()
+     ↓
+  Phase 1: No review_id → trigger_review()
+     ↓
+  1. Get git diff → exec_sync("git diff && git diff --cached")
+  2. Get file list → exec_sync("git diff --name-only")
+  3. Call inter_review.request_review(None, None, "autonomic", context)
+     ↓
+  request_review() → calls request_inter_review() SQL function
+     ↓
+  SQL function creates inter_reviews row with:
+    status='pending', overall_score=NULL
+     ↓
+  Returns review_id to S-bot
+     ↓
+  S-bot calls psypi-commit again with review_id → commit_if_reviewed()
+     ↓
+  get_review_details() → SELECT from inter_reviews
+  → requested_at NOT cast to ::text → DecodeError
+     ↓
+  EVEN IF decode worked:
+  overall_score is NULL → "Review not yet complete"
+     ↓
+  WHO UPDATES overall_score? Nobody.
+  → respond_to_inter_review() SQL function exists but is never called
+  → overall_score remains NULL FOREVER
+  → Commits are PERMANENTLY BLOCKED
+```
+
+**This is the most critical broken flow in the system.** The
+inter-review mechanism is completely non-functional because:
+1. `requested_at` TIMESTAMPTZ not cast to `::text` → decode fails
+2. Even if decode worked, `overall_score` is never updated
+3. The SQL functions to update it exist but are never called
+4. `git add` is never called before `git commit`
+
+### 147f. Memory Save Flow (Broken)
+
+```
+S-bot calls psypi-learn-save → learning.save()
+     ↓
+  1. normalize_tags() — converts tags to PG array format
+  2. save_learning() → INSERT INTO memory ... RETURNING id
+     ↓
+  3. Decode result with memory_decoder() — expects 7 fields
+  4. But RETURNING id only returns 1 field
+  5. DecodeError → "Failed to decode memory"
+     ↓
+  Learning is SAVED to database but function returns ERROR
+  → Caller thinks save failed, may retry
+  → Duplicate entries in memory table
+```
+
+### 147g. Memory Search Flow (Broken)
+
+```
+S-bot calls psypi-memory-search → memory.search()
+     ↓
+  1. SELECT * FROM memory WHERE content ILIKE $1
+  2. Returns all columns including created_at (TIMESTAMPTZ)
+  3. Decode with memory_decoder() — expects created_at as string
+  4. node-postgres returns created_at as Date object
+  5. decode.string fails → row silently dropped
+     ↓
+  ALL rows fail to decode → search returns empty list
+  → Memory appears empty even though data exists
+```
+
+### 147h. Task Get Flow (Broken)
+
+```
+S-bot calls psypi-task-get → task.get()
+     ↓
+  SELECT id, title, description, status, priority, result, error,
+         retry_count, created_at::text, updated_at::text,
+         completed_at::text, created_by, source
+  FROM tasks WHERE id = $1
+     ↓
+  Missing from SELECT: project_id
+  task_decoder() expects project_id → DecodeError
+     ↓
+  task.get() ALWAYS returns DecodeError
+  → Individual task lookup is completely broken
+```
+
+### 147i. Skill Get Flow (Broken for JSONB data)
+
+```
+S-bot calls psypi-skill-get → skill.get()
+     ↓
+  SELECT ... created_at::text, content, reference_list
+  FROM skills WHERE name = $1
+     ↓
+  content and reference_list are JSONB, not cast to ::text
+  → node-postgres returns JavaScript objects
+  → decode.optional(decode.string) fails for non-null values
+     ↓
+  Skills with content or reference_list data fail to decode
+  → Only skills with NULL content/reference_list can be retrieved
+```
+
+### 147j. Issue List Flow (Filter Values Swapped)
+
+```
+S-bot calls psypi-issues with status="open" AND severity="high"
+     ↓
+  issue_db.list() → sql_with_filters() → build_where()
+     ↓
+  Build conditions by prepending:
+    status first: conditions=["status=$1"], params=["open"]
+    severity next: conditions=["severity=$2","status=$1"], params=["high","open"]
+     ↓
+  Reverse conditions: ["status=$1","severity=$2"]
+  But params NOT reversed: ["high","open"]
+     ↓
+  $1 = "high" (intended as severity)
+  $2 = "open" (intended as status)
+     ↓
+  Query: WHERE status='high' AND severity='open'
+  → Returns WRONG results (or empty if no matches)
+```
+
+---
+
+## 148. COMPOUND BUG ANALYSIS — CASCADING FAILURES
+
+### 148a. The "Always Idle" Cascade
+
+```
+is_s_still_idle() always returns True
+  → A-bot wakes up on every debounce timeout
+  → A-bot sends wake-up messages even when S is working
+  → S receives unwanted interruptions
+  → S's context gets polluted with A-bot messages
+  → S's context window fills up faster
+  → More frequent context compaction
+  → Lost conversation history
+  → S makes worse decisions
+```
+
+### 148b. The "Inter-Review Deadlock" Cascade
+
+```
+Inter-review overall_score never updated
+  → Commits permanently blocked
+  → S-bot cannot commit code
+  → S-bot tries workarounds (direct git commit)
+  → Bypasses review entirely
+  → Unreviewed code enters the repository
+  → OR: S-bot is stuck, unable to proceed
+```
+
+### 148c. The "Memory Black Hole" Cascade
+
+```
+memory.save() returns error (decoder mismatch)
+  → Caller thinks save failed
+  → Retries save → duplicate entries
+  → memory.search() returns empty (TIMESTAMPTZ decode failure)
+  → No memories can be retrieved
+  → A-bot and S-bot have no memory of past interactions
+  → Every session starts from scratch
+  → Repeated mistakes, no learning
+```
+
+### 148d. The "Config Disconnect" Cascade
+
+```
+Database config (psypi_config) never synced with in-memory config
+  → Debounce value: DB=15min, code=5min
+  → idle_since lost on restart
+  → A-bot wakes up too frequently
+  → Excessive LLM API calls
+  → Higher costs
+  → Rate limiting
+  → A-bot responses become slower or fail
+```
+
+---
+
+## 149. SYSTEMIC ROOT CAUSES — REVISED
+
+### 149a. No Integration Testing
+
+Gleam tests validate pure functions but never test:
+- Database round-trips (INSERT → SELECT → decode)
+- FFI bindings (Gleam → JavaScript → return)
+- Hook chains (event → handler → database → response)
+- Tool execution (Pi tool call → Gleam function → database)
+
+### 149b. No Schema Validation
+
+No mechanism to verify that:
+- SQL column types match Gleam decoder types
+- NOT NULL constraints are respected in INSERT statements
+- All columns in SELECT match decoder field expectations
+- JSONB columns are cast to ::text before string decoding
+
+### 149c. No Migration Tracking
+
+- `simple_migrate.gleam` has no tracking table
+- Migrations run on every startup
+- Duplicate migration numbers (025 appears twice)
+- Naive SQL splitting breaks PL/pgSQL functions
+- 94 of 115 tables have no migrations at all
+
+### 149d. No Error Propagation
+
+Errors are silently swallowed at every level:
+- `is_s_still_idle()`: decode error → return True (wrong default)
+- `memory.search()`: decode error → drop row silently
+- `skill.get()`: decode error → return generic "Failed to decode"
+- `hook_on_agent_end`: debounce parse error → proceed anyway
+
+### 149e. No Type-Safe Database Access
+
+The project doesn't use Squirrel or any type-safe SQL library.
+All queries are raw strings with manual parameter binding and
+manual decoding. This creates a constant risk of:
+- Column type mismatches
+- Missing columns in SELECT
+- Wrong parameter order
+- Decoder/selector drift
+
+### 149f. Dual Config System
+
+Two independent config stores (database and in-memory) with no
+synchronization. The in-memory store is used by hooks but never
+populated from the database. Config values diverge over time.
+
+### 149g. No Agent Session Lifecycle
+
+The `agent_sessions` table exists but is never populated by the
+hook system. `is_s_still_idle()` queries a table that's always
+empty (or contains stale data from manual inserts).
+
+---
+
+## 150. REVISED BUG COUNT — FINAL v8
+
+| Category                           | Count                                                 |
+| ---------------------------------- | ----------------------------------------------------- |
+| `::text` cast missing (TSTZ+JSONB) | 15                                                    |
+| Missing NOT NULL columns in INSERT | 10                                                    |
+| Wrong column names                 | 4                                                     |
+| Decoder mismatch                   | 11                                                    |
+| Missing type variants              | 3                                                     |
+| Logic bugs                         | 12                                                    |
+| FFI issues                         | 9                                                     |
+| Config system fragmentation        | 3                                                     |
+| Seed/bootstrap gaps                | 10 (+1: no seed for psypi_event_hooks)                |
+| Dead code                          | 5 (+1: agent_identity check_git_exists result unused) |
+| Stub implementations               | 2                                                     |
+| Race conditions / concurrency      | 4                                                     |
+| Extension generation bugs          | 6                                                     |
+| A/S lifecycle logic failures       | 8                                                     |
+| Tool execution flow bugs           | 4                                                     |
+| Hook module bugs                   | 7                                                     |
+| Command module bugs                | 2                                                     |
+| DB module bugs                     | 4                                                     |
+| A/S DB reader bugs                 | 7                                                     |
+| Monitor AI bugs                    | 6                                                     |
+| Event hooks bugs                   | 3                                                     |
+| Node PG FFI bugs                   | 1                                                     |
+| Inter-review bugs                  | 7                                                     |
+| Tool commit bugs                   | 3                                                     |
+| Tool consult bugs                  | 2                                                     |
+| Code version bugs                  | 1                                                     |
+| Meeting bugs                       | 3                                                     |
+| Agent identity bugs                | 5 (+1: check_git_exists unused)                       |
+| Task bugs                          | 6                                                     |
+| Issue bugs                         | 4                                                     |
+| Broadcast bugs                     | 6                                                     |
+| Skill bugs                         | 3                                                     |
+| Agents bugs                        | 2                                                     |
+| Stats bugs                         | 3                                                     |
+| Monitor module bugs                | 3                                                     |
+| A orchestrator bugs                | 3                                                     |
+| A prompt builder bugs              | 2                                                     |
+| Simple migrate bugs                | 4                                                     |
+| System prompt types bugs           | 3                                                     |
+| A context utils bugs               | 2                                                     |
+| Extension generator bugs           | 2                                                     |
+| FFI node_ffi.mjs bugs              | 3                                                     |
+| FFI pi_extension_ffi.mjs bugs      | 6                                                     |
+| FFI agent_identity_ffi.mjs bugs    | 1                                                     |
+| FFI time_utils_ffi.mjs bugs        | 1                                                     |
+| Migration schema bugs              | 5                                                     |
+| **TOTAL CONFIRMED BUGS**           | **192**                                               |
