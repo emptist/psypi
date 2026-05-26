@@ -11546,3 +11546,177 @@ There's no systematic way to review recurring tool errors over time.
 **Note:** This count covers only the database-oriented and module-level review.
 The running logic chain review (section 182) identified 22 additional issues.
 Combined total: **56 verified issues**.
+
+---
+
+## 192. DETAILED MODULE REVIEW — A-AGENTBOT PIPELINE
+
+### 192.1 `a_db_reader.gleam` — 7 Issues
+
+**1. `is_s_still_idle()` — Missing S-bot filter (VERIFIED)**
+```sql
+SELECT COUNT(*) as cnt FROM agent_sessions
+WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+- No `AND identity_id LIKE 'S-%'` filter — counts ALL alive sessions
+- DB shows sessions with `identity_id` starting with `S-`, `P-`, etc.
+- Currently returns 0 (all heartbeats are 20+ days old), so accidentally correct
+
+**2. `count_decoder()` uses `decode.int` for COUNT(*) (VERIFIED)**
+- PostgreSQL `COUNT(*)` returns `bigint`
+- The pg driver may return this as a string
+- `decode.int` will fail if the driver returns a string
+- `stats.gleam` has the correct workaround with `decode_bigint()`
+
+**3. Decode error → `Ok(True)` (dangerous default)**
+```gleam
+case decode.run(row, count_decoder()) {
+  Ok(cnt) -> Ok(cnt == 0)
+  Error(_) -> Ok(True)  // ← Assumes idle on decode failure
+}
+```
+If DB is unreachable or decode fails, system assumes S is idle.
+This could trigger A-bot unnecessarily.
+
+**4. `read_soul_from_db()` reads only 3 of 12 columns**
+```sql
+SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'
+```
+Missing: `name, trigger_type, drive_mode, activation, content, is_active, id, id_prefix`
+The `content` column has 1906 chars of A-bot personality — completely ignored.
+
+**5. `read_active_tasks()` — `is_stuck` is boolean (correct)**
+Verified: `is_stuck` is `boolean` type in DB. Decode is correct.
+
+**6. `read_open_issues()` — Incomplete status filter**
+```sql
+WHERE status NOT IN ('resolved','closed')
+```
+But DB constraint has: `open, acknowledged, in_progress, resolved, wont_fix, duplicate`
+Missing from filter: `wont_fix`, `duplicate` — these will appear as "open" issues.
+
+**7. `read_a_jobs_from_db()` — Depends on `soul_id` FK**
+Joins `agent_jobs` with `agent_souls` on `j.soul_id = s.id`.
+If `soul_id` is not properly set, no jobs will be returned.
+
+### 192.2 `a_orchestrator.gleam` — 5 Issues
+
+**1. No review score written to `inter_reviews` (ROOT CAUSE of commit blocking)**
+The orchestrator calls `call_monitor`, gets a response, and sends it as a
+wake-up message. But it NEVER:
+- Parses the response for a review score
+- Calls `monitor_ai.record_review_score()`
+- Updates `inter_reviews.overall_score`
+
+This is why `tool_commit.commit_if_reviewed()` always finds `overall_score = None`
+and returns "Review not yet complete."
+
+**2. Error swallowing — `Ok(Nil)` on all failures**
+When `read_soul_from_db` or `read_a_jobs_from_db` fails:
+- Error is sent as a message to A-bot chat
+- But `Ok(Nil)` is returned — the workflow silently stops
+- No retry logic, no state tracking
+
+**3. `read_project_state_from_db` failure is degraded, not stopped**
+If project state read fails, the error string becomes the project state.
+The workflow continues with a degraded prompt containing the error message.
+
+**4. No inter-review handling**
+The orchestrator doesn't check for pending inter-reviews at all.
+The `inter_review` module is completely disconnected from the A-bot workflow.
+
+**5. `ctx_is_idle(ctx)` check after LLM call**
+After `call_monitor` returns (which may take 10-30 seconds), the orchestrator
+checks if S is still idle. If S became busy during that time, the wake-up is
+aborted. This is a race condition — the LLM call result is wasted.
+
+### 192.3 `a_prompt_builder.gleam` — 4 Issues
+
+**1. Soul content is only 3 fields, not full personality**
+`build_system_prompt` receives `soul_content` from `a_db_reader.read_soul_from_db()`,
+which only reads `role, domain, responsibility`. The result is something like:
+`"[Autonomic | autonomic] System health monitoring"` — a tiny fragment of the
+1906-char personality in the `content` column.
+
+**2. `compose()` doesn't check budget**
+`a_prompt_builder.build_system_prompt()` calls `compose()` which joins ALL
+components without checking the token budget. The `compose_within_budget()`
+function exists but is never used.
+
+**3. Inter-review detection is string-based**
+```gleam
+let is_inter_review = string.contains(entries_json, "inter-review")
+  || string.contains(entries_json, "Inter-Review")
+  || string.contains(entries_json, "issue report")
+  || string.contains(entries_json, "fix plan")
+  || string.contains(entries_json, "root cause")
+```
+This is fragile — could miss reviews or trigger false positives.
+
+**4. Token budget is `context_window / 4`**
+If context_window is 128K, budget is 32K. But the user prompt can be up to
+4000 chars for inter-review entries alone, plus project state.
+
+### 192.4 `hook_on_before_agent_start.gleam` — 2 Issues
+
+**1. `system_directives` never read (CRITICAL)**
+The hook reads the S-bot soul but does NOT read `system_directives` from the
+database. The `system_directives` table was designed to provide A→S directives,
+but this hook never queries it. The A→S directive bridge is completely broken.
+
+**2. Fallback soul is hardcoded**
+If soul read fails, a hardcoded string is used:
+```
+"You are the Somatic Agentbot (S-agentbot). Your ID starts with S-..."
+```
+This means the S-bot operates with a generic personality when the DB is down.
+
+### 192.5 `s_db_reader.gleam` — Soul Asymmetry
+
+**S-bot reads `content` column (full personality).**
+**A-bot reads `role, domain, responsibility` (3 fields).**
+
+This asymmetry means:
+- S-bot gets its full 1906-char personality from the database
+- A-bot gets only `"[Autonomic | autonomic] System health monitoring"`
+- A-bot's behavior is driven by the hardcoded identity prompt in
+  `a_prompt_builder.gleam`, not by its database personality
+
+### 192.6 `pi_extension_ffi.mjs` — Ok/Error Pattern (VERIFIED CORRECT)
+
+**Import chain:**
+```
+pi_extension_ffi.mjs → import { Ok, Error } from './gleam.mjs'
+gleam.mjs → export * from "../prelude.mjs"
+prelude.mjs → export class Ok extends Result { ... }
+              export class Error extends Result { ... }
+```
+
+**`new Ok(text)` creates a Gleam-compatible Ok variant. ✓**
+**`new Error(msg)` creates a Gleam-compatible Error variant. ✓**
+
+**The `Error` import shadows the native JS `Error`, but the FFI never throws
+exceptions, so this is safe. ✓**
+
+**`unwrapGleamResult` checks `result.constructor?.name`:**
+- `'Ok'` → `{ ok: true, value: result['0'] }`
+- `'Error'` → `{ ok: false, error: ... }`
+- Otherwise → `{ ok: true, value: result }` (fallback for non-Gleam results)
+
+This fallback means that if a function returns a plain string instead of a
+Gleam `Ok`, it's treated as a success. This is permissive but works.
+
+### 192.7 `call_monitor` — LLM Call for A-bot (VERIFIED)
+
+**Flow:**
+1. Gets `ctx.model` and `ctx.modelRegistry`
+2. Gets API key via `modelRegistry.getApiKeyAndHeaders(model)`
+3. Calls `completeSimple(model, context, { apiKey, reasoning: 'medium' })`
+4. If empty/rate-limited, retries with `reasoning: 'none'`
+5. Extracts text from response content
+6. Returns `new Ok(text)` or `new Error(msg)`
+
+**Issues:**
+- No timeout — if the LLM hangs, the A-bot workflow hangs
+- No token counting — response could be very long
+- Retry only once — persistent rate limits are not handled
