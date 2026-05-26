@@ -130,11 +130,12 @@ Both need `::text` cast for Gleam `decode.string` to work. Missing casts cause `
 
 ### 4a. Timestamp columns missing `::text` cast
 
-| File               | Line | Column         | SQL Has Cast?  |
-| ------------------ | ---- | -------------- | -------------- |
-| inter_review.gleam | 148  | `requested_at` | NO — will fail |
-| inter_review.gleam | 283  | `requested_at` | NO — will fail |
-| inter_review.gleam | 285  | `requested_at` | NO — will fail |
+| File               | Line | Column         | SQL Has Cast?               |
+| ------------------ | ---- | -------------- | --------------------------- |
+| inter_review.gleam | 148  | `requested_at` | NO — will fail              |
+| inter_review.gleam | 283  | `requested_at` | NO — will fail              |
+| inter_review.gleam | 285  | `requested_at` | NO — will fail              |
+| memory.gleam       | 101  | `created_at`   | NO — will fail (`SELECT *`) |
 
 Note: `inter_review.gleam` does NOT query `started_at`, `completed_at`, or `response_at`
 in its SELECT statements, so those don't need casts (they're simply not read).
@@ -151,6 +152,27 @@ in its SELECT statements, so those don't need casts (they're simply not read).
 
 Note: `skill.gleam` lines 137, 144 DO have `content::text, reference_list::text` casts.
 But lines 184, 214 (get_skill_by_name, update_skill_status) do NOT.
+
+### 4c. `memory.gleam` — `save()` Decoder Mismatch (CRITICAL)
+
+```gleam
+// memory.gleam:63
+let sql = "INSERT INTO memory (...) VALUES (...) RETURNING id"
+// ...
+// memory.gleam:82
+case decode.run(row, memory_decoder()) {
+```
+
+The `RETURNING id` clause only returns the `id` column. But `memory_decoder()` expects
+7 fields: `id`, `content`, `tags`, `source`, `agent_id`, `importance`, `created_at`.
+The decoder will FAIL because the other 6 fields are missing from the returned row.
+
+**Impact**: The `save()` function ALWAYS returns `Error(DecodeError("Failed to decode memory"))`
+even though the INSERT succeeded. The memory IS saved to the database, but the function
+reports failure. Callers may retry, creating duplicate entries.
+
+**Fix**: Use a simple `id_decoder()` (like `broadcast.gleam` does) instead of `memory_decoder()`
+for the `RETURNING id` query.
 
 ---
 
@@ -223,9 +245,11 @@ v_allowed_sources TEXT[] := ARRAY['areflect', 'cli', 'heartbeat', 'scheduler',
 
 When `source='learn'` is used:
 1. The audit trigger fires on INSERT to `memory`
-2. It detects `source='learn'` is NOT in `allowed_sources`
-3. It logs the INSERT to `direct_insert_audit` table (as a "violation")
-4. If `insert_reminders` has an entry for `memory`, it sends a notification via `project_communications`
+2. The `memory` table is NOT in the ELSIF chain, so falls to the ELSE clause
+3. ELSE clause: `v_source := COALESCE(NEW.source, 'unknown')` → `v_source = 'learn'`
+4. It detects `source='learn'` is NOT in `allowed_sources`
+5. It logs the INSERT to `direct_insert_audit` table (as a "violation")
+6. If `insert_reminders` has an entry for `memory`, it sends a notification via `project_communications`
 
 **Impact**: Not a crash, but creates false-positive audit entries. Every `learning.gleam`
 INSERT is logged as a "direct insert violation" because `'learn'` is not in the allowed list.
