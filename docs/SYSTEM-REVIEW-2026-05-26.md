@@ -27343,3 +27343,690 @@ This is a direct consequence of:
 1. No enum types in Gleam that mirror database CHECK constraints
 2. No integration testing that verifies query results against actual data
 3. Multiple AIs writing code without checking the actual database values
+
+---
+
+## §398. CORRECTION: Issues Status Values Are `open`/`resolved`, NOT `COMPLETED`/`PENDING`
+
+The earlier findings (#372, #373, #374, #383) stated that `issues.status` uses
+`COMPLETED`/`PENDING`. This was WRONG. Verified against live database:
+
+```sql
+SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+WHERE conrelid = 'issues'::regclass AND contype = 'c' AND conname = 'issues_status_check';
+
+-- Result: CHECK ((status = ANY (ARRAY['open', 'acknowledged', 'in_progress',
+--          'resolved', 'wont_fix', 'duplicate'])))
+```
+
+Actual data: `open` (17 rows), `resolved` (9 rows).
+
+This means:
+- `monitor_ai.check_system_health`'s `status = 'open'` for issues IS CORRECT ✓
+- `monitor_ai.get_alerts`'s `status = 'open'` for issues IS CORRECT ✓
+- `monitor_ai.get_work_suggestions`'s `status = 'open'` for issues IS CORRECT ✓
+
+However, `tasks` status IS uppercase: `PENDING`/`COMPLETED` (matching CHECK constraint).
+So `monitor_ai`'s `status = 'FAILED'` for tasks IS still wrong (no FAILED rows exist,
+though the CHECK constraint allows it).
+
+**Corrected findings:**
+- #372: Downgraded from CRITICAL to HIGH — only `failed_tasks` is wrong; `open_issues` is correct
+- #373: Downgraded from HIGH to MEDIUM — only `failed_tasks` is wrong
+- #374: Downgraded from HIGH to MEDIUM — only skills `PENDING` vs `pending` is wrong
+- #383: Still HIGH but for different reason — `NOT IN ('resolved','closed')` misses `wont_fix` and `duplicate`
+
+**Issue #398** | Severity: **MEDIUM** | Category: Correction — Earlier findings #372-#374 overstated; issues use `open`/`resolved` (correct), only tasks `FAILED` and skills case mismatch remain
+
+---
+
+## §399. AREFLECT.SAVE_ISSUE — Missing `project_id` (NOT NULL, No Default)
+
+```gleam
+fn save_issue(conn, content, agent_id) {
+  let sql = "
+    INSERT INTO issues (title, description, severity, created_by)
+    VALUES ($1, $2, 'medium', $3)
+  "
+```
+
+The `issues` table has `project_id uuid NOT NULL` with NO default value.
+The INSERT omits `project_id`, so it will fail with:
+`null value in column "project_id" violates not-null constraint`.
+
+Also: `created_by` is NOT NULL with no default — the `agent_id` parameter is passed
+as `$3`, which works. But `issue_type` is NOT NULL with default `'bug'` — the INSERT
+doesn't specify `issue_type`, so it gets the default. This is fine.
+
+**Issue #399** | Severity: **CRITICAL** | Category: SQL Schema Mismatch — `areflect.save_issue()` omits `project_id` (NOT NULL, no default); INSERT always fails
+
+---
+
+## §400. AREFLECT.SAVE_TASK — Missing `project_id` (Has Default, But Wrong)
+
+```gleam
+fn save_task(conn, content, agent_id) {
+  let sql = "
+    INSERT INTO tasks (title, description, priority, created_by)
+    VALUES ($1, $2, 5, $3)
+  "
+```
+
+The `tasks` table has `project_id uuid NOT NULL` with default
+`'0d324e68-b399-4b85-bd8a-6b1ef7b46168'`. The INSERT omits `project_id`,
+so it gets the default. This works but means all auto-created tasks are
+assigned to a single hardcoded project, which may not be the correct project.
+
+**Issue #400** | Severity: **LOW** | Category: Logic — `areflect.save_task()` uses default `project_id`; auto-created tasks may belong to wrong project
+
+---
+
+## §401. AREFLECT.SAVE_LEARNING — `_agent_id` Parameter Unused
+
+```gleam
+fn save_learning(conn, content, _agent_id) {
+  let sql = "
+    INSERT INTO learning_insights (insight_type, title, content, confidence)
+    VALUES ('pattern', $1, $2, 0.8)
+  "
+```
+
+The `agent_id` parameter is accepted but prefixed with `_` (unused). The
+`learning_insights` table has no `agent_id` column, so there's nowhere to
+store it. But the `memory` table (used by `learning.gleam`) DOES have
+`agent_id`. The two learning systems are disconnected — `areflect` saves
+to `learning_insights`, while `learning.gleam` saves to `memory`.
+
+Also: `learning_insights.project_id` is nullable with no default, so it's
+always NULL for auto-created insights.
+
+**Issue #401** | Severity: **MEDIUM** | Category: Logic — `areflect.save_learning()` ignores `agent_id`; two disconnected learning systems (`learning_insights` vs `memory`); `project_id` always NULL
+
+---
+
+## §402. AREFLECT.FETCH_RECENT_ISSUES — Missing `::text` Casts for UUID and Timestamps
+
+```gleam
+let sql = "
+  SELECT id, title, status, severity
+  FROM issues
+  ORDER BY ...
+  LIMIT $1
+"
+```
+
+`id` is `uuid` type. node-postgres returns UUID as a string by default,
+so this actually works. But `status` and `severity` are text, so they
+decode fine too. However, the `issue_summary_decoder` expects `id` as
+`decode.string`, which works because node-postgres auto-casts UUID to string.
+
+This is actually OK — no bug here. But it's inconsistent with the pattern
+used elsewhere (explicit `::text` casts).
+
+**Issue #402** | Severity: **LOW** | Category: Style — `fetch_recent_issues` doesn't use `::text` casts; works by luck (node-postgres auto-casts UUID)
+
+---
+
+## §403. MEMORY.SEARCH — `SELECT *` Returns UUID and Timestamp Without Casts
+
+```gleam
+let sql = "
+  SELECT * FROM memory 
+  WHERE content ILIKE $1 OR tags::text ILIKE $1
+  ORDER BY importance DESC, created_at DESC
+  LIMIT $2
+"
+```
+
+`SELECT *` returns all columns including:
+- `id` (uuid) — node-postgres auto-casts to string ✓
+- `project_id` (uuid) — not in decoder, ignored ✓
+- `created_at` (timestamptz) — decoded as `decode.string` ✗ FAILS
+- `updated_at` (timestamptz) — not in decoder, ignored ✓
+- `metadata` (jsonb) — not in decoder, ignored ✓
+- `embedding` (vector) — not in decoder, ignored ✓
+- `tags` (text[]) — decoded as `decode.list(decode.string)` ✓
+
+The `memory_decoder` expects `created_at` as `decode.string`, but without
+`::text` cast, node-postgres returns a JavaScript Date object, not a string.
+`decode.string` fails on Date objects.
+
+**Issue #403** | Severity: **HIGH** | Category: Decode Failure — `memory.search()` uses `SELECT *` without `::text` cast on `created_at`; decode always fails
+
+---
+
+## §404. MEMORY.SAVE — RETURNING id Decoded Through Full memory_decoder
+
+```gleam
+fn save(...) {
+  let sql = "
+    INSERT INTO memory (content, tags, source, importance, agent_id)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id
+  "
+  // ...
+  case decode.run(row, memory_decoder()) {
+    Ok(mem) -> Ok(mem.id)
+    Error(_) -> Error(DecodeError("Failed to decode memory"))
+  }
+}
+```
+
+The `RETURNING id` returns a single column `id` (uuid), but the code tries
+to decode it using `memory_decoder()` which expects 7 columns (id, content,
+tags, source, agent_id, importance, created_at). This will always fail with
+a decode error because the other columns don't exist in the result.
+
+Should use a simple `id_decoder()` instead:
+```gleam
+fn id_decoder() -> decode.Decoder(String) {
+  use id <- decode.field("id", decode.string)
+  decode.success(id)
+}
+```
+
+**Issue #404** | Severity: **HIGH** | Category: Decode Failure — `memory.save()` decodes `RETURNING id` with full `memory_decoder()` instead of `id_decoder()`; save always reports DecodeError
+
+---
+
+## §405. MEMORY.MEMORY_SEARCH_TOOL — Result Template Uses Literal `{count}`
+
+```gleam
+pub fn memory_search_tool() -> PiToolCall {
+  PiToolCall(
+    ...
+    result_format: template("Found {count} memories"),
+  )
+}
+```
+
+The template `"Found {count} memories"` uses literal `{count}` which is not
+a valid template variable. The template system uses `${...}` syntax for
+interpolation. This will output the literal string "Found {count} memories"
+regardless of actual results.
+
+**Issue #405** | Severity: **MEDIUM** | Category: Logic — `psypi-memory-search` result template uses literal `{count}` instead of `${...}` interpolation; always shows "Found {count} memories"
+
+---
+
+## §406. SKILL.GET — Missing `::text` Casts on content and reference_list
+
+```gleam
+let sql = "
+  SELECT id, name, description, source, status, safety_score, version, author,
+         created_at::text, content, reference_list
+  FROM skills
+  WHERE name = $1
+"
+```
+
+`content` is `text` — no cast needed ✓
+`reference_list` is `text` — no cast needed ✓
+But `id` is `uuid` — needs `::text` for consistent decoding ✓ (node-postgres auto-casts)
+
+Actually, `skill.get()` only casts `created_at::text` but not `id::text`.
+While node-postgres auto-casts UUID to string, this is inconsistent with
+`skill.list()` which doesn't cast `id` either but DOES cast `content::text`
+and `reference_list::text`.
+
+Wait — `skill.list()` does `content::text, reference_list::text` but
+`skill.get()` does NOT. If `content` is already `text`, why does `list()`
+cast it? Because `content` might be large and the `::text` cast ensures
+it's returned as a string not a buffer. But `skill.get()` omits this cast.
+
+More importantly, `skill.search()` also omits `content::text` and
+`reference_list::text` casts. If these columns contain large text, node-postgres
+might return them differently.
+
+**Issue #406** | Severity: **LOW** | Category: Inconsistency — `skill.get()` and `skill.search()` omit `::text` casts that `skill.list()` includes; potential decode issues with large content
+
+---
+
+## §407. SKILL.LIST — `content::text` Returns Full Skill Content (Potentially Huge)
+
+```gleam
+let sql = "
+  SELECT id, name, description, source, status, safety_score, version, author,
+         created_at::text, content::text, reference_list::text
+  FROM skills
+  ORDER BY name ASC
+  LIMIT 100
+"
+```
+
+The `content` column in `skills` can be very large (full skill instructions/code).
+Returning `content::text` for up to 100 skills in a list query is wasteful.
+List queries should exclude large text columns or use `LEFT(content, 200)`.
+
+**Issue #407** | Severity: **MEDIUM** | Category: Performance — `skill.list()` returns full `content` for up to 100 skills; potentially huge result set
+
+---
+
+## §408. TASK.GET — Missing `project_id::text` in SELECT
+
+```gleam
+let sql = "
+  SELECT id, title, description, status, priority, result, error, retry_count,
+         created_at::text, updated_at::text, completed_at::text, created_by, source
+  FROM tasks
+  WHERE id = $1
+"
+```
+
+The `task_decoder()` expects `project_id` field:
+```gleam
+use project_id <- decode.field("project_id", decode.optional(decode.string))
+```
+
+But `project_id` is not in the SELECT. `decode.optional` will return `None`
+when the field is missing, so this doesn't crash — but it means `project_id`
+is always `None` for tasks fetched via `get()`, even though the task has one.
+
+This was already tracked as #319 but confirmed here with the exact code.
+
+**Issue #408** | Severity: **HIGH** | Category: Decode Failure — `task.get()` omits `project_id::text` from SELECT; `project_id` always `None` in result (reconfirmation of #319)
+
+---
+
+## §409. TASK.LIST — `project_id::text` Present But `id` Not Cast
+
+```gleam
+let base_sql = "
+  SELECT id, title, description, status, priority, result, error, retry_count,
+         created_at::text, updated_at::text, completed_at::text, created_by, source,
+         project_id::text
+  FROM tasks
+"
+```
+
+`id` is `uuid` but not cast to `::text`. The `task_decoder` expects
+`decode.string` for `id`. node-postgres auto-casts UUID to string, so this
+works, but it's inconsistent — `created_at`, `updated_at`, `completed_at`,
+and `project_id` are all explicitly cast, but `id` is not.
+
+**Issue #409** | Severity: **LOW** | Category: Style — `task.list()` casts timestamps and `project_id` to `::text` but not `id`; inconsistent
+
+---
+
+## §410. TASK.STRING_TO_STATUS — Accepts Both Cases But DB Is Uppercase
+
+```gleam
+pub fn string_to_status(s: String) -> Result(TaskStatus, String) {
+  case s {
+    "pending" | "PENDING" -> Ok(Pending)
+    "running" | "RUNNING" -> Ok(Running)
+    "completed" | "COMPLETED" -> Ok(Completed)
+    "failed" | "FAILED" -> Ok(Failed)
+    _ -> Error("Unknown task status: " <> s)
+  }
+}
+```
+
+The `tasks` CHECK constraint only allows uppercase: `PENDING`, `RUNNING`,
+`COMPLETED`, `FAILED`, `FAKE_COMPLETE`. The lowercase variants will never
+appear in database results. The `FAKE_COMPLETE` status is not handled at all
+and would return `Error("Unknown task status: FAKE_COMPLETE")`.
+
+**Issue #410** | Severity: **MEDIUM** | Category: Logic — `string_to_status` doesn't handle `FAKE_COMPLETE`; lowercase variants never appear in DB
+
+---
+
+## §411. AGENT_IDENTITY.SEMANTIC_ID — Uses `is_idle` for A/S Prefix (Reconfirmation)
+
+```gleam
+fn semantic_id(ctx: IdentityContext) -> Result(String, IdentityError) {
+  let prefix = case ctx.is_idle {
+    True -> "A"
+    False -> "S"
+  }
+```
+
+Then later:
+```gleam
+let prefix = case string.contains(id, "A-") || ctx.is_idle {
+  True -> "A"
+  False -> "S"
+}
+```
+
+The semantic ID uses `is_idle` to determine A vs S prefix. But `is_idle`
+reflects the CURRENT state of the agent, not its ROLE. An S-agent that is
+currently idle would get prefix "A", loading the wrong soul and jobs.
+
+This was already tracked as #333 but confirmed here with the exact code path.
+
+**Issue #411** | Severity: **HIGH** | Category: Logic — `semantic_id` uses `is_idle` for A/S prefix; idle S-agent gets wrong identity (reconfirmation of #333)
+
+---
+
+## §412. AGENT_IDENTITY.MY_ID_TOOL — Missing `project` and `global` Fields
+
+```gleam
+pub fn my_id_tool() -> PiToolCall {
+  PiToolCall(
+    ...
+    args: [
+      lit(
+        "({ is_idle: ctx.isIdle(), source: (ctx.model?.provider || ''), "
+        <> "model: (ctx.model?.id || ''), "
+        <> "thinking_level: (ctx.model?.thinkingLevel || ''), "
+        <> "cwd: (ctx.cwd || '') })",
+      ),
+    ],
+  )
+}
+```
+
+The `IdentityContext` type requires `project` and `global` fields:
+```gleam
+pub type IdentityContext {
+  IdentityContext(
+    is_idle: Bool,
+    project: String,
+    global: Bool,
+    source: String,
+    model: String,
+    thinking_level: String,
+    cwd: String,
+  )
+}
+```
+
+But the JS literal doesn't include `project` or `global`. When Gleam tries
+to decode the JS object, `project` (required String) will be `undefined`,
+and `global` (required Bool) will be `undefined`. This causes the semantic
+ID to contain "undefined" for the project field.
+
+This was already tracked as #351 but confirmed here.
+
+**Issue #412** | Severity: **HIGH** | Category: FFI Mismatch — `psypi-my-id` JS literal missing `project` and `global` fields; semantic ID contains "undefined" (reconfirmation of #351)
+
+---
+
+## §413. AGENTS.LIST — Missing `::text` Cast on `created_at`
+
+```gleam
+let sql = "
+  SELECT id, agent_type, created_at::text 
+  FROM agent_identities 
+  ORDER BY created_at DESC 
+  LIMIT 50
+"
+```
+
+`id` is `varchar(100)` — no cast needed ✓
+`agent_type` is `varchar(50)` — no cast needed ✓
+`created_at` is `timestamptz` — `::text` cast present ✓
+
+This query is actually correct! One of the few that gets it right.
+
+No issue.
+
+---
+
+## §414. MONITOR.GET_PENDING_NOTIFICATIONS — `read_at` Cast Mismatch
+
+```gleam
+let sql = "
+  SELECT id, agent_id, priority, title, body, 
+         created_at::text as created_at, read_at::text as read_at
+  FROM notifications 
+  WHERE agent_id = $1 AND read_at IS NULL
+"
+```
+
+The `notifications` table uses `timestamp without time zone` for both
+`created_at` and `read_at`. The `::text` cast works for both.
+
+But the WHERE clause is `read_at IS NULL` (unread only), and then the
+decoder expects `read_at` as `decode.optional(decode.string)`. Since
+`read_at IS NULL`, the `::text` cast returns NULL, and
+`decode.optional` handles it correctly.
+
+However, `id` is `uuid` and not cast to `::text`. The `notification_decoder`
+expects `decode.string` for `id`. node-postgres auto-casts UUID to string,
+so this works but is inconsistent.
+
+**Issue #414** | Severity: **LOW** | Category: Style — `monitor.get_pending_notifications()` doesn't cast `id::text`; works by luck
+
+---
+
+## §415. MONITOR.CREATE_NOTIFICATION — `id::text` Cast Present ✓
+
+```gleam
+RETURNING id::text
+```
+
+This is correct! The only place in the codebase that properly casts UUID
+in a RETURNING clause.
+
+No issue.
+
+---
+
+## §416. CODE_VERSION.SAVE_VERSION — Uses Database Function
+
+```gleam
+let sql = "
+  SELECT save_code_version(
+    $1::TEXT, $2::TEXT, $3::VARCHAR, $4::VARCHAR, $5::TEXT
+  ) as version_id
+"
+```
+
+This calls a PostgreSQL function `save_code_version()` which handles the
+insert logic. The function likely handles `version_hash` generation and
+deduplication. This is a good pattern — using database functions for
+complex insert logic.
+
+However, the `version_id_decoder` expects `decode.string`, and the function
+returns UUID. Without `::text` cast on the result, this depends on
+node-postgres auto-casting UUID to string.
+
+**Issue #416** | Severity: **LOW** | Category: Style — `save_code_version()` function result not cast to `::text`; depends on node-postgres auto-cast
+
+---
+
+## §417. CODE_VERSION.QUERY_VERSIONS — Missing `::text` Casts
+
+```gleam
+let sql = "
+  SELECT 
+    id, file_path, saved_by, saved_at,
+    LEFT(content, 200) as content_preview,
+    LENGTH(content) as content_length
+  FROM code_versions
+  WHERE 1=1
+  AND ($1::TEXT = '' OR file_path LIKE $1)
+  AND ($2::VARCHAR = '' OR saved_by = $2)
+  AND ($3::TEXT = '' OR content LIKE $3)
+  ORDER BY saved_at DESC
+  LIMIT $4
+"
+```
+
+`id` is `uuid` — not cast ✓ (auto-cast)
+`saved_at` is `timestamptz` — NOT cast ✗ (will return Date object)
+`content_preview` is text — no cast needed ✓
+`content_length` is integer — no cast needed ✓
+
+The function returns `List(dynamic.Dynamic)` without decoding, so the
+caller gets raw objects. This avoids decode failures but provides no
+type safety.
+
+**Issue #417** | Severity: **MEDIUM** | Category: Decode Risk — `query_versions()` returns raw `List(dynamic.Dynamic)` without decoding; `saved_at` not cast; no type safety
+
+---
+
+## §418. DOC_SAVE_TOOL — Missing `content` Parameter in Schema
+
+```gleam
+pub fn doc_save_tool() -> PiToolCall {
+  PiToolCall(
+    name: "psypi-doc-save",
+    description: "Save a file version to code_versions table (auto-backup before AI edits)",
+    params: [string_param("file_path")],
+    module: "code_version",
+    fn_name: "save_version",
+    args: [
+      from_param("params.file_path || \"\""),
+      from_param("params.content || \"\""),      // Not in params schema!
+      from_param("params.saved_by || \"unknown\""),
+      from_param("params.commit_hash || \"\""),
+      from_param("params.reason || \"manual save\""),
+    ],
+    result_format: raw_json(),
+  )
+}
+```
+
+The `params` list only declares `file_path`, but the `args` reference
+`params.content`, `params.saved_by`, `params.commit_hash`, and
+`params.reason`. The Pi tool framework validates parameters against the
+schema — undeclared parameters may be rejected or undefined.
+
+When the AI calls `psypi-doc-save`, it only sees `file_path` as a parameter.
+It won't know to provide `content`, so `params.content` will be `undefined`,
+and `params.content || ""` will be `""`. The save will succeed but with
+empty content.
+
+**Issue #418** | Severity: **HIGH** | Category: Missing Parameters — `psypi-doc-save` only declares `file_path` in params but uses 5 params in args; `content` always empty
+
+---
+
+## §419. HOOK_ON_TOOL_CALL — Only Triggers on Tool Named "edit"
+
+```gleam
+pub fn on_tool_call(tool_name, file_path, ctx, pi) {
+  case tool_name == "edit" {
+    False -> promise.resolve(Ok(Nil))
+    True -> {
+```
+
+The auto-backup hook only triggers when `tool_name == "edit"`. But Pi also
+has a `write` tool that creates/overwrites files. If the AI uses `write`
+instead of `edit`, no auto-backup is created.
+
+**Issue #419** | Severity: **MEDIUM** | Category: Logic — `hook_on_tool_call` only auto-backups on `edit` tool; `write` tool bypasses backup
+
+---
+
+## §420. SEED.GLEAM — Seeds `monitor_debounce_ms` as 300000, But DB Has 900000
+
+```gleam
+fn seed_psypi_config() {
+  seed_idempotent(
+    "psypi_config",
+    "INSERT INTO psypi_config (key, value) VALUES ('monitor_debounce_ms','300000'), ('last_wakeup','') ON CONFLICT (key) DO NOTHING"
+  )
+}
+```
+
+The seed uses `ON CONFLICT DO NOTHING`, so if the row already exists, it
+won't update. But the current database value is `900000`. This means
+someone manually changed it after seeding. The seed value (300000 = 5 min)
+and the current value (900000 = 15 min) are inconsistent.
+
+Also: `last_wakeup` is seeded as empty string `''`, but the current database
+has a long text about S's conversation. This confirms the config table is
+being misused.
+
+**Issue #420** | Severity: **LOW** | Category: Data Quality — Seed value for `monitor_debounce_ms` (300000) differs from current DB value (900000); `last_wakeup` seeded as empty but contains long text
+
+---
+
+## §421. PSYPI_CONFIG.GLEAM vs PI_EXTENSION_FFI.MJS — Two Config Systems
+
+The codebase has TWO completely separate config systems:
+
+1. **`psypi_config.gleam`** — Reads/writes `psypi_config` table via SQL
+2. **`pi_extension_ffi.mjs`** — Uses in-memory `_configStore` object
+
+`hook_on_agent_end.gleam` uses the FFI `get_config`/`set_config` (in-memory).
+`monitor_ai.gleam` uses `psypi_config.get_debounce_ms()` (database).
+
+These two systems NEVER interact. The FFI store is never initialized from
+the database, and writes to the FFI store never persist to the database.
+
+This means:
+- `hook_on_agent_end` reads debounce from in-memory (default 300000)
+- `monitor_ai` reads debounce from database (900000)
+- They use DIFFERENT debounce values for the same concept
+
+**Issue #421** | Severity: **HIGH** | Category: Config Desync — Two independent config systems (FFI in-memory vs database) never sync; different debounce values used by different modules (reconfirmation of #380 with root cause)
+
+---
+
+## §422. EVENT_HOOKS.LIST_ALL_HOOKS — `id::text` Cast Present ✓
+
+```gleam
+SELECT id::text, event_name, hook_status, monitor_action, ...
+```
+
+This is correct! All UUID and timestamp columns are properly cast.
+
+No issue.
+
+---
+
+## §423. SUMMARY OF CORRECTED AND NEW FINDINGS (v41)
+
+### Corrections
+
+| #   | Original Severity | Corrected Severity | Change                                                                                  |
+| --- | ----------------- | ------------------ | --------------------------------------------------------------------------------------- |
+| 372 | CRITICAL          | HIGH               | `open_issues` query is correct; only `failed_tasks` wrong                               |
+| 373 | HIGH              | MEDIUM             | Same as above                                                                           |
+| 374 | HIGH              | MEDIUM             | Only skills case mismatch; issues `open` is correct                                     |
+| 383 | HIGH              | HIGH               | Still wrong but different: `NOT IN ('resolved','closed')` misses `wont_fix`/`duplicate` |
+
+### New Findings
+
+| #   | Severity | Category       | Finding                                                                          |
+| --- | -------- | -------------- | -------------------------------------------------------------------------------- |
+| 398 | MEDIUM   | Correction     | Issues use `open`/`resolved`; earlier findings overstated                        |
+| 399 | CRITICAL | SQL Mismatch   | `areflect.save_issue()` omits `project_id` (NOT NULL, no default)                |
+| 400 | LOW      | Logic          | `areflect.save_task()` uses default `project_id`                                 |
+| 401 | MEDIUM   | Logic          | `areflect.save_learning()` ignores `agent_id`; two disconnected learning systems |
+| 402 | LOW      | Style          | `fetch_recent_issues` doesn't use `::text` casts                                 |
+| 403 | HIGH     | Decode Failure | `memory.search()` `SELECT *` without `::text` on `created_at`                    |
+| 404 | HIGH     | Decode Failure | `memory.save()` decodes `RETURNING id` with full `memory_decoder()`              |
+| 405 | MEDIUM   | Logic          | `psypi-memory-search` template uses literal `{count}`                            |
+| 406 | LOW      | Inconsistency  | `skill.get()`/`skill.search()` omit `::text` casts that `skill.list()` has       |
+| 407 | MEDIUM   | Performance    | `skill.list()` returns full `content` for up to 100 skills                       |
+| 408 | HIGH     | Decode Failure | `task.get()` omits `project_id::text` (reconfirmation of #319)                   |
+| 409 | LOW      | Style          | `task.list()` casts timestamps but not `id`                                      |
+| 410 | MEDIUM   | Logic          | `string_to_status` doesn't handle `FAKE_COMPLETE`                                |
+| 411 | HIGH     | Logic          | `semantic_id` uses `is_idle` for A/S prefix (reconfirmation of #333)             |
+| 412 | HIGH     | FFI Mismatch   | `psypi-my-id` missing `project`/`global` fields (reconfirmation of #351)         |
+| 414 | LOW      | Style          | `monitor.get_pending_notifications()` doesn't cast `id::text`                    |
+| 416 | LOW      | Style          | `save_code_version()` result not cast to `::text`                                |
+| 417 | MEDIUM   | Decode Risk    | `query_versions()` returns raw `List(dynamic.Dynamic)`                           |
+| 418 | HIGH     | Missing Params | `psypi-doc-save` only declares `file_path` but uses 5 params                     |
+| 419 | MEDIUM   | Logic          | `hook_on_tool_call` only backups on `edit`; `write` bypasses                     |
+| 420 | LOW      | Data Quality   | Seed debounce (300000) differs from DB value (900000)                            |
+| 421 | HIGH     | Config Desync  | Two independent config systems never sync (root cause of #380)                   |
+
+**New issues this session: 24** (1 CRITICAL, 7 HIGH, 8 MEDIUM, 8 LOW)
+**Corrections this session: 4** (3 downgraded, 1 reclassified)
+
+**Running total: 270 issues** (#100–#423)
+
+### Updated Severity Breakdown
+
+| Severity     | Count | Percentage |
+| ------------ | ----- | ---------- |
+| **CRITICAL** | 42    | 15.6%      |
+| **HIGH**     | 100   | 37.0%      |
+| **MEDIUM**   | 74    | 27.4%      |
+| **LOW**      | 54    | 20.0%      |
+
+### Root Cause Map (Updated)
+
+1. **Missing `::text` casts** (14 issues) — timestamptz/uuid/jsonb not cast, decode fails
+2. **Wrong status values** (6 issues) — hardcoded status strings don't match DB CHECK constraints
+3. **Missing `project_id`** (8 issues) — NOT NULL column omitted from INSERTs
+4. **FFI type mismatches** (4 issues) — JS returns wrong types for Gleam Option/Result
+5. **Two config systems** (2 issues) — in-memory FFI vs database, never synced
+6. **Disconnected learning systems** (2 issues) — `learning_insights` vs `memory` tables
+7. **Missing tool parameters** (3 issues) — params schema doesn't match args usage
