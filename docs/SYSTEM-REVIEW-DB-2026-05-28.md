@@ -9,8 +9,8 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 | Severity | Count | Percentage |
 |----------|-------|------------|
-| **CRITICAL** | 5 | 5.2% |
-| **HIGH** | 30 | 31.2% |
+| **CRITICAL** | 4 | 4.2% |
+| **HIGH** | 31 | 32.3% |
 | **MEDIUM** | 49 | 51.0% |
 | **LOW** | 12 | 12.5% |
 | **TOTAL** | 96 | 100% |
@@ -37,7 +37,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | performance | 1 | 0C/1H |
 | wrong_decoder | 1 | 0C/1H |
 | dead_code | 1 |  |
-| wrong_column | 1 | 1C/0H |
+| wrong_column | 1 | 0C/1H |
 | type_coverage | 1 |  |
 | design | 1 |  |
 
@@ -51,7 +51,6 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 139 | logic_error | broadcast | broadcast.stats() 3 bugs: bigint decode, text>=int, missing status column | Stats query returns wrong results or fails |
 | 100 | missing_cast | inter_review | inter_review requested_at decode fails without ::text cast | Inter-review requests always fail to decode |
 | 116 | missing_project_id | areflect | areflect.save_issue omits project_id (NOT NULL, no default) | save_issue INSERT always fails; no issues can be saved via areflect |
-| 215 | wrong_column | monitor_ai | monitor_ai record_tool_error: INSERT uses type instead of issue_type, discovered_by/environment columns dont exist | Tool error recording always fails; monitor cannot create issues for tool failures |
 ### HIGH
 
 | # | Category | Module | Title | Impact |
@@ -83,6 +82,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 226 | type_mismatch | skill | SkillSource missing ai-built variant that DB allows | Decode fails for ai-built skills; INSERT with ai-built source from Gleam impossible |
 | 227 | type_mismatch | task | TaskStatus missing FAKE_COMPLETE variant that DB allows | Decode fails for FAKE_COMPLETE tasks; cannot represent this status in Gleam |
 | 229 | type_mismatch | issue_types | IssueStatus missing acknowledged/wont_fix/duplicate; has Closed which DB doesnt have | Decode fails for acknowledged/wont_fix/duplicate issues; Closed maps to non-existent DB status; INSERT with Closed fails |
+| 215 | wrong_column | monitor_ai | monitor_ai record_tool_error: INSERT uses type instead of issue_type, missing project_id | Tool error recording fails because type column does not exist; should be issue_type. discovered_by and environment are valid columns. |
 | 138 | wrong_decoder | memory | memory.save() decodes RETURNING id with full memory_decoder() | Save always reports error (data IS saved but error returned) |
 | 111 | wrong_status | monitor_ai | check_system_health uses FAILED for tasks but DB has PENDING/COMPLETED | Finding was incorrect; FAILED status exists in both DB and Gleam TaskStatus type |
 | 112 | wrong_status | monitor_ai | analyze_and_act same status value bugs as check_system_health | Finding was incorrect |
@@ -209,19 +209,6 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `areflect.gleam save_issue(): 4-column INSERT into 6-column table`
 
 **Impact**: save_issue INSERT always fails; no issues can be saved via areflect
-
-### #215 — monitor_ai record_tool_error: INSERT uses type instead of issue_type, discovered_by/environment columns dont exist
-
-- **Severity**: CRITICAL
-- **Category**: wrong_column
-- **Module**: `monitor_ai`
-- **Status**: open
-
-**Description**: INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment) — column is issue_type not type; discovered_by and environment columns do not exist in issues table
-
-**Evidence**: `monitor_ai.gleam:561 INSERT INTO issues with wrong column names; \\d issues shows issue_type not type, no discovered_by/environment`
-
-**Impact**: Tool error recording always fails; monitor cannot create issues for tool failures
 
 ### #125 — psypi_config.gleam (database) vs pi_extension_ffi.mjs (in-memory) never sync
 
@@ -573,6 +560,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `issue_types.gleam:13 string_to_status() maps closed->Closed but DB has no closed; acknowledged/wont_fix/duplicate cause Error`
 
 **Impact**: Decode fails for acknowledged/wont_fix/duplicate issues; Closed maps to non-existent DB status; INSERT with Closed fails
+
+### #215 — monitor_ai record_tool_error: INSERT uses type instead of issue_type, missing project_id
+
+- **Severity**: HIGH
+- **Category**: wrong_column
+- **Module**: `monitor_ai`
+- **Status**: open
+
+**Description**: monitor_ai record_tool_error: INSERT uses type instead of issue_type. discovered_by and environment columns DO exist.
+
+**Evidence**: `monitor_ai.gleam:561 INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment) — column is issue_type not type. discovered_by and environment DO exist in issues table.`
+
+**Impact**: Tool error recording fails because type column does not exist; should be issue_type. discovered_by and environment are valid columns.
 
 ### #138 — memory.save() decodes RETURNING id with full memory_decoder()
 
