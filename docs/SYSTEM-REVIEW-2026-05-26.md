@@ -7,16 +7,16 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**121 issues tracked** (#100-#220) across 11 audit categories.
+**123 issues tracked** (#100-#222) across 12 audit categories.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 28    | 23.1%      |
-| **HIGH**     | 45    | 37.2%      |
-| **MEDIUM**   | 39    | 32.2%      |
-| **LOW**      | 9     | 7.4%       |
+| **CRITICAL** | 28    | 22.8%      |
+| **HIGH**     | 45    | 36.6%      |
+| **MEDIUM**   | 40    | 32.5%      |
+| **LOW**      | 10    | 8.1%       |
 
 ### Category Breakdown
 
@@ -20957,14 +20957,14 @@ which requires a `ctx` object that isn't always available in utility functions.
 
 ## 315. UPDATED ISSUE COUNT
 
-Total issues tracked: **#100-#220** = **121 issues**
+Total issues tracked: **#100-#222** = **123 issues**
 
 | Severity | Count |
 | -------- | ----- |
 | CRITICAL | 28    |
 | HIGH     | 45    |
-| MEDIUM   | 39    |
-| LOW      | 9     |
+| MEDIUM   | 40    |
+| LOW      | 10    |
 
 ---
 
@@ -21284,3 +21284,128 @@ FROM inter_reviews
 | ⚠️ Partial                   | 2     | `is_s_still_idle` (always true), `monitor_ai.get_model_stats` (wrong status)                                                                                    |
 
 **9 of 22 query modules are completely broken** due to phantom tables or missing columns.
+
+---
+
+## 318. NODE-POSTGRES TYPE PARSING — GLEAM DECODER COMPATIBILITY MATRIX
+
+### 318a. Default Type Parsing Behavior
+
+The psypi project uses node-postgres with **NO custom type parsers** configured.
+The `db.gleam` connect function creates a client with default config, and the
+`node_pg/ffi.mjs` `mapQueryResult` passes rows directly as JavaScript objects.
+
+This means every PostgreSQL type is parsed using node-postgres defaults:
+
+| PostgreSQL Type               | OID  | JS Type Returned | Gleam Decoder Needed          | Gleam Decoder Used           | Works? |
+| ----------------------------- | ---- | ---------------- | ----------------------------- | ---------------------------- | ------ |
+| `text`                        | 25   | `string`         | `decode.string`               | `decode.string`              | ✅      |
+| `character varying`           | 1043 | `string`         | `decode.string`               | `decode.string`              | ✅      |
+| `integer`                     | 23   | `number`         | `decode.int`                  | `decode.int`                 | ✅      |
+| `bigint`                      | 20   | `string`         | `decode.string` + `int.parse` | `decode.int`                 | ❌      |
+| `uuid`                        | 2950 | `string`         | `decode.string`               | `decode.string`              | ✅      |
+| `boolean`                     | 16   | `boolean`        | `decode.bool`                 | `decode.bool`                | ✅      |
+| `timestamp with time zone`    | 1184 | `Date` object    | `decode.string` + `::text`    | `decode.string`              | ❌      |
+| `timestamp without time zone` | 1114 | `Date` object    | `decode.string` + `::text`    | `decode.string`              | ❌      |
+| `jsonb`                       | 3802 | `object`         | `decode.string` + `::text`    | `decode.string`              | ❌      |
+| `ARRAY` (text[])              | 1009 | `Array<string>`  | `decode.list(decode.string)`  | `decode.list(decode.string)` | ✅      |
+| `numeric`                     | 1700 | `string`         | `decode.string` + parsing     | `decode.int`                 | ❌      |
+
+### 318b. Impact Analysis — Every Column in Every Table
+
+Cross-referencing all 11 existing tables with their column types:
+
+**Tables with ONLY safe columns** (text, integer, boolean, uuid, text[]):
+- `psypi_config` (key:text, value:text) — ✅ All safe
+- `meetings` (id:uuid, topic:text, status:text, created_by:text, created_at:timestamp❌, consensus:text, consensus_at:timestamp❌, metadata:jsonb❌)
+  - But `meeting.gleam` uses `::text` casts on timestamps → ✅ Works
+  - `metadata` is not selected → ✅ Works
+
+**Tables with UNSAFE columns that need `::text` casts:**
+
+| Table                    | Unsafe Column       | Type         | Used In                           | Cast Applied?        | Works? |
+| ------------------------ | ------------------- | ------------ | --------------------------------- | -------------------- | ------ |
+| `inter_reviews`          | `requested_at`      | timestamp    | `inter_review.get_review_details` | ❌ No                 | ❌      |
+| `inter_reviews`          | `completed_at`      | timestamp    | not selected                      | N/A                  | N/A    |
+| `inter_reviews`          | `started_at`        | timestamp    | not selected                      | N/A                  | N/A    |
+| `inter_reviews`          | `response_at`       | timestamp    | not selected                      | N/A                  | N/A    |
+| `inter_reviews`          | `findings`          | jsonb        | not selected                      | N/A                  | N/A    |
+| `inter_reviews`          | `suggestions`       | jsonb        | not selected                      | N/A                  | N/A    |
+| `inter_reviews`          | `issues`            | jsonb        | not selected                      | N/A                  | N/A    |
+| `inter_reviews`          | `praise`            | jsonb        | not selected                      | N/A                  | N/A    |
+| `inter_reviews`          | `review_context`    | jsonb        | not selected                      | N/A                  | N/A    |
+| `memory`                 | `created_at`        | timestamp    | `memory.search`                   | ❌ No                 | ❌      |
+| `memory`                 | `updated_at`        | timestamp    | not selected                      | N/A                  | N/A    |
+| `memory`                 | `metadata`          | jsonb        | not selected                      | N/A                  | N/A    |
+| `memory`                 | `embedding`         | USER-DEFINED | not selected                      | N/A                  | N/A    |
+| `agent_sessions`         | `started_at`        | timestamp    | not selected                      | N/A                  | N/A    |
+| `agent_sessions`         | `last_heartbeat`    | timestamp    | not selected                      | N/A                  | N/A    |
+| `agent_sessions`         | `last_heartbeat_at` | timestamp    | not selected                      | N/A                  | N/A    |
+| `agent_sessions`         | `ended_at`          | timestamp    | not selected                      | N/A                  | N/A    |
+| `agent_sessions`         | `metadata`          | jsonb        | not selected                      | N/A                  | N/A    |
+| `agent_sessions`         | `working_on`        | uuid         | not selected                      | N/A                  | N/A    |
+| `issues`                 | `created_at`        | timestamp    | `issue_db.list`                   | ✅ `::text`           | ✅      |
+| `issues`                 | `resolved_at`       | timestamp    | `issue_db.list`                   | ✅ `::text`           | ✅      |
+| `tasks`                  | `created_at`        | timestamp    | `monitor_ai.work_suggestions`     | ❌ No                 | ❌      |
+| `tasks`                  | `updated_at`        | timestamp    | `a_db_reader.read_active_tasks`   | ❌ No (ORDER BY only) | ✅      |
+| `skills`                 | `created_at`        | timestamp    | not selected                      | N/A                  | N/A    |
+| `soul`                   | `created_at`        | timestamp    | not selected                      | N/A                  | N/A    |
+| `soul`                   | `updated_at`        | timestamp    | not selected                      | N/A                  | N/A    |
+| `soul`                   | `event_triggers`    | jsonb        | not selected                      | N/A                  | N/A    |
+| `soul`                   | `task_patterns`     | jsonb        | not selected                      | N/A                  | N/A    |
+| `activity_log`           | `timestamp`         | timestamp    | `monitor_ai.check_system_health`  | ❌ No (WHERE only)    | ✅      |
+| `activity_log`           | `context`           | jsonb        | not selected                      | N/A                  | N/A    |
+| `agent_identities`       | `created_at`        | timestamp    | `agents.list`                     | ✅ `::text`           | ✅      |
+| `agent_identities`       | `updated_at`        | timestamp    | not selected                      | N/A                  | N/A    |
+| `project_communications` | `created_at`        | timestamp    | `broadcast.list`                  | ✅ `::text`           | ✅      |
+| `project_communications` | `read_at`           | timestamp    | `broadcast.list`                  | ✅ `::text`           | ✅      |
+| `project_communications` | `metadata`          | jsonb        | not selected                      | N/A                  | N/A    |
+
+### 318c. Active Decode Failures (Columns Actually Selected Without `::text`)
+
+Only 2 columns are actively selected without `::text` cast and will cause
+decode failures at runtime:
+
+1. **`inter_reviews.requested_at`** — timestamp → Date object → `decode.string` fails
+2. **`memory.created_at`** — timestamp → Date object → `decode.string` fails
+
+These are already tracked as #209 and #216.
+
+### 318d. `bigint` Decode Risk
+
+`COUNT(*)` returns PostgreSQL `bigint` (OID 20). node-postgres returns this as
+a `string` for values > Number.MAX_SAFE_INTEGER. For small counts (< 2^53),
+it returns a `number`. This means:
+- `decode.int` works for small tables
+- `decode.int` fails for large tables (> 9007199254740991 rows — unlikely but possible)
+- The safe approach is `COUNT(*)::INT` or `decode.string` + `int.parse`
+
+Currently used correctly:
+- `stats.gleam` uses `decode_bigint()` (string → int.parse) ✅
+- `monitor_ai` uses `COUNT(*)::INT` ✅
+- `issue_db` uses `COUNT(*)::INT` ✅
+
+Currently at risk:
+- `a_db_reader.is_s_still_idle` uses `COUNT(*) as cnt` with `decode.int` —
+  works for small tables but risky for production scale
+
+**Issue #221** | Severity: **LOW** | Category: bigint Decode Risk
+
+### 318e. Recommended Fix: Global Type Parser Configuration
+
+The root cause of all `::text` cast issues is that node-postgres returns
+JavaScript `Date` objects for timestamps and JavaScript `object` for JSONB.
+The proper fix is to configure custom type parsers at connection time:
+
+```javascript
+const types = require('pg').types;
+// Parse all timestamps as strings instead of Date objects
+types.setTypeParser(1184, (val) => val);  // timestamptz
+types.setTypeParser(1114, (val) => val);  // timestamp
+// Parse all JSONB as strings instead of objects
+types.setTypeParser(3802, (val) => val);  // jsonb
+```
+
+This would eliminate the need for `::text` casts throughout the codebase.
+
+**Issue #222** | Severity: **MEDIUM** | Category: Architecture — Type Parser Config
