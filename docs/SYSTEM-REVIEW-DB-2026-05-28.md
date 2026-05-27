@@ -9,39 +9,39 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 | Severity | Count | Percentage |
 |----------|-------|------------|
-| **CRITICAL** | 7 | 5.4% |
-| **HIGH** | 40 | 31.0% |
-| **MEDIUM** | 64 | 49.6% |
-| **LOW** | 18 | 14.0% |
-| **TOTAL** | 129 | 100% |
+| **CRITICAL** | 7 | 5.1% |
+| **HIGH** | 42 | 30.9% |
+| **MEDIUM** | 68 | 50.0% |
+| **LOW** | 19 | 14.0% |
+| **TOTAL** | 136 | 100% |
 
 ## Category Breakdown
 
 | Category | Count | Findings |
 |----------|-------|----------|
 | missing_cast | 29 | 1C/17H |
+| logic_error | 15 | 3C/5H |
 | design_flaw | 12 |  |
-| logic_error | 11 | 3C/3H |
 | unused_columns | 10 |  |
 | wrong_status | 8 | 0C/2H |
 | missing_project_id | 8 | 1C/2H |
 | ffi_mismatch | 6 | 2C/2H |
 | missing_params | 6 | 0C/2H |
 | type_mismatch | 5 | 0C/3H |
+| error_handling | 5 |  |
 | style | 4 |  |
 | disconnected_systems | 4 | 0C/2H |
-| error_handling | 4 |  |
-| dead_code | 3 |  |
-| hardcoded_config | 3 |  |
 | wrong_column | 3 | 0C/3H |
+| design | 3 |  |
 | config_desync | 3 | 0C/2H |
+| hardcoded_config | 3 |  |
+| dead_code | 3 |  |
 | test_coverage | 2 |  |
 | security | 2 |  |
 | performance | 2 | 0C/1H |
 | type_coverage | 1 |  |
-| unused_table | 1 |  |
-| design | 1 |  |
 | wrong_decoder | 1 | 0C/1H |
+| unused_table | 1 |  |
 
 ## Findings by Severity
 
@@ -62,13 +62,15 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 |---|----------|--------|-------|--------|
 | 125 | config_desync | psypi_config | psypi_config.gleam (database) vs pi_extension_ffi.mjs (in-memory) never sync | hook_on_agent_end uses 5min debounce; monitor_ai uses 15min debounce |
 | 262 | config_desync | pi_extension_ffi | Dual config stores: FFI _configStore (in-memory) and psypi_config table (DB) are never synchronized | idle_since and monitor_debounce_ms are stored in _configStore (in-memory) but never persisted to DB. On process restart all debounce state is lost. psypi_config table exists but is not used by the debounce logic. |
-| 247 | disconnected_systems | a_orchestrator | a_orchestrator.run_a_workflow never writes inter-review response to DB | Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail. |
+| 247 | disconnected_systems | a_orchestrator | a_orchestrator.run_a_workflow never writes inter-review response to DB | Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail. Additionally, tool_commit is permanently blocked because overall_score is never written (see #264). |
 | 258 | disconnected_systems | inter_review | Inter-review commit flow is permanently stuck — missing git add before git commit | Inter-review code changes are never actually committed. Review feedback is generated but code is not saved. |
 | 122 | ffi_mismatch | pi_extension_ffi | set_config stores value but get_config cannot retrieve as Gleam Option | Config round-trip broken |
 | 123 | ffi_mismatch | pi_extension_ffi | unwrapGleamResult may not handle all Gleam Result shapes | Error handling in extension.js may fail |
 | 250 | logic_error | agent_identity | semantic_id uses is_idle (momentary state) for A/S prefix (permanent identity) | When S is momentarily idle, it gets A-prefixed identity. Wrong soul loaded, wrong jobs fetched, wrong behavior. |
 | 251 | logic_error | a_orchestrator | compose() called instead of compose_within_budget() — token budget system unused | A-bot system prompt may exceed context window, causing LLM failures. Token budget system exists but is never used. |
 | 259 | logic_error | a_db_reader | is_s_still_idle counts ALL alive sessions, not just S-bot sessions | A-bot may think S is busy when only A-bot itself has an active session. Incorrect idle detection. |
+| 264 | logic_error | tool_commit | tool_commit permanently blocked: overall_score is always NULL because a_orchestrator never writes review response to DB | Commits are permanently blocked. The psypi-commit tool can never succeed in Phase 2. Users must commit manually outside the tool. |
+| 265 | logic_error | seed | seed.gleam multi-statement SQL: node-postgres may only execute first statement, silently dropping rest | Only the first soul (A) and first prefix (A) may be seeded. S and G prefixes/souls may be missing, causing identity and session failures. |
 | 101 | missing_cast | inter_review | inter_review id not cast to text | Decode may fail or return [object Object] |
 | 102 | missing_cast | memory | memory.search SELECT * returns uuid/timestamptz without casts | memory.search always returns DecodeError |
 | 103 | missing_cast | skill | skill.get missing ::text casts on content and reference_list | Skill details may fail to decode |
@@ -108,6 +110,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 145 | dead_code | monitor_ai | housekeeping() is a test stub left in production | Dead code in production module |
 | 255 | dead_code | monitor_ai | tool_consult is a stub — returns hardcoded message, no actual A-bot consultation | Consultation tool is non-functional. Agents that try to consult A-bot get a placeholder response. |
 | 260 | dead_code | agent_identity | _global computed but never used — global_prefix in semantic_id reads ctx.global which is never set | G-prefix never used. _global computation is wasted. semantic_id never produces G-prefixed IDs. |
+| 270 | design | simple_migrate | No migration tracking table: simple_migrate runs all scripts every time with no record of which were applied | No way to determine current schema version. Failed migrations are invisible. No rollback. All scripts run every startup (wasteful). Schema drift between environments is undetectable. |
 | 146 | design_flaw | monitor_ai | monitor_ai.prepare_context UNION ALL with mismatched columns | Context preparation may fail or return wrong data |
 | 147 | design_flaw | hook_on_before_agent_start | Error fallback includes hardcoded soul content | Errors masked by fake soul data |
 | 149 | design_flaw | extension_generator | Dynamic imports in every hook trigger | Performance overhead on every hook trigger |
@@ -123,6 +126,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 128 | disconnected_systems | areflect | areflect.save_learning ignores agent_id parameter | Cannot attribute learnings to specific agents |
 | 142 | error_handling | pi_extension | pi_send_message fire-and-forget; no error feedback | A→S communication failures are silent |
 | 159 | error_handling | multiple | Error handling anti-pattern: Ok(0) on decode failure in 4+ modules | Silent data loss; errors never surface |
+| 266 | error_handling | multiple | 8 instances of Error(_) -> Ok(default) silently swallow errors across 3 modules | Decode failures are invisible. Wrong data is returned as if correct. a_db_reader returning Ok(True) on error means is_s_still_idle always returns True even when the query fails. |
 | 124 | ffi_mismatch | pi_extension_ffi | ctx_is_idle/ctx_has_pending_messages return JS booleans not Gleam Bool | Works by accident; fragile to Gleam compiler changes |
 | 153 | ffi_mismatch | pi_extension_ffi | gleamValueToJson uses constructor.name which breaks under minification | Type detection fails in production if code is minified |
 | 134 | hardcoded_config | issue_db | issue_db.get() and resolve() hardcode project_id UUID | Only works for one project; breaks if project_id changes |
@@ -132,6 +136,8 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 141 | logic_error | hook_on_agent_end | hook_on_tool_result synchronous return in async context | Hook may not properly chain with other hooks |
 | 160 | logic_error | hook_on_agent_end | A/S agent debounce logic: idle_since reset on every tool call | A-bot never goes idle; debounce never triggers; S-bot never activated |
 | 248 | logic_error | monitor | monitor.set_model blanket reset race condition | Temporary window where no API key is active. Concurrent set_model calls could corrupt state. |
+| 267 | logic_error | event_hooks | record_trigger called twice per agent start: before_agent_start and agent_start both trigger on same event | Duplicate trigger records inflate event counts. Monitoring based on trigger counts will be inaccurate. |
+| 269 | logic_error | simple_migrate | simple_migrate.gleam may silently drop multi-statement migration scripts | Schema may be partially applied. Tables created but indexes/constraints/triggers silently dropped. This is worse than seed because it affects schema correctness. |
 | 104 | missing_cast | task | task.get missing project_id::text in SELECT | Task get may fail to decode project_id |
 | 105 | missing_cast | task | task.list id not cast to text | Task list may fail to decode id |
 | 106 | missing_cast | agents | agents.list missing ::text cast on created_at | Agent list may fail to decode |
@@ -173,6 +179,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | # | Category | Module | Title | Impact |
 |---|----------|--------|-------|--------|
 | 225 | design | simple_migrate | simple_migrate re-runs all migrations every time — no tracking of completed migrations | Re-running migrations can cause errors from duplicate objects; no idempotency guarantee |
+| 268 | design | extension_generator | extension_generator uses raw JSON schema for tool parameters instead of Pi SDK recommended TypeBox | No functional breakage, but misses TypeBox validation and enum features. Parameters with constrained values (enums) cannot be expressed. |
 | 150 | design_flaw | hook_on_tool_call | Only triggers on tool named "edit" | Other tool calls not tracked |
 | 143 | error_handling | issue_db | issue_db.count() returns Ok(0) on decode failure | Reports 0 issues when decode fails; misleading |
 | 144 | error_handling | a_db_reader | a_db_reader reports Ok(True) on decode failure | Errors hidden; always reports no sessions |
@@ -321,7 +328,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Evidence**: `a_orchestrator.gleam: full file — no INSERT INTO inter_reviews; only pi_send_message(pi, "autonomic-wakeup", response, "persistent")`
 
-**Impact**: Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail.
+**Impact**: Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail. Additionally, tool_commit is permanently blocked because overall_score is never written (see #264).
 
 ### #258 — Inter-review commit flow is permanently stuck — missing git add before git commit
 
@@ -400,6 +407,32 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `a_db_reader.gleam:34 no filter on agent prefix or role; counts all sessions with status=alive`
 
 **Impact**: A-bot may think S is busy when only A-bot itself has an active session. Incorrect idle detection.
+
+### #264 — tool_commit permanently blocked: overall_score is always NULL because a_orchestrator never writes review response to DB
+
+- **Severity**: HIGH
+- **Category**: logic_error
+- **Module**: `tool_commit`
+- **Status**: open
+
+**Description**: tool_commit.commit_if_reviewed() checks review.overall_score. If None, returns "Review not yet complete". Since a_orchestrator never writes the review response to inter_reviews (finding #247), overall_score stays NULL forever. The entire commit workflow is dead at Phase 2.
+
+**Evidence**: `tool_commit.gleam:44 case review.overall_score { None -> Error("Review not yet complete...") }; inter_reviews table: overall_score column is NULL for all rows because no code writes it; a_orchestrator.gleam: no UPDATE inter_reviews SET overall_score=...`
+
+**Impact**: Commits are permanently blocked. The psypi-commit tool can never succeed in Phase 2. Users must commit manually outside the tool.
+
+### #265 — seed.gleam multi-statement SQL: node-postgres may only execute first statement, silently dropping rest
+
+- **Severity**: HIGH
+- **Category**: logic_error
+- **Module**: `seed`
+- **Status**: open
+
+**Description**: seed.gleam passes multi-statement SQL strings (e.g. INSERT...; INSERT...; INSERT...) to db.query(). node-postgres may only execute the first statement and silently drop the rest. This means agent_souls and agent_prefixes may only get the first row seeded.
+
+**Evidence**: `seed.gleam:42 "INSERT INTO agent_souls ... SELECT 'A'...; INSERT INTO agent_souls ... SELECT 'S'..."; seed.gleam:56 "INSERT INTO agent_prefixes ... SELECT 'A'...; INSERT INTO agent_prefixes ... SELECT 'S'...; INSERT INTO agent_prefixes ... SELECT 'G'..."; node-postgres documentation: multi-statement queries may return only first result`
+
+**Impact**: Only the first soul (A) and first prefix (A) may be seeded. S and G prefixes/souls may be missing, causing identity and session failures.
 
 ### #101 — inter_review id not cast to text
 
@@ -856,6 +889,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: G-prefix never used. _global computation is wasted. semantic_id never produces G-prefixed IDs.
 
+### #270 — No migration tracking table: simple_migrate runs all scripts every time with no record of which were applied
+
+- **Severity**: MEDIUM
+- **Category**: design
+- **Module**: `simple_migrate`
+- **Status**: open
+
+**Description**: simple_migrate.gleam has no tracking table (like schema_migrations) to record which migration scripts have been applied. It uses IF NOT EXISTS / WHERE NOT EXISTS patterns instead. This means: (1) all scripts run every startup, (2) no way to know current schema version, (3) failed migrations are silently retried, (4) no rollback capability.
+
+**Evidence**: `simple_migrate.gleam: no CREATE TABLE schema_migrations; no INSERT INTO schema_migrations; all SQL uses IF NOT EXISTS / WHERE NOT EXISTS patterns; grep -rh "schema_migrations" src/ returns nothing`
+
+**Impact**: No way to determine current schema version. Failed migrations are invisible. No rollback. All scripts run every startup (wasteful). Schema drift between environments is undetectable.
+
 ### #146 — monitor_ai.prepare_context UNION ALL with mismatched columns
 
 - **Severity**: MEDIUM
@@ -1051,6 +1097,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: Silent data loss; errors never surface
 
+### #266 — 8 instances of Error(_) -> Ok(default) silently swallow errors across 3 modules
+
+- **Severity**: MEDIUM
+- **Category**: error_handling
+- **Module**: `multiple`
+- **Status**: open
+
+**Description**: Multiple modules catch decode errors and return Ok with a default value instead of propagating the error. This makes debugging impossible because failures are invisible. Found in: system_review_db.gleam (5: FuPending, Pending, None, Medium, FindingOpen), issue_db.gleam (1: Ok(0)), a_db_reader.gleam (1: Ok(True)).
+
+**Evidence**: `system_review_db.gleam:62 Error(_) -> FuPending; :66 Error(_) -> Pending; :96 Error(_) -> None; :119 Error(_) -> Medium; :123 Error(_) -> FindingOpen; issue_db.gleam:251 Error(_) -> Ok(0); a_db_reader.gleam:44 Error(_) -> Ok(True)`
+
+**Impact**: Decode failures are invisible. Wrong data is returned as if correct. a_db_reader returning Ok(True) on error means is_s_still_idle always returns True even when the query fails.
+
 ### #124 — ctx_is_idle/ctx_has_pending_messages return JS booleans not Gleam Bool
 
 - **Severity**: MEDIUM
@@ -1167,6 +1226,32 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `monitor.gleam:104 UPDATE provider_api_keys SET status = 'not_used'; then line 113-115 UPDATE ... SET status = 'in_use' WHERE provider = $1`
 
 **Impact**: Temporary window where no API key is active. Concurrent set_model calls could corrupt state.
+
+### #267 — record_trigger called twice per agent start: before_agent_start and agent_start both trigger on same event
+
+- **Severity**: MEDIUM
+- **Category**: logic_error
+- **Module**: `event_hooks`
+- **Status**: open
+
+**Description**: hook_on_before_agent_start calls record_trigger("before_agent_start") and hook_on_agent_start calls record_trigger("agent_start"). Both hooks fire on the same agent start event, creating duplicate trigger records in event_hooks table. This inflates trigger counts and may confuse monitoring.
+
+**Evidence**: `hook_on_before_agent_start.gleam:8 record_trigger("before_agent_start"); hook_on_agent_start.gleam:7 record_trigger("agent_start"); extension_generator.gleam registers both as session_start hooks`
+
+**Impact**: Duplicate trigger records inflate event counts. Monitoring based on trigger counts will be inaccurate.
+
+### #269 — simple_migrate.gleam may silently drop multi-statement migration scripts
+
+- **Severity**: MEDIUM
+- **Category**: logic_error
+- **Module**: `simple_migrate`
+- **Status**: open
+
+**Description**: simple_migrate.gleam reads SQL files and passes them to db.query(). Migration scripts containing multiple statements (e.g. CREATE TABLE followed by CREATE INDEX) may only have the first statement executed, silently dropping the rest. Unlike seed.gleam, migrations are critical for schema correctness.
+
+**Evidence**: `simple_migrate.gleam reads .sql files and passes content directly to db.query(); migration files like 027_review_findings.sql contain multiple statements; node-postgres may only execute first statement`
+
+**Impact**: Schema may be partially applied. Tables created but indexes/constraints/triggers silently dropped. This is worse than seed because it affects schema correctness.
 
 ### #104 — task.get missing project_id::text in SELECT
 
@@ -1649,6 +1734,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: Re-running migrations can cause errors from duplicate objects; no idempotency guarantee
 
+### #268 — extension_generator uses raw JSON schema for tool parameters instead of Pi SDK recommended TypeBox
+
+- **Severity**: LOW
+- **Category**: design
+- **Module**: `extension_generator`
+- **Status**: open
+
+**Description**: Pi SDK documentation recommends using Type.Object() from typebox for tool parameter definitions. psypi generates inline JSON schema objects instead. While this works (registerTool accepts JSON schema), it misses TypeBox features like validation and Google-compatible enums (StringEnum).
+
+**Evidence**: `pi_tool_call.gleam:161 params_to_js() generates { "type": "object", "properties": {...} } instead of Type.Object({...}); Pi SDK docs: "import { Type } from typebox"; examples use Type.Object, Type.String`
+
+**Impact**: No functional breakage, but misses TypeBox validation and enum features. Parameters with constrained values (enums) cannot be expressed.
+
 ### #150 — Only triggers on tool named "edit"
 
 - **Severity**: LOW
@@ -1882,6 +1980,6 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 116 | areflect.save_issue omits project_id (NOT NULL, no default) | save_issue INSERT always fails; no issues can be saved via areflect |
 | 125 | psypi_config.gleam (database) vs pi_extension_ffi.mjs (in-memory) never sync | hook_on_agent_end uses 5min debounce; monitor_ai uses 15min debounce |
 | 262 | Dual config stores: FFI _configStore (in-memory) and psypi_config table (DB) are never synchronized | idle_since and monitor_debounce_ms are stored in _configStore (in-memory) but never persisted to DB. On process restart all debounce state is lost. psypi_config table exists but is not used by the debounce logic. |
-| 247 | a_orchestrator.run_a_workflow never writes inter-review response to DB | Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail. |
+| 247 | a_orchestrator.run_a_workflow never writes inter-review response to DB | Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail. Additionally, tool_commit is permanently blocked because overall_score is never written (see #264). |
 | 258 | Inter-review commit flow is permanently stuck — missing git add before git commit | Inter-review code changes are never actually committed. Review feedback is generated but code is not saved. |
 
