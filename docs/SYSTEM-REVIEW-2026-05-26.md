@@ -25034,3 +25034,177 @@ validation is performed on the input.
 **Issue #325** | Severity: **MEDIUM** | Category: Logic — `broadcast.stats()` uses `priority >= 2` on text column; should use `priority IN ('high', 'critical')`
 
 **Issue #326** | Severity: **LOW** | Category: Logic — `broadcast.list()/get_recent()` aliases `read_at` as `sent_at`; semantically misleading
+
+---
+
+## 357. EXTENSION GENERATOR — Code Generation Analysis
+
+### 357a. Dynamic Imports in Every Hook Invocation
+
+The `hook_import_line` function generates:
+```javascript
+const hook_on_agent_end_on_agent_end = (await import('./build/dev/javascript/psypi/hook_on_agent_end.mjs')).on_agent_end;
+```
+
+This dynamic `await import()` is executed **every time** the hook fires.
+For the `agent_end` hook (debounced), this means a module load on every
+agent turn. Dynamic imports are cached by Node.js after the first load,
+but there is still overhead from the `import()` call itself (promise
+creation, module cache lookup).
+
+For tools, the imports are static (top-level `import` statements), which
+is correct. But hooks use dynamic imports, which is inconsistent.
+
+### 357b. Debounce Timer Closure Captures Stale `ctx`
+
+The debounced hook generates:
+```javascript
+pi.on('agent_end', async (event, ctx) => {
+  // ...
+  _debounceTimerId = setTimeout(async () => {
+    // ctx is captured from the outer closure
+    // But by the time setTimeout fires, ctx may be stale
+    const result = await hook_on_agent_end_on_agent_end(ctx, pi);
+  }, _debounceMs);
+});
+```
+
+The `ctx` object captured in the setTimeout callback may be stale by
+the time the timer fires. If the Pi environment creates a new `ctx`
+for each event, the debounced callback uses the old `ctx` from the
+last `agent_end` event, not the current one.
+
+### 357c. Debounce Config Fetched Only Once
+
+```javascript
+if (_debounceMs == null) {
+  const debounceResult = await psypi_config_get_debounce_ms();
+  _debounceMs = dr.value;
+}
+```
+
+The debounce interval is fetched from the database on the first
+`agent_end` event and cached forever in `_debounceMs`. If the config
+is changed in the database (e.g., from 5 minutes to 15 minutes), the
+running extension will continue using the old value until restarted.
+
+### 357d. `event_hooks_record_trigger` Called After Error
+
+In the generated hook code:
+```javascript
+if (r.ok) { /* success */ }
+else { ctx.ui.notify('Hook ... failed: ' + r.error, 'error'); }
+await event_hooks_record_trigger('agent_end');
+```
+
+`record_trigger` is called regardless of whether the hook succeeded
+or failed. This inflates the `trigger_count` even for failed hooks.
+The `error_count` is never incremented because `record_error` is never
+called from the generated code (already documented as Issue #311).
+
+### 357e. `unwrapGleamResult` Applied to Non-Result Values
+
+The generated tool code does:
+```javascript
+const result = await module_fn(args);
+const r = unwrapGleamResult(result);
+```
+
+But some Gleam functions return `Result(Result(a, e), f)` (nested
+Results). For example, `task.list()` returns
+`promise.Promise(Result(List(Task), TaskError))`. After `await`, we
+get `Result(List(Task), TaskError)`. `unwrapGleamResult` unwraps one
+layer, giving `{ ok: true, value: List(Task) }` or
+`{ ok: false, error: TaskError }`.
+
+But `gleamValueToJson` then tries to convert the Gleam `List(Task)`
+to JSON. This works because `gleamValueToJson` handles custom types.
+However, if the inner value is a Gleam `List`, it needs to be
+converted to a JS array first. The `gleamValueToJson` function may
+not handle all Gleam types correctly (e.g., `Option` values).
+
+### 357f. `consult_tool` and `commit_tool` Not Imported in Header
+
+The `consult_tool()` and `commit_tool()` are defined locally in
+`extension_generator.gleam`, not imported from external modules. Their
+`to_import_line` will generate import statements for
+`tool_consult.mjs` and `tool_commit.mjs`, which should exist.
+
+### 357g. Generated `extension.js` Path is Project Root
+
+```gleam
+let extension_path = filepath.join(project_root, "extension.js")
+```
+
+The generated file is written to the project root. If the project
+root detection fails or returns the wrong path, the extension file
+will be written to an unexpected location.
+
+**Issue #327** | Severity: **MEDIUM** | Category: Performance — Generated hooks use `await import()` on every invocation instead of static top-level imports
+
+**Issue #328** | Severity: **MEDIUM** | Category: Logic — Debounced hook captures stale `ctx` in setTimeout closure; by the time timer fires, ctx may be invalid
+
+**Issue #329** | Severity: **LOW** | Category: Logic — Debounce config (`_debounceMs`) fetched only once and cached forever; DB changes not reflected until restart
+
+**Issue #330** | Severity: **MEDIUM** | Category: Logic — `event_hooks_record_trigger` called even on hook failure, inflating trigger_count; `record_error` never called from generated code
+
+---
+
+## 358. PI_EXTENSION.GLEAM — FFI Entry Point Analysis
+
+### 358a. `pi_send_message` Ignores `display` Parameter
+
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "pi_send_message")
+pub fn pi_send_message(pi: a, custom_type: String, content: String, display: String) -> Nil
+```
+
+The `display` parameter is declared but the JS implementation ignores it
+(already documented as Issue #285). Messages are always displayed the
+same way regardless of the `display` value.
+
+### 358b. `unwrap_gleam_result` and `gleam_value_to_json` — Type Safety Bypass
+
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "unwrapGleamResult")
+pub fn unwrap_gleam_result(result: a) -> b
+
+@external(javascript, "./pi_extension_ffi.mjs", "gleamValueToJson")
+pub fn gleam_value_to_json(val: a) -> b
+```
+
+Both functions use polymorphic return types (`b`), which means the
+Gleam compiler cannot verify what they return. Any type mismatch
+between the actual JS return value and the expected Gleam type will
+cause runtime errors that the compiler cannot catch.
+
+### 358c. `now_ms` Dual Declaration
+
+`now_ms()` is declared in both `pi_extension.gleam` and
+`pi_extension_ffi.mjs`. The Gleam declaration is:
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "now_ms")
+pub fn now_ms() -> Int
+```
+
+But `hook_on_agent_end.gleam` also declares its own `now_ms`:
+```gleam
+@external(javascript, "../pi_extension_ffi.mjs", "now_ms")
+fn now_ms() -> Int
+```
+
+Two different import paths to the same function. This is a code smell
+but not a bug (both resolve to the same JS file).
+
+### 358d. `read_file_sync` — Synchronous File Read in Event Loop
+
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "read_file_sync")
+pub fn read_file_sync(path: String) -> Result(String, String)
+```
+
+This is a synchronous file read that blocks the Node.js event loop.
+Used by `hook_on_before_agent_start` to read soul files. For small
+files this is acceptable, but it's a potential performance issue.
+
+**Issue #331** | Severity: **LOW** | Category: Code Smell — `now_ms` declared in two places with different import paths; should use single declaration from `pi_extension`
