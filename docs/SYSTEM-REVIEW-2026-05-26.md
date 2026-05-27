@@ -7,17 +7,17 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**161 issues tracked** (#100-#278) across 21 audit categories.
+**164 issues tracked** (#100-#283) across 22 audit categories.
 ⚠️ **CRITICAL CORRECTION (§333)**: 8 issues retracted — previous "phantom table" claims were based on querying wrong database.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 34    | 21.1%      |
-| **HIGH**     | 63    | 39.1%      |
-| **MEDIUM**   | 53    | 32.9%      |
-| **LOW**      | 18    | 11.2%      |
+| **CRITICAL** | 34    | 20.7%      |
+| **HIGH**     | 65    | 39.6%      |
+| **MEDIUM**   | 55    | 33.5%      |
+| **LOW**      | 19    | 11.6%      |
 
 ### Category Breakdown
 
@@ -23388,3 +23388,177 @@ This INSERT will fail with a SQL error at runtime.
 | `code_version` | 3             | 2       | 1      | query_versions no decoder                 |
 | `a_db_reader`  | 4             | 3       | 1      | is_s_still_idle bigint                    |
 | **TOTAL**      | **39**        | **25**  | **14** | **36% of queries broken**                 |
+
+---
+
+## 342. DUAL CONFIG SYSTEM — ARCHITECTURE ANALYSIS
+
+### 342a. Two Independent Config Stores
+
+The psypi project has two completely separate configuration systems that
+are not synchronized:
+
+**Store 1: FFI `_configStore`** (in-memory JavaScript object)
+- Location: `pi_extension_ffi.mjs`
+- Functions: `get_config(key)` / `set_config(key, value)`
+- Scope: In-memory only, lost on process restart
+- Used by: `hook_on_agent_end.gleam` (via `pi_extension` FFI)
+- Keys stored: `idle_since`, `monitor_debounce_ms`
+- Current state: `get_config` is BROKEN (returns null instead of Option)
+
+**Store 2: DB `psypi_config`** (PostgreSQL table)
+- Location: `psypi_config.gleam`
+- Functions: `get(key)`, `get_int(key)`, `get_debounce_ms()`, `set(key, value)`
+- Scope: Persistent across restarts
+- Used by: `extension_generator.gleam` (debounce config), `psypi_config.gleam`
+- Keys stored: `monitor_debounce_ms` (900000), `idle_since` (0), `last_wakeup` (text), `monitor_enabled` (true)
+- Current state: Works correctly
+
+### 342b. The Double Debounce Problem
+
+The `agent_end` hook has TWO independent debounce mechanisms:
+
+```
+JS Layer (extension.js):
+  pi.on('agent_end', async (event, ctx) => {
+    const debounceMs = await psypi_config_get_debounce_ms();  // DB: 900000ms (15 min)
+    setTimeout(async () => {
+      hook_on_agent_end_on_agent_end(ctx, pi);  // Calls Gleam handler
+    }, debounceMs);
+  });
+
+Gleam Layer (hook_on_agent_end.gleam):
+  fn check_idle_since(ctx, pi) {
+    case get_config("idle_since") {  // FFI: in-memory, BROKEN
+      None -> { set_config("idle_since", now); return; }
+      Some(idle_since_str) -> {
+        let elapsed = now - idle_since;
+        case get_config("monitor_debounce_ms") {  // FFI: in-memory, BROKEN
+          None -> { let debounce_ms = 300000; ... }  // Default: 5 min
+          Some(debounce_str) -> { ... }
+        }
+      }
+    }
+  }
+```
+
+**Result**: Even if both debounces worked correctly:
+1. JS waits 15 min before calling Gleam handler
+2. Gleam checks if S has been idle for 5 min (redundant — already waited 15)
+3. The Gleam debounce adds nothing because the JS debounce is longer
+
+**Worse**: The Gleam debounce uses `idle_since` from FFI `_configStore`, which
+is in-memory and lost on restart. If the process restarts, `idle_since` is
+forgotten and the debounce resets.
+
+### 342c. Config Value Conflicts
+
+| Key                   | FFI `_configStore`         | DB `psypi_config`                | Conflict?                    |
+| --------------------- | -------------------------- | -------------------------------- | ---------------------------- |
+| `monitor_debounce_ms` | 300000 (5 min default)     | 900000 (15 min)                  | **YES** — different values   |
+| `idle_since`          | Set at runtime (in-memory) | "0"                              | **YES** — never synchronized |
+| `last_wakeup`         | Not used                   | Long text (conversation context) | Different purpose            |
+| `monitor_enabled`     | Not used                   | "true"                           | No conflict                  |
+
+### 342d. The `last_wakeup` Data Integrity Issue
+
+The DB `psypi_config` table has `last_wakeup` with value:
+```
+S was in the middle of establishing a new process rule about mandatory
+issue/task review gates, and the tool calls were being made to save this
+learning. The conversation was cut off mid-execution...
+```
+
+This is NOT a timestamp — it's conversation context stored in a config key.
+This suggests the `set_config` FFI function is being used to store arbitrary
+data that doesn't belong in a config store.
+
+### 342e. Root Cause Analysis
+
+The dual config system exists because:
+1. `psypi_config.gleam` was written as a proper DB-backed module
+2. `pi_extension_ffi.mjs` `_configStore` was added as a quick in-memory hack
+3. `hook_on_agent_end.gleam` uses the FFI store instead of the DB store
+4. Nobody connected them — the FFI store was never synchronized with the DB
+
+### 342f. Recommended Fix
+
+1. **Eliminate the FFI `_configStore`** for config values that should be persistent
+2. **Use `psypi_config.gleam`** for all config reads/writes in `hook_on_agent_end`
+3. **Remove the Gleam manual debounce** — the JS debounce timer already handles it
+4. **Keep `idle_since` in DB** for persistence across restarts
+5. **Add `psypi_config.set_debounce_ms()`** for runtime config changes
+
+**Issue #279** | Severity: **HIGH** | Category: Architecture — dual config system (FFI _configStore vs DB psypi_config) with conflicting values and no synchronization
+
+**Issue #280** | Severity: **MEDIUM** | Category: Logic — double debounce (JS 15min + Gleam 5min) is redundant; Gleam debounce adds nothing
+
+**Issue #281** | Severity: **MEDIUM** | Category: Data — `last_wakeup` in psypi_config stores conversation context instead of timestamp
+
+---
+
+## 343. PROMPT COMPOSITION PIPELINE — TOKEN BUDGET ENFORCEMENT
+
+### 343a. The Budget System
+
+`system_prompt_types.gleam` implements a well-designed prompt composition system:
+
+1. `new_composition(total_tokens)` — creates a composition with a token budget
+2. `add_component(comp, component)` — adds a component, tracking used tokens
+3. `compose_within_budget(comp)` — filters components by priority to fit budget
+4. `compose(comp)` — concatenates all components into a string (NO budget check)
+
+The system was designed to enforce token budgets by:
+- Sorting components by priority (Critical > High > Medium > Low)
+- Including components in priority order until budget is exhausted
+- Dropping lower-priority components that don't fit
+
+### 343b. The Problem: Budget Never Enforced
+
+`a_orchestrator.gleam` line 60:
+```gleam
+let system_prompt =
+  compose(a_prompt_builder.build_system_prompt(
+    soul_content,
+    a_jobs,
+    context_window,
+  ))
+```
+
+This calls `compose()` which just concatenates ALL components, ignoring the budget.
+The correct call would be:
+```gleam
+let budgeted = compose_within_budget(
+  a_prompt_builder.build_system_prompt(soul_content, a_jobs, context_window)
+)
+let system_prompt = compose(budgeted)
+```
+
+### 343c. Impact
+
+The A-bot system prompt is composed of:
+1. Soul identity (Critical) — ~200 tokens
+2. Soul content from DB (Critical) — variable, could be very long
+3. A jobs from DB (High) — variable
+
+If the soul content is very long (e.g., detailed instructions), the total
+system prompt could exceed the model's context window, causing:
+- API errors (prompt too long)
+- Truncated responses
+- Wasted tokens on system prompt, leaving less for conversation
+
+### 343d. S-bot Has No Budget System At All
+
+`hook_on_before_agent_start.gleam` returns the raw soul content string
+without any composition or budget management. If the S-bot soul is very
+long, it will consume the entire context window.
+
+### 343e. Token Estimation Is Crude
+
+`estimate_tokens(text)` uses `string.length(text) / 4 + 1`, which is a
+rough approximation. For English text, this is reasonable (~4 chars/token).
+For code or non-English text, it could be off by 2-3x.
+
+**Issue #282** | Severity: **MEDIUM** | Category: Logic — `compose()` called instead of `compose_within_budget()`, token budget never enforced for A-bot system prompt
+
+**Issue #283** | Severity: **LOW** | Category: Architecture — S-bot system prompt has no budget management at all
