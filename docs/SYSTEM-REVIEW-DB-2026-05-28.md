@@ -9,39 +9,39 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 | Severity | Count | Percentage |
 |----------|-------|------------|
-| **CRITICAL** | 4 | 3.7% |
-| **HIGH** | 33 | 30.3% |
-| **MEDIUM** | 56 | 51.4% |
-| **LOW** | 16 | 14.7% |
-| **TOTAL** | 109 | 100% |
+| **CRITICAL** | 6 | 4.7% |
+| **HIGH** | 39 | 30.7% |
+| **MEDIUM** | 64 | 50.4% |
+| **LOW** | 18 | 14.2% |
+| **TOTAL** | 127 | 100% |
 
 ## Category Breakdown
 
 | Category | Count | Findings |
 |----------|-------|----------|
 | missing_cast | 29 | 1C/17H |
+| design_flaw | 12 |  |
+| logic_error | 10 | 2C/3H |
 | unused_columns | 10 |  |
-| missing_project_id | 8 | 1C/2H |
-| design_flaw | 8 |  |
 | wrong_status | 8 | 0C/2H |
-| ffi_mismatch | 5 | 1C/2H |
+| missing_project_id | 8 | 1C/2H |
+| ffi_mismatch | 6 | 2C/2H |
+| missing_params | 6 | 0C/2H |
 | type_mismatch | 5 | 0C/3H |
-| missing_params | 5 | 0C/1H |
-| logic_error | 4 | 1C/0H |
 | error_handling | 4 |  |
-| style | 3 |  |
+| style | 4 |  |
+| disconnected_systems | 4 | 0C/2H |
+| dead_code | 3 |  |
 | wrong_column | 3 | 0C/3H |
 | hardcoded_config | 3 |  |
-| config_desync | 2 | 0C/1H |
 | test_coverage | 2 |  |
 | security | 2 |  |
-| disconnected_systems | 2 |  |
+| performance | 2 | 0C/1H |
+| config_desync | 2 | 0C/1H |
 | wrong_decoder | 1 | 0C/1H |
-| dead_code | 1 |  |
 | unused_table | 1 |  |
 | design | 1 |  |
 | type_coverage | 1 |  |
-| performance | 1 | 0C/1H |
 
 ## Findings by Severity
 
@@ -50,7 +50,9 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | # | Category | Module | Title | Impact |
 |---|----------|--------|-------|--------|
 | 121 | ffi_mismatch | pi_extension_ffi | get_config returns JS null/string not Gleam Option | A-bot debounce never fires; idle_since always reset; A-bot completely dead |
+| 249 | ffi_mismatch | pi_extension_ffi | get_config FFI returns JS null/string which never matches Gleam None/Some constructors | idle_since is always re-recorded as now(). Debounce never fires. A-bot wakeup is completely broken. |
 | 139 | logic_error | broadcast | broadcast.stats() 3 bugs: bigint decode, text>=int, missing status column | Stats query returns wrong results or fails |
+| 244 | logic_error | a_db_reader | No code updates agent_sessions.last_heartbeat — is_s_still_idle always returns True | A-bot can wake up while S is actively working. No guard against concurrent A+S execution. |
 | 100 | missing_cast | inter_review | inter_review requested_at decode fails without ::text cast | Inter-review requests always fail to decode |
 | 116 | missing_project_id | areflect | areflect.save_issue omits project_id (NOT NULL, no default) | save_issue INSERT always fails; no issues can be saved via areflect |
 ### HIGH
@@ -58,8 +60,13 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | # | Category | Module | Title | Impact |
 |---|----------|--------|-------|--------|
 | 125 | config_desync | psypi_config | psypi_config.gleam (database) vs pi_extension_ffi.mjs (in-memory) never sync | hook_on_agent_end uses 5min debounce; monitor_ai uses 15min debounce |
+| 247 | disconnected_systems | a_orchestrator | a_orchestrator.run_a_workflow never writes inter-review response to DB | Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail. |
+| 258 | disconnected_systems | inter_review | Inter-review commit flow is permanently stuck — missing git add before git commit | Inter-review code changes are never actually committed. Review feedback is generated but code is not saved. |
 | 122 | ffi_mismatch | pi_extension_ffi | set_config stores value but get_config cannot retrieve as Gleam Option | Config round-trip broken |
 | 123 | ffi_mismatch | pi_extension_ffi | unwrapGleamResult may not handle all Gleam Result shapes | Error handling in extension.js may fail |
+| 250 | logic_error | agent_identity | semantic_id uses is_idle (momentary state) for A/S prefix (permanent identity) | When S is momentarily idle, it gets A-prefixed identity. Wrong soul loaded, wrong jobs fetched, wrong behavior. |
+| 251 | logic_error | a_orchestrator | compose() called instead of compose_within_budget() — token budget system unused | A-bot system prompt may exceed context window, causing LLM failures. Token budget system exists but is never used. |
+| 259 | logic_error | a_db_reader | is_s_still_idle counts ALL alive sessions, not just S-bot sessions | A-bot may think S is busy when only A-bot itself has an active session. Incorrect idle detection. |
 | 101 | missing_cast | inter_review | inter_review id not cast to text | Decode may fail or return [object Object] |
 | 102 | missing_cast | memory | memory.search SELECT * returns uuid/timestamptz without casts | memory.search always returns DecodeError |
 | 103 | missing_cast | skill | skill.get missing ::text casts on content and reference_list | Skill details may fail to decode |
@@ -78,6 +85,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 221 | missing_cast | inter_review | inter_review.gleam: id uuid and requested_at timestamptz without ::text in list queries | Inter-review list and get queries fail to decode |
 | 222 | missing_cast | inter_review | inter_review.gleam: request_inter_review() returns uuid without ::text | Creating inter-review fails to decode returned review_id |
 | 129 | missing_params | code_version | psypi-doc-save only declares file_path but uses 5 parameters | Content always empty; saved versions have no content |
+| 256 | missing_params | agent_identity | psypi-my-id missing project and global fields in generated JS object | Semantic IDs contain "undefined" instead of project name. G-prefix never used. Identity system broken. |
 | 117 | missing_project_id | areflect | areflect.save_task missing project_id (has default but wrong) | Tasks may be assigned to wrong project |
 | 118 | missing_project_id | monitor_ai | auto_file_issue uses non-existent column type, missing project_id | Auto-issue filing always fails |
 | 137 | performance | db | db.with_connection() creates new TCP connection per query | 3-10x latency overhead; potential connection exhaustion |
@@ -96,6 +104,8 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 |---|----------|--------|-------|--------|
 | 126 | config_desync | seed | seed.gleam seeds monitor_debounce_ms as 300000 but DB has 900000 | Fresh installs get different debounce than existing deployments |
 | 145 | dead_code | monitor_ai | housekeeping() is a test stub left in production | Dead code in production module |
+| 255 | dead_code | monitor_ai | tool_consult is a stub — returns hardcoded message, no actual A-bot consultation | Consultation tool is non-functional. Agents that try to consult A-bot get a placeholder response. |
+| 260 | dead_code | agent_identity | _global computed but never used — global_prefix in semantic_id reads ctx.global which is never set | G-prefix never used. _global computation is wasted. semantic_id never produces G-prefixed IDs. |
 | 146 | design_flaw | monitor_ai | monitor_ai.prepare_context UNION ALL with mismatched columns | Context preparation may fail or return wrong data |
 | 147 | design_flaw | hook_on_before_agent_start | Error fallback includes hardcoded soul content | Errors masked by fake soul data |
 | 149 | design_flaw | extension_generator | Dynamic imports in every hook trigger | Performance overhead on every hook trigger |
@@ -103,6 +113,10 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 154 | design_flaw | pi_extension_ffi | Duplicate now_ms FFI in both pi_extension_ffi.mjs and time_ffi.mjs | Inconsistency; which one is authoritative? |
 | 156 | design_flaw | monitor_ai | call_monitor retry without exponential backoff | Retry storms under load; no jitter |
 | 158 | design_flaw | package | Package namespace mismatch between gleam.toml and import paths | Import resolution may fail for external consumers |
+| 245 | design_flaw | a_db_reader | agent_sessions has TWO heartbeat columns: last_heartbeat and last_heartbeat_at | Confusion about which column is canonical. If wrong column is used for idle detection, results differ. |
+| 246 | design_flaw | hook_on_tool_result | hook_on_tool_result uses string.contains for error detection instead of JSON parsing | False error reports from legitimate tool output, or missed errors from unrecognized patterns |
+| 252 | design_flaw | hook_on_tool_call | hook_on_tool_call only handles "edit" tool — all other tools ignored | No monitoring of non-edit tool calls. No error recording for failed tool calls except edit. |
+| 254 | design_flaw | simple_migrate | Migration system has no tracking table — cannot determine which migrations have run | Cannot determine current schema version. Re-running migrations may fail or cause duplicate data. No rollback capability. |
 | 127 | disconnected_systems | areflect | areflect saves to learning_insights; learning.gleam saves to memory; neither reads the other | No unified learning retrieval; insights fragmented |
 | 128 | disconnected_systems | areflect | areflect.save_learning ignores agent_id parameter | Cannot attribute learnings to specific agents |
 | 142 | error_handling | pi_extension | pi_send_message fire-and-forget; no error feedback | A→S communication failures are silent |
@@ -115,6 +129,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 140 | logic_error | agent_identity | semantic_id uses is_idle for A/S prefix; idle S-agent gets wrong identity | Idle S-agent gets A- prefix; wrong session tracking |
 | 141 | logic_error | hook_on_agent_end | hook_on_tool_result synchronous return in async context | Hook may not properly chain with other hooks |
 | 160 | logic_error | hook_on_agent_end | A/S agent debounce logic: idle_since reset on every tool call | A-bot never goes idle; debounce never triggers; S-bot never activated |
+| 248 | logic_error | monitor | monitor.set_model blanket reset race condition | Temporary window where no API key is active. Concurrent set_model calls could corrupt state. |
 | 104 | missing_cast | task | task.get missing project_id::text in SELECT | Task get may fail to decode project_id |
 | 105 | missing_cast | task | task.list id not cast to text | Task list may fail to decode id |
 | 106 | missing_cast | agents | agents.list missing ::text cast on created_at | Agent list may fail to decode |
@@ -131,7 +146,8 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 119 | missing_project_id | a_db_reader | a_db_reader.read_active_tasks no project_id filter | Returns tasks from all projects |
 | 120 | missing_project_id | broadcast | broadcast.send empty string for UUID NOT NULL column | Broadcast send fails on NOT NULL constraint |
 | 223 | missing_project_id | monitor_ai | monitor_ai record_tool_error: INSERT INTO issues omits project_id | Tool error issues not scoped to project |
-| 224 | missing_project_id | areflect | areflect INSERT INTO issues and tasks omits project_id | Reflective issues/tasks not scoped to project |
+| 224 | missing_project_id | areflect | areflect INSERT INTO issues and tasks omits project_id | Issues INSERT will fail with NOT NULL constraint violation. Tasks INSERT succeeds but creates tasks in wrong project (default UUID instead of actual project). |
+| 253 | performance | db | No connection pooling — every query creates and destroys a connection | Connection overhead on every query. Under concurrent load, connection exhaustion or slowdown. |
 | 155 | security | pi_extension_ffi | exec_sync allows command injection via unsanitized input | Arbitrary command execution if tool params contain shell metacharacters |
 | 162 | security | db | SQL injection risk: string interpolation in WHERE clauses | Potential SQL injection if filter values contain SQL metacharacters |
 | 164 | type_coverage | multiple | 80 public types across 28 modules; no type audit exists | Cannot verify which DB tables have matching Gleam types without a mapping |
@@ -158,12 +174,14 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 150 | design_flaw | hook_on_tool_call | Only triggers on tool named "edit" | Other tool calls not tracked |
 | 143 | error_handling | issue_db | issue_db.count() returns Ok(0) on decode failure | Reports 0 issues when decode fails; misleading |
 | 144 | error_handling | a_db_reader | a_db_reader reports Ok(True) on decode failure | Errors hidden; always reports no sessions |
+| 257 | logic_error | pi_extension_ffi | _configStore in-memory cache has race condition with concurrent access | Under concurrent access, stale config values may be used. Dual store (DB + in-memory) without synchronization. |
 | 130 | missing_params | issue_tools | psypi-issue-add references created_by not in params | Always defaults to "psypi" |
 | 131 | missing_params | issue_tools | psypi-issues does not declare limit/offset in params | No way to page through results |
 | 213 | missing_project_id | learning | learning.save() INSERT INTO memory omits project_id | Memories not scoped to project; cross-project leakage possible |
 | 148 | style | command_reload | command_reload only notifies; no error handling | Reload failures are silent |
 | 157 | style | pi_extension_ffi | Orphan FFI file not imported by any Gleam module | Dead code in FFI layer |
 | 163 | style | git | Git state shows AI repair pattern: many fix commits without verification | Unverified fixes may introduce new bugs |
+| 263 | style | pi_extension_ffi | gleamValueToJson has hardcoded type name list — new Gleam types not serialized as records | New types may serialize incorrectly in tool results. Not a crash but data quality issue in JSON output. |
 | 152 | test_coverage | test | Gleam test files import modules that dont exist | Tests cannot compile; false positive pass rate |
 | 161 | test_coverage | test | No integration tests for database queries | DB query bugs never caught by tests |
 | 239 | unused_columns | monitor | provider_api_keys: Gleam only reads provider and model, never reads encrypted_key, status, etc. | API key management is partial — encryption fields never accessed by Gleam |
@@ -178,13 +196,26 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 - **Severity**: CRITICAL
 - **Category**: ffi_mismatch
 - **Module**: `pi_extension_ffi`
-- **Status**: open
+- **Status**: duplicate
 
-**Description**: Gleam expects Some(value)/None but JS returns null or string; pattern matching never works
+**Description**: Gleam expects Some(value)/None but JS returns null or string; pattern matching never works [DUPLICATE of #249 — more detailed]
 
 **Evidence**: `pi_extension_ffi.mjs: return _configStore[key] || null`
 
 **Impact**: A-bot debounce never fires; idle_since always reset; A-bot completely dead
+
+### #249 — get_config FFI returns JS null/string which never matches Gleam None/Some constructors
+
+- **Severity**: CRITICAL
+- **Category**: ffi_mismatch
+- **Module**: `pi_extension_ffi`
+- **Status**: open
+
+**Description**: pi_extension_ffi.mjs get_config returns null when key not found, or the raw string value when found. Gleam expects Option(String): None or Some(string). JS null does not equal Gleam None, and JS string does not equal Gleam Some(string). The Some branch in hook_on_agent_end is NEVER reached.
+
+**Evidence**: `pi_extension_ffi.mjs: return row ? row.value : null; hook_on_agent_end.gleam uses case get_config(...) { Some(val) -> ... None -> ... } but Some is never matched`
+
+**Impact**: idle_since is always re-recorded as now(). Debounce never fires. A-bot wakeup is completely broken.
 
 ### #139 — broadcast.stats() 3 bugs: bigint decode, text>=int, missing status column
 
@@ -198,6 +229,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `broadcast.gleam stats(): priority text>=2, status column does not exist in project_communications, COUNT(*) without ::INT`
 
 **Impact**: Stats query returns wrong results or fails
+
+### #244 — No code updates agent_sessions.last_heartbeat — is_s_still_idle always returns True
+
+- **Severity**: CRITICAL
+- **Category**: logic_error
+- **Module**: `a_db_reader`
+- **Status**: open
+
+**Description**: a_db_reader.gleam:34 queries WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes' but no Gleam code ever UPDATEs last_heartbeat. All 19 sessions have last_heartbeat from 20+ days ago. The query always returns cnt=0, so is_s_still_idle() always returns Ok(True).
+
+**Evidence**: `a_db_reader.gleam:34 SELECT COUNT(*) FROM agent_sessions WHERE status='alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'; grep -rh "UPDATE agent_sessions" src/*.gleam returns nothing; grep -rh "last_heartbeat" src/*.gleam only finds the SELECT`
+
+**Impact**: A-bot can wake up while S is actively working. No guard against concurrent A+S execution.
 
 ### #100 — inter_review requested_at decode fails without ::text cast
 
@@ -238,6 +282,32 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: hook_on_agent_end uses 5min debounce; monitor_ai uses 15min debounce
 
+### #247 — a_orchestrator.run_a_workflow never writes inter-review response to DB
+
+- **Severity**: HIGH
+- **Category**: disconnected_systems
+- **Module**: `a_orchestrator`
+- **Status**: open
+
+**Description**: When A-bot generates a review response via call_monitor, the response is only sent via pi_send_message("autonomic-wakeup"). It is never written to inter_reviews table. The review response exists only in the Pi message queue, not in the database.
+
+**Evidence**: `a_orchestrator.gleam: full file — no INSERT INTO inter_reviews; only pi_send_message(pi, "autonomic-wakeup", response, "persistent")`
+
+**Impact**: Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail.
+
+### #258 — Inter-review commit flow is permanently stuck — missing git add before git commit
+
+- **Severity**: HIGH
+- **Category**: disconnected_systems
+- **Module**: `inter_review`
+- **Status**: open
+
+**Description**: The inter-review flow calls tool_commit.gleam which runs git commit but does not run git add first. Without git add, untracked files are not committed. The commit may succeed but with empty diff, or fail if no staged changes exist.
+
+**Evidence**: `tool_commit.gleam: exec_sync("git commit ...") without prior git add; inter_review flow never calls git add`
+
+**Impact**: Inter-review code changes are never actually committed. Review feedback is generated but code is not saved.
+
 ### #122 — set_config stores value but get_config cannot retrieve as Gleam Option
 
 - **Severity**: HIGH
@@ -263,6 +333,45 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `pi_extension_ffi.mjs: unwrapGleamResult()`
 
 **Impact**: Error handling in extension.js may fail
+
+### #250 — semantic_id uses is_idle (momentary state) for A/S prefix (permanent identity)
+
+- **Severity**: HIGH
+- **Category**: logic_error
+- **Module**: `agent_identity`
+- **Status**: open
+
+**Description**: psypi-my-id tool determines A or S prefix by calling ctx_is_idle(ctx). When S is idle between turns, calling psypi-my-id returns an A-prefixed identity. Wrong soul loaded, wrong jobs fetched.
+
+**Evidence**: `agent_identity.gleam: semantic_id() calls ctx_is_idle(ctx) to determine prefix; if idle, returns "A-" prefix`
+
+**Impact**: When S is momentarily idle, it gets A-prefixed identity. Wrong soul loaded, wrong jobs fetched, wrong behavior.
+
+### #251 — compose() called instead of compose_within_budget() — token budget system unused
+
+- **Severity**: HIGH
+- **Category**: logic_error
+- **Module**: `a_orchestrator`
+- **Status**: open
+
+**Description**: a_orchestrator.gleam:66 calls compose(a_prompt_builder.build_system_prompt(...)) which concatenates all prompt parts without limit. compose_within_budget() exists in system_prompt_types.gleam and respects token limits but is never called.
+
+**Evidence**: `a_orchestrator.gleam:66 compose(...); system_prompt_types.gleam has compose_within_budget() that truncates to fit context window`
+
+**Impact**: A-bot system prompt may exceed context window, causing LLM failures. Token budget system exists but is never used.
+
+### #259 — is_s_still_idle counts ALL alive sessions, not just S-bot sessions
+
+- **Severity**: HIGH
+- **Category**: logic_error
+- **Module**: `a_db_reader`
+- **Status**: open
+
+**Description**: a_db_reader.gleam:34 SELECT COUNT(*) FROM agent_sessions WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'. This counts ALL alive sessions including A-bot sessions. If A-bot has an active session, is_s_still_idle returns False even when S is idle.
+
+**Evidence**: `a_db_reader.gleam:34 no filter on agent prefix or role; counts all sessions with status=alive`
+
+**Impact**: A-bot may think S is busy when only A-bot itself has an active session. Incorrect idle detection.
 
 ### #101 — inter_review id not cast to text
 
@@ -498,6 +607,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: Content always empty; saved versions have no content
 
+### #256 — psypi-my-id missing project and global fields in generated JS object
+
+- **Severity**: HIGH
+- **Category**: missing_params
+- **Module**: `agent_identity`
+- **Status**: open
+
+**Description**: agent_identity.gleam builds IdentityContext with lit() but omits project and global fields. semantic_id() reads ctx.project which becomes undefined in JS, stringifying to "undefined". Semantic ID becomes "S-undefined-anthropic-claude-3.5-sonnet" instead of "S-psypi-anthropic-...".
+
+**Evidence**: `agent_identity.gleam: lit() expression does not include project or global fields; compiled JS shows ctx.project is undefined`
+
+**Impact**: Semantic IDs contain "undefined" instead of project name. G-prefix never used. Identity system broken.
+
 ### #117 — areflect.save_task missing project_id (has default but wrong)
 
 - **Severity**: HIGH
@@ -680,6 +802,32 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: Dead code in production module
 
+### #255 — tool_consult is a stub — returns hardcoded message, no actual A-bot consultation
+
+- **Severity**: MEDIUM
+- **Category**: dead_code
+- **Module**: `monitor_ai`
+- **Status**: open
+
+**Description**: monitor_ai.gleam tool_consult() returns "Consultation feature not yet implemented. Please use the psypi-consult tool for A-bot queries." It does not call any A-bot function or query any data.
+
+**Evidence**: `monitor_ai.gleam: tool_conslect returns hardcoded string; no call_monitor, no DB query, no A-bot interaction`
+
+**Impact**: Consultation tool is non-functional. Agents that try to consult A-bot get a placeholder response.
+
+### #260 — _global computed but never used — global_prefix in semantic_id reads ctx.global which is never set
+
+- **Severity**: MEDIUM
+- **Category**: dead_code
+- **Module**: `agent_identity`
+- **Status**: open
+
+**Description**: agent_identity.gleam:172-174 computes _global = case check_git_exists(ctx.cwd) { True -> False, False -> True } but never uses it. semantic_id() reads ctx.global for global_prefix, but the lit() expression in my_id_tool() never sets ctx.global. So ctx.global is always undefined/undefined in JS.
+
+**Evidence**: `agent_identity.gleam:172 let _global = case check_git_exists(ctx.cwd) {...}; line 87 global_prefix = case ctx.global { True -> "G-" ... }; my_id_tool lit() does not include global field`
+
+**Impact**: G-prefix never used. _global computation is wasted. semantic_id never produces G-prefixed IDs.
+
 ### #146 — monitor_ai.prepare_context UNION ALL with mismatched columns
 
 - **Severity**: MEDIUM
@@ -770,6 +918,58 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `gleam.toml: name vs actual module paths`
 
 **Impact**: Import resolution may fail for external consumers
+
+### #245 — agent_sessions has TWO heartbeat columns: last_heartbeat and last_heartbeat_at
+
+- **Severity**: MEDIUM
+- **Category**: design_flaw
+- **Module**: `a_db_reader`
+- **Status**: open
+
+**Description**: agent_sessions table has both last_heartbeat and last_heartbeat_at (both timestamptz). Code only uses last_heartbeat. last_heartbeat_at is never referenced by any Gleam code. Likely added by an AI that did not check existing columns.
+
+**Evidence**: `\\d agent_sessions shows both columns; grep -rh "last_heartbeat_at" src/*.gleam returns nothing`
+
+**Impact**: Confusion about which column is canonical. If wrong column is used for idle detection, results differ.
+
+### #246 — hook_on_tool_result uses string.contains for error detection instead of JSON parsing
+
+- **Severity**: MEDIUM
+- **Category**: design_flaw
+- **Module**: `hook_on_tool_result`
+- **Status**: open
+
+**Description**: on_tool_result detects errors by checking string.contains(result_json, "\"error\"") and similar patterns. This is fragile: legitimate tool output containing the word "error" triggers false positives. Missing actual error patterns causes false negatives.
+
+**Evidence**: `hook_on_tool_result.gleam:9-14 uses string.contains for 5 patterns; no json.decode or structured parsing`
+
+**Impact**: False error reports from legitimate tool output, or missed errors from unrecognized patterns
+
+### #252 — hook_on_tool_call only handles "edit" tool — all other tools ignored
+
+- **Severity**: MEDIUM
+- **Category**: design_flaw
+- **Module**: `hook_on_tool_call`
+- **Status**: open
+
+**Description**: hook_on_tool_call.gleam only processes tool calls where tool_name == "edit". All other tool calls pass through without any monitoring or recording.
+
+**Evidence**: `hook_on_tool_call.gleam: checks if tool_name == "edit" then records; all other tools silently pass through`
+
+**Impact**: No monitoring of non-edit tool calls. No error recording for failed tool calls except edit.
+
+### #254 — Migration system has no tracking table — cannot determine which migrations have run
+
+- **Severity**: MEDIUM
+- **Category**: design_flaw
+- **Module**: `simple_migrate`
+- **Status**: open
+
+**Description**: simple_migrate.gleam reads all .sql files from src/migrations/ and runs them in order. But there is no migrations tracking table to record which migrations have already been applied. Running migrations twice could cause errors (duplicate tables, constraint violations).
+
+**Evidence**: `simple_migrate.gleam: reads and executes all .sql files; no CREATE TABLE migrations_applied or similar tracking`
+
+**Impact**: Cannot determine current schema version. Re-running migrations may fail or cause duplicate data. No rollback capability.
 
 ### #127 — areflect saves to learning_insights; learning.gleam saves to memory; neither reads the other
 
@@ -927,6 +1127,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: A-bot never goes idle; debounce never triggers; S-bot never activated
 
+### #248 — monitor.set_model blanket reset race condition
+
+- **Severity**: MEDIUM
+- **Category**: logic_error
+- **Module**: `monitor`
+- **Status**: open
+
+**Description**: set_model() does UPDATE provider_api_keys SET status = 'not_used' (resets ALL keys), then sets one key to 'in_use'. Between the two UPDATEs, all keys are temporarily 'not_used'. Concurrent calls could leave zero keys active.
+
+**Evidence**: `monitor.gleam:104 UPDATE provider_api_keys SET status = 'not_used'; then line 113-115 UPDATE ... SET status = 'in_use' WHERE provider = $1`
+
+**Impact**: Temporary window where no API key is active. Concurrent set_model calls could corrupt state.
+
 ### #104 — task.get missing project_id::text in SELECT
 
 - **Severity**: MEDIUM
@@ -1062,9 +1275,9 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 - **Severity**: MEDIUM
 - **Category**: missing_cast
 - **Module**: `task`
-- **Status**: open
+- **Status**: duplicate
 
-**Description**: SELECT id,...FROM tasks WHERE id=$1 — id not cast, project_id not selected
+**Description**: SELECT id,...FROM tasks WHERE id=$1 — id not cast, project_id not selected [DUPLICATE of #104]
 
 **Evidence**: `task.gleam:240 id without ::text, missing project_id column`
 
@@ -1088,9 +1301,9 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 - **Severity**: MEDIUM
 - **Category**: missing_params
 - **Module**: `agent_identity`
-- **Status**: open
+- **Status**: duplicate
 
-**Description**: lit() expression does not include project or global fields
+**Description**: lit() expression does not include project or global fields [DUPLICATE of #256 — more detailed]
 
 **Evidence**: `agent_identity.gleam my_id_tool(): missing project/global`
 
@@ -1127,9 +1340,9 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 - **Severity**: MEDIUM
 - **Category**: missing_project_id
 - **Module**: `monitor_ai`
-- **Status**: open
+- **Status**: duplicate
 
-**Description**: INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment) — no project_id
+**Description**: INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment) — no project_id [DUPLICATE of #215 which also covers wrong column name]
 
 **Evidence**: `monitor_ai.gleam:561 INSERT without project_id`
 
@@ -1140,13 +1353,26 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 - **Severity**: MEDIUM
 - **Category**: missing_project_id
 - **Module**: `areflect`
-- **Status**: open
+- **Status**: duplicate
 
-**Description**: INSERT INTO issues (title, description, severity, created_by) and INSERT INTO tasks (title, description, priority, created_by) — no project_id
+**Description**: areflect INSERT INTO issues omits project_id (NOT NULL, no default). INSERT INTO tasks omits project_id but tasks.project_id has a default value so it won't fail — however it creates tasks in the wrong project (always uses default UUID 0d324e68-b399-4b85-bd8a-6b1ef7b46168). [DUPLICATE: issues part covered by #116, tasks part covered by #117]
 
 **Evidence**: `areflect.gleam:224,262 INSERT without project_id`
 
-**Impact**: Reflective issues/tasks not scoped to project
+**Impact**: Issues INSERT will fail with NOT NULL constraint violation. Tasks INSERT succeeds but creates tasks in wrong project (default UUID instead of actual project).
+
+### #253 — No connection pooling — every query creates and destroys a connection
+
+- **Severity**: MEDIUM
+- **Category**: performance
+- **Module**: `db`
+- **Status**: open
+
+**Description**: db.gleam with_connection creates a new pg.Client.connect() for every query and closes it after. No connection pool. Under load (multiple concurrent tool calls), this creates many short-lived connections.
+
+**Evidence**: `db.gleam: with_connection calls pg.Client.connect() then pg.Client.close() for every query`
+
+**Impact**: Connection overhead on every query. Under concurrent load, connection exhaustion or slowdown.
 
 ### #155 — exec_sync allows command injection via unsanitized input
 
@@ -1374,9 +1600,9 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 - **Severity**: MEDIUM
 - **Category**: wrong_status
 - **Module**: `issue_types`
-- **Status**: open
+- **Status**: duplicate
 
-**Description**: DB CHECK includes proposal; Gleam IssueType does not have Proposal variant
+**Description**: DB CHECK includes proposal; Gleam IssueType does not have Proposal variant [DUPLICATE of #230]
 
 **Evidence**: `issue_types.gleam: string_to_type() — no proposal case`
 
@@ -1433,6 +1659,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `a_db_reader.gleam: Error(_) -> Ok(True)`
 
 **Impact**: Errors hidden; always reports no sessions
+
+### #257 — _configStore in-memory cache has race condition with concurrent access
+
+- **Severity**: LOW
+- **Category**: logic_error
+- **Module**: `pi_extension_ffi`
+- **Status**: open
+
+**Description**: pi_extension_ffi.mjs uses a module-level _configStore object as in-memory cache. Multiple async operations can read/write _configStore concurrently. get_config reads from _configStore first, then DB. set_config writes to DB then updates _configStore. Between DB write and cache update, stale values may be read.
+
+**Evidence**: `pi_extension_ffi.mjs: let _configStore = {}; get_config checks _configStore first; set_config updates DB then _configStore`
+
+**Impact**: Under concurrent access, stale config values may be used. Dual store (DB + in-memory) without synchronization.
 
 ### #130 — psypi-issue-add references created_by not in params
 
@@ -1511,6 +1750,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `git log: fix/repair/revert pattern`
 
 **Impact**: Unverified fixes may introduce new bugs
+
+### #263 — gleamValueToJson has hardcoded type name list — new Gleam types not serialized as records
+
+- **Severity**: LOW
+- **Category**: style
+- **Module**: `pi_extension_ffi`
+- **Status**: open
+
+**Description**: gleamValueToJson checks for 15 hardcoded type name prefixes (Task$Task, Issue$Issue, etc.) to serialize as flat records. New types like EnrichedIdentity, HealthMetrics, ReviewFinding, SystemReview are not in the list and fall through to generic handling. The generic $ check may work for some but not all.
+
+**Evidence**: `pi_extension_ffi.mjs:178 name.startsWith() checks 15 types; EnrichedIdentity, HealthMetrics, ReviewFinding, SystemReview not included`
+
+**Impact**: New types may serialize incorrectly in tool results. Not a crash but data quality issue in JSON output.
 
 ### #152 — Gleam test files import modules that dont exist
 
@@ -1594,14 +1846,14 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 | # | Finding | Why It Stops The System |
 |---|---------|------------------------|
-| 121 | get_config FFI returns JS null/string not Gleam Option | A-bot debounce never fires; idle_since always reset; A-bot completely dead |
-| 116 | areflect.save_issue omits project_id (NOT NULL) | INSERT always fails; no issues can be saved via areflect |
-| 118 | auto_file_issue uses non-existent column type | Auto-issue filing always fails |
-| 138 | memory.save() decodes RETURNING id with full memory_decoder() | Save always reports error; confusing for users |
-| 102 | memory.search SELECT * without ::text on created_at | Decode always fails; search returns no results |
-| 111 | check_system_health uses FAILED for tasks (no rows) | Health metrics for tasks always return 0 |
-| 137 | No connection pooling; new TCP connection per query | 3-10x latency overhead; potential connection exhaustion |
-| 139 | broadcast.stats() 3 bugs: bigint decode, text>=int, missing status | Stats query returns wrong results or fails |
-| 129 | psypi-doc-save only declares file_path but uses 5 params | Content always empty; saved versions have no content |
-| 140 | semantic_id uses is_idle for A/S prefix | Idle S-agent gets A- prefix; wrong session tracking |
+| 249 | get_config FFI returns JS null/string which never matches Gleam None/Some constructors | idle_since is always re-recorded as now(). Debounce never fires. A-bot wakeup is completely broken. |
+| 139 | broadcast.stats() 3 bugs: bigint decode, text>=int, missing status column | Stats query returns wrong results or fails |
+| 244 | No code updates agent_sessions.last_heartbeat — is_s_still_idle always returns True | A-bot can wake up while S is actively working. No guard against concurrent A+S execution. |
+| 100 | inter_review requested_at decode fails without ::text cast | Inter-review requests always fail to decode |
+| 116 | areflect.save_issue omits project_id (NOT NULL, no default) | save_issue INSERT always fails; no issues can be saved via areflect |
+| 125 | psypi_config.gleam (database) vs pi_extension_ffi.mjs (in-memory) never sync | hook_on_agent_end uses 5min debounce; monitor_ai uses 15min debounce |
+| 247 | a_orchestrator.run_a_workflow never writes inter-review response to DB | Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail. |
+| 258 | Inter-review commit flow is permanently stuck — missing git add before git commit | Inter-review code changes are never actually committed. Review feedback is generated but code is not saved. |
+| 122 | set_config stores value but get_config cannot retrieve as Gleam Option | Config round-trip broken |
+| 123 | unwrapGleamResult may not handle all Gleam Result shapes | Error handling in extension.js may fail |
 

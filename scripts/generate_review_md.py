@@ -133,20 +133,11 @@ lines.append("## Top 10 System-Stopping Issues")
 lines.append("")
 lines.append("| # | Finding | Why It Stops The System |")
 lines.append("|---|---------|------------------------|")
-top_issues = [
-    (121, "get_config FFI returns JS null/string not Gleam Option", "A-bot debounce never fires; idle_since always reset; A-bot completely dead"),
-    (116, "areflect.save_issue omits project_id (NOT NULL)", "INSERT always fails; no issues can be saved via areflect"),
-    (118, "auto_file_issue uses non-existent column type", "Auto-issue filing always fails"),
-    (138, "memory.save() decodes RETURNING id with full memory_decoder()", "Save always reports error; confusing for users"),
-    (102, "memory.search SELECT * without ::text on created_at", "Decode always fails; search returns no results"),
-    (111, "check_system_health uses FAILED for tasks (no rows)", "Health metrics for tasks always return 0"),
-    (137, "No connection pooling; new TCP connection per query", "3-10x latency overhead; potential connection exhaustion"),
-    (139, "broadcast.stats() 3 bugs: bigint decode, text>=int, missing status", "Stats query returns wrong results or fails"),
-    (129, "psypi-doc-save only declares file_path but uses 5 params", "Content always empty; saved versions have no content"),
-    (140, "semantic_id uses is_idle for A/S prefix", "Idle S-agent gets A- prefix; wrong session tracking"),
-]
-for num, title, why in top_issues:
-    lines.append(f"| {num} | {title} | {why} |")
+top_findings = [f for f in findings if f["severity"] == "critical" and f["status"] == "open"]
+top_findings += [f for f in findings if f["severity"] == "high" and f["status"] == "open"]
+top_findings = top_findings[:10]
+for f in top_findings:
+    lines.append(f"| {f['number']} | {f['title']} | {f['impact']} |")
 lines.append("")
 
 print("\n".join(lines))
