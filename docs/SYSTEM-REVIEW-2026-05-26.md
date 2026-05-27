@@ -7,17 +7,17 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**167 issues tracked** (#100-#289) across 23 audit categories.
+**173 issues tracked** (#100-#301) across 26 audit categories.
 ⚠️ **CRITICAL CORRECTION (§333)**: 8 issues retracted — previous "phantom table" claims were based on querying wrong database.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 34    | 20.4%      |
-| **HIGH**     | 65    | 38.9%      |
-| **MEDIUM**   | 58    | 34.7%      |
-| **LOW**      | 22    | 13.2%      |
+| **CRITICAL** | 34    | 19.7%      |
+| **HIGH**     | 68    | 39.3%      |
+| **MEDIUM**   | 50    | 28.9%      |
+| **LOW**      | 25    | 14.5%      |
 
 ### Category Breakdown
 
@@ -23747,3 +23747,334 @@ UPDATE notifications SET read_at = NOW() WHERE agent_id = $1 AND read_at IS NULL
 **Issue #288** | Severity: **MEDIUM** | Category: Security — `record_current_model` constructs JSON by string concatenation, vulnerable to malformed input
 
 **Issue #289** | Severity: **LOW** | Category: Logic — `set_model` has TOCTOU race condition between reset and update steps
+
+---
+
+## 346. SQL MIGRATION SYSTEM — IDEMPOTENT SCRIPTS WITHOUT TRACKING
+
+### 346a. No Migration Tracking Table
+
+The psypi project has no migration tracking table (like `schema_migrations`).
+`simple_migrate.gleam` reads all `.sql` files from `src/migrations/`, sorts
+them by filename, and runs them sequentially. There is no record of which
+migrations have already been applied.
+
+This means:
+1. **Every migration runs every time** `gleam run -m simple_migrate` is called
+2. Migrations must be idempotent (use `IF NOT EXISTS`, `ON CONFLICT DO NOTHING`)
+3. No way to know the current schema version
+4. No way to roll back migrations
+5. No protection against partial failures (if migration 015 fails, 016-026 still run)
+
+### 346b. Duplicate Migration Numbers
+
+Two migration files share the number `025`:
+- `025_add_tasks_project_id.sql` — adds `project_id` column to tasks
+- `025_drop_system_directives.sql` — drops system_directives table
+
+Since `simple_migrate.gleam` sorts by filename (string comparison), the
+execution order depends on the second part of the filename:
+- `025_add_tasks_project_id.sql` comes before `025_drop_system_directives.sql`
+  (alphabetically "add" < "drop")
+
+This is fragile — the order should be explicit, not dependent on alphabetical
+sorting of descriptions.
+
+### 346c. Missing Migrations (001, 002, 004)
+
+The migration sequence jumps from (nothing) to 003, then 005-026.
+Migrations 001, 002, and 004 are missing. This suggests:
+- The initial schema was created manually or by a different process
+- Some migrations were deleted after being applied
+- The numbering was never consistent
+
+Missing early migrations mean a fresh database setup would be missing
+core tables (e.g., `projects`, `broadcasts`, `psypi_config` seed data).
+
+### 346d. `seed.gleam` vs Migrations Overlap
+
+`seed.gleam` inserts initial data:
+```sql
+INSERT INTO psypi_config (key, value) VALUES ('monitor_debounce_ms','300000'), ('last_wakeup','') ON CONFLICT (key) DO NOTHING
+```
+
+But migration `007_psypi_config.sql` also inserts:
+```sql
+INSERT INTO psypi_config (key, value) VALUES ('monitor_debounce_ms', '300000') ON CONFLICT (key) DO NOTHING
+```
+
+Both use `ON CONFLICT DO NOTHING`, so running both is safe. But the
+duplication is confusing and could lead to divergent seed values.
+
+### 346e. `strip_comment_line` Only Strips Full-Line Comments
+
+The `strip_comment_line` function only removes lines that START with `--`:
+```gleam
+fn strip_comment_line(stmt: String) -> String {
+  case string.starts_with(stmt, "--") {
+    True -> ""
+    False -> stmt
+  }
+}
+```
+
+This means inline comments (e.g., `CREATE TABLE foo ( -- comment`) are NOT
+stripped and will be sent to PostgreSQL. PostgreSQL handles inline comments
+fine, but the function name is misleading.
+
+### 346f. `split_statements` Splits on `;\n` Only
+
+```gleam
+fn split_statements(sql: String) -> List(String) {
+  sql |> string.split(";\n") ...
+}
+```
+
+This splits on semicolon followed by newline. But some SQL statements may
+end with `;\r\n` (Windows line endings) or `; ` (semicolon with trailing
+space). These would not be split correctly, causing multi-statement chunks
+to be sent as a single query.
+
+### 346g. Migration 003 Event Hooks — `ON CONFLICT DO UPDATE`
+
+The `003_create_event_hooks_table.sql` uses:
+```sql
+INSERT INTO psypi_event_hooks (event_name, ...) VALUES (...)
+ON CONFLICT (event_name) DO UPDATE SET
+  monitor_action = EXCLUDED.monitor_action,
+  agentbot_action = EXCLUDED.agentbot_action,
+  ...
+```
+
+This means every time migrations run, ALL hook metadata is overwritten
+with the migration's values. Any runtime changes to `monitor_action` or
+`description` will be lost. This is a design choice (declarative), but
+it means the migration file is the source of truth for hook metadata,
+not the database.
+
+### 346h. Schema Drift Risk
+
+Without a tracking table, there is no way to detect schema drift between
+the migration files and the actual database. If someone manually adds a
+column or table, the migrations won't know about it. If a migration is
+modified after being applied, re-running it may fail or produce unexpected
+results.
+
+**Issue #290** | Severity: **HIGH** | Category: Architecture — no migration tracking table; all migrations run every time, no schema versioning, no rollback capability
+
+**Issue #291** | Severity: **MEDIUM** | Category: Logic — duplicate migration number 025 (two files); execution order depends on alphabetical sorting
+
+**Issue #292** | Severity: **MEDIUM** | Category: Logic — missing migrations 001, 002, 004; fresh database setup would be incomplete
+
+**Issue #293** | Severity: **LOW** | Category: Code — `split_statements` only splits on `;\n`, not `;\r\n` or other line endings
+
+---
+
+## 347. RACE CONDITIONS — CONCURRENT TOOL CALLS AND SHARED STATE
+
+### 347a. No Connection Pooling
+
+`db.gleam:with_connection()` creates a NEW PostgreSQL connection for every
+database operation, then disconnects. This means:
+
+1. Every tool call requires: TCP connect → auth → SET app.current_project_id → query → disconnect
+2. No connection reuse between operations
+3. Under load (e.g., rapid tool calls), PostgreSQL connection limit may be hit
+4. The `SET app.current_project_id` is executed on EVERY connection, adding overhead
+
+This is the single biggest performance bottleneck in the system.
+
+### 347b. `with_connection` Disconnect on Error
+
+```gleam
+pub fn with_connection(callback, error_mapper) {
+  promise.await(connect(), fn(conn_result) {
+    case conn_result {
+      Error(e) -> promise.resolve(Error(error_mapper(e)))
+      Ok(conn) -> {
+        promise.await(callback(conn), fn(result) {
+          let _ = disconnect(conn)  // ← disconnect even if callback failed
+          promise.resolve(result)
+        })
+      }
+    }
+  })
+}
+```
+
+The `disconnect` result is discarded (`let _ =`). If disconnect fails,
+the connection leaks. More importantly, if the callback throws an
+uncaught exception, the connection is never disconnected.
+
+### 347c. `_configStore` Race Condition
+
+The FFI `_configStore` is a plain JavaScript object with no locking:
+```javascript
+let _configStore = {};
+
+export function get_config(key) {
+  return _configStore[key] || null;
+}
+
+export function set_config(key, value) {
+  _configStore[key] = value;
+}
+```
+
+In Node.js, this is safe for single-threaded execution. But if two
+async operations interleave:
+1. Hook A: `get_config("idle_since")` → returns `null`
+2. Hook B: `get_config("idle_since")` → returns `null`
+3. Hook A: `set_config("idle_since", "1000")`
+4. Hook B: `set_config("idle_since", "1001")`
+
+Both hooks see `null` and both set `idle_since`, losing one update.
+In practice, the `agent_end` hook is debounced, so this is unlikely
+but not impossible.
+
+### 347d. `debounced_hook` Timer Variable Scope
+
+The generated JS for debounced hooks uses module-level variables:
+```javascript
+let _debounceTimerId = null;
+let _debounceMs = null;
+```
+
+These are inside the `export default function(pi) { ... }` scope, so
+they are shared across all invocations. This is correct for debounce
+(one timer per hook), but if Pi creates multiple instances of the
+extension, they would share the same timer variables.
+
+### 347e. `tool_commit` Two-Phase Race
+
+The commit flow is:
+1. S calls `psypi-commit` with message and optional review_id
+2. If no review_id, creates a new inter_review record
+3. A-bot reviews and writes `overall_score` to inter_reviews
+4. S calls `psypi-commit` again with review_id
+5. `commit_if_reviewed` checks `overall_score` and commits
+
+Between steps 3 and 4, another process could modify the inter_review
+record (e.g., change the score). There is no locking or version check
+on the inter_review record.
+
+**Issue #294** | Severity: **HIGH** | Category: Performance — no connection pooling; every DB operation creates and destroys a connection
+
+**Issue #295** | Severity: **MEDIUM** | Category: Reliability — `with_connection` discards disconnect result; connection leak on exception
+
+**Issue #296** | Severity: **LOW** | Category: Concurrency — `_configStore` has no atomic read-modify-write; interleaved async operations could lose updates
+
+---
+
+## 348. REMAINING MODULES — TOOL_CONSULT, COMMAND_LISTEN, AREFLECT, CODE_VERSION, DB CORE
+
+### 348a. `tool_consult.gleam` — No-Op Implementation
+
+The `psypi-consult-autonomic` tool is supposed to let S consult A for
+difficult decisions. But the implementation just returns a static string:
+
+```gleam
+promise.resolve(Ok("[Autonomic] Consult request: " <> user_question
+  <> "\n\nThe S-worker should address this in its next turn."))
+```
+
+It does NOT actually trigger A-bot. It just prints a message and returns.
+The comment says "We use a simple approach: notify and return the question
+for the S-worker" — but it doesn't even notify A. This tool is useless.
+
+### 348b. `command_listen.gleam` — Hardcoded System Prompt
+
+The `/autonomic-listen` command constructs a system prompt inline:
+```gleam
+let system_prompt =
+  "You are the Autonomic Agentbot (A-agentbot). Your ID starts with A-. ..."
+```
+
+This duplicates the A-bot identity prompt from `a_prompt_builder.gleam`.
+If the A-bot identity changes in the database, this command will use
+the old hardcoded prompt.
+
+### 348c. `areflect.gleam` — `fetch_recent_issues` Missing `::text` Cast on `id`
+
+```sql
+SELECT id, title, status, severity FROM issues ORDER BY ...
+```
+
+The `id` column is UUID type. node-postgres returns UUID as a string,
+so `decode.string` works. But this is inconsistent with other modules
+that explicitly cast `id::text`.
+
+### 348d. `areflect.gleam` — `save_learning` Ignores `agent_id`
+
+```gleam
+fn save_learning(conn: db.Connection, content: String, _agent_id: String) {
+```
+
+The `agent_id` parameter is prefixed with `_` (unused). The INSERT
+statement doesn't include `agent_id`, so learnings are not attributed
+to any agent.
+
+### 348e. `areflect.gleam` — `save_issue` Missing `project_id`
+
+```sql
+INSERT INTO issues (title, description, severity, created_by)
+VALUES ($1, $2, 'medium', $3)
+```
+
+The `issues` table has a `project_id` column (added in migration 015),
+but the INSERT doesn't include it. This means issues created via
+`areflect` will have `project_id = NULL`, while issues created via
+`issue_db.add` will have the default project_id.
+
+### 348f. `code_version.gleam` — Uses PostgreSQL Functions
+
+`code_version.gleam` uses PostgreSQL stored functions:
+- `save_code_version(file_path, content, saved_by, commit_hash, reason)`
+- `get_code_versions(file_path, limit)`
+- `restore_code_version(version_id)`
+
+These functions are defined in the database but not in any migration
+file. They must have been created manually. This is a hidden dependency
+— if the database is set up from migrations only, these functions won't
+exist and `code_version` will fail.
+
+### 348g. `code_version.gleam` — `query_versions` Missing `::text` Casts
+
+```sql
+SELECT id, file_path, saved_by, saved_at,
+  LEFT(content, 200) as content_preview,
+  LENGTH(content) as content_length
+FROM code_versions
+```
+
+`id` is UUID, `saved_at` is timestamp. Both need `::text` casts for
+proper Gleam decoding. But this function returns raw `dynamic.Dynamic`
+values, so the caller must handle decoding.
+
+### 348h. `db.gleam` — Hardcoded Default Project ID
+
+```gleam
+let project_id = case get_project_id_env() {
+  "" -> "0d324e68-b399-4b85-bd8a-6b1ef7b46168"
+  id -> id
+}
+```
+
+The default project UUID is hardcoded in `db.gleam`. This same UUID
+appears in:
+- `task.gleam` (default project_id for task_add)
+- `issue_db.gleam` (default project_id for issue_add)
+- `db.gleam` (SET app.current_project_id)
+
+If the project ID ever changes, all four locations must be updated.
+There is no single source of truth for the default project ID.
+
+**Issue #297** | Severity: **HIGH** | Category: Logic — `tool_consult` is a no-op; doesn't actually trigger A-bot consultation
+
+**Issue #298** | Severity: **MEDIUM** | Category: Logic — `command_listen` uses hardcoded system prompt instead of reading from DB
+
+**Issue #299** | Severity: **MEDIUM** | Category: Data — `areflect.save_issue` missing `project_id`; issues created via areflect have NULL project_id
+
+**Issue #300** | Severity: **MEDIUM** | Category: Architecture — `code_version` depends on PostgreSQL stored functions not in any migration file
+
+**Issue #301** | Severity: **LOW** | Category: Data — default project UUID hardcoded in 4 separate locations with no single source of truth
