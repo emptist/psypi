@@ -1,4 +1,4 @@
-# System Review — psypi — 2026-05-27 (v35)
+# System Review — psypi — 2026-05-27 (v37)
 
 Every finding verified against live PostgreSQL database, Gleam source, and git history.
 No assumptions. No documentation trust. Only verified facts.
@@ -7,18 +7,20 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**191 issues tracked** (#100-#331) across 35 audit categories.
+**217 issues tracked** (#100-#357) across 37 audit categories.
 ⚠️ **CRITICAL CORRECTION (§333)**: 8 issues retracted — previous "phantom table" claims were based on querying wrong database.
 ✅ **CROSS-REFERENCE COMPLETE (§356)**: All 57 SQL queries verified against live DB schema. 23 broken (40%).
+✅ **LOGIC CHAIN REVIEW (§359)**: 24 non-database logic/programming failures documented. 3 CRITICAL.
+✅ **TABLE OWNERSHIP (§361)**: 96 tables in shared database; only 18 are psypi-relevant. 78 belong to other projects.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 39    | 20.4%      |
-| **HIGH**     | 78    | 40.8%      |
-| **MEDIUM**   | 48    | 25.1%      |
-| **LOW**      | 26    | 13.6%      |
+| **CRITICAL** | 42    | 19.4%      |
+| **HIGH**     | 84    | 38.7%      |
+| **MEDIUM**   | 58    | 26.7%      |
+| **LOW**      | 33    | 15.2%      |
 
 ### Category Breakdown
 
@@ -35,36 +37,40 @@ No assumptions. No documentation trust. Only verified facts.
 | **Error Handling**        | 13     | 1         | 6 swallowed errors returning Ok(default), no logging infrastructure       |
 | **SQL Schema Mismatch**   | 8      | 4         | Missing NOT NULL columns, wrong column names, jsonb as string             |
 | **Tool Audit (35 tools)** | 9      | 4         | 8 BROKEN, 7 PARTIAL, 12 WORKS, 8 NOT-AUDITED                              |
+| **Logic/Programming**     | 24     | 3         | JS→Gleam type mismatch, stub tools, missing git add, no heartbeat         |
+| **Table Ownership**       | 2      | 0         | 96 tables shared; 5 modules INSERT without project_id                     |
 
 ### Top 10 System-Stopping Issues (Priority Fix Order)
 
-1. **#302 — `get_config` FFI returns JS `null`/`string` instead of Gleam `Some`/`None`**: The `Some` branch in `hook_on_agent_end` is NEVER reached. `idle_since` is always re-recorded as `now()`. Debounce never fires. **A-bot wakeup is completely broken.** This is the single most critical bug. Fix: `return new Some(value)` / `return new None()` in `pi_extension_ffi.mjs`.
+1. **#332 — `get_config` FFI returns JS `null`/`string` which never matches Gleam `None`/`Some` constructors**: The `Some` branch in `hook_on_agent_end` is NEVER reached. `idle_since` is always re-recorded as `now()`. Debounce never fires. **A-bot wakeup is completely broken.** This is the single most critical bug. Fix: `return new Some(value)` / `return new None()` in `pi_extension_ffi.mjs`.
 
-2. **#322/#323 — `areflect.save_issue()` and `monitor_ai.auto_file_issue()` missing `project_id` (NOT NULL)**: The `issues.project_id` column is `uuid NOT NULL` with no default. Both INSERT statements will fail with a NOT NULL constraint violation. **No issues can be created via areflect or auto_file_issue.** `monitor_ai.auto_file_issue()` also uses wrong column name `type` instead of `issue_type`. Fix: add `project_id` to INSERT statements.
+2. **#351 — `psypi-my-id` passes JS named-key object to Gleam positional record**: The extension generator produces `({ is_idle: ctx.isIdle(), ... })` but Gleam expects `{ '0': true, '1': 'anthropic', ... }`. All `IdentityContext` fields are `undefined`. **The `psypi-my-id` tool ALWAYS fails.** Fix: change `lit()` expression to construct Gleam record format.
 
-3. **#319 — `task.get()` missing `project_id::text` in SELECT**: The `task_decoder()` expects `project_id` field, but the `get()` query doesn't include it. **Every call to `task.get()` returns DecodeError.** Fix: add `project_id::text` to SELECT.
+3. **#352 — Extension generator has no JS→Gleam type conversion mechanism**: Tools that receive complex types (records, enums) always fail because the generator only produces raw JS text. No type-aware argument marshalling exists. **Any tool receiving a Gleam record type is broken.** Fix: add type-aware code generation for Gleam record constructors.
 
-4. **#308 — `inter_review.review_decoder` decodes `requested_at` as string**: node-postgres returns `Date` object for timestamptz. `decode.string` fails. `get_review_details()` always returns `DecodeError`. **The commit flow (Phase 2) is broken.** Fix: add `requested_at::text` cast.
+4. **#322/#323 — `areflect.save_issue()` and `monitor_ai.auto_file_issue()` missing `project_id` (NOT NULL)**: The `issues.project_id` column is `uuid NOT NULL` with no default. Both INSERT statements will fail with a NOT NULL constraint violation. **No issues can be created via areflect or auto_file_issue.** `monitor_ai.auto_file_issue()` also uses wrong column name `type` instead of `issue_type`. Fix: add `project_id` to INSERT statements.
 
-5. **#195 — `is_s_still_idle` always returns `Ok(True)`**: `COUNT(*)` returns PostgreSQL bigint (string in JS), but decoder uses `decode.int` which fails. Error branch returns `Ok(True)`. **S is always considered idle, bypassing wakeup guards.** Fix: use `decode_bigint()`.
+5. **#319 — `task.get()` missing `project_id::text` in SELECT**: The `task_decoder()` expects `project_id` field, but the `get()` query doesn't include it. **Every call to `task.get()` returns DecodeError.** Fix: add `project_id::text` to SELECT.
 
-6. **#317 — `node_pg executeQuery` crashes on multi-statement SQL**: When `pg.Client.query()` receives multi-statement SQL, it returns an array of results, not a single result. `mapQueryResult` accesses `result.rows` which is `undefined`. **`seed.gleam` and `simple_migrate.gleam` affected.** Fix: split multi-statement SQL into individual queries.
+6. **#308 — `inter_review.review_decoder` decodes `requested_at` as string**: node-postgres returns `Date` object for timestamptz. `decode.string` fails. `get_review_details()` always returns `DecodeError`. **The commit flow (Phase 2) is broken.** Fix: add `requested_at::text` cast.
 
-7. **#294 — No connection pooling**: Every database operation creates a new TCP connection, authenticates, runs `SET app.current_project_id`, executes the query, then disconnects. **This is the single biggest performance bottleneck.**
+7. **#333 — `semantic_id` uses `is_idle` (momentary state) for A/S prefix (permanent identity)**: When S is idle between turns, calling `psypi-my-id` returns an A-prefixed identity. Wrong soul loaded, wrong jobs fetched. Fix: determine prefix by agent role, not idle state.
 
-8. **#320 — `task.list()` and `task.get()` decode `result` (jsonb) as string**: The `tasks.result` column is `jsonb`. node-postgres returns a JS object, but `decode.optional(decode.string)` expects a string. **Task listing always fails on decode.** Fix: add `result::text` to SELECT.
+8. **#339 — No heartbeat updates to `agent_sessions`; `is_s_still_idle` always True**: All 19 sessions have `last_heartbeat` from 20+ days ago. No code updates heartbeats. A-bot can wake up while S is actively working. Fix: add heartbeat update in `hook_on_agent_start` and `hook_on_agent_end`.
 
-9. **#310 — `tool_commit` has no `git add` step**: The commit flow runs `git diff` to check for changes, then `git commit -m "..."`. But there's no `git add` to stage the changes. **Commit will fail with "nothing to commit" if changes are unstaged.**
+9. **#341 — `compose()` called instead of `compose_within_budget()`**: Token budget system exists but is never used. A-bot system prompt may exceed context window, causing LLM failures. Fix: replace `compose()` with `compose_within_budget()`.
 
-10. **#313/#324 — jsonb columns passed as strings**: `monitor.record_current_model`, `broadcast.send`, and `inter_review.request_review` all pass JavaScript strings for `jsonb` columns. node-postgres rejects these. **Multiple INSERT/UPDATE operations fail silently.** Fix: use `$N::jsonb` cast or parse strings as JSON objects.
+10. **#356 — 5 modules INSERT without `project_id` into tables that have it**: `meeting.gleam`, `learning.gleam`, `skill.gleam`, `areflect.gleam`, `broadcast.gleam` all create rows with NULL project_id. In a shared database, this makes data ownership impossible to determine. Fix: add `project_id` to all INSERT statements.
 
-### The Three Root Causes
+### The Four Root Causes
 
-1. **FFI Type Boundary Violations**: Gleam's type system is bypassed at the JavaScript boundary. Functions like `get_config` return raw JS values instead of proper Gleam constructors. The compiler cannot catch these errors.
+1. **FFI Type Boundary Violations**: Gleam's type system is bypassed at the JavaScript boundary. Functions like `get_config` return raw JS values instead of proper Gleam constructors. The extension generator produces JS object literals with named keys, but Gleam expects positional record fields. The compiler cannot catch these errors.
 
 2. **Missing `::text` Casts**: PostgreSQL returns rich types (UUID, timestamptz, jsonb, bigint) as JavaScript objects, but Gleam decoders expect strings. The fix is simple (`::text` cast in SQL) but pervasive (14+ queries affected).
 
 3. **No Integration Testing**: Individual Gleam functions may type-check correctly, but the end-to-end flow (Pi event → Gleam hook → DB query → decode → response) is never tested as a whole. Silent decode failures return `Ok(default)` instead of propagating errors.
+
+4. **Shared Database Without Ownership**: The database has 96 tables from multiple projects, but only `tasks` and `issues` properly set `project_id`. Four tables (meetings, memory, skills, learning_insights) have data with NULL `project_id`. In a shared environment, data ownership is impossible to determine without `project_id`.
 
 ### What Works
 
