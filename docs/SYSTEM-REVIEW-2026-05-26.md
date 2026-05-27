@@ -20192,3 +20192,187 @@ pi.registerTool({
 | 164 | Extension gen | before_agent_start returns before recording trigger (unreachable code) | CRITICAL |
 | 165 | Extension gen | Debounced hook ignores guard parameter                                 | MEDIUM   |
 | 166 | Extension gen | Message renderer may ReferenceError (missing pi-tui import)            | HIGH     |
+
+---
+
+## 311. RACE CONDITIONS AND CONCURRENCY ISSUES
+
+### 311.1 No Connection Pooling — Every Query Opens New TCP Connection
+
+**Location**: [db.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/db.gleam) `with_connection()`
+
+**Pattern**:
+```gleam
+pub fn with_connection(callback, error_mapper) {
+  promise.await(connect(), fn(conn_result) {  // ← NEW TCP connection every time
+    case conn_result {
+      Error(e) -> promise.resolve(Error(error_mapper(e)))
+      Ok(conn) -> {
+        promise.await(callback(conn), fn(result) {
+          let _ = disconnect(conn)  // ← Immediately closes
+          promise.resolve(result)
+        })
+      }
+    }
+  })
+}
+```
+
+**Impact**:
+- Every tool call, hook handler, and DB read creates a new PostgreSQL TCP connection
+- A single A-bot workflow makes 4+ sequential connections (read_soul, read_jobs, read_tasks, read_issues)
+- Connection overhead: ~50-100ms per connect/disconnect cycle
+- No prepared statement caching across connections
+- PostgreSQL `SET app.current_project_id` is re-executed on every connection
+- Under concurrent tool calls (Pi executes tools in parallel), multiple simultaneous connections can exhaust PostgreSQL's `max_connections`
+
+**Severity**: HIGH
+
+### 311.2 In-Memory Config Store — No Synchronization
+
+**Location**: [pi_extension_ffi.mjs](file:///Users/jk/gits/hub/tools_ai/psypi/src/pi_extension_ffi.mjs) `_configStore`
+
+**Pattern**:
+```javascript
+let _configStore = {};
+
+export function get_config(key) {
+  return _configStore[key] || null;
+}
+
+export function set_config(key, value) {
+  _configStore[key] = value;
+}
+```
+
+**Race Condition**: The `hook_on_agent_end` handler reads and writes `idle_since` without atomicity:
+1. Handler reads `idle_since` → gets "0"
+2. Handler sets `idle_since` = current timestamp
+3. Another concurrent `agent_end` event fires
+4. Second handler reads `idle_since` → gets the timestamp from step 2
+5. Second handler calculates elapsed ≈ 0ms → skips
+6. First handler's debounce timer fires → calls `on_agent_end`
+7. `on_agent_end` reads `idle_since` again → it was set to "0" by the first handler's debounce satisfaction
+8. But the JS debounce timer is still running from a third event
+
+**Impact**:
+- `idle_since` can be overwritten by concurrent events
+- Double debounce (JS timer + Gleam check) creates inconsistent state
+- `monitor_debounce_ms` is cached in `_debounceMs` but `idle_since` is not atomic with debounce check
+
+**Severity**: HIGH
+
+### 311.3 Double Debounce — JS Timer + Gleam Manual Check
+
+**Location**: [pi_tool_call.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/pi_tool_call.gleam) `PiDebouncedHook` + [hook_on_agent_end.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/hook_on_agent_end.gleam)
+
+**Pattern**: The generated JS code creates a `setTimeout` debounce (reading `monitor_debounce_ms` from DB, typically 15 minutes). Then the Gleam handler `on_agent_end` does its OWN debounce check using `_configStore.idle_since` with a default of 5 minutes.
+
+**Stacked delays**:
+- JS debounce: 15 minutes (from DB config)
+- Gleam debounce: 5 minutes (hardcoded default) or DB value
+- Total effective delay: 15 + 5 = 20 minutes minimum
+
+**Race**: If the JS timer fires and calls `on_agent_end`, but Gleam's `idle_since` hasn't reached its threshold yet, the Gleam handler returns early — and the JS timer is already consumed. The next `agent_end` event starts a new JS timer, but the Gleam idle_since is already set, so it may fire immediately or not at all.
+
+**Severity**: CRITICAL
+
+### 311.4 is_s_still_idle() — COUNT(*) Returns BigInt, Decode Fails
+
+**Location**: [a_db_reader.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/a_db_reader.gleam) `is_s_still_idle()`
+
+**Pattern**:
+```gleam
+let sql = "SELECT COUNT(*) as cnt FROM agent_sessions ..."
+// COUNT(*) returns PostgreSQL bigint (JavaScript BigInt)
+// count_decoder uses decode.int which expects number, not BigInt
+fn count_decoder() -> decode.Decoder(Int) {
+  use cnt <- decode.field("cnt", decode.int)  // ← FAILS for BigInt
+  decode.success(cnt)
+}
+```
+
+**Impact**: When `decode.int` receives a JavaScript `BigInt` from `node_pg`, it throws a decode error. The error is caught and the function returns `Ok(True)` (assumes idle), which is the SAFE default but means:
+- S is never detected as busy via DB check
+- A-bot always proceeds with wake-up even when S is active
+- This creates duplicate wake-up messages and wasted LLM calls
+
+**Severity**: HIGH
+
+### 311.5 Disconnect Not Awaited — Connection Leak
+
+**Location**: [db.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/db.gleam) `with_connection()`
+
+**Pattern**:
+```gleam
+promise.await(callback(conn), fn(result) {
+  let _ = disconnect(conn)  // ← Returns Promise but NOT awaited
+  promise.resolve(result)
+})
+```
+
+**Impact**: `disconnect()` returns a `Promise` but is discarded with `let _ =`. The connection close happens asynchronously and may not complete before the next `connect()` call. Under rapid sequential tool calls, this can:
+- Leave connections in a half-closed state
+- Exhaust PostgreSQL connection limits
+- Cause "too many connections" errors
+
+**Severity**: HIGH
+
+### 311.6 Debounce Timer Not Cleared on Extension Reload
+
+**Location**: [pi_tool_call.gleam](file:///Users/jk/gits/hub/tools_ai/psypi/src/pi_tool_call.gleam) `PiDebouncedHook` generation
+
+**Pattern**: The generated code stores `_debounceTimerId` in module scope. When Pi reloads the extension (`/reload`), the old module's timer continues running but references stale `ctx` and `pi` objects.
+
+**Impact**:
+- Stale timer fires with stale ctx → crashes or undefined behavior
+- No `session_shutdown` handler to clear timers
+- Multiple timers can accumulate across reloads
+
+**Severity**: MEDIUM
+
+### 311.7 call_monitor() Retry Without Backoff
+
+**Location**: [pi_extension_ffi.mjs](file:///Users/jk/gits/hub/tools_ai/psypi/src/pi_extension_ffi.mjs) `call_monitor()`
+
+**Pattern**:
+```javascript
+const shouldRetry = !text || (result?.errorMessage && (result.errorMessage === 'terminated' || result.errorMessage.includes('rate')));
+if (shouldRetry) {
+  result = await completeSimple(model, context, { apiKey: auth.apiKey, headers: auth.headers, reasoning: 'none' });
+  // No delay, no exponential backoff
+}
+```
+
+**Impact**: On rate limit errors, immediately retries without any delay, which:
+- Almost certainly hits the rate limit again
+- Wastes API credits
+- Can trigger API provider ban for aggressive retry
+
+**Severity**: MEDIUM
+
+### 311.8 Parallel Tool Execution with Shared DB State
+
+**Location**: All tools using `db.with_connection()`
+
+**Pattern**: Pi executes multiple tools concurrently (e.g., `psypi-task-list` + `psypi-issue-list` in the same turn). Each tool creates its own connection and runs queries independently. If two tools modify the same table (e.g., `psypi-task-add` + `psypi-task-complete`), there's no transaction isolation.
+
+**Impact**:
+- Lost updates if two tools modify the same row
+- Read skew if one tool reads while another modifies
+- No advisory locks or `SELECT ... FOR UPDATE` patterns
+
+**Severity**: MEDIUM (low probability in current usage, but architecturally unsafe)
+
+### 311.9 New Issues Found
+
+| #   | Category    | Issue                                                                         | Severity |
+| --- | ----------- | ----------------------------------------------------------------------------- | -------- |
+| 167 | Concurrency | No connection pooling — every query opens new TCP connection                  | HIGH     |
+| 168 | Concurrency | _configStore has no synchronization — idle_since race condition               | HIGH     |
+| 169 | Concurrency | Double debounce (JS + Gleam) creates 20+ min stacked delays                   | CRITICAL |
+| 170 | Concurrency | is_s_still_idle() COUNT(*) returns BigInt, decode fails → always returns True | HIGH     |
+| 171 | Concurrency | disconnect() not awaited — connection leak                                    | HIGH     |
+| 172 | Concurrency | Debounce timer not cleared on extension reload                                | MEDIUM   |
+| 173 | Concurrency | call_monitor() retries without backoff on rate limit                          | MEDIUM   |
+| 174 | Concurrency | Parallel tool execution with shared DB state, no transaction isolation        | MEDIUM   |
