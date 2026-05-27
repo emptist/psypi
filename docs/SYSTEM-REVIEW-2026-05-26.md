@@ -7,16 +7,16 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**129 issues tracked** (#100-#228) across 13 audit categories.
+**135 issues tracked** (#100-#234) across 14 audit categories.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 28    | 21.7%      |
-| **HIGH**     | 49    | 38.0%      |
-| **MEDIUM**   | 41    | 31.8%      |
-| **LOW**      | 11    | 8.5%       |
+| **CRITICAL** | 30    | 22.2%      |
+| **HIGH**     | 52    | 38.5%      |
+| **MEDIUM**   | 41    | 30.4%      |
+| **LOW**      | 12    | 8.9%       |
 
 ### Category Breakdown
 
@@ -20957,14 +20957,14 @@ which requires a `ctx` object that isn't always available in utility functions.
 
 ## 315. UPDATED ISSUE COUNT
 
-Total issues tracked: **#100-#228** = **129 issues**
+Total issues tracked: **#100-#234** = **135 issues**
 
 | Severity | Count |
 | -------- | ----- |
-| CRITICAL | 28    |
-| HIGH     | 49    |
+| CRITICAL | 30    |
+| HIGH     | 52    |
 | MEDIUM   | 41    |
-| LOW      | 11    |
+| LOW      | 12    |
 
 ---
 
@@ -21565,3 +21565,165 @@ all other hooks.
 Working hooks: `session_start`, `model_select`, `agent_start`
 Broken hooks: `tool_call` (code_versions), `before_agent_start` (agent_souls),
 `agent_end` (double debounce), `tool_result` (works but sync/async mismatch)
+
+---
+
+## 320. HOOK REGISTRATION AND EVENT FLOW — END-TO-END VERIFICATION
+
+### 320a. Hook Registration Matrix
+
+| #   | Event Name           | Hook Type          | Module                     | Function              | Guard         | Status                                                                          |
+| --- | -------------------- | ------------------ | -------------------------- | --------------------- | ------------- | ------------------------------------------------------------------------------- |
+| 1   | `tool_call`          | PiEventHook        | hook_on_tool_call          | on_tool_call          | None          | ⚠️ PARTIAL — works for non-edit tools; auto-backup fails (code_versions phantom) |
+| 2   | `session_start`      | PiEventHook        | monitor                    | record_current_model  | `ctx.model`   | ✅ WORKS                                                                         |
+| 3   | `model_select`       | PiEventHook        | monitor                    | record_current_model  | `event.model` | ✅ WORKS                                                                         |
+| 4   | `before_agent_start` | PiSystemPromptHook | hook_on_before_agent_start | on_before_agent_start | None          | ❌ BROKEN — reads from phantom agent_souls                                       |
+| 5   | `agent_start`        | PiEventHook        | hook_on_agent_start        | on_agent_start        | None          | ✅ WORKS (only records trigger)                                                  |
+| 6   | `agent_end`          | PiDebouncedHook    | hook_on_agent_end          | on_agent_end          | None          | ❌ BROKEN — FFI type mismatch + double debounce + phantom tables                 |
+| 7   | `tool_result`        | PiEventHook        | hook_on_tool_result        | on_tool_result        | None          | ✅ WORKS (sync return in async wrapper)                                          |
+
+### 320b. A→S Wakeup Chain — Complete Trace
+
+The `agent_end` hook triggers the A→S wakeup. Here is the complete chain:
+
+```
+Step 1: Pi fires 'agent_end' event
+Step 2: JS debounce: setTimeout(callback, _debounceMs)
+        _debounceMs read from psypi_config.get_debounce_ms()
+        Default: 300000ms (5 minutes)
+        ⚠️ If get_debounce_ms fails, hook aborts
+Step 3: After 5 min, callback fires
+Step 4: hook_on_agent_end.on_agent_end(ctx, pi) called
+Step 5: ctx_is_idle(ctx) check
+        → False: set_config("idle_since", "0"), return Ok(Nil) [DONE]
+        → True + pending messages: return Ok(Nil) [DONE]
+        → True + no pending: continue to step 6
+Step 6: get_config("idle_since") ← ❌ CRASH HERE
+        FFI returns JS null, Gleam expects Option(String)
+        Pattern match on option.None/option.Some fails
+        → try/catch in extension.js catches the error
+        → A-bot NEVER wakes up
+```
+
+**Even if step 6 were fixed, the chain continues:**
+
+```
+Step 7: Gleam debounce check: elapsed >= debounce_ms
+        If NOT satisfied: return Ok(Nil) [DONE — wait another cycle]
+        If satisfied: continue to step 8
+Step 8: coordinate_with_s(ctx, pi, entries_json)
+Step 9: ctx_is_idle(ctx) re-check
+        → False: abort [DONE]
+        → True: continue
+Step 10: a_db_reader.is_s_still_idle()
+         COUNT(*) returns bigint → decode.int fails → Error(_) → Ok(True)
+         ⚠️ S is ALWAYS considered idle (incorrect)
+Step 11: a_context_utils.parse_context_window(usage_json)
+         Parses ctx.getContextUsage() JSON
+         ⚠️ If contextWindow field missing, fails → error message sent
+Step 12: a_orchestrator.run_a_workflow(ctx, pi, ...)
+Step 13: a_db_reader.read_soul_from_db()
+         SELECT from agent_souls ← ❌ PHANTOM TABLE
+         → Error: "DB query: ..."
+         → pi_send_message("autonomic-error", msg)
+         → A-bot NEVER wakes up
+```
+
+**Even if step 13 were fixed:**
+
+```
+Step 14: a_db_reader.read_a_jobs_from_db()
+         SELECT from agent_jobs JOIN agent_souls ← ❌ PHANTOM TABLE
+         → Error: "DB query: ..."
+         → pi_send_message("autonomic-error", msg)
+         → A-bot NEVER wakes up
+```
+
+**Even if step 14 were fixed:**
+
+```
+Step 15: a_db_reader.read_project_state_from_db()
+         → read_active_tasks(): SELECT from tasks (EXISTS) ✅
+         → read_open_issues(): SELECT from issues (EXISTS) ✅
+         ⚠️ But tasks.priority uses decode.int on text column
+Step 16: a_prompt_builder.build_system_prompt(soul, jobs, context_window)
+         → compose() called (NO budget enforcement)
+         ⚠️ compose_within_budget() exists but is never called
+Step 17: call_monitor(ctx, user_prompt, system_prompt)
+         → Makes LLM API call via completeSimple
+         → Returns Ok(text) or Error(msg)
+Step 18: handle_monitor_response(ctx, pi, result)
+         → Ok(response) + ctx_is_idle: pi_send_message("autonomic-wakeup", response)
+         → S-bot receives the wake-up message
+```
+
+### 320c. Chain Failure Summary
+
+| Step | Component                  | Issue                                                                        | Severity     |
+| ---- | -------------------------- | ---------------------------------------------------------------------------- | ------------ |
+| 2    | JS debounce                | `get_debounce_ms` reads from DB — if DB unavailable, hook aborts             | MEDIUM       |
+| 6    | `get_config("idle_since")` | FFI returns `null` instead of `new None()` → pattern match crash             | **CRITICAL** |
+| 7    | Gleam debounce             | Double debounce (JS 5min + Gleam 5min = 10min total)                         | HIGH         |
+| 10   | `is_s_still_idle`          | `COUNT(*)` bigint → `decode.int` fails → always returns `Ok(True)`           | HIGH         |
+| 13   | `read_soul_from_db`        | Queries phantom `agent_souls` table                                          | **CRITICAL** |
+| 14   | `read_a_jobs_from_db`      | Queries phantom `agent_jobs` table                                           | **CRITICAL** |
+| 15   | `read_active_tasks`        | `priority` column is text, decoder uses `decode.int`                         | MEDIUM       |
+| 16   | `build_system_prompt`      | Uses `compose()` not `compose_within_budget()` — no token budget enforcement | MEDIUM       |
+
+**The A→S wakeup chain has NEVER completed successfully.** It fails at step 6 (FFI type mismatch) in every attempt.
+
+**Issue #229** | Severity: **CRITICAL** | Category: FFI Type Mismatch — get_config breaks A→S chain
+
+**Issue #230** | Severity: **HIGH** | Category: BigInt Decode — is_s_still_idle always returns True
+
+**Issue #231** | Severity: **MEDIUM** | Category: Budget — compose() ignores token budget
+
+### 320d. S-bot System Prompt Chain
+
+The `before_agent_start` hook loads S-bot's system prompt:
+
+```
+Step 1: Pi fires 'before_agent_start' event
+Step 2: hook_on_before_agent_start.on_before_agent_start() called
+Step 3: event_hooks.record_trigger("before_agent_start") ← records in DB
+Step 4: s_db_reader.read_s_soul_from_db()
+        SELECT content FROM agent_souls WHERE id_prefix = 'S' AND is_active = true
+        ← ❌ PHANTOM TABLE
+        → Error: "DB query: ..."
+Step 5: Error branch returns fallback prompt:
+        "You are the Somatic Agentbot (S-agentbot)... [SOUL LOAD FAILED: ...]"
+Step 6: { systemPrompt: fallback_text } returned to Pi
+```
+
+**S-bot always gets a degraded prompt.** It never receives its soul content
+(role, domain, responsibilities) from the database.
+
+**Issue #232** | Severity: **HIGH** | Category: Phantom Table — S-bot soul never loaded
+
+### 320e. `hook_on_agent_start` — No-Op Hook
+
+The `agent_start` hook only calls `event_hooks.record_trigger("agent_start")`.
+It records that the event fired but does nothing else. No session initialization,
+no state loading, no context setup.
+
+**Issue #233** | Severity: **LOW** | Category: No-Op — agent_start hook does nothing useful
+
+### 320f. `hook_on_tool_result` — Error Detection Heuristic
+
+The `tool_result` hook uses string matching to detect errors:
+```gleam
+let is_error =
+  string.contains(result_json, "\"error\"")
+  || string.contains(result_json, "Error:")
+  || string.contains(result_json, "execution error")
+  || string.contains(result_json, "tool_execution_blocked")
+  || string.contains(result_json, "\"is_error\":true")
+```
+
+This is fragile:
+- A successful result containing the word "Error" in content triggers false positive
+- `extract_error_msg` uses crude string splitting, not JSON parsing
+- The hook always returns `Ok(Nil)` — even when it detects an error, it doesn't
+  propagate the error, just sends a notification
+
+**Issue #234** | Severity: **MEDIUM** | Category: Heuristic — tool_result error detection fragile
