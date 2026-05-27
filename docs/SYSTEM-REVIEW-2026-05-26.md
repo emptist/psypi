@@ -7,16 +7,16 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**143 issues tracked** (#100-#242) across 15 audit categories.
+**160 issues tracked** (#100-#259) across 17 audit categories.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 30    | 21.0%      |
-| **HIGH**     | 56    | 39.2%      |
-| **MEDIUM**   | 44    | 30.8%      |
-| **LOW**      | 13    | 9.1%       |
+| **CRITICAL** | 32    | 20.0%      |
+| **HIGH**     | 63    | 39.4%      |
+| **MEDIUM**   | 50    | 31.3%      |
+| **LOW**      | 15    | 9.4%       |
 
 ### Category Breakdown
 
@@ -21910,3 +21910,454 @@ The tool always returns:
 ```
 
 **Issue #242** | Severity: **MEDIUM** | Category: Phantom Table — psypi-my-id always degraded
+
+---
+
+## 322. MODULE DEPENDENCY GRAPH ANALYSIS
+
+### 322a. Import Graph (Internal Modules Only)
+
+```
+db (21 imports) ← core data layer, imported by nearly everything
+pi_tool_call (15 imports) ← Pi tool definition types
+pi_extension (8 imports) ← FFI bridge to Pi runtime
+event_hooks (3 imports) ← hook status tracking
+system_prompt_types (2 imports) ← prompt composition types
+a_db_reader (2 imports) ← A-bot data access
+code_version (2 imports) ← file version management
+simplifile (2 imports) ← file system operations
+```
+
+### 322b. No Circular Dependencies
+
+The module dependency graph is a clean DAG. No circular imports detected.
+All dependencies flow downward: hooks → orchestrator → db_reader → db.
+
+### 322c. Module Health Summary
+
+| Module                       | DB Tables Referenced                               | Phantom Tables                                | Status                            |
+| ---------------------------- | -------------------------------------------------- | --------------------------------------------- | --------------------------------- |
+| `db`                         | (connection layer)                                 | —                                             | ✅ Works                           |
+| `pi_tool_call`               | (type definitions)                                 | —                                             | ✅ Works                           |
+| `pi_extension`               | (FFI bridge)                                       | —                                             | ✅ Works                           |
+| `extension_generator`        | (code gen)                                         | —                                             | ✅ Works                           |
+| `meeting`                    | `meetings`                                         | —                                             | ✅ Works                           |
+| `agents`                     | `agent_identities`                                 | —                                             | ✅ Works                           |
+| `stats`                      | `tasks`, `issues`, `skills`                        | —                                             | ✅ Works                           |
+| `learning`                   | `memory`                                           | —                                             | ✅ Works                           |
+| `task`                       | `tasks`                                            | —                                             | ✅ Works                           |
+| `issue_tools`                | `issues`                                           | —                                             | ✅ Works                           |
+| `issue_db`                   | `issues`                                           | —                                             | ✅ Works                           |
+| `memory`                     | `memory`                                           | —                                             | ✅ Works                           |
+| `areflect`                   | `learning_insights`, `issues`, `tasks`             | —                                             | ✅ Works                           |
+| `psypi_config`               | `psypi_config`                                     | —                                             | ✅ Works                           |
+| `monitor`                    | `provider_api_keys`, `activity_log`                | `notifications`                               | ⚠️ Partial                         |
+| `monitor_ai`                 | `tasks`, `issues`, `inter_reviews`, `activity_log` | `code_versions`                               | ⚠️ Partial                         |
+| `inter_review`               | `inter_reviews`                                    | —                                             | ⚠️ Partial (missing ::text)        |
+| `skill`                      | `skills`                                           | — (missing `reference_list` column)           | ❌ Broken                          |
+| `broadcast`                  | `project_communications`                           | — (missing `priority`, `status` columns)      | ❌ Broken                          |
+| `code_version`               | — (uses SQL functions)                             | `code_versions` (table + functions missing)   | ❌ Broken                          |
+| `event_hooks`                | —                                                  | `psypi_event_hooks`                           | ❌ Broken                          |
+| `hook_on_tool_call`          | —                                                  | `code_versions` (via code_version module)     | ❌ Broken                          |
+| `hook_on_before_agent_start` | —                                                  | `psypi_event_hooks`, `agent_souls`            | ❌ Broken                          |
+| `hook_on_agent_start`        | —                                                  | `psypi_event_hooks`                           | ❌ Broken                          |
+| `hook_on_agent_end`          | —                                                  | `agent_souls`, `agent_jobs` (via a_db_reader) | ❌ Broken                          |
+| `a_db_reader`                | `tasks`, `issues`, `agent_sessions`                | `agent_souls`, `agent_jobs`                   | ❌ Broken                          |
+| `s_db_reader`                | —                                                  | `agent_souls`, `agent_jobs`                   | ❌ Broken                          |
+| `a_orchestrator`             | —                                                  | `agent_souls`, `agent_jobs` (via a_db_reader) | ❌ Broken                          |
+| `a_prompt_builder`           | —                                                  | —                                             | ⚠️ Partial (no budget enforcement) |
+| `agent_identity`             | `agent_identities`                                 | `agent_souls`, `agent_jobs`                   | ❌ Broken                          |
+| `tool_commit`                | `inter_reviews`                                    | —                                             | ❌ Broken (score never written)    |
+| `seed`                       | `psypi_config`                                     | `agent_souls`, `agent_prefixes`               | ❌ Broken                          |
+| `simple_migrate`             | —                                                  | —                                             | ⚠️ Partial (no tracking)           |
+| `file_utils`                 | —                                                  | —                                             | ✅ Works                           |
+| `command_listen`             | —                                                  | —                                             | ✅ Works                           |
+| `command_reload`             | —                                                  | —                                             | ✅ Works                           |
+| `hook_on_tool_result`        | —                                                  | —                                             | ✅ Works                           |
+| `tool_consult`               | —                                                  | —                                             | ⚠️ Stub                            |
+| `main`                       | —                                                  | —                                             | ✅ Works                           |
+
+### 322d. Module Failure Count
+
+| Status           | Count | Percentage |
+| ---------------- | ----- | ---------- |
+| ✅ Works          | 16    | 37.2%      |
+| ⚠️ Partial        | 8     | 18.6%      |
+| ❌ Broken         | 14    | 32.6%      |
+| ⚠️ Stub           | 1     | 2.3%       |
+| (infrastructure) | 4     | 9.3%       |
+
+**51.2% of modules are broken or partially functional.**
+
+**Issue #243** | Severity: **HIGH** | Category: Architecture — 51.2% of Gleam modules broken or partial
+
+---
+
+## 323. BROADCAST MODULE — DETAILED FAILURE ANALYSIS
+
+### 323a. `broadcast.send()` — INSERT References Missing `priority` Column
+
+```sql
+INSERT INTO project_communications
+(project_id, from_ai, message_type, content, priority, metadata)
+VALUES ($1, $2, 'broadcast', $3, $4, $5)
+```
+
+The `project_communications` table has these columns:
+- `id` (uuid), `project_id` (uuid), `from_ai` (text), `to_ai` (text),
+- `message_type` (text), `content` (text), `metadata` (jsonb),
+- `created_at` (timestamptz), `read_at` (timestamptz)
+
+**No `priority` column exists.** The INSERT will fail with:
+`column "priority" of relation "project_communications" does not exist`
+
+Additionally, `project_id` is `uuid` type but `broadcast.send()` passes it as `dynamic.string()`.
+node-postgres may auto-cast, but this is fragile.
+
+**Issue #244** | Severity: **HIGH** | Category: Schema Mismatch — broadcast.send references missing priority column
+
+### 323b. `broadcast.stats()` — References Missing `status` Column and Invalid Comparison
+
+```sql
+SELECT
+  COUNT(*) as total,
+  COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
+  COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+FROM project_communications
+WHERE from_ai = $1 AND message_type = 'broadcast'
+```
+
+Two errors:
+1. `status` column does not exist in `project_communications`
+2. `priority >= 2` — even if priority existed, it's `text` type, not integer
+
+Additionally, `COUNT(*)` returns PostgreSQL `bigint`, but `stats_decoder()` uses `decode.int`.
+This will fail because node-postgres returns bigint as string.
+
+**Issue #245** | Severity: **HIGH** | Category: Schema Mismatch — broadcast.stats references missing columns and invalid comparison
+
+### 323c. `broadcast.list()` — Semantic Column Mapping Error
+
+```sql
+SELECT id, from_ai as agent_id, content as message, priority,
+       'sent' as status, created_at::text, read_at::text as sent_at
+FROM project_communications
+```
+
+1. `priority` column does not exist → SQL error
+2. `read_at::text as sent_at` — semantically wrong: `read_at` ≠ `sent_at`
+3. Hardcoded `'sent' as status` — always reports "sent" regardless of actual state
+
+**Issue #246** | Severity: **MEDIUM** | Category: Schema Mismatch — broadcast.list references missing priority, wrong semantic mapping
+
+---
+
+## 324. CODE_VERSION MODULE — COMPLETELY NON-FUNCTIONAL
+
+### 324a. All Three SQL Functions Missing
+
+The `code_version.gleam` module calls three SQL functions:
+1. `save_code_version()` — does not exist in DB
+2. `get_code_versions()` — does not exist in DB
+3. `restore_code_version()` — does not exist in DB
+
+The `code_versions` table also does not exist.
+
+Migration `014_code_versions.sql` defines all three functions and the table,
+but the migration has never been applied to the live database.
+
+### 324b. Impact on hook_on_tool_call
+
+`hook_on_tool_call.on_tool_call()` calls `code_version.save_version()` when
+the `edit` tool is used. Since `save_code_version()` doesn't exist, every
+auto-backup attempt fails with a SQL error. The error is caught and reported
+via `notify_error`, but the backup is never saved.
+
+This means **no file version history is ever recorded**, defeating the
+auto-backup safety net entirely.
+
+**Issue #247** | Severity: **HIGH** | Category: Phantom Table — code_version module entirely non-functional
+
+---
+
+## 325. MONITOR_AI MODULE — DETAILED FAILURE ANALYSIS
+
+### 325a. `prepare_context()` — References Phantom `code_versions` Table
+
+```sql
+SELECT 'learning' as type_, content, saved_at::text
+FROM memory WHERE agent_id = $1 AND source = 'learn'
+UNION ALL
+SELECT 'backup' as type_, file_path as content, saved_at::text
+FROM code_versions WHERE saved_by = $1
+ORDER BY saved_at DESC LIMIT 10
+```
+
+The `UNION ALL` fails because `code_versions` doesn't exist.
+Even the first part (`memory` query) won't execute because PostgreSQL
+evaluates the entire statement before returning results.
+
+**Impact**: A-bot context preparation always fails, providing no context
+for LLM calls.
+
+**Issue #248** | Severity: **HIGH** | Category: Phantom Table — prepare_context references code_versions
+
+### 325b. `auto_file_issue()` — References Missing Columns
+
+```sql
+INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'development')
+```
+
+The `issues` table does not have `type` or `environment` columns.
+Only `discovered_by` exists. The INSERT will fail.
+
+**Issue #249** | Severity: **MEDIUM** | Category: Schema Mismatch — auto_file_issue references missing columns
+
+### 325c. `check_system_health()` — BigInt Decode Issue
+
+```sql
+SELECT
+  (SELECT COUNT(*)::INT FROM tasks WHERE status = 'FAILED') as failed_tasks,
+  (SELECT COUNT(*)::INT FROM issues WHERE status = 'open') as open_issues,
+  (SELECT COUNT(*)::INT FROM activity_log WHERE timestamp > NOW() - INTERVAL '1 hour') as activities_1h
+```
+
+The `::INT` cast is used here, which correctly converts bigint to int.
+This is one of the few places where the bigint issue is handled correctly.
+
+However, `tasks.status = 'FAILED'` may not match — need to verify task status values.
+The `issues.status = 'open'` should work.
+
+**Issue #250** | Severity: **LOW** | Category: Data Validation — task status 'FAILED' may not match actual values
+
+---
+
+## 326. EVENT_HOOKS MODULE — ENTIRELY NON-FUNCTIONAL
+
+### 326a. All Functions Reference Phantom `psypi_event_hooks` Table
+
+Five functions in `event_hooks.gleam`:
+1. `list_all_hooks()` — SELECT from `psypi_event_hooks` → fails
+2. `list_active_hooks()` — SELECT from `psypi_event_hooks` → fails
+3. `record_trigger()` — UPDATE `psypi_event_hooks` → fails
+4. `record_error()` — UPDATE `psypi_event_hooks` → fails
+5. `set_hook_status()` — UPDATE `psypi_event_hooks` → fails
+
+Migration `003_create_event_hooks_table.sql` exists but has never been applied.
+
+### 326b. Impact on Hook Chain
+
+`hook_on_before_agent_start` calls `event_hooks.record_trigger("before_agent_start")`.
+`hook_on_agent_start` calls `event_hooks.record_trigger("agent_start")`.
+
+Both fail silently (error is caught and discarded). This means:
+- Hook trigger counts are never incremented
+- Hook errors are never recorded
+- Hook status never transitions to 'error' after 5 failures
+- The `psypi-hooks-list` and `psypi-hooks-active` tools always fail
+
+**Issue #251** | Severity: **HIGH** | Category: Phantom Table — event_hooks module entirely non-functional
+
+---
+
+## 327. MONITOR MODULE — NOTIFICATION FUNCTIONS NON-FUNCTIONAL
+
+### 327a. Three Functions Reference Phantom `notifications` Table
+
+1. `get_pending_notifications()` — SELECT from `notifications` → fails
+2. `create_notification()` — INSERT into `notifications` → fails
+3. `mark_notifications_read()` — UPDATE `notifications` → fails
+
+Migration `018_notifications.sql` exists but has never been applied.
+
+### 327b. Impact on A→S Communication
+
+The notification system was designed for Monitor → Agentbot communication.
+Without it, A-bot has no way to queue persistent notifications for S-bot.
+The `pi_send_message` mechanism works for real-time messages but has no
+persistence or priority ordering.
+
+**Issue #252** | Severity: **MEDIUM** | Category: Phantom Table — notification functions non-functional
+
+---
+
+## 328. DUAL CONFIG STORE — NO SYNCHRONIZATION
+
+### 328a. Two Independent Configuration Stores
+
+**In-Memory Store** (`pi_extension_ffi.mjs`):
+```javascript
+let _configStore = {};
+export function get_config(key) { return _configStore[key] || null; }
+export function set_config(key, value) { _configStore[key] = value; }
+```
+
+**Database Store** (`psypi_config` table):
+```sql
+SELECT key, value FROM psypi_config;
+-- monitor_debounce_ms | 15000
+-- monitor_enabled     | true
+```
+
+### 328b. Who Uses Which Store
+
+| Module                                 | Store     | Keys Used                           |
+| -------------------------------------- | --------- | ----------------------------------- |
+| `hook_on_agent_end`                    | In-memory | `idle_since`, `monitor_debounce_ms` |
+| `extension_generator` (debounced_hook) | In-memory | `psypi_config.get_debounce_ms`      |
+| `psypi_config` module                  | Database  | All keys                            |
+
+### 328c. Synchronization Failures
+
+1. **`monitor_debounce_ms`**: DB has `15000` (15s), but `hook_on_agent_end` reads from
+   in-memory store which starts empty → defaults to `300000` (5 min). The 15s value
+   in the DB is never read by the debounce logic.
+
+2. **`idle_since`**: Written to in-memory store by `hook_on_agent_end`, but never
+   persisted to DB. Lost on every Pi restart.
+
+3. **No cross-store sync**: Writing to DB via `psypi_config.set()` does not update
+   the in-memory store, and vice versa.
+
+4. **`seed.gleam`** seeds `monitor_debounce_ms = 300000` to DB, but live DB has `15000`.
+   Someone manually changed it, but the in-memory store still uses neither value
+   (it starts empty and falls back to hardcoded 300000).
+
+**Issue #253** | Severity: **HIGH** | Category: Architecture — dual config stores with no synchronization
+
+**Issue #254** | Severity: **MEDIUM** | Category: Data Loss — idle_since lost on restart (in-memory only)
+
+---
+
+## 329. MIGRATION SYSTEM — NEVER FULLY APPLIED
+
+### 329a. Missing Tables Despite Migration Files
+
+| Migration File                   | Table               | Exists in DB |
+| -------------------------------- | ------------------- | ------------ |
+| 003_create_event_hooks_table.sql | `psypi_event_hooks` | ❌ No         |
+| 008_agent_soul.sql               | `agent_souls`       | ❌ No         |
+| 009_agent_jobs.sql               | `agent_jobs`        | ❌ No         |
+| 012_agent_prefixes.sql           | `agent_prefixes`    | ❌ No         |
+| 014_code_versions.sql            | `code_versions`     | ❌ No         |
+| 018_notifications.sql            | `notifications`     | ❌ No         |
+| 005_system_directives.sql        | `system_directives` | ✅ Yes        |
+
+6 of 7 tables from these specific migrations are missing.
+
+### 329b. Root Cause: No Migration Tracking
+
+`simple_migrate.gleam` has no tracking table:
+- No `schema_migrations` table to record which migrations have been applied
+- All `.sql` files are re-run on every execution
+- `CREATE TABLE IF NOT EXISTS` is idempotent, but `ALTER TABLE ADD COLUMN` is not
+- If the migration runner was never executed after these migrations were added,
+  the tables were never created
+
+### 329c. Evidence: 78 Tables vs 24 Migration Files
+
+The live database has 78 tables, but only 24 migration files exist.
+This means 54 tables were created outside the migration system (likely by
+hand or by external tools). The migration system is not the source of truth
+for the schema.
+
+### 329d. Conflicting Migrations
+
+Two migration files share the prefix `025`:
+- `025_add_tasks_project_id.sql`
+- `025_drop_system_directives.sql`
+
+The sort order is alphabetical, so `025_add_tasks_project_id.sql` runs first.
+But having duplicate prefixes indicates a coordination failure.
+
+**Issue #255** | Severity: **CRITICAL** | Category: Migration — 6 critical tables never created despite migration files
+
+**Issue #256** | Severity: **MEDIUM** | Category: Migration — no tracking table, idempotency not guaranteed
+
+**Issue #257** | Severity: **LOW** | Category: Migration — duplicate prefix 025
+
+---
+
+## 330. A_DB_READER — IS_S_STILL_IDLE BIGINT DECODE FAILURE
+
+### 330a. The Bug
+
+```gleam
+fn count_decoder() -> decode.Decoder(Int) {
+  use cnt <- decode.field("cnt", decode.int)
+  decode.success(cnt)
+}
+```
+
+`COUNT(*)` in PostgreSQL returns `bigint`. In node-postgres, bigint is
+returned as a string (e.g., `"0"`). `decode.int` expects a JavaScript number,
+so it fails on string `"0"`.
+
+### 330b. The Error Branch Returns `Ok(True)`
+
+```gleam
+case decode.run(row, count_decoder()) {
+  Ok(cnt) -> Ok(cnt == 0)
+  Error(_) -> Ok(True)  // ← ALWAYS returns True on decode failure
+}
+```
+
+When `decode.int` fails on the bigint string, the `Error(_)` branch returns
+`Ok(True)`, meaning "S is idle". This bypasses the idle check entirely.
+
+### 330c. Impact
+
+`is_s_still_idle()` always returns `Ok(True)`, so the A→S wakeup chain
+never checks whether S is actually idle. This could cause A-bot to wake up
+S-bot while S is still processing, leading to context conflicts.
+
+Note: `monitor_ai.check_system_health()` avoids this issue by using
+`COUNT(*)::INT` cast, which converts bigint to integer before returning.
+
+**Issue #258** | Severity: **HIGH** | Category: Decode Failure — is_s_still_idle always returns True
+
+---
+
+## 331. TOOL_COMMIT — PERMANENTLY BLOCKED BY UNWRITTEN SCORE
+
+### 331a. The Deadlock
+
+`tool_commit.commit_if_reviewed()` checks:
+```gleam
+case review.overall_score {
+  None -> Error("Review not yet complete. A-bot is still reviewing.")
+  Some(score) -> case score >= 50 { ... }
+}
+```
+
+But `overall_score` is never written to `inter_reviews`:
+- `inter_review.request_review()` inserts with `overall_score = NULL`
+- `monitor_ai.record_review_score()` exists but is never called
+- A-bot's `a_orchestrator` never calls `record_review_score` after LLM call
+
+Result: `overall_score` is always `None`, and commits are permanently blocked.
+
+### 331b. The Full Commit Flow is Dead
+
+1. S-bot calls `psypi-commit` without review_id → Phase 1 creates review → ✅
+2. A-bot picks up review via `agent_end` hook → queries phantom tables → ❌
+3. Even if A-bot somehow completes review → score never written → ❌
+4. S-bot calls `psypi-commit` with review_id → score is NULL → ❌
+
+The entire inter-review commit flow is dead at step 2.
+
+**Issue #259** | Severity: **CRITICAL** | Category: Logic Failure — commit flow permanently blocked by unwritten score
+
+---
+
+## 332. UPDATED ISSUE COUNT
+
+Total issues tracked: **#100-#259** = **160 issues**
+
+| Severity | Count |
+| -------- | ----- |
+| CRITICAL | 32    |
+| HIGH     | 63    |
+| MEDIUM   | 50    |
+| LOW      | 15    |
