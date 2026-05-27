@@ -1,11 +1,64 @@
-# System Review — psypi — 2026-05-26 (REVISED)
+# System Review — psypi — 2026-05-26 (v11)
 
 Every finding verified against live PostgreSQL database, Gleam source, and git history.
 No assumptions. No documentation trust. Only verified facts.
 
-**REVISION NOTE**: Earlier version of this review contained incorrect "phantom column" claims.
-Live DB verification on 2026-05-26 showed the database has MORE columns than expected,
-not fewer. The issues are: wrong column names, missing `::text` casts, and FFI bugs.
+---
+
+## EXECUTIVE SUMMARY
+
+**87 issues tracked** (#100-#186) across 7 audit categories.
+
+### Severity Breakdown
+
+| Severity     | Count | Percentage |
+| ------------ | ----- | ---------- |
+| **CRITICAL** | 22    | 25.3%      |
+| **HIGH**     | 36    | 41.4%      |
+| **MEDIUM**   | 24    | 27.6%      |
+| **LOW**      | 5     | 5.7%       |
+
+### Category Breakdown
+
+| Category                  | Issues | Criticals | Key Finding                                                         |
+| ------------------------- | ------ | --------- | ------------------------------------------------------------------- |
+| **Phantom Tables**        | 7      | 7         | 7 tables referenced in Gleam code don't exist in DB                 |
+| **Dropped Columns**       | 7      | 3         | issues.project_id, skills.reference_list, issues.created_by dropped |
+| **Type Changes**          | 4      | 0         | TEXT→JSONB, TEXT→UUID without Gleam updates                         |
+| **Schema Drift**          | 5      | 0         | 63 untracked tables, 19 untracked views                             |
+| **Tool Audit (35 tools)** | 9      | 4         | 15 BROKEN, 10 PARTIAL, 9 WORKS, 1 STUB                              |
+| **Extension Generation**  | 14     | 1         | Missing label/details/TypeBox, unreachable trigger recording        |
+| **Concurrency**           | 8      | 1         | No connection pooling, double debounce, BigInt decode failure       |
+| **Prompt Pipeline**       | 12     | 3         | Phantom tables block S-bot/A-bot, system_directives dead letter     |
+| **Code/SQL Bugs**         | 17     | 3         | Missing ::text casts, wrong SQL, NOT NULL violations                |
+| **Review Corrections**    | 2      | 2         | Previous review had false claims                                    |
+
+### Top 5 System-Stopping Issues
+
+1. **#175/#177 — Phantom `agent_souls`/`agent_jobs` tables**: Both S-bot and A-bot soul loading fails. S-bot falls back to hardcoded text. A-bot workflow terminates with error. The entire A/S agent coordination is non-functional.
+
+2. **#169 — Double debounce creates 20+ minute delays**: JS setTimeout (15 min from DB) + Gleam manual check (5 min from _configStore) stack. A-bot wake-up is effectively disabled.
+
+3. **#179 — System directives dead letter**: `system_directives` table exists but is never read by `before_agent_start` hook. A→S communication relies solely on `pi_send_message`, which is unreliable.
+
+4. **#132/#104/#105 — Dropped `project_id` column**: `issues.project_id` was dropped from live DB, but `areflect.save_issue()` and `areflect.save_task()` still INSERT into it. All issue and task creation fails with NOT NULL violation.
+
+5. **#167/#171 — No connection pooling + disconnect not awaited**: Every query opens a new TCP connection and the close is not awaited. Under load, PostgreSQL connection exhaustion is inevitable.
+
+### What Works
+
+- 9 of 35 tools are fully functional (meeting, agents, stats, learning, task-list, issue-list, broadcast-send, autonomic-health, hooks-list)
+- Basic CRUD for tasks, issues, skills, meetings works when columns match
+- The Gleam→JS extension generator produces runnable code
+- The Pi SDK integration is structurally correct (hooks, tools, commands all register)
+
+### Root Cause
+
+The project has been developed by multiple AI agents over 5 months without:
+1. **Schema migration tracking** — 63 tables have no migration, making schema drift invisible
+2. **Integration testing** — Gleam tests pass on pure functions but never test DB/FFI layers
+3. **Type-driven development** — Gleam types don't reflect actual DB schema
+4. **End-to-end verification** — No test ever runs the full A→S wakeup or inter-review flow
 
 ---
 
