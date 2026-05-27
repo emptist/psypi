@@ -7,7 +7,7 @@ This document explains how any AI (or human) can verify the findings in the psyp
 - **Review ID**: `ca9e914c-cce6-4db4-b3b1-29779d8e1837`
 - **Database**: `psypi` (PostgreSQL, **shared by multiple projects**)
 - **Tables**: `system_reviews`, `review_findings`
-- **Total findings**: 96 (94 open, 2 retracted)
+- **Total findings**: 109 (106 open, 3 retracted)
 
 ## Important: Shared Database
 
@@ -203,4 +203,106 @@ open → duplicate (same as another finding)
 | #227 | TaskStatus missing FAKE_COMPLETE | Source: 4 variants; DB CHECK: 5 values | CONFIRMED |
 | #229 | IssueStatus mismatch | Source: Open/InProgress/Resolved/Closed; DB: open/acknowledged/in_progress/resolved/wont_fix/duplicate | CONFIRMED |
 
-**Errors found during spot-check**: Finding #215 originally claimed `discovered_by` and `environment` columns don't exist in the `issues` table. They DO exist. Corrected to: only `type` → `issue_type` is wrong, severity reduced from critical to high.
+**Errors found during spot-check**: Finding #215 originally claimed `discovered_by` and `environment` columns don't exist in the `issues` table. They DO exist. Corrected to: only `type` → `issue_type` is wrong, severity reduced from critical to high. Finding #236 was retracted — memory.gleam uses `created_at` correctly, the `saved_at` reference was from monitor_ai.gleam querying `code_versions`.
+
+## Gap Analysis: Gleam Code vs Database Schema (Findings #231-#243)
+
+A bidirectional gap analysis was performed comparing what Gleam code expects vs what the database actually has.
+
+### Methodology
+
+1. Extracted all table names from Gleam `SELECT`, `INSERT INTO`, and `UPDATE` statements
+2. Extracted all column names referenced in those SQL statements
+3. Compared against `information_schema.columns` for each table
+4. Identified: unused tables, unused columns, wrong column references, missing `::text` casts
+
+### Gap 1: Tables in DB but Never Used by psypi Gleam Code
+
+| Table | Rows | Has project_id | Likely Owner |
+|-------|------|----------------|-------------|
+| agent_configs | 0 | Yes | nezha/nupi |
+| agent_identity | 0 | No (agent_name is uuid!) | unknown |
+| agent_moods | 0 | No | unknown |
+| agent_scores | 0 | No | nezha |
+
+All 4 tables are empty. None are documented in `table_documentation`. None are referenced by any Gleam source file.
+
+### Gap 2: Tables Referenced in Gleam but Missing from DB
+
+**None found.** All 22 tables referenced by Gleam code exist in the database.
+
+### Gap 3: Column Mismatches (Gleam expects columns that don't exist)
+
+| Finding# | Module | Wrong Column | Correct Column | Severity |
+|----------|--------|-------------|----------------|----------|
+| #237 | broadcast | `status` | doesn't exist | high |
+| #139 | broadcast | `priority >= 2` | priority is text, not int | medium |
+
+### Gap 4: Massive Unused DB Columns
+
+| Table | DB Columns | Gleam Handles | Unused | Finding# |
+|-------|-----------|--------------|--------|----------|
+| tasks | 60 | 14 | 46 | #232 |
+| skills | 60+ | ~10 | 45+ | #233 |
+| issues | 30+ | ~15 | 15+ | #234 |
+| inter_reviews | 30+ | 6 | 27+ | #235 |
+| learning_insights | 13 | 4 (INSERT only) | 9 (never read) | #238 |
+| psypi_event_hooks | 14 | 7 | 7 | #240 |
+| project_communications | 12 | 8 | 4 | #241 |
+| meetings | 10 | 6 | 4 | #242 |
+| provider_api_keys | 10 | 3 | 7 | #239 |
+| system_reviews | 17 | 14 | 3 (legacy JSONB) | #243 |
+
+**Key insight**: The database schema is far richer than what psypi's Gleam code uses. Many columns are written by other projects (nezha, nupi) but psypi can't read them. This is a design gap, not necessarily a bug.
+
+### Gap 5: Write-Only Tables
+
+| Table | Writes | Reads | Finding# |
+|-------|--------|-------|----------|
+| learning_insights | areflect.gleam (INSERT 4 cols) | **NONE** | #238 |
+
+Learning insights are stored but never consumed. No feedback loop exists.
+
+### How to Verify Gap Findings
+
+```sql
+-- Verify unused columns for any table
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_name = 'tasks' AND table_schema = 'public'
+ORDER BY ordinal_position;
+
+-- Cross-reference with Gleam decoder
+-- Read the Gleam source file's decoder function and compare field names
+
+-- Check if a table is truly unused by psypi
+SELECT table_name FROM table_documentation
+WHERE table_name IN ('agent_configs', 'agent_identity', 'agent_moods', 'agent_scores')
+AND notes LIKE '%psypi%';
+
+-- Verify table_documentation has gap info
+SELECT table_name, notes FROM table_documentation
+WHERE table_name = 'tasks' AND notes LIKE '%GAP%';
+```
+
+## Using table_documentation for Verification
+
+The `table_documentation` table now contains gap analysis notes for all 22 psypi tables plus the 4 unused agent_* tables. Any AI can:
+
+1. **Find which tables psypi uses**: `SELECT table_name FROM table_documentation WHERE notes LIKE '%GAP%' OR purpose LIKE '%psypi%';`
+2. **Check column gaps**: Read the `notes` field — it lists unused columns and missing `::text` casts
+3. **Understand shared DB context**: Tables tagged `shared-db` belong to other projects
+4. **Verify findings**: Use `example_queries` in `table_documentation` for `review_findings` and `system_reviews`
+
+```sql
+-- Get full documentation for a table
+SELECT table_name, purpose, key_columns, notes, example_queries
+FROM table_documentation
+WHERE table_name = 'tasks';
+
+-- List all tables with gap notes
+SELECT table_name, substring(notes, 1, 80) as gap_summary
+FROM table_documentation
+WHERE notes LIKE '%GAP%' OR notes LIKE '%needs ::text%'
+ORDER BY table_name;
+```

@@ -9,19 +9,20 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 | Severity | Count | Percentage |
 |----------|-------|------------|
-| **CRITICAL** | 4 | 4.2% |
-| **HIGH** | 31 | 32.3% |
-| **MEDIUM** | 49 | 51.0% |
-| **LOW** | 12 | 12.5% |
-| **TOTAL** | 96 | 100% |
+| **CRITICAL** | 4 | 3.7% |
+| **HIGH** | 33 | 30.3% |
+| **MEDIUM** | 56 | 51.4% |
+| **LOW** | 16 | 14.7% |
+| **TOTAL** | 109 | 100% |
 
 ## Category Breakdown
 
 | Category | Count | Findings |
 |----------|-------|----------|
 | missing_cast | 29 | 1C/17H |
-| design_flaw | 8 |  |
+| unused_columns | 10 |  |
 | missing_project_id | 8 | 1C/2H |
+| design_flaw | 8 |  |
 | wrong_status | 8 | 0C/2H |
 | ffi_mismatch | 5 | 1C/2H |
 | type_mismatch | 5 | 0C/3H |
@@ -29,17 +30,18 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | logic_error | 4 | 1C/0H |
 | error_handling | 4 |  |
 | style | 3 |  |
+| wrong_column | 3 | 0C/3H |
 | hardcoded_config | 3 |  |
-| disconnected_systems | 2 |  |
-| test_coverage | 2 |  |
 | config_desync | 2 | 0C/1H |
+| test_coverage | 2 |  |
 | security | 2 |  |
-| performance | 1 | 0C/1H |
+| disconnected_systems | 2 |  |
 | wrong_decoder | 1 | 0C/1H |
 | dead_code | 1 |  |
-| wrong_column | 1 | 0C/1H |
-| type_coverage | 1 |  |
+| unused_table | 1 |  |
 | design | 1 |  |
+| type_coverage | 1 |  |
+| performance | 1 | 0C/1H |
 
 ## Findings by Severity
 
@@ -83,6 +85,8 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 227 | type_mismatch | task | TaskStatus missing FAKE_COMPLETE variant that DB allows | Decode fails for FAKE_COMPLETE tasks; cannot represent this status in Gleam |
 | 229 | type_mismatch | issue_types | IssueStatus missing acknowledged/wont_fix/duplicate; has Closed which DB doesnt have | Decode fails for acknowledged/wont_fix/duplicate issues; Closed maps to non-existent DB status; INSERT with Closed fails |
 | 215 | wrong_column | monitor_ai | monitor_ai record_tool_error: INSERT uses type instead of issue_type, missing project_id | Tool error recording fails because type column does not exist; should be issue_type. discovered_by and environment are valid columns. |
+| 236 | wrong_column | memory | memory.search SELECT references column "saved_at" which does not exist in memory table | Finding was incorrect — memory.gleam search uses created_at correctly |
+| 237 | wrong_column | broadcast | broadcast.stats SELECT references status column which does not exist in project_communications | Broadcast stats always returns error or empty result |
 | 138 | wrong_decoder | memory | memory.save() decodes RETURNING id with full memory_decoder() | Save always reports error (data IS saved but error returned) |
 | 111 | wrong_status | monitor_ai | check_system_health uses FAILED for tasks but DB has PENDING/COMPLETED | Finding was incorrect; FAILED status exists in both DB and Gleam TaskStatus type |
 | 112 | wrong_status | monitor_ai | analyze_and_act same status value bugs as check_system_health | Finding was incorrect |
@@ -133,6 +137,13 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 164 | type_coverage | multiple | 80 public types across 28 modules; no type audit exists | Cannot verify which DB tables have matching Gleam types without a mapping |
 | 228 | type_mismatch | meeting | MeetingStatus has Pending but DB only allows active/completed/cancelled | INSERT with pending status will fail DB constraint; Gleam type allows invalid state |
 | 230 | type_mismatch | issue_types | IssueType missing proposal which DB allows | Decode fails for proposal-type issues; cannot create proposal issues from Gleam |
+| 232 | unused_columns | task | tasks table has 60 DB columns but Gleam decoder only handles 14 (46 unused) | 46 columns of task data are invisible to psypi. Other projects may write them but psypi cannot read them. Massive schema-code gap. |
+| 233 | unused_columns | skill | skills table has 60+ DB columns but Gleam decoder only handles ~10 (45+ unused) | 45+ columns of skill data are invisible to psypi. Skill management features like ratings, downloads, reviews, scanning are all inaccessible. |
+| 234 | unused_columns | issue_db | issues table has 30+ DB columns but Gleam decoder only handles ~15 (15+ unused) | Issue management features like assignments, milestones, tags, resolution tracking are inaccessible to psypi. |
+| 235 | unused_columns | inter_review | inter_reviews table has 30+ DB columns but Gleam decoder only handles 6 (27+ unused) | Inter-review features like code quality scoring, suggestions, rework tracking, test coverage are all inaccessible. |
+| 238 | unused_columns | areflect | learning_insights: areflect only INSERTs 4 columns, never reads any. 9 DB columns never used. | Learning insights are written but never read. No feedback loop. All insight data is write-only. |
+| 240 | unused_columns | event_hooks | psypi_event_hooks: 7 of 14 DB columns never used by Gleam code | Hook actions (agentbot_action, worker_action) are never read, so hooks may not trigger correct actions |
+| 231 | unused_table | global | 4 agent_* tables exist in DB but are never used by psypi Gleam code | Orphan tables consume DB resources and create confusion about data ownership in shared database |
 | 113 | wrong_status | monitor_ai | get_model_stats case-sensitive status comparison | Model stats may miss records |
 | 114 | wrong_status | task | task.string_to_status accepts both cases but DB is uppercase | Inconsistency between insert and query |
 | 115 | wrong_status | issue_types | IssueStatus Gleam type vs DB CHECK mismatch | Decode fails for acknowledged/wont_fix/duplicate statuses |
@@ -155,6 +166,10 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 163 | style | git | Git state shows AI repair pattern: many fix commits without verification | Unverified fixes may introduce new bugs |
 | 152 | test_coverage | test | Gleam test files import modules that dont exist | Tests cannot compile; false positive pass rate |
 | 161 | test_coverage | test | No integration tests for database queries | DB query bugs never caught by tests |
+| 239 | unused_columns | monitor | provider_api_keys: Gleam only reads provider and model, never reads encrypted_key, status, etc. | API key management is partial — encryption fields never accessed by Gleam |
+| 241 | unused_columns | broadcast | project_communications: 4 DB columns never used by Gleam code | Broadcast targeting (to_ai) and traceability (git_hash, git_branch) are never used |
+| 242 | unused_columns | meeting | meetings: 4 DB columns never used by Gleam code | Meeting summaries and project ownership are never accessible |
+| 243 | unused_columns | system_review_db | system_reviews: 3 JSONB columns (findings, action_items, limitations) never read after migration to review_findings table | Legacy JSONB data may be stale. Should be dropped or documented as deprecated |
 
 ## Detailed Findings
 
@@ -573,6 +588,32 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `monitor_ai.gleam:561 INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment) — column is issue_type not type. discovered_by and environment DO exist in issues table.`
 
 **Impact**: Tool error recording fails because type column does not exist; should be issue_type. discovered_by and environment are valid columns.
+
+### #236 — memory.search SELECT references column "saved_at" which does not exist in memory table
+
+- **Severity**: HIGH
+- **Category**: wrong_column
+- **Module**: `memory`
+- **Status**: retracted
+
+**Description**: memory.gleam search function SELECTs saved_at column but memory table has created_at, not saved_at. Also references content type 'learning' but memory table has no such discriminator. [RETRACTED: memory.gleam uses SELECT * and created_at, not saved_at. The saved_at reference was from monitor_ai.gleam querying code_versions table, not memory table.]
+
+**Evidence**: `memory.gleam search query; \\d memory shows no saved_at column, only created_at`
+
+**Impact**: Finding was incorrect — memory.gleam search uses created_at correctly
+
+### #237 — broadcast.stats SELECT references status column which does not exist in project_communications
+
+- **Severity**: HIGH
+- **Category**: wrong_column
+- **Module**: `broadcast`
+- **Status**: open
+
+**Description**: broadcast.gleam stats() filters WHERE status = 'sent' but project_communications has no status column. Also compares priority (text) >= 2 (integer).
+
+**Evidence**: `broadcast.gleam:261 WHERE status = 'sent'; \\d project_communications shows no status column`
+
+**Impact**: Broadcast stats always returns error or empty result
 
 ### #138 — memory.save() decodes RETURNING id with full memory_decoder()
 
@@ -1172,6 +1213,97 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: Decode fails for proposal-type issues; cannot create proposal issues from Gleam
 
+### #232 — tasks table has 60 DB columns but Gleam decoder only handles 14 (46 unused)
+
+- **Severity**: MEDIUM
+- **Category**: unused_columns
+- **Module**: `task`
+- **Status**: open
+
+**Description**: Gleam task_decoder handles: id, title, description, status, priority, result, error, retry_count, created_at, updated_at, completed_at, created_by, source, project_id. DB has 60 columns including: agent_id, agent_name, executor_type, executor_model, executor_provider, delegate_to, complexity, encrypted_result, metadata, tags, session_id, etc.
+
+**Evidence**: `task.gleam task_decoder() has 14 fields; \\d tasks shows 60 columns. 46 columns never read or written by Gleam code.`
+
+**Impact**: 46 columns of task data are invisible to psypi. Other projects may write them but psypi cannot read them. Massive schema-code gap.
+
+### #233 — skills table has 60+ DB columns but Gleam decoder only handles ~10 (45+ unused)
+
+- **Severity**: MEDIUM
+- **Category**: unused_columns
+- **Module**: `skill`
+- **Status**: open
+
+**Description**: Gleam skill decoder handles: id, name, description, source, status, safety_score, version, author, content, reference_list. DB has 60+ columns including: allowed_projects, allowed_users, anti_patterns, build_metadata, category, code_analysis, content_hash, downloads, embedding, emoji, examples, generation_prompt, instructions, is_enabled, is_public, maintainer, manifest, permissions, quick_start, rating, repository, review_notes, scan_status, tags, trigger_phrases, use_count, verified, warnings, etc.
+
+**Evidence**: `skill.gleam skill_decoder() has ~10 fields; \\d skills shows 60+ columns. 45+ columns never read or written.`
+
+**Impact**: 45+ columns of skill data are invisible to psypi. Skill management features like ratings, downloads, reviews, scanning are all inaccessible.
+
+### #234 — issues table has 30+ DB columns but Gleam decoder only handles ~15 (15+ unused)
+
+- **Severity**: MEDIUM
+- **Category**: unused_columns
+- **Module**: `issue_db`
+- **Status**: open
+
+**Description**: Gleam issue decoder handles: id, title, description, severity, status, issue_type, created_at, resolved_at, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source. DB has 30+ columns including: assignee, assignee_type, discovered_at, dlq_id, metadata, milestone_id, related_issue_id, related_review_id, resolution, resolved_by, review_id, tags, task_id, updated_at, viewers.
+
+**Evidence**: `issue_db.gleam issue_decoder() has ~15 fields; \\d issues shows 30+ columns. 15+ columns never used.`
+
+**Impact**: Issue management features like assignments, milestones, tags, resolution tracking are inaccessible to psypi.
+
+### #235 — inter_reviews table has 30+ DB columns but Gleam decoder only handles 6 (27+ unused)
+
+- **Severity**: MEDIUM
+- **Category**: unused_columns
+- **Module**: `inter_review`
+- **Status**: open
+
+**Description**: Gleam inter_review decoder handles: id, task_id, status, summary, overall_score, requested_at. DB has 30+ columns including: accepted_suggestions, branch, code_quality_score, commit_hash, completed_at, documentation_score, effort_minutes, findings, issue_id, leverage_ratio, praise, raw_response, requester_id, response, response_at, response_status, review_context, review_round, reviewed_by, reviewer_id, reviewer_type, rework_count, session_id, started_at, suggestions, test_coverage_score.
+
+**Evidence**: `inter_review.gleam review_decoder() has 6 fields; \\d inter_reviews shows 30+ columns. 27+ columns never used.`
+
+**Impact**: Inter-review features like code quality scoring, suggestions, rework tracking, test coverage are all inaccessible.
+
+### #238 — learning_insights: areflect only INSERTs 4 columns, never reads any. 9 DB columns never used.
+
+- **Severity**: MEDIUM
+- **Category**: unused_columns
+- **Module**: `areflect`
+- **Status**: open
+
+**Description**: areflect.save_learning INSERT INTO learning_insights (insight_type, title, content, confidence) — only 4 columns. No SELECT from learning_insights exists in any Gleam file. DB has: id, project_id, priority, evidence, is_applied, applied_at, expires_at, metadata, created_at — all never used.
+
+**Evidence**: `areflect.gleam:183 INSERT INTO learning_insights with 4 columns; no SELECT from learning_insights in any .gleam file`
+
+**Impact**: Learning insights are written but never read. No feedback loop. All insight data is write-only.
+
+### #240 — psypi_event_hooks: 7 of 14 DB columns never used by Gleam code
+
+- **Severity**: MEDIUM
+- **Category**: unused_columns
+- **Module**: `event_hooks`
+- **Status**: open
+
+**Description**: Gleam reads: id, event_type, is_active, tool_name, debounce_ms, filter_condition, priority. Never reads: agentbot_action, worker_action, description, last_error, last_triggered, created_at, updated_at.
+
+**Evidence**: `event_hooks.gleam SELECT id, event_type, is_active, tool_name, debounce_ms, filter_condition, priority; \\d psypi_event_hooks shows 14 columns`
+
+**Impact**: Hook actions (agentbot_action, worker_action) are never read, so hooks may not trigger correct actions
+
+### #231 — 4 agent_* tables exist in DB but are never used by psypi Gleam code
+
+- **Severity**: MEDIUM
+- **Category**: unused_table
+- **Module**: `global`
+- **Status**: open
+
+**Description**: agent_configs (12 cols), agent_identity (8 cols), agent_moods (5 cols), agent_scores (13 cols) exist in the psypi database but no Gleam source file references them. These may belong to other projects or represent dead schema.
+
+**Evidence**: `SELECT table_name FROM information_schema.tables WHERE table_name IN ('agent_configs','agent_identity','agent_moods','agent_scores'); grep -rh these names in src/*.gleam returns nothing`
+
+**Impact**: Orphan tables consume DB resources and create confusion about data ownership in shared database
+
 ### #113 — get_model_stats case-sensitive status comparison
 
 - **Severity**: MEDIUM
@@ -1405,6 +1537,58 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `test/ directory: no DB integration tests`
 
 **Impact**: DB query bugs never caught by tests
+
+### #239 — provider_api_keys: Gleam only reads provider and model, never reads encrypted_key, status, etc.
+
+- **Severity**: LOW
+- **Category**: unused_columns
+- **Module**: `monitor`
+- **Status**: open
+
+**Description**: monitor.gleam reads provider, model, status from provider_api_keys but never reads encrypted_key, encrypted_iv, encrypted_salt, encrypted_tag, id, created_at, updated_at.
+
+**Evidence**: `monitor.gleam SELECT provider, model, status FROM provider_api_keys; \\d provider_api_keys shows 10 columns`
+
+**Impact**: API key management is partial — encryption fields never accessed by Gleam
+
+### #241 — project_communications: 4 DB columns never used by Gleam code
+
+- **Severity**: LOW
+- **Category**: unused_columns
+- **Module**: `broadcast`
+- **Status**: open
+
+**Description**: Gleam never reads: to_ai, environment, git_branch, git_hash from project_communications.
+
+**Evidence**: `broadcast.gleam SELECT id, from_ai, message_type, content, priority, metadata, created_at, read_at; \\d project_communications shows to_ai, environment, git_branch, git_hash unused`
+
+**Impact**: Broadcast targeting (to_ai) and traceability (git_hash, git_branch) are never used
+
+### #242 — meetings: 4 DB columns never used by Gleam code
+
+- **Severity**: LOW
+- **Category**: unused_columns
+- **Module**: `meeting`
+- **Status**: open
+
+**Description**: Gleam never reads: project_id, summary, metadata, updated_at from meetings.
+
+**Evidence**: `meeting.gleam SELECT id, topic, created_by, status, created_at, consensus_at, consensus; \\d meetings shows project_id, summary, metadata, updated_at unused`
+
+**Impact**: Meeting summaries and project ownership are never accessible
+
+### #243 — system_reviews: 3 JSONB columns (findings, action_items, limitations) never read after migration to review_findings table
+
+- **Severity**: LOW
+- **Category**: unused_columns
+- **Module**: `system_review_db`
+- **Status**: open
+
+**Description**: After creating review_findings table, the JSONB columns findings, action_items, limitations in system_reviews are legacy. system_review_db.gleam never SELECTs them.
+
+**Evidence**: `system_review_db.gleam SELECT does not include findings, action_items, limitations columns; these are now in review_findings table`
+
+**Impact**: Legacy JSONB data may be stale. Should be dropped or documented as deprecated
 
 ## Top 10 System-Stopping Issues
 
