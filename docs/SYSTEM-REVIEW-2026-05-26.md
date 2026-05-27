@@ -7,17 +7,17 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**176 issues tracked** (#100-#307) across 29 audit categories.
+**181 issues tracked** (#100-#312) across 30 audit categories.
 ⚠️ **CRITICAL CORRECTION (§333)**: 8 issues retracted — previous "phantom table" claims were based on querying wrong database.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 36    | 20.5%      |
-| **HIGH**     | 70    | 39.8%      |
-| **MEDIUM**   | 45    | 25.6%      |
-| **LOW**      | 25    | 14.2%      |
+| **CRITICAL** | 36    | 19.9%      |
+| **HIGH**     | 73    | 40.3%      |
+| **MEDIUM**   | 47    | 25.9%      |
+| **LOW**      | 25    | 13.8%      |
 
 ### Category Breakdown
 
@@ -24387,3 +24387,142 @@ the entire A-bot wakeup mechanism.
 **Issue #306** | Severity: **HIGH** | Category: Logic — inter-review commit flow depends on unstored PG function `request_inter_review()` and broken A-bot wakeup
 
 **Issue #307** | Severity: **CRITICAL** | Category: Logic — A-bot wakeup chain completely broken at `get_config` FFI boundary; fix at this single point would restore entire mechanism
+
+---
+
+## 352. INTER_REVIEW AND TOOL_COMMIT — COMMIT FLOW CORRECTNESS
+
+### 352a. `inter_review.gleam` — `requested_at` Decode Failure
+
+The `review_decoder()` decodes `requested_at` as `decode.string`:
+```gleam
+use requested_at <- decode.field("requested_at", decode.string)
+```
+
+But `requested_at` is `timestamp with time zone` in PostgreSQL. node-postgres
+returns this as a JavaScript `Date` object, not a string. `decode.string`
+will fail because `Date` is not a string.
+
+**Impact**: `get_review_details()` always returns `DecodeError`. The commit
+flow at Phase 2 (step 11) fails because it can't read the review.
+
+**Fix**: Add `requested_at::text` cast in the SQL query.
+
+### 352b. `inter_review.gleam` — `request_review` Parameter Type Mismatch
+
+The `request_inter_review` PostgreSQL function signature:
+```
+(p_task_id uuid, p_commit_hash text, p_branch text, p_requester_id text, p_review_context jsonb)
+```
+
+The Gleam code passes:
+1. `dynamic.string(id)` or `dynamic.nil()` for `p_task_id UUID`
+2. `dynamic.string(h)` or `dynamic.nil()` for `p_commit_hash text`
+3. `dynamic.string("main")` for `p_branch text`
+4. `dynamic.string(reviewer_id)` for `p_requester_id text`
+5. `dynamic.string(context_json)` for `p_review_context jsonb`
+
+Issues:
+- `p_task_id` is UUID, but Gleam passes a string. node-postgres may or may
+  not auto-convert. If `dynamic.nil()` is passed for a UUID parameter,
+  node-postgres may reject it (depends on type parsing config).
+- `p_review_context` is jsonb, but Gleam passes a string. node-postgres
+  will NOT auto-convert string to jsonb. This will cause a type error.
+
+**Fix**: Cast parameters in SQL: `$1::UUID`, `$5::JSONB`.
+
+### 352c. `inter_review.gleam` — `list_reviews` Missing `::text` Casts
+
+```sql
+SELECT id, task_id, status, summary, overall_score, requested_at
+FROM inter_reviews ORDER BY requested_at DESC LIMIT 100
+```
+
+Same issue as `get_review_details`: `id` (UUID), `task_id` (UUID), and
+`requested_at` (timestamptz) need `::text` casts.
+
+### 352d. `tool_commit.gleam` — `shell_escape` Insufficient
+
+The `shell_escape` function escapes backticks, dollar signs, double quotes,
+and backslashes for use in `git commit -m "..."`. But it does NOT escape:
+- Newlines (`\n`) — if the message contains a newline, it breaks the shell command
+- Single quotes — if the message contains `'`, it may cause issues
+- Exclamation marks — `!` has special meaning in bash
+- Percent signs — `%` has special meaning in cron and some shells
+
+A more robust approach would be to use `git commit -m` with a heredoc or
+write the message to a temporary file and use `git commit -F`.
+
+### 352e. `tool_commit.gleam` — No `git add` Before Commit
+
+The commit flow does:
+1. `git diff` to get changes
+2. `git commit -m "..."`
+
+But there's no `git add` step! If files are modified but not staged,
+`git commit` will fail with "nothing to commit". The `git diff` shows
+unstaged changes, but `git commit` only commits staged changes.
+
+The correct flow should be:
+1. `git add -A` (or specific files)
+2. `git commit -m "..."`
+
+Or use `git commit -a -m "..."` to auto-stage modified tracked files.
+
+### 352f. `hook_on_tool_call.gleam` — Only Triggers on `edit` Tool
+
+```gleam
+case tool_name == "edit" {
+  False -> promise.resolve(Ok(Nil))
+  True -> ...
+}
+```
+
+The auto-backup only triggers when the tool name is exactly "edit". But
+Pi may use other tool names for file modifications (e.g., "write",
+"replace", "create"). These modifications would NOT be backed up.
+
+### 352g. `hook_on_tool_result.gleam` — Fragile Error Detection
+
+```gleam
+let is_error =
+  string.contains(result_json, "\"error\"")
+  || string.contains(result_json, "Error:")
+  || string.contains(result_json, "execution error")
+  || string.contains(result_json, "tool_execution_blocked")
+  || string.contains(result_json, "\"is_error\":true")
+```
+
+This is a heuristic-based error detection. It will produce false positives
+(e.g., a successful result containing the word "Error" in content) and
+false negatives (e.g., an error with a different format).
+
+### 352h. `hook_on_tool_result.gleam` — `pi_send_message` Ignores `display` Parameter
+
+```gleam
+pi_send_message(pi, "autonomic-error", message, "persistent")
+```
+
+The 4th argument `"persistent"` is the `display` parameter. But the FFI
+implementation ignores it:
+```javascript
+export function pi_send_message(pi, customType, content, display) {
+  pi.sendMessage({
+    customType: String(customType),
+    content: String(content),
+    display: true,  // ← hardcoded, ignores `display` parameter
+  }, { triggerTurn: true });
+}
+```
+
+So `"persistent"` is never used. The message always uses `display: true`.
+
+**Issue #308** | Severity: **HIGH** | Category: Decode — `inter_review.review_decoder` decodes `requested_at` (timestamptz) as string; node-postgres returns Date object; decode always fails
+
+**Issue #309** | Severity: **MEDIUM** | Category: Type — `request_review` passes string for jsonb parameter; node-postgres may reject
+
+**Issue #310** | Severity: **HIGH** | Category: Logic — `tool_commit` has no `git add` step; commit will fail if changes are unstaged
+
+**Issue #311** | Severity: **MEDIUM** | Category: Logic — `shell_escape` doesn't escape newlines; commit messages with newlines break shell command
+
+**Issue #312** | Severity: **LOW** | Category: Logic — `hook_on_tool_call` only triggers auto-backup on "edit" tool; other file-modifying tools are missed
