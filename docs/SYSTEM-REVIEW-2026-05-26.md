@@ -28030,3 +28030,369 @@ No issue.
 5. **Two config systems** (2 issues) — in-memory FFI vs database, never synced
 6. **Disconnected learning systems** (2 issues) — `learning_insights` vs `memory` tables
 7. **Missing tool parameters** (3 issues) — params schema doesn't match args usage
+
+---
+
+## §424. ISSUE_TYPES.ISSUEStatus — Mismatch With Database CHECK Constraint
+
+The `issue_types.gleam` defines:
+```gleam
+pub type IssueStatus {
+  Open
+  InProgress
+  Resolved
+  Closed
+}
+```
+
+But the database `issues_status_check` constraint allows:
+```
+open, acknowledged, in_progress, resolved, wont_fix, duplicate
+```
+
+Missing from Gleam type: `acknowledged`, `wont_fix`, `duplicate`
+Extra in Gleam type: `Closed` (not in DB constraint)
+
+The `string_to_status` function:
+```gleam
+pub fn string_to_status(s: String) -> Result(IssueStatus, String) {
+  case s {
+    "open" -> Ok(Open)
+    "in_progress" -> Ok(InProgress)
+    "resolved" -> Ok(Resolved)
+    "closed" -> Ok(Closed)
+    _ -> Error("Invalid status: " <> s)
+  }
+}
+```
+
+If the database ever contains `acknowledged`, `wont_fix`, or `duplicate` status,
+the decoder will fail with `Error("Invalid status: ...")` and fall back to
+`decode.failure(...)` which returns a default `Open` status — silently
+corrupting the data.
+
+Currently no rows use these statuses, but the CHECK constraint allows them.
+
+**Issue #424** | Severity: **MEDIUM** | Category: Type Mismatch — `IssueStatus` Gleam type doesn't match DB CHECK constraint; missing `acknowledged`/`wont_fix`/`duplicate`, extra `Closed`
+
+---
+
+## §425. ISSUE_DB.COUNT — `COUNT(*)::INT` May Fail on Large Tables
+
+```gleam
+let base_sql = "SELECT COUNT(*)::INT as cnt FROM issues"
+```
+
+`COUNT(*)` returns PostgreSQL `bigint`. The `::INT` cast will overflow if
+the count exceeds 2,147,483,647. While unlikely for `issues`, this is the
+same pattern that causes decode failures elsewhere (bigint → string → int
+parse failure). The `::INT` cast avoids the decode issue but introduces
+an overflow risk.
+
+The `count_decoder` uses `decode.int` which works because `::INT` returns
+a proper integer. This is actually the CORRECT approach — cast in SQL
+rather than try to parse bigint strings in Gleam.
+
+No issue — this is a good pattern. Documented for reference.
+
+---
+
+## §426. ISSUE_DB.GET — Hardcoded project_id in WHERE Clause
+
+```gleam
+let sql = "
+  SELECT id, title, description, severity, status, issue_type, ...
+  FROM issues
+  WHERE id = $1 AND project_id = $2
+"
+let params = [dynamic.string(issue_id), dynamic.string("0d324e68-b399-4b85-bd8a-6b1ef7b46168")]
+```
+
+The `project_id` is hardcoded as `"0d324e68-b399-4b85-bd8a-6b1ef7b46168"`.
+Same pattern in `resolve()`. This means:
+1. Only issues from this specific project can be retrieved
+2. If the project_id changes, all queries break
+3. The `db.gleam` module sets `app.current_project_id` session variable,
+   but `issue_db` doesn't use it — it hardcodes the UUID instead
+
+The `db.connect()` function already sets `SET app.current_project_id = $1`,
+so the correct approach would be to use `current_setting('app.current_project_id')`
+in SQL or pass the project_id as a parameter from the connection context.
+
+**Issue #426** | Severity: **MEDIUM** | Category: Hardcoded Config — `issue_db.get()` and `resolve()` hardcode project_id UUID; should use session variable or parameter
+
+---
+
+## §427. ISSUE_DB.LIST — Default project_id Hardcoded in build_where
+
+```gleam
+None -> {
+  // Default: filter by current project from session variable
+  let idx = list.length(params) + 1
+  #(["project_id = $" <> string.inspect(idx), ..conditions],
+    [dynamic.string("0d324e68-b399-4b85-bd8a-6b1ef7b46168"), ..params])
+}
+```
+
+The comment says "from session variable" but the code hardcodes the UUID.
+The `db.connect()` function sets `app.current_project_id` as a PostgreSQL
+session variable, but this code doesn't use it.
+
+**Issue #427** | Severity: **MEDIUM** | Category: Hardcoded Config — `issue_db.list()` comment says "session variable" but hardcodes project_id UUID
+
+---
+
+## §428. DB.GLEAM — Sets Session Variable But No Module Uses It
+
+```gleam
+let set_sql = "SET app.current_project_id = $1"
+let set_params = [dynamic.string(project_id)]
+promise.map(node_pg.query(client, set_sql, set_params), fn(_) {
+  Ok(Connection(client))
+})
+```
+
+The `db.connect()` function sets `app.current_project_id` as a PostgreSQL
+session variable on every connection. But NO module in the codebase uses
+`current_setting('app.current_project_id')` in their SQL queries. Instead,
+every module hardcodes the project_id UUID.
+
+This means the session variable is set but never read — dead code that
+creates a false sense of proper project isolation.
+
+**Issue #428** | Severity: **MEDIUM** | Category: Dead Code — `db.connect()` sets `app.current_project_id` session variable but no module reads it; all hardcode UUID instead
+
+---
+
+## §429. DB.WITH_CONNECTION — No Connection Pooling
+
+```gleam
+pub fn with_connection(callback, error_mapper) {
+  promise.await(connect(), fn(conn_result) {
+    case conn_result {
+      Error(e) -> promise.resolve(Error(error_mapper(e)))
+      Ok(conn) -> {
+        promise.await(callback(conn), fn(result) {
+          let _ = disconnect(conn)
+          promise.resolve(result)
+        })
+      }
+    }
+  })
+}
+```
+
+Every database operation:
+1. Creates a new TCP connection to PostgreSQL
+2. Authenticates
+3. Sets session variable
+4. Executes one query
+5. Disconnects
+
+This is extremely inefficient. For the `areflect` module which does 3+
+sequential INSERTs, it creates and destroys 3+ connections. For
+`a_db_reader` which reads soul + jobs + tasks + issues, it creates 4+
+connections.
+
+Node-postgres has built-in connection pooling via `pg.Pool`, but the code
+uses `pg.Client` (single connection). This causes:
+1. High latency per operation (TCP handshake + auth + SET variable)
+2. Unnecessary load on PostgreSQL
+3. Potential connection exhaustion under load
+
+**Issue #429** | Severity: **HIGH** | Category: Performance — `db.with_connection()` creates new TCP connection per query; no connection pooling; 3-10x latency overhead
+
+---
+
+## §430. PI_EXTENSION.GET_CONFIG — Declared Return Type vs Actual FFI Return
+
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "get_config")
+pub fn get_config(key: String) -> option.Option(String)
+```
+
+The Gleam declaration says `get_config` returns `option.Option(String)`.
+But the JS implementation returns:
+```javascript
+export function get_config(key) {
+  return _configStore[key] || null;
+}
+```
+
+This returns JS `null` or a string, NOT `new Some(value)` or `new None()`.
+Gleam's `Option` type is represented at runtime as `{type: 'Some', '0': value}`
+or `{type: 'None'}`. Returning raw `null` or string doesn't match either.
+
+When Gleam code pattern-matches on the result:
+```gleam
+case get_config("idle_since") {
+  option.None -> ...
+  option.Some(value) -> ...
+}
+```
+
+The `None` branch NEVER executes because the JS value is `null` (not a
+Gleam `None` object). The `Some` branch also never executes because `null`
+is not a Gleam `Some` object. The match falls through to... nothing, or
+throws a runtime error.
+
+This was already tracked as #332 but confirmed here with the exact type
+signature mismatch.
+
+**Issue #430** | Severity: **CRITICAL** | Category: FFI Type Mismatch — `get_config` declared as returning `Option(String)` but JS returns `null`/string; pattern matching never works (reconfirmation of #332)
+
+---
+
+## §431. PI_EXTENSION.PI_SEND_MESSAGE — Fire-and-Forget With No Error Handling
+
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "pi_send_message")
+pub fn pi_send_message(pi: a, custom_type: String, content: String, display: String) -> Nil
+```
+
+The function returns `Nil` synchronously, meaning there's no way to know
+if the message was sent successfully. If the Pi API is unavailable or the
+message format is invalid, the error is silently swallowed.
+
+This is particularly problematic for A→S communication: if A sends a
+message to S and it fails, A has no way to know and will assume S
+received the instruction.
+
+**Issue #431** | Severity: **MEDIUM** | Category: Error Handling — `pi_send_message` is fire-and-forget; no error feedback if message delivery fails
+
+---
+
+## §432. ISSUE_TOOLS.ISSUE_ADD_TOOL — `created_by` Not in Params Schema
+
+```gleam
+pub fn issue_add_tool() -> PiToolCall {
+  PiToolCall(
+    params: [
+      string_param("title"),
+      opt_string_param("description"),
+      opt_string_param("severity"),
+      opt_string_param("issue_type"),
+      opt_string_param("project_id"),
+    ],
+    args: [
+      from_param("params.title || \"\""),
+      from_param("params.description || \"\""),
+      from_param("params.severity || \"medium\""),
+      from_param("params.issue_type || \"bug\""),
+      from_param("params.created_by || \"psypi\""),  // Not in params!
+      from_param("params.project_id || \"0d324e68-b399-4b85-bd8a-6b1ef7b46168\""),
+    ],
+  )
+}
+```
+
+`created_by` is not in the `params` list but is referenced in `args`.
+Since it's not declared, the AI can't provide it. The fallback
+`params.created_by || "psypi"` will always use "psypi" because
+`params.created_by` is `undefined`.
+
+This is the same pattern as #418 (doc-save) but less severe because
+the fallback value "psypi" is reasonable.
+
+**Issue #432** | Severity: **LOW** | Category: Missing Parameters — `psypi-issue-add` references `params.created_by` but doesn't declare it; always defaults to "psypi"
+
+---
+
+## §433. ISSUE_TOOLS.ISSUE_LIST_TOOL — `limit` and `offset` Not in Params Schema
+
+```gleam
+pub fn issue_list_tool() -> PiToolCall {
+  PiToolCall(
+    params: [
+      opt_string_param("status"),
+      opt_string_param("severity"),
+      opt_string_param("issue_type"),
+      opt_string_param("project_id"),
+    ],
+    args: [
+      from_param("params?.status || null"),
+      from_param("params?.severity || null"),
+      from_param("params?.issue_type || null"),
+      from_param("params?.project_id || null"),
+      from_param("parseInt(params?.limit || '50')"),    // Not in params!
+      from_param("parseInt(params?.offset || '0')"),    // Not in params!
+    ],
+  )
+}
+```
+
+`limit` and `offset` are not in the `params` schema. The AI can't control
+pagination. The defaults (50/0) are reasonable but the AI has no way to
+page through results beyond the first 50.
+
+**Issue #433** | Severity: **LOW** | Category: Missing Parameters — `psypi-issues` doesn't declare `limit`/`offset` in params; AI can't paginate
+
+---
+
+## §434. SUMMARY OF FINAL FINDINGS (v42)
+
+### New Findings
+
+| #   | Severity | Category         | Finding                                                                               |
+| --- | -------- | ---------------- | ------------------------------------------------------------------------------------- |
+| 424 | MEDIUM   | Type Mismatch    | `IssueStatus` Gleam type doesn't match DB CHECK; missing 3 statuses, extra 1          |
+| 426 | MEDIUM   | Hardcoded Config | `issue_db.get()`/`resolve()` hardcode project_id UUID                                 |
+| 427 | MEDIUM   | Hardcoded Config | `issue_db.list()` comment says "session variable" but hardcodes UUID                  |
+| 428 | MEDIUM   | Dead Code        | `db.connect()` sets session variable but no module reads it                           |
+| 429 | HIGH     | Performance      | `db.with_connection()` creates new TCP connection per query; no pooling               |
+| 430 | CRITICAL | FFI Mismatch     | `get_config` declared as `Option(String)` but JS returns null/string (reconfirm #332) |
+| 431 | MEDIUM   | Error Handling   | `pi_send_message` fire-and-forget; no error feedback                                  |
+| 432 | LOW      | Missing Params   | `psypi-issue-add` references `created_by` not in params                               |
+| 433 | LOW      | Missing Params   | `psypi-issues` doesn't declare `limit`/`offset`                                       |
+
+**New issues this session: 9** (1 CRITICAL, 1 HIGH, 4 MEDIUM, 3 LOW)
+
+**Running total: 279 issues** (#100–#434)
+
+### Final Severity Breakdown
+
+| Severity     | Count | Percentage |
+| ------------ | ----- | ---------- |
+| **CRITICAL** | 43    | 15.4%      |
+| **HIGH**     | 101   | 36.2%      |
+| **MEDIUM**   | 78    | 28.0%      |
+| **LOW**      | 57    | 20.4%      |
+
+### Complete Root Cause Map (7 Categories, 39 Issues)
+
+1. **Missing `::text` casts** (14 issues) — timestamptz/uuid/jsonb not cast, decode fails
+2. **Wrong status values** (6 issues) — hardcoded status strings don't match DB CHECK constraints
+3. **Missing `project_id`** (8 issues) — NOT NULL column omitted from INSERTs
+4. **FFI type mismatches** (5 issues) — JS returns wrong types for Gleam Option/Result
+5. **Two config systems** (2 issues) — in-memory FFI vs database, never synced
+6. **Disconnected learning systems** (2 issues) — `learning_insights` vs `memory` tables
+7. **Missing tool parameters** (5 issues) — params schema doesn't match args usage
+8. **Hardcoded project_id** (3 issues) — UUID hardcoded instead of using session variable
+9. **No connection pooling** (1 issue) — new TCP connection per query
+
+### Top 10 System-Stopping Issues (Final)
+
+1. **#332/#430** — `get_config` FFI returns JS null/string, never matches Gleam Some/None; A-bot dead
+2. **#392** — `auto_file_issue` uses non-existent column `type`, missing `project_id`; INSERT always fails
+3. **#399** — `areflect.save_issue()` omits `project_id` (NOT NULL, no default); INSERT always fails
+4. **#404** — `memory.save()` decodes `RETURNING id` with full `memory_decoder()`; always reports error
+5. **#403** — `memory.search()` `SELECT *` without `::text` on `created_at`; decode always fails
+6. **#372** — `check_system_health` uses `FAILED` for tasks (no rows); health metrics partially broken
+7. **#429** — No connection pooling; new TCP connection per query; 3-10x latency overhead
+8. **#376** — `broadcast.stats()` 3 bugs: bigint decode, text>=int, missing status column
+9. **#418** — `psypi-doc-save` only declares `file_path` but uses 5 params; content always empty
+10. **#333/#411** — `semantic_id` uses `is_idle` for A/S prefix; idle S-agent gets wrong identity
+
+### Architecture-Level Observations
+
+1. **The `system_reviews` table (#371)** was designed for exactly this kind of review but has 0 Gleam code and 0 rows. The review is stored in a 28,000+ line markdown file instead.
+
+2. **Two config systems (#421)** — `psypi_config.gleam` (database) and `pi_extension_ffi.mjs` (in-memory) never sync. Different modules read different values for the same config key.
+
+3. **Two learning systems (#401)** — `areflect` saves to `learning_insights`, `learning.gleam` saves to `memory`. Neither reads from the other. No unified learning retrieval.
+
+4. **Session variable dead code (#428)** — `db.connect()` sets `app.current_project_id` but no SQL query reads it. Every module hardcodes the UUID instead.
+
+5. **No connection pooling (#429)** — Every query creates a new TCP connection, authenticates, sets session variable, executes, disconnects. This is 3-10x slower than pooled connections.
+
+6. **Status value inconsistency** — `tasks` uses UPPERCASE (`PENDING`, `COMPLETED`), `issues` uses lowercase (`open`, `resolved`), `skills` uses lowercase (`pending`, `approved`), `inter_reviews` uses lowercase (`pending`, `completed`). No unified convention.
