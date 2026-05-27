@@ -22682,3 +22682,269 @@ Total issues tracked: **#100-#262** = **155 issues** (net -5 from correction)
 Note: 8 issues retracted, 2 downgraded, 3 new issues added.
 The retracted issues are preserved in the document for audit trail
 but should be excluded from active issue counts.
+
+---
+
+## 336. FFI BINDING AUDIT — COMPREHENSIVE
+
+### 336a. FFI Inventory
+
+All `@external` declarations across the codebase:
+
+| #   | Gleam File          | JS File            | Function                   | Gleam Type                                            | JS Return           |
+| --- | ------------------- | ------------------ | -------------------------- | ----------------------------------------------------- | ------------------- |
+| 1   | pi_extension        | pi_extension_ffi   | notify_error               | (a, String) → Nil                                     | undefined           |
+| 2   | pi_extension        | pi_extension_ffi   | notify_warning             | (a, String) → Nil                                     | undefined           |
+| 3   | pi_extension        | pi_extension_ffi   | notify_info                | (a, String) → Nil                                     | undefined           |
+| 4   | pi_extension        | pi_extension_ffi   | set_status                 | (a, String, String) → Nil                             | undefined           |
+| 5   | pi_extension        | pi_extension_ffi   | ctx_is_idle                | (a) → Bool                                            | boolean             |
+| 6   | pi_extension        | pi_extension_ffi   | ctx_has_pending_messages   | (a) → Bool                                            | boolean             |
+| 7   | pi_extension        | pi_extension_ffi   | ctx_get_entries_json       | (a) → String                                          | string              |
+| 8   | pi_extension        | pi_extension_ffi   | ctx_get_context_usage_json | (a) → String                                          | string              |
+| 9   | pi_extension        | pi_extension_ffi   | ctx_get_cwd                | (a) → String                                          | string              |
+| 10  | pi_extension        | pi_extension_ffi   | pi_send_message            | (a, String, String, String) → Nil                     | undefined           |
+| 11  | pi_extension        | pi_extension_ffi   | read_file_sync             | (String) → Result(String, String)                     | Ok/Error            |
+| 12  | pi_extension        | pi_extension_ffi   | call_monitor               | (a, String, String) → Promise(Result(String, String)) | Promise(Ok/Error)   |
+| 13  | pi_extension        | pi_extension_ffi   | ctx_reload                 | (a) → Promise(Nil)                                    | Promise(undefined)  |
+| 14  | pi_extension        | pi_extension_ffi   | exec_sync                  | (String) → Result(String, String)                     | Ok/Error            |
+| 15  | pi_extension        | pi_extension_ffi   | unwrap_gleam_result        | (a) → b                                               | object              |
+| 16  | pi_extension        | pi_extension_ffi   | gleam_value_to_json        | (a) → b                                               | any                 |
+| 17  | pi_extension        | pi_extension_ffi   | now_ms                     | () → Int                                              | number (Date.now()) |
+| 18  | pi_extension        | pi_extension_ffi   | get_config                 | (String) → Option(String)                             | null \| string      |
+| 19  | pi_extension        | pi_extension_ffi   | set_config                 | (String, String) → Nil                                | undefined           |
+| 20  | agent_identity      | agent_identity_ffi | check_git_exists           | (String) → Bool                                       | boolean             |
+| 21  | extension_generator | node_ffi           | get_project_root           | () → String                                           | string              |
+| 22  | a_context_utils     | node_ffi           | now_ms                     | () → Result(Int, String)                              | Ok(number)          |
+| 23  | db                  | node_ffi           | get_project_id_env         | () → String                                           | string              |
+| 24  | db                  | node_ffi           | get_database_url           | () → String                                           | string              |
+| 25  | main                | node_ffi           | spawn_pi                   | (List(String)) → Promise(Int)                         | Promise(number)     |
+
+### 336b. FFI Type Contract Violations
+
+#### CRITICAL: #18 `get_config` — Option(String) vs null|string
+
+**Gleam declares**: `get_config(key: String) -> option.Option(String)`
+**JS returns**: `_configStore[key] || null` — either a plain string or `null`
+
+**Impact**: In compiled Gleam JS, pattern matching on `Option` compiles to:
+```javascript
+let $ = get_config("idle_since");
+if ($ instanceof $option.Some) { /* Some branch */ }
+else { /* None branch */ }
+```
+
+When `get_config` returns a plain string (e.g., `"12345"`):
+- `"12345" instanceof $option.Some` → `false`
+- Falls to `None` branch → WRONG
+
+When `get_config` returns `null`:
+- `null instanceof $option.Some` → `false`
+- Falls to `None` branch → CORRECT (by accident)
+
+**Consequence**: The `Some` branch in `hook_on_agent_end.check_idle_since()`
+is NEVER reached. This means:
+1. `idle_since` is always re-recorded (never compared against elapsed time)
+2. `monitor_debounce_ms` from config is never read (always falls to default)
+3. The A-bot wakeup chain is COMPLETELY BROKEN at the FFI boundary
+
+**Fix**: Modify `pi_extension_ffi.mjs`:
+```javascript
+import { Some, None } from './gleam.mjs';
+
+export function get_config(key) {
+  const value = _configStore[key];
+  return value !== undefined && value !== null ? new Some(value) : new None();
+}
+```
+
+**Issue #263** | Severity: **CRITICAL** | Category: FFI — get_config returns null|string instead of Some|None, breaks entire A-bot wakeup chain
+
+#### MEDIUM: #22 `now_ms` dual declaration with different return types
+
+**In `pi_extension.gleam`**: `now_ms() -> Int` → JS returns `Date.now()` (number)
+**In `a_context_utils.gleam`**: `now_ms() -> Result(Int, String)` → JS returns `new Ok(Date.now())`
+
+Both work correctly at runtime because:
+- `pi_extension` version: raw number IS an Int in Gleam's JS compilation
+- `a_context_utils` version: `new Ok(Date.now())` is properly unwrapped with `instanceof Ok` check
+
+However, having two different `now_ms` functions with different return types
+for the same concept is confusing and could lead to errors if someone imports
+the wrong one.
+
+**Issue #264** | Severity: **MEDIUM** | Category: FFI — now_ms has two declarations with different return types (Int vs Result(Int, String))
+
+### 336c. FFI Semantic Issues
+
+#### `pi_send_message` ignores `display` parameter
+
+**Gleam declares**: `pi_send_message(pi: a, custom_type: String, content: String, display: String) -> Nil`
+**JS implementation**:
+```javascript
+export function pi_send_message(pi, customType, content, display) {
+  pi.sendMessage({
+    customType: String(customType),
+    content: String(content),
+    display: true,  // ← hardcoded, ignores `display` parameter
+  }, { triggerTurn: true });
+}
+```
+
+The `display` parameter is declared in Gleam but completely ignored in JS.
+The `display` property is hardcoded to `true`.
+
+**Issue #265** | Severity: **LOW** | Category: FFI — pi_send_message ignores display parameter
+
+### 336d. FFI Dead Exports
+
+The following JS exports in `pi_extension_ffi.mjs` are not referenced by any
+`@external` declaration:
+
+| Export              | Status                                             |
+| ------------------- | -------------------------------------------------- |
+| `unwrapGleamResult` | Used by generated extension.js (not by Gleam code) |
+| `gleamValueToJson`  | Used by generated extension.js (not by Gleam code) |
+
+These are not dead code — they're used by the generated `extension.js` at runtime.
+But they're declared as `@external` in `pi_extension.gleam` with type `(a) -> b`,
+which is an escape hatch from the type system. This is intentional but risky.
+
+### 336e. FFI Binding Summary
+
+| Status           | Count | Percentage |
+| ---------------- | ----- | ---------- |
+| ✅ Correct        | 22    | 88.0%      |
+| ❌ Type violation | 1     | 4.0%       |
+| ⚠️ Semantic issue | 1     | 4.0%       |
+| ⚠️ Design smell   | 1     | 4.0%       |
+
+**4.0% of FFI bindings have critical type violations that break core functionality.**
+
+---
+
+## 337. A-BOT WAKEUP CHAIN — DETAILED TRACE WITH CORRECT DB
+
+With the correct database verified, let me re-trace the A→S wakeup chain
+from `agent_end` event to A-bot LLM call, noting where each step succeeds
+or fails:
+
+### Step-by-step trace
+
+1. **Pi fires `agent_end` event** → extension.js debounce wrapper starts timer
+   - Debounce reads `monitor_debounce_ms` from `psypi_config` table: 900000ms (15 min)
+   - Timer starts for 15 minutes
+
+2. **After 15 min idle, debounce fires** → calls `hook_on_agent_end.on_agent_end(ctx, pi)`
+
+3. **`on_agent_end` checks `ctx_is_idle(ctx)`** → returns `true` if S is idle
+   - `ctx_has_pending_messages(ctx)` → returns `false` if no pending
+   - Falls to `check_idle_since(ctx, pi)`
+
+4. **`check_idle_since` calls `get_config("idle_since")`**
+   - Returns `null` (first time) or plain string (subsequent)
+   - **BOTH cases fall to `None` branch** due to FFI type mismatch (#263)
+   - Records new timestamp: `set_config("idle_since", "1234567890")`
+
+5. **Next debounce fires** → `get_config("idle_since")` returns `"1234567890"`
+   - `"1234567890" instanceof Some` → `false` → falls to `None` branch AGAIN
+   - **Re-records timestamp instead of comparing elapsed time**
+   - **Debounce NEVER satisfied** → A-bot NEVER wakes up
+
+6. **Even if debounce were satisfied**, `get_config("monitor_debounce_ms")`
+   - Returns plain string `"900000"` or `null`
+   - Neither is `instanceof Some` → falls to `None` branch
+   - Uses hardcoded default 300000ms instead of DB value 900000ms
+
+### Root Cause
+
+The entire A-bot wakeup chain is blocked at step 4-5 by the `get_config`
+FFI type mismatch. The `Some` branch is never reached, so:
+- `idle_since` is always re-recorded (never compared)
+- `monitor_debounce_ms` is never read from config
+- The debounce timer in extension.js fires after 15 min, but the Gleam
+  handler re-records `idle_since` every time instead of checking elapsed time
+
+### Secondary Issue: Double Debounce
+
+Even if the FFI were fixed, there's a double debounce:
+1. JS-level debounce in extension.js: reads `monitor_debounce_ms` from DB (900000ms)
+2. Gleam-level debounce in `check_idle_since`: reads from in-memory config (default 300000ms)
+
+The JS debounce fires after 15 min, then the Gleam debounce checks if 5 min
+have elapsed (which they have, since 15 > 5). So the Gleam debounce would
+always be satisfied after the JS debounce fires. This is redundant but not
+harmful — the Gleam debounce is effectively a no-op after the JS debounce.
+
+However, if the FFI were fixed and the Gleam debounce used the DB value
+(900000ms), both debounces would be 15 min, which is still redundant.
+
+**Issue #266** | Severity: **CRITICAL** | Category: Logic — A-bot wakeup chain completely blocked by get_config FFI mismatch, idle_since always re-recorded, debounce never satisfied
+
+---
+
+## 338. CORRECTED MODULE HEALTH TABLE
+
+After re-verification against the correct `psypi` database, the module health
+status changes significantly:
+
+| Module                       | DB Tables Referenced                                             | Phantom Tables | Status                                 |
+| ---------------------------- | ---------------------------------------------------------------- | -------------- | -------------------------------------- |
+| `db`                         | (connection layer)                                               | —              | ✅ Works                                |
+| `pi_tool_call`               | (type definitions)                                               | —              | ✅ Works                                |
+| `pi_extension`               | (FFI bridge)                                                     | —              | ⚠️ Partial (get_config FFI)             |
+| `extension_generator`        | (code gen)                                                       | —              | ✅ Works                                |
+| `meeting`                    | `meetings`                                                       | —              | ✅ Works                                |
+| `agents`                     | `agent_identities`                                               | —              | ✅ Works                                |
+| `stats`                      | `tasks`, `issues`, `skills`                                      | —              | ✅ Works                                |
+| `learning`                   | `memory`                                                         | —              | ✅ Works                                |
+| `task`                       | `tasks`                                                          | —              | ✅ Works                                |
+| `issue_tools`                | `issues`                                                         | —              | ✅ Works                                |
+| `issue_db`                   | `issues`                                                         | —              | ✅ Works                                |
+| `memory`                     | `memory`                                                         | —              | ✅ Works                                |
+| `areflect`                   | `learning_insights`, `issues`, `tasks`                           | —              | ✅ Works                                |
+| `psypi_config`               | `psypi_config`                                                   | —              | ✅ Works                                |
+| `monitor`                    | `provider_api_keys`, `activity_log`                              | —              | ⚠️ Partial (notifications schema)       |
+| `monitor_ai`                 | `tasks`, `issues`, `inter_reviews`, `activity_log`               | —              | ⚠️ Partial (issue_type column)          |
+| `inter_review`               | `inter_reviews`                                                  | —              | ⚠️ Partial (missing ::text casts)       |
+| `skill`                      | `skills`                                                         | —              | ⚠️ Partial (content jsonb needs ::text) |
+| `broadcast`                  | `project_communications`                                         | —              | ⚠️ Partial (stats missing status col)   |
+| `code_version`               | `code_versions` (via SQL functions)                              | —              | ✅ Works (1214 versions stored)         |
+| `event_hooks`                | `psypi_event_hooks`                                              | —              | ✅ Works (30 rows, 7 active)            |
+| `hook_on_tool_call`          | — (calls code_version)                                           | —              | ✅ Works                                |
+| `hook_on_before_agent_start` | `psypi_event_hooks`, `agent_souls`                               | —              | ⚠️ Partial (needs verification)         |
+| `hook_on_agent_start`        | `psypi_event_hooks`                                              | —              | ⚠️ Partial (needs verification)         |
+| `hook_on_agent_end`          | `psypi_config` (via get_config)                                  | —              | ❌ Broken (FFI type mismatch)           |
+| `hook_on_tool_result`        | —                                                                | —              | ✅ Works                                |
+| `a_db_reader`                | `tasks`, `issues`, `agent_sessions`, `agent_souls`, `agent_jobs` | —              | ⚠️ Partial (bigint decode?)             |
+| `s_db_reader`                | `agent_souls`                                                    | —              | ⚠️ Partial (needs verification)         |
+| `a_orchestrator`             | — (via a_db_reader)                                              | —              | ⚠️ Partial (depends on a_db_reader)     |
+| `a_prompt_builder`           | —                                                                | —              | ⚠️ Partial (no budget enforcement)      |
+| `agent_identity`             | `agent_identities`, `agent_souls`, `agent_jobs`                  | —              | ⚠️ Partial (needs verification)         |
+| `tool_commit`                | `inter_reviews`                                                  | —              | ❌ Broken (score never written)         |
+| `seed`                       | `psypi_config`, `agent_souls`, `agent_prefixes`                  | —              | ✅ Works (tables exist)                 |
+| `simple_migrate`             | —                                                                | —              | ⚠️ Partial (no tracking)                |
+| `file_utils`                 | —                                                                | —              | ✅ Works                                |
+| `command_listen`             | —                                                                | —              | ✅ Works                                |
+| `command_reload`             | —                                                                | —              | ✅ Works                                |
+| `tool_consult`               | —                                                                | —              | ⚠️ Stub                                 |
+| `main`                       | —                                                                | —              | ✅ Works                                |
+| `a_context_utils`            | —                                                                | —              | ✅ Works                                |
+
+### 338b. Corrected Module Failure Count
+
+| Status           | Count | Percentage |
+| ---------------- | ----- | ---------- |
+| ✅ Works          | 23    | 53.5%      |
+| ⚠️ Partial        | 15    | 34.9%      |
+| ❌ Broken         | 2     | 4.7%       |
+| ⚠️ Stub           | 1     | 2.3%       |
+| (infrastructure) | 2     | 4.7%       |
+
+**39.5% of modules are broken or partially functional** (down from 51.2% after
+correcting the database verification).
+
+The two truly broken modules are:
+1. `hook_on_agent_end` — FFI type mismatch blocks A-bot wakeup
+2. `tool_commit` — inter-review score never written, blocking commits
+
+**Issue #267** | Severity: **HIGH** | Category: Architecture — 39.5% of modules broken/partial after correct DB verification
