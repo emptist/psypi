@@ -2021,16 +2021,137 @@ The Gleam type is `(a, String, String, String) -> Nil`. The `display` parameter
 is accepted but never used. The fourth argument is always `"persistent"` in
 calling code, but the FFI ignores it.
 
-### 55d. `node_pg` FFI — Well Implemented
+### 55e. **CRITICAL** — `get_config` FFI Returns Wrong Type — Breaks All Debounce Logic
 
-The `node_pg` library FFI (`build/packages/node_pg/src/ffi.mjs`) is well-structured:
-- Proper Gleam type wrapping (`Ok`, `Error`, `Some`, `None`)
-- `listToArray`/`arrayToList` for List conversion
-- `mapDatabaseError` for structured error mapping
-- `mapQueryResult` for result conversion
-- `configToJS` for config translation
+**Gleam declaration:**
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "get_config")
+pub fn get_config(key: String) -> option.Option(String)
+```
 
-No bugs found in the `node_pg` FFI layer.
+**JavaScript implementation:**
+```javascript
+let _configStore = {};
+export function get_config(key) {
+  return _configStore[key] || null;  // Returns null | string
+}
+```
+
+**The Problem:** Gleam's `option.Option(String)` is represented at runtime as
+`new Some("value")` or `new None()`. But the JS returns plain `null` or a plain
+string. The compiled Gleam pattern matching checks `instanceof $option.Some`:
+
+```javascript
+// Compiled from: case get_config("idle_since") { option.Some(str) -> ... | option.None -> ... }
+let $ = get_config("idle_since");
+if ($ instanceof $option.Some) {  // NEVER TRUE — null/string are not Some instances
+  let $1 = $[0];
+  // ... debounce logic (NEVER REACHED)
+}
+```
+
+**Impact:**
+- `hook_on_agent_end.gleam:check_idle_since()` — `option.Some` branch NEVER matches
+- `idle_since` is always re-recorded on every `agent_end` event (falls to `None` branch)
+- Debounce logic NEVER triggers — A-bot is NEVER woken up through the debounce path
+- `monitor_debounce_ms` config is NEVER read — the `Some` branch is unreachable
+- **This is the ROOT CAUSE of A-bot wakeup failure**, more fundamental than the double debounce
+
+**Fix Required:** Change JS to return proper Gleam Option constructors:
+```javascript
+import { Some, None } from './gleam.mjs';
+export function get_config(key) {
+  const value = _configStore[key];
+  return value !== undefined && value !== null ? new Some(value) : new None();
+}
+```
+
+**Issue #187** | Severity: **CRITICAL** | Category: FFI Type Mismatch
+
+### 55f. `set_config` FFI — Works But No Synchronization
+
+`set_config(key, value)` returns `Nil` (JS returns `undefined`). This is correct.
+However, the `_configStore` is a plain in-memory object with no synchronization.
+Under concurrent tool calls, `get_config` may read stale values.
+
+**Issue #188** | Severity: MEDIUM | Category: Concurrency
+
+### 55g. Dead FFI Exports — `node_ffi.mjs` Has 5 Unbound Functions
+
+These functions are exported from `node_ffi.mjs` but have NO corresponding `@external`
+binding in any Gleam source file:
+
+| Function                         | Parameters     | Purpose                      |
+| -------------------------------- | -------------- | ---------------------------- |
+| `execute(cmd, timeout)`          | String, Int    | Execute command with timeout |
+| `exists(cmd)`                    | String         | Check if command exists      |
+| `get_env(name)`                  | String         | Get environment variable     |
+| `ensure_dir(path)`               | String         | Create directory recursively |
+| `write_text_file(path, content)` | String, String | Write text to file           |
+
+These may be called from generated `extension.js` or other runtime code, but they
+have no Gleam type safety. If unused, they should be removed.
+
+**Issue #189** | Severity: LOW | Category: Dead Code
+
+### 55h. Orphaned FFI File — `time_utils_ffi.mjs`
+
+`time_utils_ffi.mjs` exports `now_iso8601()` which returns `Promise.resolve(new Date().toISOString())`.
+No Gleam source file references this FFI. It is dead code.
+
+**Issue #190** | Severity: LOW | Category: Dead Code
+
+### 55i. `ctx_reload` — Missing Error Propagation
+
+```javascript
+export async function ctx_reload(ctx) {
+  await ctx.reload();
+  // No try/catch — if ctx.reload() throws, the error propagates as unhandled rejection
+}
+```
+
+Gleam declares `ctx_reload(ctx: a) -> promise.Promise(Nil)`. If `ctx.reload()` throws,
+the promise rejects but Gleam has no way to handle it (no `Result` return type).
+
+**Issue #191** | Severity: MEDIUM | Category: Error Handling
+
+### 55j. `call_monitor` — Retry Without Backoff
+
+```javascript
+const shouldRetry = !text || (result?.errorMessage && ...);
+if (shouldRetry) {
+  result = await completeSimple(model, context, { ...reasoning: 'none' });
+  // No delay, no exponential backoff — immediate retry
+}
+```
+
+On rate limit or terminated errors, the retry fires immediately with no delay.
+This can cause cascading rate limit failures.
+
+**Issue #192** | Severity: MEDIUM | Category: Concurrency
+
+### 55k. `read_file_sync` — Synchronous Blocking in Event Loop
+
+`read_file_sync` uses `readFileSync` which blocks the Node.js event loop.
+In an async Pi extension context, this can cause UI freezes and delayed hook processing.
+
+**Issue #193** | Severity: MEDIUM | Category: Performance
+
+### 55l. `exec_sync` — Same Blocking Issue + `require()` Inside Function
+
+```javascript
+export function exec_sync(command) {
+  const { execSync } = require('child_process');  // require() inside function
+  // ...
+}
+```
+
+Two issues:
+1. `execSync` blocks the event loop (same as `read_file_sync`)
+2. `require('child_process')` is called inside the function instead of at module top level.
+   This is technically fine but unusual and slightly slower on repeated calls.
+
+**Issue #194** | Severity: LOW | Category: Performance
 
 ---
 
