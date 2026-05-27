@@ -20376,3 +20376,117 @@ if (shouldRetry) {
 | 172 | Concurrency | Debounce timer not cleared on extension reload                                | MEDIUM   |
 | 173 | Concurrency | call_monitor() retries without backoff on rate limit                          | MEDIUM   |
 | 174 | Concurrency | Parallel tool execution with shared DB state, no transaction isolation        | MEDIUM   |
+
+---
+
+## 312. SYSTEM PROMPT COMPOSITION PIPELINE AUDIT
+
+### 312.1 Pipeline Overview
+
+The system prompt flows through two separate pipelines:
+
+**S-bot (Somatic) Pipeline** — `before_agent_start` hook:
+```
+Pi fires before_agent_start event
+  → hook_on_before_agent_start.gleam::on_before_agent_start()
+    → event_hooks.record_trigger("before_agent_start")  [writes to psypi_event_hooks — table doesn't exist]
+    → s_db_reader.read_s_soul_from_db()
+      → SELECT content FROM agent_souls WHERE id_prefix = 'S'  [table doesn't exist]
+      → On failure: returns hardcoded fallback soul text
+    → Returns { systemPrompt: soul_content } to Pi
+```
+
+**A-bot (Autonomic) Pipeline** — `agent_end` hook → `a_orchestrator`:
+```
+Pi fires agent_end event
+  → JS debounce timer (15 min from DB)
+    → hook_on_agent_end.gleam::on_agent_end()
+      → Gleam debounce check (5 min from _configStore)
+        → a_orchestrator.run_a_workflow()
+          → a_db_reader.read_soul_from_db()
+            → SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix='A'  [table doesn't exist]
+          → a_db_reader.read_a_jobs_from_db()
+            → SELECT j.job FROM agent_jobs j JOIN agent_souls s ...  [both tables don't exist]
+          → a_db_reader.read_project_state_from_db()
+            → read_active_tasks() + read_open_issues()  [works if columns match]
+          → a_prompt_builder.build_system_prompt(soul, jobs, context_window)
+            → Token budget = context_window / 4
+            → Adds: soul_component (Critical), a_identity_prompt (Critical), jobs (High)
+          → a_prompt_builder.build_user_prompt(usage, entries, cwd, state)
+            → Detects inter-review keywords in entries_json
+            → Truncates entries_json to 4000 (inter-review) or 2000 (normal)
+          → call_monitor(ctx, user_prompt, system_prompt)
+            → completeSimple(model, context, { apiKey })
+            → Returns LLM response text
+          → pi_send_message(pi, "autonomic-wakeup", response, "persistent")
+```
+
+### 312.2 Issues Found
+
+| #   | Issue                                                            | Location                               | Impact                                                                             | Severity |
+| --- | ---------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- | -------- |
+| A   | S-bot soul loads from `agent_souls` (phantom table)              | s_db_reader.gleam:18                   | S-bot always uses hardcoded fallback, never gets actual soul from DB               | CRITICAL |
+| B   | `record_trigger` writes to `psypi_event_hooks` (phantom table)   | hook_on_before_agent_start.gleam:6     | Trigger recording fails silently, no hook tracking                                 | HIGH     |
+| C   | A-bot soul loads from `agent_souls` (phantom table)              | a_db_reader.gleam:67                   | A-bot workflow terminates with error at step 1                                     | CRITICAL |
+| D   | A-bot jobs loads from `agent_jobs` (phantom table)               | a_db_reader.gleam:172                  | A-bot workflow terminates with error at step 2                                     | CRITICAL |
+| E   | Token budget = context_window / 4 is arbitrary                   | a_prompt_builder.gleam:9               | May be too small (8k context → 2k budget) or too large (200k context → 50k budget) | LOW      |
+| F   | `estimate_tokens` = length / 4 + 1 is crude                      | system_prompt_types.gleam:54           | Underestimates for code-heavy content, overestimates for prose                     | LOW      |
+| G   | `compose_within_budget` drops Low-priority first but never warns | system_prompt_types.gleam:139          | Silently drops context files and skills when budget is exceeded                    | MEDIUM   |
+| H   | S-bot prompt has no directive/skill/context components           | hook_on_before_agent_start.gleam       | S-bot only gets soul text, no directives, skills, or context files                 | HIGH     |
+| I   | A-bot prompt has no skill/context components                     | a_prompt_builder.gleam                 | A-bot only gets soul + identity + jobs, no skills or context                       | MEDIUM   |
+| J   | `system_directives` table exists but is never read by S-bot      | hook_on_before_agent_start.gleam       | A-bot can write directives but S-bot never reads them                              | CRITICAL |
+| K   | Inter-review detection uses fragile string matching              | a_prompt_builder.gleam:104             | False positives on "inter-review" in unrelated text, false negatives on variations | MEDIUM   |
+| L   | `entries_json` truncated to 2000/4000 chars is too small         | a_prompt_builder.gleam:119-120         | Loses critical context in long conversations                                       | MEDIUM   |
+| M   | `is_active` column in `agent_souls` may not exist                | s_db_reader.gleam:18                   | Query fails if column was dropped or renamed                                       | HIGH     |
+| N   | A-bot identity prompt is hardcoded, not from DB                  | a_prompt_builder.gleam:16-33           | Contradicts "Your role and jobs are defined in the database" instruction           | MEDIUM   |
+| O   | `build_user_prompt` includes raw `entries_json`                  | a_prompt_builder.gleam:119             | JSON strings in prompt confuse LLM, should be formatted                            | MEDIUM   |
+| P   | No `compose_within_budget` call in A-bot pipeline                | a_orchestrator.gleam                   | Budget tracking is computed but never enforced — all components always included    | HIGH     |
+| Q   | S-bot fallback soul is incomplete                                | hook_on_before_agent_start.gleam:16-22 | Missing behavior rules, boundaries, self-evolution instructions from migration 008 | MEDIUM   |
+
+### 312.3 Critical Finding: System Directives Dead Letter
+
+The `system_directives` table (migration 005) was designed for A→S communication:
+- A-bot writes directives with priority, expiry, and source
+- `before_agent_start` hook should read active directives and inject into S-bot's system prompt
+- But `hook_on_before_agent_start` only reads `agent_souls` content — it NEVER reads `system_directives`
+
+This means:
+1. A-bot's `pi_send_message("autonomic-wakeup", ...)` is the ONLY way A communicates with S
+2. System directives are a dead letter — written but never consumed
+3. The `expires_at` and `consumed_at` columns are never updated
+4. The seed directive ("System directives are active...") is misleading — they're not active
+
+### 312.4 Critical Finding: S-bot Never Gets Composed Prompt
+
+The `system_prompt_types` module implements a sophisticated prompt composition system with:
+- Priority-based component ordering (Critical > High > Medium > Low)
+- Token budget enforcement via `compose_within_budget()`
+- Component types: Soul, Directive, Skill, ContextFile, Custom
+
+But the S-bot pipeline in `hook_on_before_agent_start` bypasses ALL of this:
+- It returns raw soul text as `systemPrompt`
+- No `PromptComposition` is created
+- No directives, skills, or context files are added
+- No budget enforcement
+
+The A-bot pipeline in `a_prompt_builder` uses `PromptComposition` but:
+- Never calls `compose_within_budget()` — budget is computed but not enforced
+- Only adds Soul and Directive components (no Skill or ContextFile)
+- The `compose()` function is called but returns all components regardless of budget
+
+### 312.5 New Issues Found
+
+| #   | Category        | Issue                                                                    | Severity |
+| --- | --------------- | ------------------------------------------------------------------------ | -------- |
+| 175 | Prompt pipeline | S-bot soul loads from phantom `agent_souls` table — always uses fallback | CRITICAL |
+| 176 | Prompt pipeline | `record_trigger` writes to phantom `psypi_event_hooks` table             | HIGH     |
+| 177 | Prompt pipeline | A-bot soul/jobs load from phantom `agent_souls`/`agent_jobs` tables      | CRITICAL |
+| 178 | Prompt pipeline | S-bot prompt has no directive/skill/context components                   | HIGH     |
+| 179 | Prompt pipeline | `system_directives` table is dead letter — never read by S-bot           | CRITICAL |
+| 180 | Prompt pipeline | A-bot `compose_within_budget()` never called — budget not enforced       | HIGH     |
+| 181 | Prompt pipeline | Inter-review detection uses fragile string matching                      | MEDIUM   |
+| 182 | Prompt pipeline | `entries_json` truncated to 2000/4000 chars loses context                | MEDIUM   |
+| 183 | Prompt pipeline | `agent_souls.is_active` column may not exist in actual schema            | HIGH     |
+| 184 | Prompt pipeline | A-bot identity prompt hardcoded, contradicts DB-driven instruction       | MEDIUM   |
+| 185 | Prompt pipeline | Raw `entries_json` in prompt confuses LLM                                | MEDIUM   |
+| 186 | Prompt pipeline | S-bot fallback soul is incomplete vs migration 008 content               | MEDIUM   |
