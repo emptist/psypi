@@ -1,4 +1,4 @@
-# System Review — psypi — 2026-05-26 (v11)
+# System Review — psypi — 2026-05-27 (v31)
 
 Every finding verified against live PostgreSQL database, Gleam source, and git history.
 No assumptions. No documentation trust. Only verified facts.
@@ -23,30 +23,46 @@ No assumptions. No documentation trust. Only verified facts.
 
 | Category                  | Issues | Criticals | Key Finding                                                         |
 | ------------------------- | ------ | --------- | ------------------------------------------------------------------- |
-| **Phantom Tables**        | 7      | 7         | 7 tables referenced in Gleam code don't exist in DB                 |
-| **Dropped Columns**       | 7      | 3         | issues.project_id, skills.reference_list, issues.created_by dropped |
-| **Type Changes**          | 4      | 0         | TEXT→JSONB, TEXT→UUID without Gleam updates                         |
-| **Schema Drift**          | 5      | 0         | 63 untracked tables, 19 untracked views                             |
-| **Tool Audit (35 tools)** | 9      | 4         | 15 BROKEN, 10 PARTIAL, 9 WORKS, 1 STUB                              |
+| **FFI Type Violations**   | 5      | 2         | get_config returns JS null/string not Gleam Some/None; A-bot dead   |
+| **Decode Failures**       | 14     | 5         | Missing ::text casts, wrong decoders, jsonb as string               |
+| **A-Bot Wakeup Chain**    | 8      | 4         | Entire A-bot wakeup mechanism non-functional                        |
+| **Inter-Review Flow**     | 6      | 2         | requested_at decode fails, missing git add, jsonb type mismatch     |
+| **DB Connection**         | 4      | 1         | No connection pooling; every query creates/destroys connection      |
+| **Migration System**      | 4      | 1         | No tracking table, duplicate numbers, missing early migrations      |
+| **Prompt Pipeline**       | 12     | 3         | compose() bypasses budget, phantom tables block soul loading        |
 | **Extension Generation**  | 14     | 1         | Missing label/details/TypeBox, unreachable trigger recording        |
-| **Concurrency**           | 8      | 1         | No connection pooling, double debounce, BigInt decode failure       |
-| **Prompt Pipeline**       | 12     | 3         | Phantom tables block S-bot/A-bot, system_directives dead letter     |
-| **Code/SQL Bugs**         | 17     | 3         | Missing ::text casts, wrong SQL, NOT NULL violations                |
-| **FFI Binding Audit**     | 8      | 1         | get_config returns wrong type, dead exports, blocking I/O           |
-| **Error Handling Audit**  | 13     | 1         | 6 swallowed errors returning Ok(default), no logging infrastructure |
-| **Review Corrections**    | 2      | 2         | Previous review had false claims                                    |
+| **Error Handling**        | 13     | 1         | 6 swallowed errors returning Ok(default), no logging infrastructure |
+| **Tool Audit (35 tools)** | 9      | 4         | 8 BROKEN, 7 PARTIAL, 12 WORKS, 8 NOT-AUDITED                        |
 
-### Top 5 System-Stopping Issues
+### Top 10 System-Stopping Issues (Priority Fix Order)
 
-1. **#187 — `get_config` FFI returns `null|string` not `Some|None`**: The debounce logic in `hook_on_agent_end` NEVER matches `option.Some`, so `idle_since` is always re-recorded and debounce never fires. This is the ROOT CAUSE of A-bot wakeup failure.
+1. **#302 — `get_config` FFI returns JS `null`/`string` instead of Gleam `Some`/`None`**: The `Some` branch in `hook_on_agent_end` is NEVER reached. `idle_since` is always re-recorded as `now()`. Debounce never fires. **A-bot wakeup is completely broken.** This is the single most critical bug. Fix: `return new Some(value)` / `return new None()` in `pi_extension_ffi.mjs`.
 
-2. **#175/#177 — Phantom `agent_souls`/`agent_jobs` tables**: Both S-bot and A-bot soul loading fails. S-bot falls back to hardcoded text. A-bot workflow terminates with error. The entire A/S agent coordination is non-functional.
+2. **#308 — `inter_review.review_decoder` decodes `requested_at` as string**: node-postgres returns `Date` object for timestamptz. `decode.string` fails. `get_review_details()` always returns `DecodeError`. **The commit flow (Phase 2) is broken.** Fix: add `requested_at::text` cast.
 
-3. **#195 — `is_s_still_idle` always returns `Ok(True)`**: `COUNT(*)` returns bigint but decoder uses `decode.int` which fails on string, and the error branch returns `Ok(True)`. S is always considered idle.
+3. **#195 — `is_s_still_idle` always returns `Ok(True)`**: `COUNT(*)` returns PostgreSQL bigint (string in JS), but decoder uses `decode.int` which fails. Error branch returns `Ok(True)`. **S is always considered idle, bypassing wakeup guards.** Fix: use `decode_bigint()`.
 
-4. **#179 — System directives dead letter**: `system_directives` table exists but is never read by `before_agent_start` hook. A→S communication relies solely on `pi_send_message`, which is unreliable.
+4. **#294 — No connection pooling**: Every database operation creates a new TCP connection, authenticates, runs `SET app.current_project_id`, executes the query, then disconnects. **This is the single biggest performance bottleneck.** Under load, PostgreSQL connection limit may be hit.
 
-5. **#132/#104/#105 — Dropped `project_id` column**: `issues.project_id` was dropped from live DB, but `areflect.save_issue()` and `areflect.save_task()` still INSERT into it. All issue and task creation fails with NOT NULL violation.
+5. **#290 — No migration tracking table**: All migrations run every time `gleam run -m simple_migrate` is called. No schema versioning, no rollback capability. Duplicate migration numbers (025) cause non-deterministic execution order.
+
+6. **#310 — `tool_commit` has no `git add` step**: The commit flow runs `git diff` to check for changes, then `git commit -m "..."`. But there's no `git add` to stage the changes. **Commit will fail with "nothing to commit" if changes are unstaged.**
+
+7. **#297 — `tool_consult` is a no-op**: The `psypi-consult-autonomic` tool is supposed to let S consult A for difficult decisions, but the implementation just returns a static string. **It does NOT trigger A-bot.** This tool is useless.
+
+8. **#299 — `areflect.save_issue` missing `project_id`**: Issues created via `areflect` will have `project_id = NULL`, while issues created via `issue_db.add` will have the default project_id. **Data inconsistency.**
+
+9. **#309 — `request_review` passes string for jsonb parameter**: The `p_review_context` parameter is `jsonb`, but Gleam passes a string. node-postgres will NOT auto-convert string to jsonb. **Inter-review creation may fail.**
+
+10. **#300 — `code_version` depends on PostgreSQL stored functions not in any migration**: `save_code_version()`, `get_code_versions()`, `restore_code_version()` are defined in the database but not in any migration file. **Fresh database setup will be missing these functions.**
+
+### The Three Root Causes
+
+1. **FFI Type Boundary Violations**: Gleam's type system is bypassed at the JavaScript boundary. Functions like `get_config` return raw JS values instead of proper Gleam constructors. The compiler cannot catch these errors.
+
+2. **Missing `::text` Casts**: PostgreSQL returns rich types (UUID, timestamptz, jsonb, bigint) as JavaScript objects, but Gleam decoders expect strings. The fix is simple (`::text` cast in SQL) but pervasive (14+ queries affected).
+
+3. **No Integration Testing**: Individual Gleam functions may type-check correctly, but the end-to-end flow (Pi event → Gleam hook → DB query → decode → response) is never tested as a whole. Silent decode failures return `Ok(default)` instead of propagating errors.
 
 ### What Works
 
