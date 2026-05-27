@@ -20083,3 +20083,112 @@ Total: 9 + 10 + 15 + 1 = 35 ✓
 | 150 | Tool partial | autonomic-stats always returns zeros (overall_score never written, completed_at never set) | MEDIUM   |
 | 151 | Tool broken  | monitor_ai.prepare_context references `saved_at` in memory table (column is `created_at`)  | CRITICAL |
 | 152 | Tool broken  | monitor_ai.prepare_context references `saved_at` in code_versions (table doesn't exist)    | CRITICAL |
+
+---
+
+## 310. EXTENSION GENERATION vs PI SDK API AUDIT
+
+### 310.1 Pi SDK Expected Tool Signature
+
+The Pi SDK expects `pi.registerTool()` with this structure:
+```typescript
+pi.registerTool({
+  name: string,              // unique, lowercase_with_underscores
+  label: string,             // human-readable (shown in TUI)
+  description: string,       // shown to LLM
+  promptSnippet?: string,    // one-line summary in Available tools
+  promptGuidelines?: string[], // appended to system prompt
+  parameters: Type.Object({  // TypeBox schema
+    ...
+  }),
+  async execute(toolCallId, params, signal, onUpdate, ctx) {
+    return {
+      content: [{ type: "text", text: "..." }],
+      details: { ... },
+    };
+  },
+});
+```
+
+### 310.2 Generated Code Tool Signature
+
+The Gleam extension generator produces:
+```javascript
+pi.registerTool({
+  name: "psypi-task-add",
+  description: "Add a new task...",
+  parameters: { type: "object", properties: { ... }, required: [...] },
+  async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    try {
+      const result = await module_fn(args);
+      const r = unwrapGleamResult(result);
+      if (!r.ok) {
+        pi_extension_notify_error(ctx, 'Tool psypi-task-add error: ' + r.error);
+      }
+      return r.ok ? { content: [{ type: "text", text: resultFormat }] }
+                  : { content: [{ type: "text", text: `Error: ${r.error}` }] };
+    } catch(e) {
+      pi_extension_notify_error(ctx, 'Tool psypi-task-add exception: ' + e.message);
+      return { content: [{ type: "text", text: `Error: ${e.message}` }] };
+    }
+  }
+});
+```
+
+### 310.3 Discrepancies
+
+| #   | Issue                            | Generated                                                     | Pi SDK Expects               | Impact                                         |
+| --- | -------------------------------- | ------------------------------------------------------------- | ---------------------------- | ---------------------------------------------- |
+| 1   | Missing `label`                  | Not generated                                                 | `label: string`              | TUI shows tool name instead of friendly label  |
+| 2   | Missing `promptSnippet`          | Not generated                                                 | `promptSnippet: string`      | No one-line summary in Available tools section |
+| 3   | Missing `promptGuidelines`       | Not generated                                                 | `promptGuidelines: string[]` | No usage guidelines in system prompt           |
+| 4   | Missing `details` in return      | Not included                                                  | `details: {}`                | State reconstruction fails on session_start    |
+| 5   | Parameters use hand-written JSON | `{ type: "object", properties: {...} }`                       | TypeBox `Type.Object({...})` | May break Google API compatibility             |
+| 6   | No `StringEnum` for enum params  | `type: "string"`                                              | `StringEnum([...])`          | Breaks Google API for enum parameters          |
+| 7   | Error via return                 | Returns `{ content: [{ type: "text", text: "Error: ..." }] }` | Should `throw new Error()`   | Pi SDK doesn't set isError flag                |
+| 8   | No output truncation             | Unbounded output                                              | `truncateHead()` recommended | Risk of context overflow                       |
+| 9   | No cancellation check            | `signal` ignored                                              | Check `signal?.aborted`      | Long-running tools can't be cancelled          |
+| 10  | No file mutation queue           | Direct file operations                                        | `withFileMutationQueue()`    | Race conditions with built-in edit/write       |
+
+### 310.4 Hook Generation Issues
+
+| #   | Issue                                                 | Generated                                                                  | Pi SDK Expects                                | Impact                                                   |
+| --- | ----------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------- | -------------------------------------------------------- |
+| 1   | `before_agent_start` returns before recording trigger | `{ systemPrompt: r.value }` returned before `event_hooks_record_trigger()` | Record trigger then return                    | Trigger never recorded (unreachable code)                |
+| 2   | Debounced hook has no guard support                   | `guard` param ignored in PiDebouncedHook                                   | Guard should wrap setTimeout callback         | Can't conditionally skip debounced hooks                 |
+| 3   | `event_hooks_record_trigger` called after return      | In `PiEventHook` and `PiSystemPromptHook`                                  | Should be called before return                | Trigger recording is unreachable for system prompt hooks |
+| 4   | No `session_start` state reconstruction               | No session_start hook generated                                            | Should reconstruct state from session entries | All in-memory state lost on reload                       |
+| 5   | No `session_shutdown` cleanup                         | No shutdown hook generated                                                 | Should close DB connections                   | DB connections may leak                                  |
+
+### 310.5 Command Generation Issues
+
+| #   | Issue                            | Generated     | Pi SDK Expects             | Impact                         |
+| --- | -------------------------------- | ------------- | -------------------------- | ------------------------------ |
+| 1   | Missing `getArgumentCompletions` | Not generated | Optional but useful for UX | No tab completion for commands |
+| 2   | Missing `label`                  | Not generated | `label: string`            | TUI shows command name only    |
+
+### 310.6 Message Renderer Issues
+
+| #   | Issue                             | Generated                             | Pi SDK Expects                            | Impact                                  |
+| --- | --------------------------------- | ------------------------------------- | ----------------------------------------- | --------------------------------------- |
+| 1   | Uses `Box` and `Text` from pi-tui | `new Box(1, 1, ...)`, `new Text(...)` | Must import from `@earendil-works/pi-tui` | Missing import may cause ReferenceError |
+| 2   | No `renderCall` for tools         | Not generated                         | Optional but useful                       | Default rendering only                  |
+
+### 310.7 New Issues Found
+
+| #   | Category      | Issue                                                                  | Severity |
+| --- | ------------- | ---------------------------------------------------------------------- | -------- |
+| 153 | Extension gen | Missing `label` in tool registration                                   | LOW      |
+| 154 | Extension gen | Missing `promptSnippet` in tool registration                           | MEDIUM   |
+| 155 | Extension gen | Missing `promptGuidelines` in tool registration                        | MEDIUM   |
+| 156 | Extension gen | Missing `details` in tool return (breaks state reconstruction)         | HIGH     |
+| 157 | Extension gen | Parameters use raw JSON instead of TypeBox (breaks Google API)         | HIGH     |
+| 158 | Extension gen | No StringEnum for enum parameters                                      | MEDIUM   |
+| 159 | Extension gen | Errors returned instead of thrown (isError flag never set)             | MEDIUM   |
+| 160 | Extension gen | No output truncation (risk of context overflow)                        | HIGH     |
+| 161 | Extension gen | No signal.aborted check (tools can't be cancelled)                     | MEDIUM   |
+| 162 | Extension gen | No session_start state reconstruction                                  | HIGH     |
+| 163 | Extension gen | No session_shutdown cleanup                                            | MEDIUM   |
+| 164 | Extension gen | before_agent_start returns before recording trigger (unreachable code) | CRITICAL |
+| 165 | Extension gen | Debounced hook ignores guard parameter                                 | MEDIUM   |
+| 166 | Extension gen | Message renderer may ReferenceError (missing pi-tui import)            | HIGH     |
