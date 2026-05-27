@@ -7,17 +7,17 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**155 issues tracked** (#100-#262) across 18 audit categories.
+**155 issues tracked** (#100-#272) across 20 audit categories.
 ⚠️ **CRITICAL CORRECTION (§333)**: 8 issues retracted — previous "phantom table" claims were based on querying wrong database.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 31    | 20.0%      |
-| **HIGH**     | 58    | 37.4%      |
-| **MEDIUM**   | 50    | 32.3%      |
-| **LOW**      | 16    | 10.3%      |
+| **CRITICAL** | 32    | 19.9%      |
+| **HIGH**     | 59    | 36.6%      |
+| **MEDIUM**   | 52    | 32.3%      |
+| **LOW**      | 18    | 11.2%      |
 
 ### Category Breakdown
 
@@ -22946,5 +22946,244 @@ correcting the database verification).
 The two truly broken modules are:
 1. `hook_on_agent_end` — FFI type mismatch blocks A-bot wakeup
 2. `tool_commit` — inter-review score never written, blocking commits
+
+---
+
+## 339. ERROR HANDLING AUDIT
+
+### 339a. Error Handling Anti-Patterns
+
+76 instances of `Error(_) ->` found across the codebase. Categorized:
+
+#### Pattern 1: Error(_) -> Ok(default) — HIDING FAILURES (2 instances)
+
+| File                | Line | Code                   | Impact                                                                                                                                                                                         |
+| ------------------- | ---- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `a_db_reader.gleam` | 44   | `Error(_) -> Ok(True)` | `is_s_still_idle()` always returns True when decode fails. S is always considered idle, bypassing wakeup guards. Combined with `COUNT(*)` bigint decode failure, this is a real runtime issue. |
+| `issue_db.gleam`    | 251  | `Error(_) -> Ok(0)`    | `count_open_issues()` returns 0 when decode fails. Issue count is silently wrong.                                                                                                              |
+
+#### Pattern 2: Error(_) -> Ok(fallback) — DEGRADED SERVICE (3 instances)
+
+| File                      | Line | Code                                                                    | Impact                                                                                                                 |
+| ------------------------- | ---- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `agent_identity.gleam`    | 226  | `Error(_) -> EnrichedIdentity(domain: "unknown", ...)`                  | Agent identity falls back to "unknown" domain when soul fetch fails. Not a crash, but loses critical context.          |
+| `hook_on_agent_end.gleam` | 51   | `Error(_) -> { set_config("idle_since", "0"); ... }`                    | When `int.parse(idle_since_str)` fails, resets idle_since. Combined with FFI issue, this path is never reached anyway. |
+| `hook_on_agent_end.gleam` | 77   | `Error(_) -> { notify_info("debounce parse error — proceeding"); ... }` | When `int.parse(debounce_str)` fails, proceeds without debounce. Again, never reached due to FFI issue.                |
+
+#### Pattern 3: Error(_) -> "" or [] — SILENTLY DROPPING DATA (7 instances)
+
+| File                    | Line | Code                                   | Impact                                    |
+| ----------------------- | ---- | -------------------------------------- | ----------------------------------------- |
+| `agent_identity.gleam`  | 205  | `Error(_) -> []`                       | Job list silently empty on decode failure |
+| `a_db_reader.gleam`     | 98   | `Error(_) -> "  (tasks unavailable)"`  | Tasks section silently empty              |
+| `a_db_reader.gleam`     | 103  | `Error(_) -> "  (issues unavailable)"` | Issues section silently empty             |
+| `a_context_utils.gleam` | 47   | `Error(_) -> 0`                        | `current_time_ms()` returns 0 on failure  |
+| `monitor_ai.gleam`      | 134  | `Error(_) -> ""`                       | Review details silently empty             |
+| `monitor_ai.gleam`      | 371  | `Error(_) -> []`                       | Alerts silently empty                     |
+| `memory.gleam`          | 119  | `Error(_) -> []`                       | Memory search results silently empty      |
+
+#### Pattern 4: Error(_) -> Error(DecodeError("...")) — PROPER ERROR PROPAGATION (many instances)
+
+This is the correct pattern — propagate the error with context. Used in:
+- `task.gleam`, `issue_db.gleam`, `inter_review.gleam`, `areflect.gleam`,
+  `memory.gleam`, `stats.gleam`, `skill.gleam`, `meeting.gleam`,
+  `event_hooks.gleam`, `broadcast.gleam`, `agents.gleam`, `code_version.gleam`
+
+#### Pattern 5: Error(_) -> decode.failure(...) — PROPER DECODE FALLBACK (8 instances)
+
+Used for enum-like decoders where unknown values get a default:
+- `task.gleam` (status → Pending)
+- `issue_db.gleam` (severity → Medium, status → Open, issue_type → Bug)
+- `skill.gleam` (source → Clawhub, status → Pending)
+- `meeting.gleam` (status → Pending)
+- `broadcast.gleam` (priority → Low, status → Pending)
+
+This is acceptable for enum decoders but should log a warning.
+
+### 339b. Critical Error Handling Failures
+
+#### `is_s_still_idle()` — Error hidden, always returns True
+
+```gleam
+case decode.run(row, count_decoder()) {
+  Ok(cnt) -> Ok(cnt == 0)
+  Error(_) -> Ok(True)  // ← HIDES DECODE FAILURE
+}
+```
+
+`count_decoder()` uses `decode.int` for `COUNT(*)` which returns bigint
+(string in JS). Decode fails → `Ok(True)` → S always considered idle.
+
+**Impact**: Even if the FFI were fixed, the `is_s_still_idle()` check in
+`coordinate_with_s()` would always return True, removing the DB-based
+idle verification. The only idle check that works is `ctx_is_idle(ctx)`
+which is a Pi SDK check, not a DB check.
+
+**Issue #268** | Severity: **HIGH** | Category: Error Handling — is_s_still_idle hides decode failure, always returns True
+
+#### `inter_review.get_review_details()` — requested_at decode failure
+
+```sql
+SELECT id, task_id, status, summary, overall_score, requested_at
+FROM inter_reviews WHERE id = $1
+```
+
+`requested_at` is `timestamptz` → node-postgres returns `Date` object → 
+`decode.string` fails → `Error(DecodeError("Failed to decode review"))`.
+
+**Impact**: `tool_commit.commit_if_reviewed()` calls `get_review_details()`,
+which always fails. Even if A-bot wrote the score, S could never commit
+because the review details can't be decoded.
+
+**Issue #269** | Severity: **CRITICAL** | Category: Decode — inter_review.get_review_details fails on requested_at timestamp, blocks commit flow
+
+### 339c. Error Handling Summary
+
+| Pattern                      | Count | Severity                       |
+| ---------------------------- | ----- | ------------------------------ |
+| Error(_) -> Ok(default)      | 2     | CRITICAL (hides real failures) |
+| Error(_) -> Ok(fallback)     | 3     | HIGH (degrades silently)       |
+| Error(_) -> "" or []         | 7     | MEDIUM (silently drops data)   |
+| Error(_) -> Error(context)   | ~30   | ✅ Correct                      |
+| Error(_) -> decode.failure() | 8     | LOW (acceptable for enums)     |
+| Other patterns               | ~26   | Varies                         |
+
+**Issue #270** | Severity: **MEDIUM** | Category: Error Handling — no error logging infrastructure; all failures are silent
+
+---
+
+## 340. A-ORCHESTRATOR WORKFLOW — END-TO-END ANALYSIS
+
+### 340a. Complete Workflow Chain
+
+The A-bot workflow starts when `agent_end` fires and ends when a message
+is sent to S. Here's the complete chain with status at each step:
+
+```
+1. Pi fires agent_end event
+   └─ extension.js debounce timer starts (reads monitor_debounce_ms from DB: 900000ms)
+   Status: ✅ Works (psypi_event_hooks shows 380 triggers)
+
+2. After 15 min idle, debounce fires
+   └─ Calls hook_on_agent_end.on_agent_end(ctx, pi)
+   Status: ✅ Works (debounce fires correctly)
+
+3. on_agent_end checks ctx_is_idle(ctx)
+   └─ If not idle: clear idle_since, return
+   └─ If idle + pending: skip
+   └─ If idle + no pending: check_idle_since(ctx, pi)
+   Status: ✅ Works (Pi SDK functions work)
+
+4. check_idle_since calls get_config("idle_since")
+   └─ Returns null (first time) or plain string (subsequent)
+   └─ BOTH fall to None branch due to FFI type mismatch (#263)
+   └─ Records new timestamp, returns
+   Status: ❌ BROKEN — Some branch never reached, debounce never satisfied
+
+   [IF FFI WERE FIXED:]
+5. check_idle_since compares elapsed >= debounce_ms
+   └─ get_config("monitor_debounce_ms") also broken by FFI
+   └─ Falls to None branch → uses default 300000ms (5 min)
+   Status: ❌ BROKEN — config value never read
+
+   [IF DEBOUNCE SATISFIED:]
+6. coordinate_with_s(ctx, pi, entries_json)
+   └─ Checks ctx_is_idle(ctx) again
+   └─ Calls a_db_reader.is_s_still_idle()
+   Status: ⚠️ PARTIAL — is_s_still_idle always returns True (#268)
+
+7. coordinate_when_idle(ctx, pi, entries_json, usage_json, cwd)
+   └─ Parses context window from usage_json
+   └─ Calls a_orchestrator.run_a_workflow()
+   Status: ✅ Works (if reached)
+
+8. a_orchestrator.run_a_workflow()
+   └─ a_db_reader.read_soul_from_db() → reads A soul from agent_souls
+   Status: ✅ Works (agent_souls has A soul with data)
+
+9. a_db_reader.read_a_jobs_from_db() → reads A jobs
+   Status: ✅ Works (agent_jobs has 5 active jobs)
+
+10. a_db_reader.read_project_state_from_db() → reads tasks + issues
+    Status: ✅ Works (tasks and issues tables have data)
+
+11. a_prompt_builder.build_system_prompt(soul, jobs, context_window)
+    └─ Creates PromptComposition with budget = context_window / 4
+    └─ Calls compose() instead of compose_within_budget()
+    Status: ⚠️ PARTIAL — budget not enforced (#271)
+
+12. a_prompt_builder.build_user_prompt(usage, entries, cwd, state)
+    └─ Builds user prompt with context, project state, recent conversation
+    └─ Detects inter-review requests
+    Status: ✅ Works
+
+13. call_monitor(ctx, user_prompt, system_prompt)
+    └─ Calls LLM via Pi SDK
+    Status: ✅ Works (call_monitor FFI is correct)
+
+14. handle_monitor_response(ctx, pi, result)
+    └─ If S still idle: pi_send_message(pi, "autonomic-wakeup", response)
+    └─ If S busy: abort
+    Status: ✅ Works (if reached)
+
+15. [MISSING] record_review_score() should be called
+    └─ monitor_ai.record_review_score(review_id, score) is NEVER called
+    └─ overall_score stays NULL in inter_reviews
+    Status: ❌ BROKEN — score never written (#259)
+```
+
+### 340b. Workflow Blockers (in order of priority)
+
+1. **Blocker #1**: `get_config` FFI mismatch (#263) — blocks step 4-5
+   - The entire workflow never reaches step 6
+   - Fix: Return `new Some(value)` / `new None()` from `get_config`
+
+2. **Blocker #2**: `inter_review.get_review_details` decode failure (#269)
+   - Even if workflow reaches step 14, `tool_commit` can't verify the score
+   - Fix: Add `::text` cast to `requested_at` in SQL query
+
+3. **Blocker #3**: `record_review_score` never called (#259)
+   - Even if review is triggered, score is never written to DB
+   - Fix: Add score extraction from LLM response and call `record_review_score`
+
+4. **Issue #4**: `is_s_still_idle` always True (#268)
+   - DB-based idle verification is broken
+   - Fix: Use `decode_bigint()` or cast `COUNT(*)` to `integer`
+
+5. **Issue #5**: `compose()` ignores budget (#271)
+   - System prompt may exceed token limit
+   - Fix: Call `compose_within_budget()` instead of `compose()`
+
+### 340c. Inter-Review Commit Flow (psypi-commit)
+
+The two-phase commit flow:
+
+**Phase 1** (trigger_review):
+1. S calls `psypi-commit "message"`
+2. `tool_commit.trigger_review()` gets git diff
+3. Calls `inter_review.request_review(None, None, "autonomic", context)`
+4. SQL function `request_inter_review()` creates review record
+5. Returns review_id to S
+6. S is told to call `psypi-commit` again with review_id
+
+**Phase 2** (commit_if_reviewed):
+1. S calls `psypi-commit "message" review_id`
+2. `tool_commit.commit_if_reviewed()` calls `get_review_details(review_id)`
+3. **FAILS** because `requested_at` decode fails (#269)
+4. S gets error "Review not found" even though it exists
+
+**Phase 2.5** (if decode were fixed):
+1. `get_review_details` succeeds
+2. Checks `review.overall_score`
+3. `overall_score` is `None` because A-bot never wrote it (#259)
+4. S gets error "Review not yet complete"
+5. S waits forever because A-bot never writes the score
+
+**Root cause chain**: FFI mismatch → A-bot never wakes → A-bot never reviews
+→ score never written → commit permanently blocked.
+
+**Issue #271** | Severity: **MEDIUM** | Category: Logic — compose() ignores token budget, should use compose_within_budget()
+
+**Issue #272** | Severity: **HIGH** | Category: Architecture — inter-review commit flow has 3 independent blockers that must all be fixed for commits to work
 
 **Issue #267** | Severity: **HIGH** | Category: Architecture — 39.5% of modules broken/partial after correct DB verification
