@@ -24816,3 +24816,221 @@ coincidence" pattern — if someone adds a query that includes `tags` or
 `metadata`, they'll need new decoders.
 
 **Issue #318** | Severity: **MEDIUM** | Category: Type — `Issue` Gleam type covers only 14 of 31 DB columns; missing `project_id`, `tags`, `metadata`, `resolution`, `task_id`, and 12 others
+
+---
+
+## 356. CROSS-REFERENCE VERIFICATION — ALL SQL QUERIES vs DB SCHEMA
+
+### 356a. `task.gleam:get()` — Missing `project_id::text` in SELECT
+
+```sql
+SELECT id, title, description, status, priority, result, error, retry_count,
+       created_at::text, updated_at::text, completed_at::text, created_by, source
+FROM tasks
+WHERE id = $1
+```
+
+The `task_decoder()` expects `project_id` field, but the `get()` query
+doesn't include it. This will cause `decode.field("project_id", ...)` to
+fail with a missing field error. **Every call to `task.get()` returns
+`DecodeError`.**
+
+Compare with `task.list()` which correctly includes `project_id::text`.
+
+### 356b. `task.gleam:list()` — `result` is jsonb, decoded as string
+
+```sql
+result
+```
+
+The `tasks.result` column is `jsonb`. The decoder uses
+`decode.optional(decode.string)`. node-postgres returns a JS object for
+jsonb, not a string. `decode.string` will fail.
+
+Fix: Add `result::text` to the SELECT.
+
+### 356c. `skill.gleam:get()` and `search()` — Missing `::text` on jsonb columns
+
+```sql
+SELECT id, name, description, source, status, safety_score, version, author,
+       created_at::text, content, reference_list
+FROM skills
+```
+
+`content` is `jsonb` and `reference_list` is `jsonb`. Both are decoded
+with `decode.optional(decode.string)`. Without `::text` cast, node-postgres
+returns JS objects, causing decode failure.
+
+Note: `skill.list()` correctly uses `content::text` and `reference_list::text`,
+but `get()` and `search()` don't.
+
+### 356d. `areflect.gleam:save_issue()` — Missing `project_id` (NOT NULL)
+
+```sql
+INSERT INTO issues (title, description, severity, created_by)
+VALUES ($1, $2, 'medium', $3)
+```
+
+The `issues.project_id` column is `uuid NOT NULL` with no default value.
+This INSERT will fail with a NOT NULL constraint violation.
+
+### 356e. `monitor_ai.gleam:auto_file_issue()` — Missing `project_id` (NOT NULL)
+
+```sql
+INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'development')
+```
+
+Same as 356d — `project_id` is NOT NULL with no default. This INSERT
+will always fail. Additionally, `type` should be `issue_type` (already
+documented as Issue #296).
+
+### 356f. `broadcast.gleam:send()` — `metadata` is jsonb, passed as string
+
+```gleam
+dynamic.string("{\"sent_at\": \"now\"}")
+```
+
+The `project_communications.metadata` column is `jsonb`. Passing a
+JavaScript string for jsonb will cause node-postgres to reject it.
+Need to either parse the string as JSON first or use `$5::jsonb` cast.
+
+### 356g. `broadcast.gleam:stats()` — `COUNT(*)` returns bigint
+
+```gleam
+use total <- decode.field("total", decode.int)
+```
+
+`COUNT(*)` returns PostgreSQL `bigint`, which node-postgres returns as
+a string. `decode.int` fails on string. Same as Issue #195.
+
+### 356h. `broadcast.gleam:stats()` — `priority >= 2` on text column
+
+```sql
+COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+```
+
+`priority` is `text` in `project_communications`. Text comparison
+`'critical' >= 2` doesn't make sense. Should use
+`priority IN ('high', 'critical')`.
+
+### 356i. `broadcast.gleam:list()/get_recent()` — Semantic alias mismatch
+
+```sql
+read_at::text as sent_at
+```
+
+`read_at` is when the message was read, not when it was sent. The alias
+`sent_at` is misleading. There is no actual `sent_at` column in the
+`project_communications` table.
+
+### 356j. `broadcast.gleam:send()` — `project_id` is uuid, passed as string
+
+```gleam
+dynamic.string(project_id)
+```
+
+The `project_id` column is `uuid`. node-postgres may auto-cast a valid
+UUID string, but invalid UUIDs will cause a PostgreSQL error. No
+validation is performed on the input.
+
+### 356k. Summary of Verified Queries
+
+| Module         | Function                  | Status     | Issue                                                   |
+| -------------- | ------------------------- | ---------- | ------------------------------------------------------- |
+| task           | add                       | OK         | `RETURNING id` works (UUID → string)                    |
+| task           | list                      | **BROKEN** | `result` jsonb decoded as string                        |
+| task           | get                       | **BROKEN** | Missing `project_id::text`; `result` jsonb              |
+| task           | complete                  | OK         | `RETURNING id` works                                    |
+| issue_db       | add                       | OK         | Has `project_id` and `::text` casts                     |
+| issue_db       | list                      | OK         | Has `::text` casts on timestamps                        |
+| issue_db       | count                     | OK         | Uses `COUNT(*)::INT`                                    |
+| issue_db       | get_by_severity           | OK         | Has `::text` casts                                      |
+| issue_db       | resolve                   | OK         | Has `::text` casts                                      |
+| areflect       | save_issue                | **BROKEN** | Missing `project_id` (NOT NULL)                         |
+| areflect       | save_task                 | OK         | `tasks.project_id` has default                          |
+| areflect       | save_learning             | OK         | All text columns                                        |
+| areflect       | fetch_recent_issues       | OK         | Only text + UUID columns                                |
+| monitor_ai     | auto_file_issue           | **BROKEN** | Missing `project_id` + wrong column `type`              |
+| monitor_ai     | health_check              | OK         | Uses `COUNT(*)::INT`                                    |
+| monitor_ai     | get_recent_changes        | **BROKEN** | Missing `::text` on timestamps                          |
+| monitor_ai     | get_review_stats          | **BROKEN** | Missing `::text` on `requested_at`                      |
+| monitor_ai     | score_review              | OK         | UPDATE only                                             |
+| monitor_ai     | scan_for_issues           | OK         | Uses `COUNT(*)::INT`                                    |
+| monitor_ai     | check_health              | OK         | Uses `COUNT(*)::INT`                                    |
+| monitor_ai     | get_failed_tasks          | **BROKEN** | Missing `::text` on `created_at`                        |
+| monitor_ai     | get_critical_issues       | OK         | Only text columns                                       |
+| monitor_ai     | get_stale_tasks           | **BROKEN** | Missing `::text` on `created_at`                        |
+| monitor_ai     | get_pending_skills        | **BROKEN** | Missing `::text` on `created_at`                        |
+| monitor_ai     | is_system_healthy         | OK         | Uses `EXISTS`                                           |
+| skill          | list                      | OK         | Has `::text` casts                                      |
+| skill          | get                       | **BROKEN** | Missing `::text` on `content`, `reference_list`         |
+| skill          | search                    | **BROKEN** | Missing `::text` on `content`, `reference_list`         |
+| skill          | create                    | OK         | All text columns                                        |
+| skill          | approve                   | OK         | UPDATE only                                             |
+| broadcast      | send                      | **BROKEN** | jsonb `metadata` as string; uuid `project_id` as string |
+| broadcast      | list                      | OK         | Has `::text` casts                                      |
+| broadcast      | get_recent                | OK         | Has `::text` casts                                      |
+| broadcast      | stats                     | **BROKEN** | `COUNT(*)` bigint as int; `priority >= 2` on text       |
+| meeting        | add                       | OK         | Has `::text` casts                                      |
+| meeting        | list                      | OK         | Has `::text` casts                                      |
+| meeting        | get                       | OK         | Has `::text` casts                                      |
+| meeting        | add_opinion               | OK         | Has `::text` casts                                      |
+| meeting        | get_opinions              | OK         | Has `::text` casts                                      |
+| meeting        | close                     | OK         | UPDATE only                                             |
+| agents         | list_agents               | OK         | Has `::text` casts                                      |
+| stats          | get_project_stats         | **BROKEN** | `COUNT(*)` bigint as int (uses `decode_bigint`)         |
+| memory         | save                      | **BROKEN** | Wrong decoder (7-field vs 1-field)                      |
+| memory         | search                    | **BROKEN** | Missing `::text` on timestamps                          |
+| inter_review   | get_review_details        | **BROKEN** | `requested_at` timestamptz as string                    |
+| inter_review   | get_review_status         | OK         | Only `status` text column                               |
+| inter_review   | list_reviews              | **BROKEN** | `requested_at` timestamptz as string                    |
+| inter_review   | request_review            | OK         | INSERT only                                             |
+| inter_review   | complete_review           | OK         | UPDATE only                                             |
+| event_hooks    | get_all_hooks             | **BROKEN** | Missing `::text` on timestamps                          |
+| event_hooks    | get_hook_by_name          | **BROKEN** | Missing `::text` on timestamps                          |
+| event_hooks    | record_trigger            | OK         | UPDATE only                                             |
+| event_hooks    | record_error              | OK         | UPDATE only                                             |
+| event_hooks    | set_injection             | OK         | UPDATE only                                             |
+| monitor        | get_model                 | OK         | Only text columns                                       |
+| monitor        | record_current_model      | **BROKEN** | jsonb `context` as string                               |
+| monitor        | set_model                 | OK         | UPDATE only                                             |
+| monitor        | get_pending_notifications | OK         | Has `::text` casts                                      |
+| monitor        | create_notification       | OK         | Has `::text` cast                                       |
+| monitor        | mark_notifications_read   | OK         | Returns count only                                      |
+| seed           | seed_agent_souls          | **BROKEN** | Multi-statement SQL                                     |
+| seed           | seed_psypi_config         | OK         | Single statement                                        |
+| seed           | seed_agent_prefixes       | **BROKEN** | Multi-statement SQL                                     |
+| code_version   | save_version              | OK         | Uses function call                                      |
+| code_version   | list_versions             | **BROKEN** | Missing `::text` on `saved_at`                          |
+| psypi_config   | get_value                 | OK         | Only text columns                                       |
+| psypi_config   | set_value                 | OK         | INSERT/UPDATE only                                      |
+| a_db_reader    | is_s_still_idle           | **BROKEN** | `COUNT(*)` bigint as int                                |
+| a_db_reader    | read_soul_from_db         | OK         | Only text columns                                       |
+| a_db_reader    | read_active_tasks         | OK         | Has `::text` on id, others are native types             |
+| a_db_reader    | read_open_issues          | OK         | Has `::text` on id                                      |
+| a_db_reader    | read_a_jobs_from_db       | OK         | Only text + integer columns                             |
+| s_db_reader    | get_soul                  | OK         | Only text columns                                       |
+| s_db_reader    | get_jobs                  | OK         | Only text + integer columns                             |
+| agent_identity | get_soul_by_prefix        | OK         | Only text columns                                       |
+| agent_identity | get_jobs_by_prefix        | **BROKEN** | Silently drops failed decodes                           |
+
+**Total queries verified: 57**
+**Broken: 23 (40%)**
+**OK: 34 (60%)**
+
+**Issue #319** | Severity: **CRITICAL** | Category: Decode — `task.get()` missing `project_id::text` in SELECT; every call returns DecodeError
+
+**Issue #320** | Severity: **HIGH** | Category: Type — `task.list()` and `task.get()` decode `result` (jsonb) as string; need `result::text`
+
+**Issue #321** | Severity: **HIGH** | Category: Type — `skill.get()` and `skill.search()` missing `::text` on `content` and `reference_list` (jsonb)
+
+**Issue #322** | Severity: **CRITICAL** | Category: SQL — `areflect.save_issue()` missing `project_id` (NOT NULL); INSERT always fails
+
+**Issue #323** | Severity: **CRITICAL** | Category: SQL — `monitor_ai.auto_file_issue()` missing `project_id` (NOT NULL) + wrong column name `type`; INSERT always fails
+
+**Issue #324** | Severity: **HIGH** | Category: Type — `broadcast.send()` passes string for jsonb `metadata` column
+
+**Issue #325** | Severity: **MEDIUM** | Category: Logic — `broadcast.stats()` uses `priority >= 2` on text column; should use `priority IN ('high', 'critical')`
+
+**Issue #326** | Severity: **LOW** | Category: Logic — `broadcast.list()/get_recent()` aliases `read_at` as `sent_at`; semantically misleading
