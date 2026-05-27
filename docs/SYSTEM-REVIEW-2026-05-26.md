@@ -19639,3 +19639,232 @@ The DEFINITIVE count based on `information_schema.tables WHERE table_type='BASE 
 - Tools working end-to-end: ~10/35 (28.6%) — down from 18/35 (51.4%)
 - Hooks working correctly: 0/7 (0%) — down from 2/7 (28.6%)
 - All hook trigger recording is broken (psypi_event_hooks doesn't exist)
+
+---
+
+## 307. A→S WAKEUP CHAIN — COMPLETE END-TO-END TRACE
+
+### 307.1 The Chain (14 Steps)
+
+The A→S wakeup chain is triggered when S-bot (Somatic) finishes a task and
+becomes idle. The `agent_end` hook fires, and after a debounce period, the
+A-bot (Autonomic) wakes up to send a message to S-bot.
+
+```
+Step 1: Pi SDK fires "agent_end" event
+  ↓
+Step 2: extension.js agent_end handler fires
+  ↓ (JS debounce timer — 15min from DB seed data)
+Step 3: hook_on_agent_end.on_agent_end(ctx, pi) called
+  ↓
+Step 4: Check ctx_is_idle(ctx) — is S-bot idle?
+  ↓ False → clear idle_since, STOP
+  ↓ True
+Step 5: Check ctx_has_pending_messages(ctx) — any pending?
+  ↓ True → STOP (S has work to do)
+  ↓ False
+Step 6: check_idle_since() — read from in-memory config store
+  ↓ None/"0" → record timestamp, STOP (wait for next cycle)
+  ↓ Some(idle_since_str)
+Step 7: Parse idle_since, compute elapsed = now_ms() - idle_since
+  ↓
+Step 8: Read monitor_debounce_ms from in-memory config store
+  ↓ None → use default 300000ms (5 min)
+  ↓ Some(str) → parse as int
+Step 9: Compare elapsed >= debounce_ms
+  ↓ False → STOP (debounce not satisfied)
+  ↓ True
+Step 10: coordinate_with_s() — double-check S is still idle
+  ↓ ctx_is_idle(ctx) == False → STOP
+  ↓ True
+Step 11: a_db_reader.is_s_still_idle() — DB check
+  ↓ Ok(False) → STOP (S is busy per DB)
+  ↓ Ok(True) or Error(_) → proceed (ERROR ALSO PROCEEDS!)
+Step 12: a_orchestrator.run_a_workflow()
+  ↓
+Step 13: read_soul_from_db() → FAILS (agent_souls doesn't exist)
+  ↓ Error → pi_send_message("autonomic-error", ...), STOP
+Step 14: (NEVER REACHED) read_a_jobs_from_db() → would also FAIL
+```
+
+### 307.2 Step-by-Step Analysis
+
+| Step                         | Works?            | Issue                                                                |
+| ---------------------------- | ----------------- | -------------------------------------------------------------------- |
+| 1. Pi fires agent_end        | YES               | Pi SDK behavior                                                      |
+| 2. JS debounce timer         | PARTIAL           | 15min from DB seed, but in-memory store has 5min default             |
+| 3. on_agent_end called       | YES               | Extension hook works                                                 |
+| 4. ctx_is_idle check         | YES               | FFI function works                                                   |
+| 5. pending_messages check    | YES               | FFI function works                                                   |
+| 6. check_idle_since          | PARTIAL           | In-memory config lost on restart                                     |
+| 7. Parse idle_since          | YES               | int.parse works                                                      |
+| 8. Read debounce config      | **BROKEN**        | In-memory store never initialized from DB                            |
+| 9. Compare debounce          | YES               | Logic correct, but wrong values                                      |
+| 10. coordinate_with_s        | YES               | Double-check pattern correct                                         |
+| 11. is_s_still_idle DB check | **BROKEN**        | COUNT(*) returns bigint, decode.int fails, falls through to Ok(True) |
+| 12. run_a_workflow           | YES               | Called correctly                                                     |
+| 13. read_soul_from_db        | **BROKEN**        | agent_souls table doesn't exist → Error → STOP                       |
+| 14. read_a_jobs_from_db      | **NEVER REACHED** | Blocked by step 13 failure                                           |
+
+### 307.3 The Chain is BROKEN at Step 13
+
+The chain always terminates at step 13 with an error message sent to S-bot:
+```
+[A-agentbot] <ERROR> read_soul_from_db failed: DB query: relation "agent_souls" does not exist.
+Check agent_souls table: SELECT * FROM agent_souls WHERE id_prefix='A'
+```
+
+This means:
+- A-bot NEVER successfully reads its soul
+- A-bot NEVER reads its jobs
+- A-bot NEVER calls the LLM (call_monitor)
+- A-bot NEVER sends a wakeup message to S-bot
+- The entire A→S coordination system is NON-FUNCTIONAL
+
+### 307.4 Even If Step 13 Were Fixed
+
+If `agent_souls` existed (or code was updated to use `soul` table):
+
+1. Step 13 would return soul content — but only Monitor entries exist, no A-bot entries
+2. Step 14 would fail — `agent_jobs` doesn't exist
+3. Even if both were fixed, `read_project_state_from_db()` calls:
+   - `read_active_tasks()` — works (tasks table exists, is_stuck column exists)
+   - `read_open_issues()` — **BROKEN** (issues table missing severity column? Let me check)
+
+Let me verify the `read_open_issues` query:
+
+```sql
+SELECT id::text, title, severity FROM issues WHERE status NOT IN ('resolved','closed')
+```
+
+The `issues` table DOES have `severity` column (but it's nullable, not NOT NULL as in migration).
+The `status` column also exists. So this query should work.
+
+4. `compose()` doesn't enforce budget — system prompt may exceed context window
+5. `call_monitor()` has LLM pipeline issues (no history, no timeout, degraded retry)
+6. `pi_send_message()` ignores the `display` parameter
+
+### 307.5 Double Debounce Analysis
+
+The chain has TWO debounce mechanisms:
+
+**JS-side debounce** (in generated extension.js):
+- Set from DB seed data: `monitor_debounce_ms = 900000` (15 minutes)
+- Implemented as `setTimeout` in the agent_end hook handler
+- Controls when `on_agent_end()` is actually called
+
+**Gleam-side debounce** (in hook_on_agent_end.gleam):
+- Reads `monitor_debounce_ms` from in-memory config store
+- Default: 300000ms (5 minutes) if not set
+- In-memory store is NEVER initialized from DB
+- So Gleam-side debounce uses 5min default
+
+**Result**: JS waits 15min, then Gleam checks if 5min have passed since
+idle_since was recorded. Since idle_since is recorded when the JS timer fires,
+the elapsed time is always ~0ms, so Gleam-side debounce is NEVER satisfied
+on the first check. The chain only proceeds on the SECOND agent_end event
+(after another 15min JS debounce + 5min Gleam debounce = 20min total).
+
+Wait — that's not quite right. Let me re-trace:
+
+1. S finishes task → agent_end fires
+2. JS debounce starts (15min timer)
+3. After 15min, on_agent_end() is called
+4. ctx_is_idle=True, no pending messages
+5. get_config("idle_since") → None (first time)
+6. set_config("idle_since", now_ms()) → records timestamp
+7. STOP — wait for next cycle
+
+8. S does nothing → another agent_end fires (or same one re-triggers?)
+   Actually, the agent_end hook only fires once per S-bot turn.
+   So the Gleam debounce NEVER gets a second chance unless S does another turn.
+
+**This means the A-bot NEVER wakes up.** The Gleam debounce requires TWO
+agent_end events, but only ONE fires per S-bot turn. The idle_since is set
+on the first event, and the debounce check happens on the SAME event — but
+elapsed is 0ms, which is less than 5min, so it stops.
+
+The only way the chain proceeds is if:
+- S does another short task within the debounce window
+- The second agent_end fires while idle_since is still set
+- The elapsed time exceeds the debounce threshold
+
+This is a fundamental design flaw in the debounce mechanism.
+
+### 307.6 Corrected Chain Verdict
+
+| Metric                  | Value                                                     |
+| ----------------------- | --------------------------------------------------------- |
+| Total steps             | 14                                                        |
+| Steps that work         | 8 (57%)                                                   |
+| Steps that are broken   | 4 (29%)                                                   |
+| Steps never reached     | 2 (14%)                                                   |
+| Chain reaches LLM call  | **NEVER**                                                 |
+| Chain sends wakeup to S | **NEVER**                                                 |
+| Root cause              | Step 13: agent_souls doesn't exist + debounce design flaw |
+
+---
+
+## 308. INTER-REVIEW COMMIT FLOW — END-TO-END TRACE
+
+### 308.1 The Chain (9 Steps)
+
+```
+Step 1: S-bot requests inter-review via tool
+  ↓
+Step 2: inter_review.request_review() called
+  ↓
+Step 3: SQL function request_inter_review() creates review record
+  ↓
+Step 4: A-bot reads review (via wakeup chain — BROKEN, see §307)
+  ↓
+Step 5: A-bot calls LLM to review (via call_monitor — NEVER REACHED)
+  ↓
+Step 6: A-bot writes review score (record_review_score — NEVER CALLED)
+  ↓
+Step 7: S-bot checks review status (is_review_complete)
+  ↓
+Step 8: S-bot reads review score (get_review_details)
+  ↓
+Step 9: If score >= threshold, commit proceeds
+```
+
+### 308.2 Step-by-Step Analysis
+
+| Step                   | Works?            | Issue                                                                |
+| ---------------------- | ----------------- | -------------------------------------------------------------------- |
+| 1. S requests review   | YES               | Tool definition exists                                               |
+| 2. request_review()    | PARTIAL           | Creates record but param semantics wrong                             |
+| 3. SQL function        | PARTIAL           | Inserts with status='pending', Gleam expects 'requested'             |
+| 4. A-bot reads review  | **BROKEN**        | A-bot wakeup chain broken (§307)                                     |
+| 5. A-bot LLM review    | **NEVER REACHED** | Blocked by step 4                                                    |
+| 6. Write review score  | **NEVER CALLED**  | record_review_score() exists but never invoked                       |
+| 7. Check review status | PARTIAL           | is_review_complete checks for "completed" but status stays "pending" |
+| 8. Read review details | **BROKEN**        | requested_at not cast to ::text, id not cast to ::text               |
+| 9. Commit proceeds     | **NEVER**         | overall_score stays NULL, commit blocked                             |
+
+### 308.3 The Score Never Gets Written
+
+The function `record_review_score()` exists in `monitor_ai.gleam` but is
+NEVER called by any code path. The A-bot workflow in `a_orchestrator.gleam`
+calls `call_monitor()` and sends the response to S-bot via `pi_send_message()`,
+but never writes the score to the `inter_reviews` table.
+
+The `handle_monitor_response()` function:
+```gleam
+Ok(response) -> {
+  pi_send_message(pi, "autonomic-wakeup", response, "persistent")
+  // ← No call to record_review_score() here!
+}
+```
+
+### 308.4 Commit Flow Verdict
+
+| Metric                | Value                                            |
+| --------------------- | ------------------------------------------------ |
+| Total steps           | 9                                                |
+| Steps that work       | 2 (22%)                                          |
+| Steps that are broken | 3 (33%)                                          |
+| Steps never reached   | 4 (44%)                                          |
+| Commits can proceed   | **NEVER**                                        |
+| Root cause            | A-bot wakeup broken + review score never written |
