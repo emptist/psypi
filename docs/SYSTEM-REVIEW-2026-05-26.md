@@ -1,4 +1,4 @@
-# System Review — psypi — 2026-05-27 (v37)
+# System Review — psypi — 2026-05-27 (v38)
 
 Every finding verified against live PostgreSQL database, Gleam source, and git history.
 No assumptions. No documentation trust. Only verified facts.
@@ -17,9 +17,9 @@ No assumptions. No documentation trust. Only verified facts.
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 42    | 19.4%      |
-| **HIGH**     | 84    | 38.7%      |
-| **MEDIUM**   | 58    | 26.7%      |
+| **CRITICAL** | 40    | 18.4%      |
+| **HIGH**     | 85    | 39.2%      |
+| **MEDIUM**   | 59    | 27.2%      |
 | **LOW**      | 33    | 15.2%      |
 
 ### Category Breakdown
@@ -37,16 +37,16 @@ No assumptions. No documentation trust. Only verified facts.
 | **Error Handling**        | 13     | 1         | 6 swallowed errors returning Ok(default), no logging infrastructure       |
 | **SQL Schema Mismatch**   | 8      | 4         | Missing NOT NULL columns, wrong column names, jsonb as string             |
 | **Tool Audit (35 tools)** | 9      | 4         | 8 BROKEN, 7 PARTIAL, 12 WORKS, 8 NOT-AUDITED                              |
-| **Logic/Programming**     | 24     | 3         | JS→Gleam type mismatch, stub tools, missing git add, no heartbeat         |
+| **Logic/Programming**     | 24     | 1         | JS→Gleam type mismatch, stub tools, missing git add, no heartbeat         |
 | **Table Ownership**       | 2      | 0         | 96 tables shared; 5 modules INSERT without project_id                     |
 
 ### Top 10 System-Stopping Issues (Priority Fix Order)
 
 1. **#332 — `get_config` FFI returns JS `null`/`string` which never matches Gleam `None`/`Some` constructors**: The `Some` branch in `hook_on_agent_end` is NEVER reached. `idle_since` is always re-recorded as `now()`. Debounce never fires. **A-bot wakeup is completely broken.** This is the single most critical bug. Fix: `return new Some(value)` / `return new None()` in `pi_extension_ffi.mjs`.
 
-2. **#351 — `psypi-my-id` passes JS named-key object to Gleam positional record**: The extension generator produces `({ is_idle: ctx.isIdle(), ... })` but Gleam expects `{ '0': true, '1': 'anthropic', ... }`. All `IdentityContext` fields are `undefined`. **The `psypi-my-id` tool ALWAYS fails.** Fix: change `lit()` expression to construct Gleam record format.
+2. **#351 — `psypi-my-id` missing `project` and `global` fields in generated JS object** *(VERIFIED AGAINST COMPILED JS)*: Gleam's compiled `IdentityContext` uses named keys (not positional), so provided fields DO match. But `project` and `global` are missing from the `lit()` expression. `semantic_id()` reads `ctx.project` → `undefined` → stringifies to `"undefined"` in ID. Semantic ID becomes `"S-undefined-anthropic-claude-3.5-sonnet"` instead of `"S-psypi-anthropic-..."`. G-prefix never used. Fix: add `project: resolve_project(ctx.cwd || '')` and `global: !check_git_exists(ctx.cwd || '')` to `lit()` expression.
 
-3. **#352 — Extension generator has no JS→Gleam type conversion mechanism**: Tools that receive complex types (records, enums) always fail because the generator only produces raw JS text. No type-aware argument marshalling exists. **Any tool receiving a Gleam record type is broken.** Fix: add type-aware code generation for Gleam record constructors.
+3. **#352 — Extension generator requires manual field management for record types** *(VERIFIED)*: The `lit()` helper produces raw JS text with no auto-detection of required fields. Missing fields cause data quality bugs (not total failures since Gleam uses named keys). Fix: add type-aware code generation or validation for record field completeness.
 
 4. **#322/#323 — `areflect.save_issue()` and `monitor_ai.auto_file_issue()` missing `project_id` (NOT NULL)**: The `issues.project_id` column is `uuid NOT NULL` with no default. Both INSERT statements will fail with a NOT NULL constraint violation. **No issues can be created via areflect or auto_file_issue.** `monitor_ai.auto_file_issue()` also uses wrong column name `type` instead of `issue_type`. Fix: add `project_id` to INSERT statements.
 
@@ -64,7 +64,7 @@ No assumptions. No documentation trust. Only verified facts.
 
 ### The Four Root Causes
 
-1. **FFI Type Boundary Violations**: Gleam's type system is bypassed at the JavaScript boundary. Functions like `get_config` return raw JS values instead of proper Gleam constructors. The extension generator produces JS object literals with named keys, but Gleam expects positional record fields. The compiler cannot catch these errors.
+1. **FFI Type Boundary Violations**: Gleam's type system is bypassed at the JavaScript boundary. Functions like `get_config` return raw JS values instead of proper Gleam constructors. The extension generator's `lit()` helper requires manual field management — missing fields in JS object literals cause `undefined` values in Gleam records. The compiler cannot catch these errors.
 
 2. **Missing `::text` Casts**: PostgreSQL returns rich types (UUID, timestamptz, jsonb, bigint) as JavaScript objects, but Gleam decoders expect strings. The fix is simple (`::text` cast in SQL) but pervasive (14+ queries affected).
 
@@ -25846,69 +25846,11 @@ S to respond, even if A just wants to log something.
 
 **Issue #350** | Severity: **MEDIUM** | Category: Logic — `pi_send_message` ignores `display` parameter; all messages trigger S-agent turn even when display is "silent"
 
-### 359t. `agent_identity.gleam` `get_enriched_identity` Receives JS Object as Gleam Type
+### 359t. `psypi-my-id` Missing `project` and `global` Fields in Generated JS Object
 
-The `psypi-my-id` tool passes a JS object literal as the argument:
-```gleam
-lit("({ is_idle: ctx.isIdle(), source: (ctx.model?.provider || ''), "
-  <> "model: (ctx.model?.id || ''), "
-  <> "thinking_level: (ctx.model?.thinkingLevel || ''), "
-  <> "cwd: (ctx.cwd || '') })"),
-```
+**VERIFIED AGAINST COMPILED GLEAM JS OUTPUT.**
 
-This creates a JS object like:
-```javascript
-{ is_idle: true, source: 'anthropic', model: 'claude-3.5-sonnet', thinking_level: 'medium', cwd: '/path' }
-```
-
-But the Gleam function signature is:
-```gleam
-pub fn get_enriched_identity(ctx: IdentityContext) -> promise.Promise(Result(EnrichedIdentity, IdentityError))
-```
-
-The `IdentityContext` type expects a Gleam record, but it receives a
-JS object. Gleam compiles records as JS objects with numeric keys
-(`{ '0': true, '1': 'anthropic', ... }`), not named keys.
-
-So when the generated JS code calls:
-```javascript
-const result = await agent_identity_get_enriched_identity({
-  is_idle: ctx.isIdle(), source: ..., model: ..., ...
-});
-```
-
-The Gleam function receives `{ is_idle: true, source: 'anthropic', ... }`
-but expects `{ '0': true, '1': 'anthropic', ... }`. The field names
-don't match. The `IdentityContext` fields will all be `undefined`.
-
-Wait — actually, Gleam's record access compiles to `ctx.is_idle` for
-named fields? No — Gleam compiles record access to positional access
-(`ctx[0]`, `ctx[1]`). So `ctx.is_idle` in the JS object is NEVER read
-by the Gleam code. The Gleam code reads `ctx['0']` which is `undefined`.
-
-This means `get_enriched_identity` receives an IdentityContext where
-ALL fields are undefined:
-- `is_idle` → `undefined` → falsy → prefix = "S" (not "A")
-- `model` → `undefined` → empty string → `semantic_id` returns Error
-- `cwd` → `undefined` → empty string → `resolve_project` returns "non-project"
-
-The `semantic_id` function will return `Error(NotFound("missing model id"))`
-because `ctx.model` is `undefined` (not a string).
-
-**This means the `psypi-my-id` tool ALWAYS fails.** It can never return
-a valid identity because the JS object fields don't map to Gleam record
-fields.
-
-**Issue #351** | Severity: **CRITICAL** | Category: Logic — `psypi-my-id` tool passes JS object with named keys to Gleam function expecting positional record fields; all fields are `undefined`; tool always fails
-
-### 359u. Extension Generator Doesn't Handle `IdentityContext` Type Conversion
-
-Following from #351, the extension generator has no mechanism for
-converting JS objects to Gleam record types. The `from_param` and `lit`
-helpers only produce raw JS expressions. There's no type-aware argument
-marshalling.
-
-The generated code for `psypi-my-id`:
+The generated `extension.js` line 215:
 ```javascript
 const result = await agent_identity_get_enriched_identity(
   ({ is_idle: ctx.isIdle(), source: (ctx.model?.provider || ''),
@@ -25917,23 +25859,79 @@ const result = await agent_identity_get_enriched_identity(
 );
 ```
 
-This passes a JS object literal. But `get_enriched_identity` expects a
-Gleam `IdentityContext` record, which is compiled as a positional array:
+Gleam's compiled `IdentityContext` uses **NAMED keys** (not positional):
 ```javascript
-{ '0': is_idle, '1': project, '2': source, '3': model,
-  '4': thinking_level, '5': global, '6': cwd }
+export class IdentityContext extends $CustomType {
+  constructor(is_idle, project, source, model, thinking_level, global, cwd) {
+    super();
+    this.is_idle = is_idle;
+    this.project = project;
+    this.source = source;
+    this.model = model;
+    this.thinking_level = thinking_level;
+    this.global = global;
+    this.cwd = cwd;
+  }
+}
 ```
 
-The fix would be to change the `lit` expression to construct the Gleam
-record format:
+The provided fields (`is_idle`, `source`, `model`, `thinking_level`, `cwd`)
+ARE correctly matched by named key. The Gleam function CAN read them.
+
+**However, two fields are MISSING from the generated JS object:**
+- `project` — NOT provided → `undefined`
+- `global` — NOT provided → `undefined`
+
+**Impact of missing `project`:**
+In `semantic_id(ctx)`, the compiled JS does:
 ```javascript
-new IdentityContext(ctx.isIdle(), resolve_project(ctx.cwd), ...)
+let base = ((((((global_prefix + prefix) + "-") + ctx.project) + "-") + ctx.source) + "-") + ctx.model;
 ```
+When `ctx.project` is `undefined`, JavaScript converts it to the string
+`"undefined"` in string concatenation. The semantic ID becomes:
+`"S-undefined-anthropic-claude-3.5-sonnet"` instead of
+`"S-psypi-anthropic-claude-3.5-sonnet"`.
 
-But the extension generator doesn't know about Gleam record constructors.
-It only produces JS text strings.
+Note: `get_enriched_identity` also computes `project` from `resolve_project(ctx.cwd)`,
+but this computed `project` is used for the `EnrichedIdentity.project` field,
+NOT for the `semantic_id` call which reads `ctx.project` directly.
 
-**Issue #352** | Severity: **CRITICAL** | Category: Architecture — Extension generator has no mechanism for JS→Gleam type conversion; tools that receive complex types always fail
+**Impact of missing `global`:**
+In `semantic_id(ctx)`, the compiled JS does:
+```javascript
+let $1 = ctx.global;
+if ($1) { _block$1 = "G-"; } else { _block$1 = ""; }
+```
+When `ctx.global` is `undefined` (falsy), the global prefix is always `""`.
+The G-prefix (for global/no-git agents) is never used.
+
+**The tool does NOT always fail.** It returns a result, but the semantic
+ID contains "undefined" as the project name. This is a data quality bug,
+not a total failure.
+
+**Issue #351** | Severity: **HIGH** | Category: Logic — `psypi-my-id` missing `project` and `global` fields in generated JS object; semantic ID contains "undefined" as project; G-prefix never used
+
+### 359u. Extension Generator Doesn't Auto-Compute Missing Record Fields
+
+Following from #351, the extension generator's `lit()` helper produces
+raw JS text. When a Gleam function expects a record type, the generator
+must manually include ALL fields in the JS object literal. There's no
+mechanism to:
+1. Auto-detect which fields are required vs computed
+2. Generate default values for missing fields
+3. Call Gleam constructor functions to create proper records
+
+The `psypi-my-id` tool is missing `project` and `global` because the
+developer who wrote the `lit()` expression forgot to include them.
+The `project` field should be computed from `ctx.cwd` (there's already
+a `resolve_project` function), and `global` should be computed from
+whether the cwd is in a git repo.
+
+This is a design limitation, not a total failure. The generator works
+for simple types (String, Int) but requires manual field management
+for complex record types.
+
+**Issue #352** | Severity: **MEDIUM** | Category: Architecture — Extension generator requires manual field management for record types; missing fields cause data quality bugs but not total failures
 
 ### 359v. `hook_on_agent_end` Debounce Uses In-Memory Config — Lost on Extension Reload
 
