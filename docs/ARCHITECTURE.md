@@ -79,6 +79,9 @@ src/
   skill.gleam                   -- psypi-skill-* tools
   stats.gleam                   -- psypi-stats-show
   system_prompt_types.gleam     -- PromptComposition with context window budget
+  system_review_types.gleam     -- System review and finding type definitions
+  system_review_db.gleam        -- System review and finding DB operations
+  system_review_tools.gleam     -- psypi-review-* tools
   task.gleam                    -- psypi-task-add/list/complete
   tool_commit.gleam             -- psypi-commit tool
   tool_consult.gleam            -- psypi-consult-autonomic tool

@@ -41,6 +41,12 @@ import pi_tool_call.{
 }
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
 import stats.{stats_show_tool}
+import system_review_tools.{
+  review_create_tool, review_get_tool, review_list_tool,
+  review_complete_tool, review_severity_breakdown_tool,
+  finding_add_tool, finding_list_tool, finding_count_tool,
+  finding_update_status_tool,
+}
 import task.{task_add_tool, task_complete_tool, task_list_tool}
 
 // ---------------------------------------------------------------------------
@@ -84,6 +90,15 @@ pub fn all_tools() -> List(PiToolCall) {
     list_active_hooks_tool(),
     consult_tool(),
     commit_tool(),
+    review_create_tool(),
+    review_get_tool(),
+    review_list_tool(),
+    review_complete_tool(),
+    review_severity_breakdown_tool(),
+    finding_add_tool(),
+    finding_list_tool(),
+    finding_count_tool(),
+    finding_update_status_tool(),
   ]
 }
 

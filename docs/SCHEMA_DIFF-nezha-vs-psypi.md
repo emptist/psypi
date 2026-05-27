@@ -110,3 +110,22 @@ All issue tools now enforce project_id scoping:
 - `psypi-issues` list tool accepts project_id as filter param but it was never tested
 
 *Created by S-bot during schema audit. For human review.*
+
+---
+
+## `system_reviews` + `review_findings` (psypi-only, 2026-05-27)
+
+These tables are psypi-only (not in nezha). Created for database-first system review strategy.
+
+| Feature | system_reviews | review_findings |
+|---------|---------------|-----------------|
+| Purpose | Track system-level reviews | Individual findings within a review |
+| Key columns | id, review_type, status, scope, methodology, project_id, git_hash | id, review_id (FK), finding_number, severity, category, module, title, status |
+| Severity values | N/A | critical, high, medium, low, cosmetic |
+| Finding status | N/A | open, confirmed, disputed, fixed, wont_fix, duplicate, retracted |
+| Review status | pending, in_progress, completed, follow_up, closed | N/A |
+| Related Gleam types | `system_review_types.gleam`: SystemReview, ReviewType, ReviewStatus | `system_review_types.gleam`: ReviewFinding, FindingSeverity, FindingStatus |
+| Related Gleam DB | `system_review_db.gleam` | `system_review_db.gleam` |
+| Related Pi tools | `system_review_tools.gleam` (9 tools) | Same |
+
+**Current review**: `ca9e914c-cce6-4db4-b3b1-29779d8e1837` — 96 findings (94 active, 2 retracted)

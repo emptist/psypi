@@ -32,6 +32,18 @@ All Pi tools are invoked from the **Psypi TUI prompt**. Just type a slash (`/`) 
     → runs the Monitor review, shows PASS/FAIL, then commits.
 ```
 
+## System Review
+```
+/psypi-review-list              # list all system reviews
+/psypi-review-get <id>          # get a specific review
+/psypi-review-findings <id>     # list findings for a review
+/psypi-review-findings-by-severity <id> <severity>
+                                 # filter findings by severity
+/psypi-review-stats <id>        # severity/category breakdown
+/psypi-review-update-finding <id> <number> <status>
+                                 # update a finding's status
+```
+
 ## Miscellaneous
 ```
 /psypi‑hooks‑list                 # show all event hooks
