@@ -9,39 +9,39 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 | Severity | Count | Percentage |
 |----------|-------|------------|
-| **CRITICAL** | 7 | 5.1% |
-| **HIGH** | 42 | 30.9% |
-| **MEDIUM** | 68 | 50.0% |
-| **LOW** | 19 | 14.0% |
-| **TOTAL** | 136 | 100% |
+| **CRITICAL** | 7 | 5.0% |
+| **HIGH** | 42 | 30.2% |
+| **MEDIUM** | 70 | 50.4% |
+| **LOW** | 20 | 14.4% |
+| **TOTAL** | 139 | 100% |
 
 ## Category Breakdown
 
 | Category | Count | Findings |
 |----------|-------|----------|
 | missing_cast | 29 | 1C/17H |
-| logic_error | 15 | 3C/5H |
+| logic_error | 16 | 3C/5H |
 | design_flaw | 12 |  |
 | unused_columns | 10 |  |
 | wrong_status | 8 | 0C/2H |
 | missing_project_id | 8 | 1C/2H |
+| error_handling | 6 |  |
 | ffi_mismatch | 6 | 2C/2H |
 | missing_params | 6 | 0C/2H |
 | type_mismatch | 5 | 0C/3H |
-| error_handling | 5 |  |
 | style | 4 |  |
 | disconnected_systems | 4 | 0C/2H |
-| wrong_column | 3 | 0C/3H |
+| security | 3 |  |
+| hardcoded_config | 3 |  |
 | design | 3 |  |
 | config_desync | 3 | 0C/2H |
-| hardcoded_config | 3 |  |
+| wrong_column | 3 | 0C/3H |
 | dead_code | 3 |  |
-| test_coverage | 2 |  |
-| security | 2 |  |
 | performance | 2 | 0C/1H |
+| test_coverage | 2 |  |
+| unused_table | 1 |  |
 | type_coverage | 1 |  |
 | wrong_decoder | 1 | 0C/1H |
-| unused_table | 1 |  |
 
 ## Findings by Severity
 
@@ -138,6 +138,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 248 | logic_error | monitor | monitor.set_model blanket reset race condition | Temporary window where no API key is active. Concurrent set_model calls could corrupt state. |
 | 267 | logic_error | event_hooks | record_trigger called twice per agent start: before_agent_start and agent_start both trigger on same event | Duplicate trigger records inflate event counts. Monitoring based on trigger counts will be inaccurate. |
 | 269 | logic_error | simple_migrate | simple_migrate.gleam may silently drop multi-statement migration scripts | Schema may be partially applied. Tables created but indexes/constraints/triggers silently dropped. This is worse than seed because it affects schema correctness. |
+| 271 | logic_error | command_listen | command_listen bypasses A-bot debounce chain — directly calls LLM and sends to S with no DB record | Human-triggered A messages bypass all safety mechanisms. No audit trail. No debounce. Could flood S with messages if human types rapidly. |
 | 104 | missing_cast | task | task.get missing project_id::text in SELECT | Task get may fail to decode project_id |
 | 105 | missing_cast | task | task.list id not cast to text | Task list may fail to decode id |
 | 106 | missing_cast | agents | agents.list missing ::text cast on created_at | Agent list may fail to decode |
@@ -158,6 +159,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 253 | performance | db | No connection pooling — every query creates and destroys a connection | Connection overhead on every query. Under concurrent load, connection exhaustion or slowdown. |
 | 155 | security | pi_extension_ffi | exec_sync allows command injection via unsanitized input | Arbitrary command execution if tool params contain shell metacharacters |
 | 162 | security | db | SQL injection risk: string interpolation in WHERE clauses | Potential SQL injection if filter values contain SQL metacharacters |
+| 272 | security | node_ffi | node_ffi execute() uses execSync with unsanitized shell commands — command injection risk | If any caller forgets to escape, arbitrary commands can be executed. The type system does not enforce sanitization. |
 | 164 | type_coverage | multiple | 80 public types across 28 modules; no type audit exists | Cannot verify which DB tables have matching Gleam types without a mapping |
 | 228 | type_mismatch | meeting | MeetingStatus has Pending but DB only allows active/completed/cancelled | INSERT with pending status will fail DB constraint; Gleam type allows invalid state |
 | 230 | type_mismatch | issue_types | IssueType missing proposal which DB allows | Decode fails for proposal-type issues; cannot create proposal issues from Gleam |
@@ -183,6 +185,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 150 | design_flaw | hook_on_tool_call | Only triggers on tool named "edit" | Other tool calls not tracked |
 | 143 | error_handling | issue_db | issue_db.count() returns Ok(0) on decode failure | Reports 0 issues when decode fails; misleading |
 | 144 | error_handling | a_db_reader | a_db_reader reports Ok(True) on decode failure | Errors hidden; always reports no sessions |
+| 273 | error_handling | db | db.gleam with_connection() ignores disconnect errors — potential connection leak | Connection leak if disconnect fails. Over time could exhaust pool. Low severity because PostgreSQL connections auto-close on process exit. |
 | 257 | logic_error | pi_extension_ffi | _configStore in-memory cache has race condition with concurrent access | Under concurrent access, stale config values may be used. Dual store (DB + in-memory) without synchronization. |
 | 130 | missing_params | issue_tools | psypi-issue-add references created_by not in params | Always defaults to "psypi" |
 | 131 | missing_params | issue_tools | psypi-issues does not declare limit/offset in params | No way to page through results |
@@ -1253,6 +1256,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: Schema may be partially applied. Tables created but indexes/constraints/triggers silently dropped. This is worse than seed because it affects schema correctness.
 
+### #271 — command_listen bypasses A-bot debounce chain — directly calls LLM and sends to S with no DB record
+
+- **Severity**: MEDIUM
+- **Category**: logic_error
+- **Module**: `command_listen`
+- **Status**: open
+
+**Description**: command_listen.on_autonomic_listen() calls call_monitor() (direct LLM call) and then pi_send_message() with "autonomic-wakeup" type. This completely bypasses the A-bot debounce/wakeup chain (hook_on_agent_end). No inter_review record is created, no debounce protection, no heartbeat check. The message goes directly from LLM to S with no tracking.
+
+**Evidence**: `command_listen.gleam:30 call_monitor(ctx, user_prompt, system_prompt); :38 pi_send_message(pi, "autonomic-wakeup", message, "persistent"); no call to a_orchestrator; no INSERT INTO inter_reviews; no debounce check`
+
+**Impact**: Human-triggered A messages bypass all safety mechanisms. No audit trail. No debounce. Could flood S with messages if human types rapidly.
+
 ### #104 — task.get missing project_id::text in SELECT
 
 - **Severity**: MEDIUM
@@ -1512,6 +1528,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `issue_db.gleam, task.gleam: string concatenation in SQL`
 
 **Impact**: Potential SQL injection if filter values contain SQL metacharacters
+
+### #272 — node_ffi execute() uses execSync with unsanitized shell commands — command injection risk
+
+- **Severity**: MEDIUM
+- **Category**: security
+- **Module**: `node_ffi`
+- **Status**: open
+
+**Description**: node_ffi.mjs execute() passes cmd directly to execSync(cmd, ...). While callers like tool_commit.gleam use shell_escape(), other callers may not. execSync runs commands through a shell, making it vulnerable to injection if any part of the command comes from untrusted input.
+
+**Evidence**: `node_ffi.mjs:17 execSync(cmd, { encoding: "utf-8", timeout: timeout, stdio: ["pipe", "pipe", "pipe"] }); tool_commit.gleam:87 shell_escape(message); but pi_extension.gleam exec_sync has no escaping requirement in its type signature`
+
+**Impact**: If any caller forgets to escape, arbitrary commands can be executed. The type system does not enforce sanitization.
 
 ### #164 — 80 public types across 28 modules; no type audit exists
 
@@ -1785,6 +1814,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `a_db_reader.gleam: Error(_) -> Ok(True)`
 
 **Impact**: Errors hidden; always reports no sessions
+
+### #273 — db.gleam with_connection() ignores disconnect errors — potential connection leak
+
+- **Severity**: LOW
+- **Category**: error_handling
+- **Module**: `db`
+- **Status**: open
+
+**Description**: with_connection() calls disconnect(conn) after the callback, but uses `let _ = disconnect(conn)` which discards the result. If disconnect fails, the connection is leaked. Over time this could exhaust the connection pool.
+
+**Evidence**: `db.gleam:82 let _ = disconnect(conn); disconnect returns Result(Nil, DbError) but the result is discarded`
+
+**Impact**: Connection leak if disconnect fails. Over time could exhaust pool. Low severity because PostgreSQL connections auto-close on process exit.
 
 ### #257 — _configStore in-memory cache has race condition with concurrent access
 
