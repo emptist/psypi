@@ -7,16 +7,16 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**155 issues tracked** (#100-#272) across 20 audit categories.
+**161 issues tracked** (#100-#278) across 21 audit categories.
 ⚠️ **CRITICAL CORRECTION (§333)**: 8 issues retracted — previous "phantom table" claims were based on querying wrong database.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 32    | 19.9%      |
-| **HIGH**     | 59    | 36.6%      |
-| **MEDIUM**   | 52    | 32.3%      |
+| **CRITICAL** | 34    | 21.1%      |
+| **HIGH**     | 63    | 39.1%      |
+| **MEDIUM**   | 53    | 32.9%      |
 | **LOW**      | 18    | 11.2%      |
 
 ### Category Breakdown
@@ -23187,3 +23187,195 @@ The two-phase commit flow:
 **Issue #272** | Severity: **HIGH** | Category: Architecture — inter-review commit flow has 3 independent blockers that must all be fixed for commits to work
 
 **Issue #267** | Severity: **HIGH** | Category: Architecture — 39.5% of modules broken/partial after correct DB verification
+
+---
+
+## 341. NODE-POSTGRES TYPE PARSING — COMPREHENSIVE AUDIT
+
+### 341a. PostgreSQL → JavaScript → Gleam Type Mapping
+
+| PostgreSQL Type               | JS Type (node-postgres) | Gleam Decoder                | Works? | Fix                                   |
+| ----------------------------- | ----------------------- | ---------------------------- | ------ | ------------------------------------- |
+| `text`                        | `string`                | `decode.string`              | ✅      | —                                     |
+| `character varying`           | `string`                | `decode.string`              | ✅      | —                                     |
+| `uuid`                        | `string`                | `decode.string`              | ✅      | —                                     |
+| `integer`                     | `number`                | `decode.int`                 | ✅      | —                                     |
+| `bigint`                      | `string`                | `decode.int`                 | ❌      | Use `decode.string` + `int.parse`     |
+| `double precision`            | `number`                | `decode.float`               | ✅      | —                                     |
+| `boolean`                     | `boolean`               | `decode.bool`                | ✅      | —                                     |
+| `timestamp with time zone`    | `Date` object           | `decode.string`              | ❌      | Add `::text` cast                     |
+| `timestamp without time zone` | `Date` object           | `decode.string`              | ❌      | Add `::text` cast                     |
+| `jsonb`                       | JS object               | `decode.string`              | ❌      | Add `::text` cast or use json decoder |
+| `ARRAY`                       | JS array                | `decode.list(decode.string)` | ⚠️      | Works for text[] but fragile          |
+| `USER-DEFINED`                | Varies                  | Varies                       | ⚠️      | Depends on type (e.g., vector)        |
+| `numeric`                     | `string`                | `decode.int`                 | ❌      | Use `decode.string` + parse           |
+
+### 341b. Query-by-Query Audit — All SELECT Statements
+
+#### ✅ WORKING QUERIES (properly cast or correct types)
+
+| Module                           | Query                                                                      | Casts Used             | Status |
+| -------------------------------- | -------------------------------------------------------------------------- | ---------------------- | ------ |
+| `issue_db.list`                  | `created_at::text, resolved_at::text`                                      | ✅ All timestamps cast  | WORKS  |
+| `issue_db.count_open_issues`     | `COUNT(*)::INT as cnt`                                                     | ✅ bigint→int cast      | WORKS  |
+| `monitor_ai.check_system_health` | `COUNT(*)::INT` × 3                                                        | ✅ All bigint→int       | WORKS  |
+| `monitor_ai.get_alerts`          | `COUNT(*)::INT` × 3                                                        | ✅ All bigint→int       | WORKS  |
+| `monitor_ai.get_model_stats`     | `COUNT(*)::INT`, `COALESCE(...)::INT`                                      | ✅ All bigint→int       | WORKS  |
+| `monitor_ai.prepare_context`     | `saved_at::text`                                                           | ✅ Timestamp cast       | WORKS  |
+| `stats.project_stats`            | `COUNT(*)` (bigint)                                                        | Uses `decode_bigint()` | WORKS  |
+| `agents.list_agents`             | `created_at::text`                                                         | ✅ Timestamp cast       | WORKS  |
+| `meeting.list`                   | `created_at::text, meeting_time::text`                                     | ✅ Timestamp casts      | WORKS  |
+| `task.list`                      | `created_at::text, updated_at::text, completed_at::text, project_id::text` | ✅ All casts            | WORKS  |
+| `broadcast.list`                 | `created_at::text, read_at::text`                                          | ✅ Timestamp casts      | WORKS  |
+| `broadcast.get_recent`           | `created_at::text, read_at::text`                                          | ✅ Timestamp casts      | WORKS  |
+| `skill.list`                     | `created_at::text, content::text, reference_list::text`                    | ✅ All casts            | WORKS  |
+
+#### ❌ BROKEN QUERIES (missing casts or wrong decoders)
+
+| Module                            | Query                                                          | Problem                                                 | Impact                                        |
+| --------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------- |
+| `inter_review.get_review_details` | `requested_at` (no cast)                                       | timestamptz → Date object → `decode.string` fails       | **CRITICAL**: Blocks commit flow (#269)       |
+| `inter_review.get_review`         | `status` only                                                  | No timestamp, works ✅                                   | —                                             |
+| `inter_review.list_reviews`       | `requested_at` (no cast)                                       | Same as get_review_details                              | All review listing broken                     |
+| `memory.search`                   | `SELECT * FROM memory`                                         | `created_at` timestamptz → Date → `decode.string` fails | Memory search always returns []               |
+| `memory.save`                     | `RETURNING id` decoded with `memory_decoder()`                 | Decoder expects 7 fields, only `id` returned            | **CRITICAL**: Save always returns DecodeError |
+| `skill.get`                       | `content` (jsonb, no cast), `reference_list` (jsonb, no cast)  | jsonb → JS object → `decode.string` fails               | Skill detail view broken                      |
+| `skill.search`                    | Same as `skill.get`                                            | Same problem                                            | Skill search broken                           |
+| `task.get`                        | Missing `project_id` in SELECT                                 | Decoder expects `project_id` field                      | Task detail view broken                       |
+| `task.list`                       | `result` is jsonb, decoded as `decode.optional(decode.string)` | jsonb → JS object → `decode.string` fails               | Task listing broken                           |
+| `broadcast.stats`                 | `COUNT(*) as total` (bigint), `priority >= 2` (text)           | bigint → decode.int fails; text comparison wrong        | Stats query broken                            |
+| `a_db_reader.is_s_still_idle`     | `COUNT(*) as cnt` (bigint)                                     | bigint → `decode.int` fails → `Ok(True)`                | Always considers S idle (#268)                |
+| `code_version.query_versions`     | `saved_at` (no cast)                                           | timestamptz → Date object                               | Returns raw dynamics, no decoder              |
+| `areflect.fetch_recent_issues`    | `id` is uuid → `decode.string`                                 | ✅ Works (uuid as string)                                | —                                             |
+
+### 341c. The `memory.save()` Decode Bug — Detailed
+
+```gleam
+let sql = "
+  INSERT INTO memory (content, tags, source, importance, agent_id)
+  VALUES ($1, $2, $3, $4, $5)
+  RETURNING id
+"
+// ...
+case decode.run(row, memory_decoder()) {  // ← WRONG DECODER
+  Ok(mem) -> Ok(mem.id)
+  Error(_) -> Error(DecodeError("Failed to decode memory"))
+}
+```
+
+`memory_decoder()` expects 7 fields: `id, content, tags, source, agent_id, importance, created_at`.
+But `RETURNING id` only returns 1 field: `id`.
+
+The decoder will fail because `content`, `tags`, `source`, `agent_id`, `importance`,
+and `created_at` are not in the returned row.
+
+**Fix**: Use `id_decoder()` instead of `memory_decoder()`:
+```gleam
+case decode.run(row, id_decoder()) {
+  Ok(id) -> Ok(id)
+  Error(_) -> Error(DecodeError("Failed to decode memory id"))
+}
+```
+
+**Issue #273** | Severity: **CRITICAL** | Category: Decode — memory.save() uses wrong decoder (memory_decoder instead of id_decoder), always fails
+
+### 341d. The `task.result` jsonb Decode Bug
+
+The `tasks` table has `result` column as `jsonb`. The decoder uses:
+```gleam
+use result <- decode.field("result", decode.optional(decode.string))
+```
+
+node-postgres returns jsonb as a JavaScript object, not a string. `decode.string`
+will fail on a JS object.
+
+**Impact**: `task.list()` and `task.get()` both fail to decode because of this.
+
+**Fix**: Either add `result::text` cast in SQL, or use a json decoder.
+
+**Issue #274** | Severity: **HIGH** | Category: Decode — task.result is jsonb but decoded as string, task listing broken
+
+### 341e. The `skill.get()` / `skill.search()` jsonb Decode Bug
+
+The `skills` table has `content` and `reference_list` as `jsonb`. The `list()`
+query correctly uses `content::text, reference_list::text` casts, but `get()`
+and `search()` select them without casts:
+
+```sql
+-- get() and search() — BROKEN
+SELECT id, name, description, source, status, safety_score, version, author,
+       created_at::text, content, reference_list  -- ← no ::text on content/reference_list
+FROM skills WHERE name = $1
+```
+
+**Fix**: Add `::text` casts: `content::text, reference_list::text`
+
+**Issue #275** | Severity: **HIGH** | Category: Decode — skill.get() and skill.search() missing ::text casts on jsonb columns
+
+### 341f. The `task.get()` Missing Column Bug
+
+```sql
+-- get() — missing project_id
+SELECT id, title, description, status, priority, result, error, retry_count,
+       created_at::text, updated_at::text, completed_at::text, created_by, source
+FROM tasks WHERE id = $1
+```
+
+The decoder expects `project_id` but it's not in the SELECT. `decode.field`
+will fail because the field doesn't exist in the dynamic.
+
+**Fix**: Add `project_id::text` to the SELECT.
+
+**Issue #276** | Severity: **HIGH** | Category: Decode — task.get() missing project_id in SELECT, decoder fails
+
+### 341g. The `broadcast.stats()` Double Bug
+
+```sql
+SELECT
+  COUNT(*) as total,                                    -- bigint → decode.int FAILS
+  COUNT(*) FILTER (WHERE status = 'sent') as sent_count,  -- bigint → decode.int FAILS
+  COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count  -- text >= 2 is WRONG
+FROM project_communications
+WHERE from_ai = $1 AND message_type = 'broadcast'
+```
+
+Two bugs:
+1. `COUNT(*)` returns bigint → `decode.int` fails (same as `is_s_still_idle`)
+2. `priority >= 2` on a text column — text comparison, not numeric. `'critical' >= 2`
+   is always true in PostgreSQL (text > integer comparison).
+
+**Fix**: Use `COUNT(*)::INT` and `priority IN ('high', 'critical')`.
+
+**Issue #277** | Severity: **HIGH** | Category: Decode + Logic — broadcast.stats() has bigint decode failure AND wrong text comparison
+
+### 341h. The `monitor_ai.auto_file_issue()` Wrong Column Name
+
+```sql
+INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
+VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'development')
+```
+
+Column `type` does not exist in `issues` table. The correct column is `issue_type`.
+This INSERT will fail with a SQL error at runtime.
+
+**Fix**: Change `type` to `issue_type`.
+
+**Issue #278** | Severity: **HIGH** | Category: SQL — auto_file_issue() uses wrong column name 'type' instead of 'issue_type'
+
+### 341i. Summary — Decode Failure Count by Module
+
+| Module         | Total Queries | Working | Broken | Notes                                     |
+| -------------- | ------------- | ------- | ------ | ----------------------------------------- |
+| `issue_db`     | 4             | 4       | 0      | Best-maintained module                    |
+| `monitor_ai`   | 6             | 5       | 1      | auto_file_issue wrong column              |
+| `stats`        | 1             | 1       | 0      | Uses decode_bigint()                      |
+| `agents`       | 1             | 1       | 0      | Proper ::text casts                       |
+| `meeting`      | 3             | 3       | 0      | Proper ::text casts                       |
+| `task`         | 4             | 2       | 2      | get() missing column, list() jsonb decode |
+| `inter_review` | 3             | 1       | 2      | requested_at not cast                     |
+| `broadcast`    | 4             | 2       | 2      | stats() double bug                        |
+| `memory`       | 2             | 0       | 2      | save() wrong decoder, search() timestamp  |
+| `skill`        | 3             | 1       | 2      | get/search missing jsonb casts            |
+| `code_version` | 3             | 2       | 1      | query_versions no decoder                 |
+| `a_db_reader`  | 4             | 3       | 1      | is_s_still_idle bigint                    |
+| **TOTAL**      | **39**        | **25**  | **14** | **36% of queries broken**                 |
