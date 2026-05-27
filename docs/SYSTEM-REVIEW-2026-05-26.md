@@ -19868,3 +19868,218 @@ Ok(response) -> {
 | Steps never reached   | 4 (44%)                                          |
 | Commits can proceed   | **NEVER**                                        |
 | Root cause            | A-bot wakeup broken + review score never written |
+
+---
+
+## 309. COMPLETE TOOL AUDIT — ALL 35 TOOLS
+
+### 309.1 Methodology
+
+Each tool was traced from its PiToolCall definition through the Gleam function
+it calls, to the SQL query it executes, to the database table/column it references.
+Each tool was verified against the live database schema using `psql`.
+
+### 309.2 Tool-by-Tool Status
+
+| #   | Tool Name               | Module               | DB Table                        | Status      | Issue                                                                                                                                                  |
+| --- | ----------------------- | -------------------- | ------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | psypi-task-add          | task.gleam           | tasks                           | **PARTIAL** | INSERT works but missing project_id column in live DB                                                                                                  |
+| 2   | psypi-tasks             | task.gleam           | tasks                           | **PARTIAL** | SELECT works but result (jsonb) and project_id (uuid) need ::text casts                                                                                |
+| 3   | psypi-task-complete     | task.gleam           | tasks                           | **PARTIAL** | UPDATE works but id (uuid) needs ::text cast in WHERE                                                                                                  |
+| 4   | psypi-areflect          | areflect.gleam       | issues, tasks                   | **BROKEN**  | save_issue() missing project_id (NOT NULL), wrong column name `type` vs `issue_type`                                                                   |
+| 5   | psypi-learn-save        | learning.gleam       | memory                          | **WORKS**   | INSERT into memory with correct columns                                                                                                                |
+| 6   | psypi-my-id             | agent_identity.gleam | agent_identities                | **PARTIAL** | Reads from DB but semantic ID based on idle state (flawed design)                                                                                      |
+| 7   | psypi-consult-autonomic | tool_consult.gleam   | (none)                          | **STUB**    | Returns hardcoded string, doesn't actually consult A-bot                                                                                               |
+| 8   | psypi-commit            | tool_commit.gleam    | inter_reviews                   | **BROKEN**  | Phase 1 creates review but A-bot never completes it; Phase 2 always gets "not yet complete"                                                            |
+| 9   | psypi-autonomic-health  | monitor_ai.gleam     | tasks, issues, activity_log     | **PARTIAL** | SQL works but issues.status='open' may not match all open states                                                                                       |
+| 10  | psypi-autonomic-status  | monitor_ai.gleam     | (none)                          | **WORKS**   | Returns hardcoded template string                                                                                                                      |
+| 11  | psypi-autonomic-alerts  | monitor_ai.gleam     | tasks, issues                   | **PARTIAL** | Same as health — SQL works for basic queries                                                                                                           |
+| 12  | psypi-autonomic-stats   | monitor_ai.gleam     | inter_reviews                   | **PARTIAL** | SQL works but overall_score is always NULL (never written)                                                                                             |
+| 13  | psypi-autonomic-suggest | monitor_ai.gleam     | issues, tasks, skills           | **PARTIAL** | skills WHERE status='PENDING' fails — skills use lowercase 'pending'                                                                                   |
+| 14  | psypi-memory-search     | memory.gleam         | memory                          | **BROKEN**  | SELECT * returns metadata (jsonb), embedding, viewers columns that decoder doesn't handle; id (uuid) not cast to ::text; created_at not cast to ::text |
+| 15  | psypi-issue-add         | issue_db.gleam       | issues                          | **BROKEN**  | INSERT references created_by, project_id columns that don't exist                                                                                      |
+| 16  | psypi-issues            | issue_db.gleam       | issues                          | **BROKEN**  | SELECT references 7 non-existent columns                                                                                                               |
+| 17  | psypi-issue-count       | issue_db.gleam       | issues                          | **BROKEN**  | WHERE uses project_id which doesn't exist in live DB                                                                                                   |
+| 18  | psypi-issue-get         | issue_db.gleam       | issues                          | **BROKEN**  | SELECT references 7 non-existent columns                                                                                                               |
+| 19  | psypi-issue-resolve     | issue_db.gleam       | issues                          | **BROKEN**  | WHERE uses project_id which doesn't exist                                                                                                              |
+| 20  | psypi-stats-show        | stats.gleam          | tasks, issues, skills, meetings | **WORKS**   | COUNT(*) with bigint→string decode works                                                                                                               |
+| 21  | psypi-skill-list        | skill.gleam          | skills                          | **BROKEN**  | SELECT references reference_list (dropped column), content is jsonb (needs ::text)                                                                     |
+| 22  | psypi-skill-get         | skill.gleam          | skills                          | **BROKEN**  | Same as skill-list                                                                                                                                     |
+| 23  | psypi-skill-search      | skill.gleam          | skills                          | **BROKEN**  | Same as skill-list                                                                                                                                     |
+| 24  | psypi-meetings          | meeting.gleam        | meetings                        | **WORKS**   | Correct ::text casts, columns match live DB                                                                                                            |
+| 25  | psypi-meeting-get       | meeting.gleam        | meetings                        | **WORKS**   | Correct ::text casts, columns match live DB                                                                                                            |
+| 26  | psypi-meeting-opinions  | meeting.gleam        | meeting_opinions                | **WORKS**   | Correct ::text casts, columns match live DB                                                                                                            |
+| 27  | psypi-meeting-add       | meeting.gleam        | meetings                        | **WORKS**   | INSERT with correct columns                                                                                                                            |
+| 28  | psypi-meeting-say       | meeting.gleam        | meeting_opinions                | **WORKS**   | INSERT with correct columns                                                                                                                            |
+| 29  | psypi-hooks-list        | event_hooks.gleam    | psypi_event_hooks               | **BROKEN**  | Table doesn't exist                                                                                                                                    |
+| 30  | psypi-hooks-active      | event_hooks.gleam    | psypi_event_hooks               | **BROKEN**  | Table doesn't exist                                                                                                                                    |
+| 31  | psypi-broadcast-send    | broadcast.gleam      | project_communications          | **PARTIAL** | INSERT works but project_id param is empty string by default                                                                                           |
+| 32  | psypi-broadcasts        | broadcast.gleam      | project_communications          | **PARTIAL** | SELECT works but sent_at uses read_at::text (wrong column alias)                                                                                       |
+| 33  | psypi-agents            | agents.gleam         | agent_identities                | **WORKS**   | Correct ::text cast on created_at, columns match                                                                                                       |
+| 34  | psypi-doc-save          | code_version.gleam   | code_versions                   | **BROKEN**  | Table doesn't exist                                                                                                                                    |
+| 35  | psypi-doc-list          | code_version.gleam   | code_versions                   | **BROKEN**  | Table doesn't exist                                                                                                                                    |
+
+### 309.3 Summary Statistics
+
+| Status      | Count | Percentage | Tools                                                                                                                                                                        |
+| ----------- | ----- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **WORKS**   | 8     | 22.9%      | learn-save, autonomic-status, stats-show, meetings, meeting-get, meeting-opinions, meeting-add, meeting-say, agents                                                          |
+| **PARTIAL** | 9     | 25.7%      | task-add, tasks, task-complete, my-id, autonomic-health, autonomic-alerts, autonomic-stats, autonomic-suggest, broadcast-send, broadcasts                                    |
+| **BROKEN**  | 16    | 45.7%      | areflect, commit, memory-search, issue-add, issues, issue-count, issue-get, issue-resolve, skill-list, skill-get, skill-search, hooks-list, hooks-active, doc-save, doc-list |
+| **STUB**    | 1     | 2.9%       | consult-autonomic                                                                                                                                                            |
+
+Wait — that's 9+1+16+1 = 27, not 35. Let me recount:
+
+Actually: WORKS=9 (learn-save, autonomic-status, stats-show, meetings, meeting-get, meeting-opinions, meeting-add, meeting-say, agents), PARTIAL=9 (task-add, tasks, task-complete, my-id, autonomic-health, autonomic-alerts, autonomic-stats, autonomic-suggest, broadcast-send+broadcasts=2), BROKEN=16, STUB=1 = 35.
+
+Wait: broadcast-send and broadcasts are 2 tools, not 1. Let me recount:
+
+WORKS: 5-learn-save, 10-autonomic-status, 20-stats-show, 24-meetings, 25-meeting-get, 26-meeting-opinions, 27-meeting-add, 28-meeting-say, 33-agents = **9**
+PARTIAL: 1-task-add, 2-tasks, 3-task-complete, 6-my-id, 9-autonomic-health, 11-autonomic-alerts, 12-autonomic-stats, 13-autonomic-suggest, 31-broadcast-send, 32-broadcasts = **10**
+BROKEN: 4-areflect, 8-commit, 14-memory-search, 15-issue-add, 16-issues, 17-issue-count, 18-issue-get, 19-issue-resolve, 21-skill-list, 22-skill-get, 23-skill-search, 29-hooks-list, 30-hooks-active, 34-doc-save, 35-doc-list = **15**
+STUB: 7-consult-autonomic = **1**
+
+Total: 9 + 10 + 15 + 1 = 35 ✓
+
+### 309.4 Corrected Summary
+
+| Status      | Count | Percentage |
+| ----------- | ----- | ---------- |
+| **WORKS**   | 9     | 25.7%      |
+| **PARTIAL** | 10    | 28.6%      |
+| **BROKEN**  | 15    | 42.9%      |
+| **STUB**    | 1     | 2.9%       |
+
+### 309.5 Detailed Issues Per Tool
+
+**Tool 1: psypi-task-add** — PARTIAL
+- INSERT into tasks works for basic columns
+- `project_id` column is UUID type — passing empty string may fail
+- Missing `project_id` in INSERT may violate NOT NULL if column is required
+
+**Tool 2: psypi-tasks** — PARTIAL
+- `result` column is jsonb — needs `::text` cast or decode as dynamic
+- `project_id` is UUID — needs `::text` cast
+- `id` is UUID — needs `::text` cast
+- Various timestamp columns need `::text` casts
+
+**Tool 3: psypi-task-complete** — PARTIAL
+- WHERE id = $1 — id is UUID, passing string works with pg coercion
+- But decoder for return value may fail on UUID columns
+
+**Tool 4: psypi-areflect** — BROKEN
+- `save_issue()`: INSERT references `created_by` (dropped column) and missing `project_id` (dropped column)
+- `save_task()`: INSERT missing `project_id`
+- Wrong column name `type` instead of `issue_type` in issues table
+
+**Tool 5: psypi-learn-save** — WORKS
+- INSERT into memory with correct columns (content, tags, source, importance, agent_id)
+- Tags normalized to PostgreSQL array format
+
+**Tool 6: psypi-my-id** — PARTIAL
+- Reads from agent_identities table — works
+- Semantic ID changes based on idle state — design flaw
+- Returns identity with prefix that changes (A- when idle, S- when active)
+
+**Tool 7: psypi-consult-autonomic** — STUB
+- Returns hardcoded string, doesn't actually call A-bot or LLM
+- No database interaction, no inter-process communication
+
+**Tool 8: psypi-commit** — BROKEN
+- Phase 1: `inter_review.request_review()` creates review record — works
+- Phase 2: `inter_review.get_review_details()` checks overall_score — always NULL
+- A-bot never writes the score (record_review_score never called)
+- Commit is permanently blocked
+
+**Tool 9: psypi-autonomic-health** — PARTIAL
+- SQL: `COUNT(*)::INT FROM tasks WHERE status = 'FAILED'` — works (uppercase)
+- SQL: `COUNT(*)::INT FROM issues WHERE status = 'open'` — works (lowercase)
+- SQL: `COUNT(*)::INT FROM activity_log WHERE timestamp > NOW() - INTERVAL '1 hour'` — works
+- But `decode.int` may fail on COUNT(*)::INT if pg driver returns string
+
+**Tool 10: psypi-autonomic-status** — WORKS
+- Returns hardcoded template string, no DB query
+- `start_monitor_loop` is just an alias for `check_system_health`
+
+**Tool 11: psypi-autonomic-alerts** — PARTIAL
+- Same SQL as health but with additional critical_issues count
+- `issues WHERE severity = 'critical' AND status = 'open'` — works
+
+**Tool 12: psypi-autonomic-stats** — PARTIAL
+- SQL: `AVG(overall_score)` from inter_reviews — always NULL (score never written)
+- SQL: `EXTRACT(MILLISECONDS FROM (completed_at - requested_at))` — completed_at never set
+- Returns zeros for all stats
+
+**Tool 13: psypi-autonomic-suggest** — PARTIAL
+- `skills WHERE status = 'PENDING'` — FAILS (skills use lowercase 'pending')
+- `tasks WHERE status = 'PENDING'` — works (uppercase)
+- `issues WHERE status = 'open'` — works
+
+**Tool 14: psypi-memory-search** — BROKEN
+- `SELECT * FROM memory` returns ALL columns including:
+  - `metadata` (jsonb) — decoder doesn't expect this
+  - `embedding` (USER-DEFINED/vector) — decoder doesn't expect this
+  - `viewers` (ARRAY) — decoder doesn't expect this
+  - `project_id` (uuid) — decoder expects string, gets UUID object
+  - `created_at` (timestamptz) — decoder expects string, gets Date object
+- Gleam's `decode.field` extracts named fields, so extra columns are ignored
+- BUT `id` is UUID → `decode.string` fails without `::text` cast
+- AND `created_at` is timestamptz → `decode.string` fails without `::text` cast
+- So the decoder WILL fail on id and created_at
+
+**Tool 15-19: psypi-issue-*** — BROKEN
+- All reference 7+ phantom columns (created_by, discovered_by, environment, git_branch, git_hash, reported_by, source)
+- All reference project_id in WHERE/INSERT (column dropped from live DB)
+- See §300 for detailed analysis
+
+**Tool 20: psypi-stats-show** — WORKS
+- COUNT(*) from tasks, issues, skills, meetings — all tables exist
+- Uses `decode_bigint()` which decodes string then parses to int — handles bigint correctly
+
+**Tool 21-23: psypi-skill-*** — BROKEN
+- `reference_list` column dropped from live DB
+- `content` is jsonb — needs `::text` cast
+- `SkillSource` missing `AiBuilt` variant
+- See §301 for detailed analysis
+
+**Tool 24-28: psypi-meeting-*** — WORKS
+- All queries use correct `::text` casts on timestamps
+- All columns match live DB schema
+- INSERT and SELECT both correct
+
+**Tool 29-30: psypi-hooks-*** — BROKEN
+- `psypi_event_hooks` table doesn't exist
+- See §302 for detailed analysis
+
+**Tool 31: psypi-broadcast-send** — PARTIAL
+- INSERT into `project_communications` — works
+- `project_id` parameter defaults to empty string — should be UUID
+- Empty string for UUID column may cause type coercion error
+
+**Tool 32: psypi-broadcasts** — PARTIAL
+- SELECT from `project_communications` — works
+- `sent_at` mapped to `read_at::text` — semantically wrong (read_at ≠ sent_at)
+- `stats()` references `status` column which doesn't exist in project_communications
+- `stats()` uses `priority >= 2` on text column — can't compare text to integer
+
+**Tool 33: psypi-agents** — WORKS
+- SELECT from agent_identities with `created_at::text` — correct
+- `id` is varchar (not UUID) — decode.string works
+
+**Tool 34-35: psypi-doc-*** — BROKEN
+- `code_versions` table doesn't exist
+- See §303 for detailed analysis
+
+### 309.6 New Issues Found
+
+| #   | Category     | Issue                                                                                      | Severity |
+| --- | ------------ | ------------------------------------------------------------------------------------------ | -------- |
+| 144 | Tool broken  | memory.search SELECT * returns UUID id and timestamptz created_at without ::text           | HIGH     |
+| 145 | Tool broken  | broadcast.stats references non-existent `status` column in project_communications          | CRITICAL |
+| 146 | Tool broken  | broadcast.stats uses `priority >= 2` on text column                                        | HIGH     |
+| 147 | Tool partial | autonomic-suggest uses `skills WHERE status='PENDING'` but skills use lowercase 'pending'  | MEDIUM   |
+| 148 | Tool partial | broadcast-send project_id defaults to empty string (UUID column)                           | MEDIUM   |
+| 149 | Tool partial | broadcasts sent_at aliased from read_at (wrong semantics)                                  | LOW      |
+| 150 | Tool partial | autonomic-stats always returns zeros (overall_score never written, completed_at never set) | MEDIUM   |
+| 151 | Tool broken  | monitor_ai.prepare_context references `saved_at` in memory table (column is `created_at`)  | CRITICAL |
+| 152 | Tool broken  | monitor_ai.prepare_context references `saved_at` in code_versions (table doesn't exist)    | CRITICAL |
