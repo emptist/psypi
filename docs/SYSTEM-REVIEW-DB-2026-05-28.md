@@ -9,11 +9,11 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 | Severity | Count | Percentage |
 |----------|-------|------------|
-| **CRITICAL** | 6 | 4.7% |
-| **HIGH** | 39 | 30.7% |
-| **MEDIUM** | 64 | 50.4% |
-| **LOW** | 18 | 14.2% |
-| **TOTAL** | 127 | 100% |
+| **CRITICAL** | 7 | 5.4% |
+| **HIGH** | 40 | 31.0% |
+| **MEDIUM** | 64 | 49.6% |
+| **LOW** | 18 | 14.0% |
+| **TOTAL** | 129 | 100% |
 
 ## Category Breakdown
 
@@ -21,27 +21,27 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 |----------|-------|----------|
 | missing_cast | 29 | 1C/17H |
 | design_flaw | 12 |  |
-| logic_error | 10 | 2C/3H |
+| logic_error | 11 | 3C/3H |
 | unused_columns | 10 |  |
 | wrong_status | 8 | 0C/2H |
 | missing_project_id | 8 | 1C/2H |
 | ffi_mismatch | 6 | 2C/2H |
 | missing_params | 6 | 0C/2H |
 | type_mismatch | 5 | 0C/3H |
-| error_handling | 4 |  |
 | style | 4 |  |
 | disconnected_systems | 4 | 0C/2H |
+| error_handling | 4 |  |
 | dead_code | 3 |  |
-| wrong_column | 3 | 0C/3H |
 | hardcoded_config | 3 |  |
+| wrong_column | 3 | 0C/3H |
+| config_desync | 3 | 0C/2H |
 | test_coverage | 2 |  |
 | security | 2 |  |
 | performance | 2 | 0C/1H |
-| config_desync | 2 | 0C/1H |
-| wrong_decoder | 1 | 0C/1H |
+| type_coverage | 1 |  |
 | unused_table | 1 |  |
 | design | 1 |  |
-| type_coverage | 1 |  |
+| wrong_decoder | 1 | 0C/1H |
 
 ## Findings by Severity
 
@@ -53,6 +53,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 249 | ffi_mismatch | pi_extension_ffi | get_config FFI returns JS null/string which never matches Gleam None/Some constructors | idle_since is always re-recorded as now(). Debounce never fires. A-bot wakeup is completely broken. |
 | 139 | logic_error | broadcast | broadcast.stats() 3 bugs: bigint decode, text>=int, missing status column | Stats query returns wrong results or fails |
 | 244 | logic_error | a_db_reader | No code updates agent_sessions.last_heartbeat — is_s_still_idle always returns True | A-bot can wake up while S is actively working. No guard against concurrent A+S execution. |
+| 261 | logic_error | multiple | A-bot wakeup chain has 4 sequential failures - entire A-bot system is non-functional | A-bot system is completely non-functional. No autonomous monitoring no inter-review no self-healing. The entire A/S dual-agent architecture is dead on the A side. |
 | 100 | missing_cast | inter_review | inter_review requested_at decode fails without ::text cast | Inter-review requests always fail to decode |
 | 116 | missing_project_id | areflect | areflect.save_issue omits project_id (NOT NULL, no default) | save_issue INSERT always fails; no issues can be saved via areflect |
 ### HIGH
@@ -60,6 +61,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | # | Category | Module | Title | Impact |
 |---|----------|--------|-------|--------|
 | 125 | config_desync | psypi_config | psypi_config.gleam (database) vs pi_extension_ffi.mjs (in-memory) never sync | hook_on_agent_end uses 5min debounce; monitor_ai uses 15min debounce |
+| 262 | config_desync | pi_extension_ffi | Dual config stores: FFI _configStore (in-memory) and psypi_config table (DB) are never synchronized | idle_since and monitor_debounce_ms are stored in _configStore (in-memory) but never persisted to DB. On process restart all debounce state is lost. psypi_config table exists but is not used by the debounce logic. |
 | 247 | disconnected_systems | a_orchestrator | a_orchestrator.run_a_workflow never writes inter-review response to DB | Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail. |
 | 258 | disconnected_systems | inter_review | Inter-review commit flow is permanently stuck — missing git add before git commit | Inter-review code changes are never actually committed. Review feedback is generated but code is not saved. |
 | 122 | ffi_mismatch | pi_extension_ffi | set_config stores value but get_config cannot retrieve as Gleam Option | Config round-trip broken |
@@ -243,6 +245,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: A-bot can wake up while S is actively working. No guard against concurrent A+S execution.
 
+### #261 — A-bot wakeup chain has 4 sequential failures - entire A-bot system is non-functional
+
+- **Severity**: CRITICAL
+- **Category**: logic_error
+- **Module**: `multiple`
+- **Status**: open
+
+**Description**: The A-bot wakeup chain has 4 sequential failures each of which alone would break the system: (1) get_config FFI returns JS null/string not Gleam Option so debounce never fires (#249), (2) is_s_still_idle always returns True because no code updates heartbeats (#244), (3) compose() called instead of compose_within_budget() so prompt may exceed context (#251), (4) a_orchestrator never writes inter-review response to DB (#247). All 4 must be fixed for A-bot to work.
+
+**Evidence**: `hook_on_agent_end.gleam:34 get_config never matches; a_db_reader.gleam:34 no heartbeat updates; a_orchestrator.gleam:66 compose() not compose_within_budget(); a_orchestrator.gleam: no INSERT INTO inter_reviews`
+
+**Impact**: A-bot system is completely non-functional. No autonomous monitoring no inter-review no self-healing. The entire A/S dual-agent architecture is dead on the A side.
+
 ### #100 — inter_review requested_at decode fails without ::text cast
 
 - **Severity**: CRITICAL
@@ -281,6 +296,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `psypi_config reads from DB; pi_extension_ffi uses _configStore object`
 
 **Impact**: hook_on_agent_end uses 5min debounce; monitor_ai uses 15min debounce
+
+### #262 — Dual config stores: FFI _configStore (in-memory) and psypi_config table (DB) are never synchronized
+
+- **Severity**: HIGH
+- **Category**: config_desync
+- **Module**: `pi_extension_ffi`
+- **Status**: open
+
+**Description**: hook_on_agent_end.gleam uses pi_extension.get_config/set_config which goes to FFI _configStore (in-memory JS object). psypi_config.gleam has its own get/set that reads/writes the psypi_config DB table. These two stores are completely independent. Setting a value via one is invisible to the other. Process restart loses all _configStore data.
+
+**Evidence**: `pi_extension_ffi.mjs: let _configStore = {}; get_config reads _configStore; psypi_config.gleam: SELECT value FROM psypi_config WHERE key = $1; hook_on_agent_end.gleam uses pi_extension.get_config not psypi_config.get`
+
+**Impact**: idle_since and monitor_debounce_ms are stored in _configStore (in-memory) but never persisted to DB. On process restart all debounce state is lost. psypi_config table exists but is not used by the debounce logic.
 
 ### #247 — a_orchestrator.run_a_workflow never writes inter-review response to DB
 
@@ -1849,11 +1877,11 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 249 | get_config FFI returns JS null/string which never matches Gleam None/Some constructors | idle_since is always re-recorded as now(). Debounce never fires. A-bot wakeup is completely broken. |
 | 139 | broadcast.stats() 3 bugs: bigint decode, text>=int, missing status column | Stats query returns wrong results or fails |
 | 244 | No code updates agent_sessions.last_heartbeat — is_s_still_idle always returns True | A-bot can wake up while S is actively working. No guard against concurrent A+S execution. |
+| 261 | A-bot wakeup chain has 4 sequential failures - entire A-bot system is non-functional | A-bot system is completely non-functional. No autonomous monitoring no inter-review no self-healing. The entire A/S dual-agent architecture is dead on the A side. |
 | 100 | inter_review requested_at decode fails without ::text cast | Inter-review requests always fail to decode |
 | 116 | areflect.save_issue omits project_id (NOT NULL, no default) | save_issue INSERT always fails; no issues can be saved via areflect |
 | 125 | psypi_config.gleam (database) vs pi_extension_ffi.mjs (in-memory) never sync | hook_on_agent_end uses 5min debounce; monitor_ai uses 15min debounce |
+| 262 | Dual config stores: FFI _configStore (in-memory) and psypi_config table (DB) are never synchronized | idle_since and monitor_debounce_ms are stored in _configStore (in-memory) but never persisted to DB. On process restart all debounce state is lost. psypi_config table exists but is not used by the debounce logic. |
 | 247 | a_orchestrator.run_a_workflow never writes inter-review response to DB | Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail. |
 | 258 | Inter-review commit flow is permanently stuck — missing git add before git commit | Inter-review code changes are never actually committed. Review feedback is generated but code is not saved. |
-| 122 | set_config stores value but get_config cannot retrieve as Gleam Option | Config round-trip broken |
-| 123 | unwrapGleamResult may not handle all Gleam Result shapes | Error handling in extension.js may fail |
 
