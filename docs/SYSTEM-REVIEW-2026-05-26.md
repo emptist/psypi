@@ -7,16 +7,16 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**135 issues tracked** (#100-#234) across 14 audit categories.
+**143 issues tracked** (#100-#242) across 15 audit categories.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 30    | 22.2%      |
-| **HIGH**     | 52    | 38.5%      |
-| **MEDIUM**   | 41    | 30.4%      |
-| **LOW**      | 12    | 8.9%       |
+| **CRITICAL** | 30    | 21.0%      |
+| **HIGH**     | 56    | 39.2%      |
+| **MEDIUM**   | 44    | 30.8%      |
+| **LOW**      | 13    | 9.1%       |
 
 ### Category Breakdown
 
@@ -20957,14 +20957,14 @@ which requires a `ctx` object that isn't always available in utility functions.
 
 ## 315. UPDATED ISSUE COUNT
 
-Total issues tracked: **#100-#234** = **135 issues**
+Total issues tracked: **#100-#242** = **143 issues**
 
 | Severity | Count |
 | -------- | ----- |
 | CRITICAL | 30    |
-| HIGH     | 52    |
-| MEDIUM   | 41    |
-| LOW      | 12    |
+| HIGH     | 56    |
+| MEDIUM   | 44    |
+| LOW      | 13    |
 
 ---
 
@@ -21727,3 +21727,186 @@ This is fragile:
   propagate the error, just sends a notification
 
 **Issue #234** | Severity: **MEDIUM** | Category: Heuristic — tool_result error detection fragile
+
+---
+
+## 321. SYSTEM PROMPT COMPOSITION PIPELINE — A-BOT AND S-BOT
+
+### 321a. Two Separate Prompt Pipelines
+
+The psypi system has two independent prompt composition pipelines:
+
+**S-bot Pipeline** (triggered by `before_agent_start` event):
+```
+hook_on_before_agent_start.on_before_agent_start()
+  → s_db_reader.read_s_soul_from_db()     ← BROKEN (phantom agent_souls)
+  → Error fallback: hardcoded "You are the Somatic Agentbot..."
+  → { systemPrompt: fallback_text }
+```
+
+**A-bot Pipeline** (triggered by `agent_end` event):
+```
+hook_on_agent_end.on_agent_end(ctx, pi)
+  → [debounce + idle checks]
+  → a_orchestrator.run_a_workflow(ctx, pi, ...)
+    → a_db_reader.read_soul_from_db()      ← BROKEN (phantom agent_souls)
+    → a_db_reader.read_a_jobs_from_db()    ← BROKEN (phantom agent_jobs)
+    → a_db_reader.read_project_state_from_db()
+      → read_active_tasks()                 ← WORKS (tasks table exists)
+      → read_open_issues()                  ← WORKS (issues table exists)
+    → a_prompt_builder.build_system_prompt(soul, jobs, context_window)
+      → system_prompt_types.compose()       ← NO BUDGET ENFORCEMENT
+    → a_prompt_builder.build_user_prompt(usage, entries, cwd, state)
+    → call_monitor(ctx, user_prompt, system_prompt)  ← LLM API call
+    → pi_send_message("autonomic-wakeup", response)
+```
+
+### 321b. S-bot Prompt — Always Degraded
+
+S-bot's system prompt is assembled by `hook_on_before_agent_start`:
+
+| Component                                   | Source                     | Status                         |
+| ------------------------------------------- | -------------------------- | ------------------------------ |
+| Soul content (role, domain, responsibility) | `agent_souls` table        | ❌ Phantom table                |
+| Jobs list                                   | Not loaded in S-bot prompt | ❌ Missing                      |
+| System directives                           | `system_directives` table  | ❌ Never read by any Gleam code |
+| Skills                                      | Not loaded in S-bot prompt | ❌ Missing                      |
+| Fallback identity                           | Hardcoded string           | ✅ Works but minimal            |
+
+S-bot receives only a hardcoded fallback prompt:
+```
+"You are the Somatic Agentbot (S-agentbot). Your ID starts with S-.
+You are NOT the Autonomic Agentbot (A-agentbot).
+Messages from A come via pi_send_message — read and follow them.
+The human user operates the terminal.
+[SOUL LOAD FAILED: DB query: ...]"
+```
+
+**Impact**: S-bot has no personality, domain knowledge, or job assignments.
+It operates as a generic assistant with no specialized behavior.
+
+**Issue #235** | Severity: **HIGH** | Category: Missing Pipeline — S-bot prompt incomplete
+
+### 321c. A-bot Prompt — Compose Without Budget
+
+`a_prompt_builder.build_system_prompt` calls `system_prompt_types.compose()`
+which sorts components by priority and joins them. It does NOT enforce the
+token budget. The `compose_within_budget()` function exists but is never called.
+
+```gleam
+pub fn build_system_prompt(soul, a_jobs, context_window) {
+  let budget = context_window / 4
+  new_composition(budget)                    // budget = context_window / 4
+  |> add_component(soul_component(...))      // adds to composition
+  |> add_soul_content(soul_content)          // adds to composition
+  |> add_a_jobs(a_jobs)                      // adds to composition
+  // ⚠️ compose() ignores budget!
+  // Should call: compose_within_budget() |> compose()
+}
+```
+
+The `compose()` function returns ALL components regardless of budget.
+If the soul content + jobs + identity prompt exceeds `context_window / 4`,
+the system prompt will be too large, leaving less room for the user prompt
+and conversation history.
+
+**Issue #236** | Severity: **MEDIUM** | Category: Budget — compose() ignores token budget
+
+### 321d. `system_directives` Table — Dead Letter
+
+Migration 005 creates `system_directives` table for A→S communication.
+Migration 025 deprecates it as an "anti-pattern" and drops it.
+But the table still exists in the live DB (migration 025 was never applied
+or migration 005 re-created it).
+
+No Gleam code reads from `system_directives`. The table is a dead letter —
+data can be written but is never consumed.
+
+**Issue #237** | Severity: **LOW** | Category: Dead Letter — system_directives never read
+
+### 321e. Skill Module — `reference_list` Column Missing
+
+The `skill.gleam` module's decoder expects a `reference_list` column that
+does not exist in the `skills` table. All three skill queries fail:
+
+| Function         | SQL Issue                                     | Impact    |
+| ---------------- | --------------------------------------------- | --------- |
+| `skill.list()`   | `reference_list::text` — column doesn't exist | SQL error |
+| `skill.get()`    | `reference_list` — column doesn't exist       | SQL error |
+| `skill.search()` | `reference_list` — column doesn't exist       | SQL error |
+
+Additionally, `skill.get()` and `skill.search()` don't cast `content` (jsonb)
+with `::text`, causing decode failures even if `reference_list` were removed.
+
+**Issue #238** | Severity: **HIGH** | Category: Missing Column — reference_list in skills
+
+### 321f. Inter-Review Queries — Missing `::text` Casts
+
+`inter_review.get_review_details` and `inter_review.list_reviews` SELECT
+`requested_at` without `::text` cast. The `requested_at` column is
+`timestamp with time zone`, which node-postgres returns as a Date object.
+Gleam's `decode.string` cannot decode a Date object.
+
+| Function             | Missing Cast         | Impact         |
+| -------------------- | -------------------- | -------------- |
+| `get_review_details` | `requested_at::text` | Decode failure |
+| `list_reviews`       | `requested_at::text` | Decode failure |
+
+**Issue #239** | Severity: **MEDIUM** | Category: Missing Cast — inter_reviews.requested_at
+
+### 321g. `monitor_ai.prepare_context` — Phantom Table
+
+`monitor_ai.prepare_context` queries both `memory` and `code_versions`:
+```sql
+SELECT 'learning' as type_, content, saved_at::text FROM memory ...
+UNION ALL
+SELECT 'backup' as type_, file_path as content, saved_at::text FROM code_versions ...
+```
+
+`memory` table exists, but `code_versions` is a phantom table. The entire
+UNION query fails because the second SELECT references a non-existent table.
+
+**Issue #240** | Severity: **HIGH** | Category: Phantom Table — code_versions in prepare_context
+
+### 321h. `monitor_ai.check_system_health` — `COUNT(*)::INT` Works
+
+Unlike `a_db_reader.is_s_still_idle` which uses `COUNT(*)` without cast,
+`monitor_ai.check_system_health` uses `COUNT(*)::INT`. The `::INT` cast
+converts PostgreSQL bigint to integer, which node-postgres returns as a
+JavaScript number. `decode.int` works correctly.
+
+This is the CORRECT pattern. `a_db_reader.is_s_still_idle` should follow
+this pattern instead of using bare `COUNT(*)`.
+
+### 321i. Seed Script — All Three Seeds Target Phantom Tables
+
+`seed.gleam` seeds three tables:
+1. `agent_souls` — phantom table → seed fails
+2. `psypi_config` — exists → seed works
+3. `agent_prefixes` — phantom table → seed fails
+
+2 of 3 seed operations fail. Only `psypi_config` is seeded successfully.
+
+**Issue #241** | Severity: **HIGH** | Category: Phantom Table — seed targets non-existent tables
+
+### 321j. `agent_identity.get_enriched_identity` — Always Falls Through
+
+The `psypi-my-id` tool calls `get_enriched_identity` which:
+1. Calls `fetch_soul_by_prefix(prefix)` → queries `agent_souls` → fails
+2. Falls through to error branch → returns degraded identity with "unknown" domain
+3. Calls `fetch_jobs_by_prefix(prefix)` → queries `agent_jobs` → fails
+4. Falls through to error branch → returns empty jobs list
+
+The tool always returns:
+```json
+{
+  "prefix": "S",
+  "role": "S-bot",
+  "name": "S Agentbot",
+  "domain": "unknown",
+  "responsibilities": "",
+  "jobs": []
+}
+```
+
+**Issue #242** | Severity: **MEDIUM** | Category: Phantom Table — psypi-my-id always degraded
