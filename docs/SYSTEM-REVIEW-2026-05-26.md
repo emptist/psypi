@@ -7,16 +7,16 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**112 issues tracked** (#100-#211) across 10 audit categories.
+**121 issues tracked** (#100-#220) across 11 audit categories.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 25    | 22.3%      |
-| **HIGH**     | 41    | 36.6%      |
-| **MEDIUM**   | 38    | 33.9%      |
-| **LOW**      | 8     | 7.1%       |
+| **CRITICAL** | 28    | 23.1%      |
+| **HIGH**     | 45    | 37.2%      |
+| **MEDIUM**   | 39    | 32.2%      |
+| **LOW**      | 9     | 7.4%       |
 
 ### Category Breakdown
 
@@ -20957,14 +20957,14 @@ which requires a `ctx` object that isn't always available in utility functions.
 
 ## 315. UPDATED ISSUE COUNT
 
-Total issues tracked: **#100-#211** = **112 issues**
+Total issues tracked: **#100-#220** = **121 issues**
 
 | Severity | Count |
 | -------- | ----- |
-| CRITICAL | 25    |
-| HIGH     | 41    |
-| MEDIUM   | 38    |
-| LOW      | 8     |
+| CRITICAL | 28    |
+| HIGH     | 45    |
+| MEDIUM   | 39    |
+| LOW      | 9     |
 
 ---
 
@@ -21094,3 +21094,193 @@ The inter-review commit system is **completely non-functional**:
 | `record_review_score`       | ⚠️ Orphaned | Exists but never called            |
 
 **The inter-review system has NEVER completed a single review** (0 rows in `inter_reviews` table).
+
+---
+
+## 317. SQL QUERY VERIFICATION — ALL QUERIES vs LIVE DB SCHEMA
+
+### 317a. Methodology
+
+Every `SELECT`, `INSERT`, and `UPDATE` statement in Gleam source was compared
+against the live PostgreSQL schema using `information_schema.columns`. Each query
+was checked for:
+1. Table existence
+2. Column existence
+3. Column type compatibility with Gleam decoder
+4. Missing `::text` casts for UUID, timestamp, and JSONB types
+
+### 317b. Phantom Table References (Tables That Don't Exist)
+
+| Table            | Referenced By                                                                        | Impact                            |
+| ---------------- | ------------------------------------------------------------------------------------ | --------------------------------- |
+| `agent_souls`    | `a_db_reader`, `s_db_reader`, `agent_identity`, `seed`, `a_orchestrator` (error msg) | ALL soul reads fail               |
+| `agent_jobs`     | `a_db_reader`, `s_db_reader`, `agent_identity`                                       | ALL job reads fail                |
+| `agent_prefixes` | `seed`                                                                               | Seed script fails                 |
+| `code_versions`  | `code_version`, `monitor_ai.prepare_context`                                         | Code versioning completely broken |
+
+**Issue #212** | Severity: **CRITICAL** | Category: Phantom Table — agent_souls, agent_jobs, agent_prefixes, code_versions
+
+### 317c. Schema Mismatch — `agent_souls` vs `soul` Table
+
+The `soul` table EXISTS but has a completely different schema from what
+`agent_souls` was supposed to have:
+
+| Column Expected (agent_souls) | Column in `soul` Table   | Match?                    |
+| ----------------------------- | ------------------------ | ------------------------- |
+| `id_prefix` (text)            | `id` (uuid)              | ❌ Different name and type |
+| `name` (text)                 | —                        | ❌ Missing                 |
+| `role` (text)                 | `role` (text)            | ✅                         |
+| `domain` (text)               | `domain` (text)          | ✅                         |
+| `responsibility` (text)       | `responsibility` (text)  | ✅                         |
+| `trigger_type` (text)         | `event_triggers` (jsonb) | ❌ Different name and type |
+| `drive_mode` (text)           | —                        | ❌ Missing                 |
+| `activation` (text)           | —                        | ❌ Missing                 |
+| `content` (text)              | —                        | ❌ Missing                 |
+| `is_active` (boolean)         | `is_active` (boolean)    | ✅                         |
+
+Only 4 of 10 columns match. Even if we rename `agent_souls` → `soul` in SQL,
+6 columns will still fail.
+
+**Issue #213** | Severity: **CRITICAL** | Category: Schema Mismatch — soul table
+
+### 317d. Missing Columns in `issues` Table
+
+The `issue_db.gleam` SELECT references 6 columns that don't exist:
+
+```sql
+SELECT id, title, description, severity, status, issue_type,
+       created_at::text, resolved_at::text,
+       created_by,      -- ❌ doesn't exist
+       discovered_by,   -- ❌ doesn't exist
+       environment,     -- ❌ doesn't exist
+       git_branch,      -- ❌ doesn't exist
+       git_hash,        -- ❌ doesn't exist
+       reported_by,     -- ❌ doesn't exist
+       source           -- ❌ doesn't exist
+FROM issues
+```
+
+PostgreSQL will reject this query entirely with "column does not exist" error.
+The `issue_db.list()` function is completely broken.
+
+**Issue #214** | Severity: **CRITICAL** | Category: Missing Columns — issues table
+
+### 317e. Missing Columns in `project_communications` Table
+
+The `broadcast.gleam` module references columns that don't exist:
+
+1. **`send()` INSERT**: References `priority` column — doesn't exist
+   ```sql
+   INSERT INTO project_communications
+   (project_id, from_ai, message_type, content, priority, metadata)
+   ```
+   This INSERT will fail.
+
+2. **`list()` and `get_recent()` SELECT**: References `priority` column — doesn't exist
+   ```sql
+   SELECT id, from_ai as agent_id, content as message, priority, ...
+   ```
+   This SELECT will fail.
+
+3. **`stats()` SELECT**: References `status` and `priority >= 2`
+   ```sql
+   COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
+   COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+   ```
+   Neither `status` nor `priority` columns exist. Also, `priority` is text
+   (values: 'low','normal','high','critical'), not integer. `>= 2` is semantic
+   error even if column existed.
+
+**Issue #215** | Severity: **CRITICAL** | Category: Missing Columns — project_communications
+
+### 317f. Missing `::text` Casts — Complete Inventory
+
+Every query that reads UUID, timestamp, or JSONB columns without `::text` cast:
+
+| Module           | Query                  | Missing Cast   | Column Type | Decoder         | Impact                                  |
+| ---------------- | ---------------------- | -------------- | ----------- | --------------- | --------------------------------------- |
+| `inter_review`   | `get_review_details`   | `requested_at` | timestamp   | `decode.string` | Decode fails (Date object)              |
+| `inter_review`   | `list_reviews`         | `requested_at` | timestamp   | `decode.string` | Decode fails                            |
+| `memory`         | `search`               | `created_at`   | timestamp   | `decode.string` | Decode fails (Date object)              |
+| `memory`         | `search`               | `id`           | uuid        | `decode.string` | Works (node-postgres returns string)    |
+| `memory`         | `save` (RETURNING id)  | `id`           | uuid        | `decode.string` | Works                                   |
+| `agent_identity` | `fetch_soul_by_prefix` | `id`           | uuid        | `decode.string` | Would work if table existed             |
+| `issue_db`       | `list`                 | `id`           | uuid        | `decode.string` | Works (but query fails on missing cols) |
+| `broadcast`      | `list/get_recent`      | `id`           | uuid        | `decode.string` | Would work if priority existed          |
+
+**Key insight**: node-postgres returns UUIDs as strings by default, so `decode.string`
+works for UUID columns. But timestamps come as JavaScript `Date` objects, which
+`decode.string` cannot handle. JSONB comes as JavaScript objects, which also fail.
+
+**Issue #216** | Severity: **HIGH** | Category: Missing `::text` Casts — Timestamps
+
+### 317g. `is_s_still_idle` — Double Failure Mode
+
+The query:
+```sql
+SELECT COUNT(*) as cnt FROM agent_sessions
+WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'
+```
+
+**Failure Mode 1**: `COUNT(*)` returns PostgreSQL `bigint`. node-postgres may return
+this as a string for large values. `decode.int` fails on string → `Error(_)` branch
+returns `Ok(True)` (always idle).
+
+**Failure Mode 2**: `agent_sessions` table is EMPTY (0 rows). `COUNT(*)` returns 0,
+which `decode.int` handles correctly. But the result is always `Ok(True)` because
+there are no active sessions.
+
+**Combined**: The function ALWAYS returns `Ok(True)` regardless of actual S-bot state.
+
+**Issue #217** | Severity: **HIGH** | Category: Always-True Idle Detection
+
+### 317h. `seed.gleam` — Always Fails
+
+The seed script tries to INSERT into `agent_souls` and `agent_prefixes` — both
+phantom tables. The `seed_psypi_config` part works (INSERT into `psypi_config`),
+but the overall seed always reports failure because `seed_agent_souls` fails first.
+
+**Issue #218** | Severity: **MEDIUM** | Category: Broken Seed Script
+
+### 317i. `monitor_ai.prepare_context` — Phantom Table Reference
+
+```sql
+SELECT 'learning' as type_, content, saved_at::text
+FROM memory
+WHERE agent_id = $1 AND source = 'learn'
+UNION ALL
+SELECT 'backup' as type_, file_path as content, saved_at::text
+FROM code_versions    -- ❌ phantom table
+WHERE saved_by = $1
+ORDER BY saved_at DESC
+LIMIT 10
+```
+
+The `UNION ALL` fails because `code_versions` doesn't exist. The entire
+`prepare_context` function is broken.
+
+**Issue #219** | Severity: **HIGH** | Category: Phantom Table — code_versions
+
+### 317j. `monitor_ai.get_model_stats` — Invalid Status Filter
+
+```sql
+COUNT(*) FILTER (WHERE status = 'FAILED')::INT as failure_count
+FROM inter_reviews
+```
+
+`inter_reviews.status` uses values 'pending', 'in_progress', 'completed'.
+'FAILED' is not a valid status. This filter will always return 0.
+
+**Issue #220** | Severity: **LOW** | Category: Invalid Status Value
+
+### 317k. SQL Query Verification Summary
+
+| Status                      | Count | Details                                                                                                                                                         |
+| --------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✅ Works                     | 8     | `meeting.*`, `agents.list`, `stats.get`, `psypi_config.get`, `issue_db.count`, `learning.save`, `a_db_reader.read_active_tasks`, `a_db_reader.read_open_issues` |
+| ❌ Broken (phantom table)    | 6     | `agent_souls` (3 modules), `agent_jobs` (3 modules), `code_versions` (2 modules), `agent_prefixes` (1 module)                                                   |
+| ❌ Broken (missing column)   | 3     | `issue_db.list` (6 missing cols), `broadcast.send` (priority), `broadcast.list/stats` (priority, status)                                                        |
+| ❌ Broken (missing `::text`) | 3     | `inter_review.get_review_details`, `inter_review.list_reviews`, `memory.search`                                                                                 |
+| ⚠️ Partial                   | 2     | `is_s_still_idle` (always true), `monitor_ai.get_model_stats` (wrong status)                                                                                    |
+
+**9 of 22 query modules are completely broken** due to phantom tables or missing columns.
