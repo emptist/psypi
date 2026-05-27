@@ -21936,63 +21936,72 @@ simplifile (2 imports) ← file system operations
 The module dependency graph is a clean DAG. No circular imports detected.
 All dependencies flow downward: hooks → orchestrator → db_reader → db.
 
-### 322c. Module Health Summary
+### 322c. Module Health Summary — REVISED v2 (after full decode audit)
 
-| Module                       | DB Tables Referenced                               | Phantom Tables                                | Status                            |
-| ---------------------------- | -------------------------------------------------- | --------------------------------------------- | --------------------------------- |
-| `db`                         | (connection layer)                                 | —                                             | ✅ Works                           |
-| `pi_tool_call`               | (type definitions)                                 | —                                             | ✅ Works                           |
-| `pi_extension`               | (FFI bridge)                                       | —                                             | ✅ Works                           |
-| `extension_generator`        | (code gen)                                         | —                                             | ✅ Works                           |
-| `meeting`                    | `meetings`                                         | —                                             | ✅ Works                           |
-| `agents`                     | `agent_identities`                                 | —                                             | ✅ Works                           |
-| `stats`                      | `tasks`, `issues`, `skills`                        | —                                             | ✅ Works                           |
-| `learning`                   | `memory`                                           | —                                             | ✅ Works                           |
-| `task`                       | `tasks`                                            | —                                             | ✅ Works                           |
-| `issue_tools`                | `issues`                                           | —                                             | ✅ Works                           |
-| `issue_db`                   | `issues`                                           | —                                             | ✅ Works                           |
-| `memory`                     | `memory`                                           | —                                             | ✅ Works                           |
-| `areflect`                   | `learning_insights`, `issues`, `tasks`             | —                                             | ✅ Works                           |
-| `psypi_config`               | `psypi_config`                                     | —                                             | ✅ Works                           |
-| `monitor`                    | `provider_api_keys`, `activity_log`                | `notifications`                               | ⚠️ Partial                         |
-| `monitor_ai`                 | `tasks`, `issues`, `inter_reviews`, `activity_log` | `code_versions`                               | ⚠️ Partial                         |
-| `inter_review`               | `inter_reviews`                                    | —                                             | ⚠️ Partial (missing ::text)        |
-| `skill`                      | `skills`                                           | — (missing `reference_list` column)           | ❌ Broken                          |
-| `broadcast`                  | `project_communications`                           | — (missing `priority`, `status` columns)      | ❌ Broken                          |
-| `code_version`               | — (uses SQL functions)                             | `code_versions` (table + functions missing)   | ❌ Broken                          |
-| `event_hooks`                | —                                                  | `psypi_event_hooks`                           | ❌ Broken                          |
-| `hook_on_tool_call`          | —                                                  | `code_versions` (via code_version module)     | ❌ Broken                          |
-| `hook_on_before_agent_start` | —                                                  | `psypi_event_hooks`, `agent_souls`            | ❌ Broken                          |
-| `hook_on_agent_start`        | —                                                  | `psypi_event_hooks`                           | ❌ Broken                          |
-| `hook_on_agent_end`          | —                                                  | `agent_souls`, `agent_jobs` (via a_db_reader) | ❌ Broken                          |
-| `a_db_reader`                | `tasks`, `issues`, `agent_sessions`                | `agent_souls`, `agent_jobs`                   | ❌ Broken                          |
-| `s_db_reader`                | —                                                  | `agent_souls`, `agent_jobs`                   | ❌ Broken                          |
-| `a_orchestrator`             | —                                                  | `agent_souls`, `agent_jobs` (via a_db_reader) | ❌ Broken                          |
-| `a_prompt_builder`           | —                                                  | —                                             | ⚠️ Partial (no budget enforcement) |
-| `agent_identity`             | `agent_identities`                                 | `agent_souls`, `agent_jobs`                   | ❌ Broken                          |
-| `tool_commit`                | `inter_reviews`                                    | —                                             | ❌ Broken (score never written)    |
-| `seed`                       | `psypi_config`                                     | `agent_souls`, `agent_prefixes`               | ❌ Broken                          |
-| `simple_migrate`             | —                                                  | —                                             | ⚠️ Partial (no tracking)           |
-| `file_utils`                 | —                                                  | —                                             | ✅ Works                           |
-| `command_listen`             | —                                                  | —                                             | ✅ Works                           |
-| `command_reload`             | —                                                  | —                                             | ✅ Works                           |
-| `hook_on_tool_result`        | —                                                  | —                                             | ✅ Works                           |
-| `tool_consult`               | —                                                  | —                                             | ⚠️ Stub                            |
-| `main`                       | —                                                  | —                                             | ✅ Works                           |
+| Module                       | DB Tables Referenced                                             | Key Issues                                                           | Status              |
+| ---------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------- |
+| `db`                         | (connection layer)                                               | —                                                                    | ✅ Works             |
+| `pi_tool_call`               | (type definitions)                                               | —                                                                    | ✅ Works             |
+| `pi_extension`               | (FFI bridge)                                                     | `get_config` returns null instead of Option                          | ❌ Broken (FFI #263) |
+| `extension_generator`        | (code gen)                                                       | —                                                                    | ✅ Works             |
+| `meeting`                    | `meetings`                                                       | All ::text casts correct                                             | ✅ Works             |
+| `agents`                     | `agent_identities`                                               | `created_at::text` correct                                           | ✅ Works             |
+| `stats`                      | `tasks`, `issues`, `skills`                                      | Uses `decode_bigint()`                                               | ✅ Works             |
+| `learning`                   | `memory`                                                         | INSERT only, no decode issues                                        | ✅ Works             |
+| `task`                       | `tasks`                                                          | `result` jsonb decode fail (#274), `get()` missing project_id (#276) | ❌ Broken            |
+| `issue_tools`                | `issues`                                                         | Delegates to issue_db                                                | ✅ Works             |
+| `issue_db`                   | `issues`                                                         | Best-maintained module, all casts correct                            | ✅ Works             |
+| `memory`                     | `memory`                                                         | `save()` wrong decoder (#273), `search()` timestamp fail             | ❌ Broken            |
+| `areflect`                   | `learning_insights`, `issues`, `tasks`                           | INSERT only, no decode issues                                        | ✅ Works             |
+| `psypi_config`               | `psypi_config`                                                   | Proper DB-backed config                                              | ✅ Works             |
+| `monitor`                    | `provider_api_keys`, `activity_log`                              | —                                                                    | ✅ Works             |
+| `monitor_ai`                 | `tasks`, `issues`, `inter_reviews`, `activity_log`               | `auto_file_issue` wrong column (#278)                                | ⚠️ Partial           |
+| `inter_review`               | `inter_reviews`                                                  | `requested_at` no cast (#269), blocks commit                         | ❌ Broken            |
+| `skill`                      | `skills`                                                         | `get/search` missing jsonb casts (#275)                              | ❌ Broken            |
+| `broadcast`                  | `project_communications`                                         | `stats()` double bug (#277), `send()` priority column exists ✅       | ⚠️ Partial           |
+| `code_version`               | `code_versions` + SQL functions                                  | `query_versions` no decoder for timestamp                            | ⚠️ Partial           |
+| `event_hooks`                | `psypi_event_hooks`                                              | Table EXISTS, trigger recording works                                | ✅ Works             |
+| `hook_on_tool_call`          | —                                                                | No DB queries                                                        | ✅ Works             |
+| `hook_on_before_agent_start` | `psypi_event_hooks`, `agent_souls`                               | Tables exist, queries work                                           | ✅ Works             |
+| `hook_on_agent_start`        | `psypi_event_hooks`                                              | Table exists, trigger recording works                                | ✅ Works             |
+| `hook_on_agent_end`          | — (uses FFI config + a_db_reader)                                | FFI `get_config` broken (#263), A-bot never wakes                    | ❌ Broken            |
+| `a_db_reader`                | `agent_sessions`, `agent_souls`, `agent_jobs`, `tasks`, `issues` | `is_s_still_idle` bigint fail (#268)                                 | ⚠️ Partial           |
+| `s_db_reader`                | `agent_souls`                                                    | `content` column exists, query works                                 | ✅ Works             |
+| `a_orchestrator`             | (uses a_db_reader, a_prompt_builder)                             | `compose()` ignores budget (#271)                                    | ⚠️ Partial           |
+| `a_prompt_builder`           | —                                                                | `compose()` not `compose_within_budget()`                            | ⚠️ Partial           |
+| `agent_identity`             | `agent_identities`, `agent_souls`, `agent_jobs`                  | Tables exist, `fetch_jobs` silently drops failures                   | ⚠️ Partial           |
+| `tool_commit`                | `inter_reviews`                                                  | Score never written (#259), `get_review_details` fails (#269)        | ❌ Broken            |
+| `seed`                       | `agent_souls`, `agent_prefixes`, `psypi_config`                  | Tables exist, seed queries work                                      | ✅ Works             |
+| `simple_migrate`             | —                                                                | No tracking table, idempotent but risky                              | ⚠️ Partial           |
+| `file_utils`                 | —                                                                | No DB queries                                                        | ✅ Works             |
+| `command_listen`             | —                                                                | No DB queries                                                        | ✅ Works             |
+| `command_reload`             | —                                                                | No DB queries                                                        | ✅ Works             |
+| `hook_on_tool_result`        | —                                                                | No DB queries                                                        | ✅ Works             |
+| `tool_consult`               | —                                                                | Returns hardcoded string                                             | ⚠️ Stub              |
+| `main`                       | —                                                                | Entry point, works                                                   | ✅ Works             |
 
-### 322d. Module Failure Count
+### 322d. Module Failure Count — REVISED v2
 
 | Status           | Count | Percentage |
 | ---------------- | ----- | ---------- |
-| ✅ Works          | 16    | 37.2%      |
-| ⚠️ Partial        | 8     | 18.6%      |
-| ❌ Broken         | 14    | 32.6%      |
+| ✅ Works          | 22    | 51.2%      |
+| ⚠️ Partial        | 9     | 20.9%      |
+| ❌ Broken         | 8     | 18.6%      |
 | ⚠️ Stub           | 1     | 2.3%       |
-| (infrastructure) | 4     | 9.3%       |
+| (infrastructure) | 3     | 7.0%       |
 
-**51.2% of modules are broken or partially functional.**
+**39.5% of modules are broken or partially functional.** (Improved from 51.2% after
+correcting phantom table claims — many tables DO exist in psypi database.)
 
-**Issue #243** | Severity: **HIGH** | Category: Architecture — 51.2% of Gleam modules broken or partial
+The 8 truly broken modules are:
+1. `pi_extension` — FFI `get_config` returns null instead of Option, blocks A-bot wakeup
+2. `task` — jsonb decode fail + missing column in get()
+3. `memory` — wrong decoder in save() + timestamp in search()
+4. `inter_review` — requested_at timestamp not cast, blocks commit flow
+5. `skill` — get/search missing jsonb casts
+6. `hook_on_agent_end` — depends on broken FFI config
+7. `tool_commit` — score never written + review details decode fail
+8. (no 8th — `broadcast` is partial, not fully broken)
 
 ---
 
