@@ -26015,3 +26015,225 @@ counts will be wrong.
 **New issues in this section: 24** (3 CRITICAL, 5 HIGH, 9 MEDIUM, 7 LOW)
 
 **Running total: 191 + 24 = 215 issues**
+
+---
+
+## 361. SHARED DATABASE TABLE OWNERSHIP — PSYPI vs OTHER PROJECTS
+
+The `psypi` database is shared across multiple projects. Not all 96 tables
+belong to the psypi project. This section documents which tables are
+psypi-specific, which are shared, and which belong to other projects.
+
+### Methodology
+
+1. Checked `project_id` column presence in each table
+2. Counted rows with psypi's project UUID (`0d324e68-b399-4b85-bd8a-6b1ef7b46168`)
+3. Checked which tables are referenced by Gleam source code
+4. Checked distinct `project_id` values for non-psypi data
+
+### 361a. Tables with psypi project_id Data (Confirmed psypi)
+
+| Table  | Total Rows | psypi Rows | Gleam Code Uses?                                       |
+| ------ | ---------- | ---------- | ------------------------------------------------------ |
+| tasks  | 20         | 20         | ✅ task.gleam, a_db_reader, monitor_ai, stats, areflect |
+| issues | 26         | 26         | ✅ issue_db.gleam, areflect, monitor_ai, stats          |
+
+These two tables have 100% psypi project_id coverage. All rows belong
+to the psypi project.
+
+### 361b. Tables with `project_id` Column but NO psypi Data (Other Projects)
+
+| Table                  | Total Rows | psypi Rows | Other project_id                     | Gleam Code Uses?                           |
+| ---------------------- | ---------- | ---------- | ------------------------------------ | ------------------------------------------ |
+| meetings               | 56         | 0          | NULL                                 | ✅ meeting.gleam, stats                     |
+| memory                 | 63         | 0          | NULL                                 | ✅ learning.gleam, memory.gleam, monitor_ai |
+| skills                 | 188        | 0          | NULL                                 | ✅ skill.gleam, stats, monitor_ai           |
+| learning_insights      | 84         | 0          | NULL                                 | ✅ areflect.gleam                           |
+| project_communications | 382        | 0          | 00000000-0000-0000-0000-000000000001 | ✅ broadcast.gleam                          |
+| skill_audit_log        | 29         | 0          | NULL                                 | ❌                                          |
+| conversations          | 0          | 0          | N/A                                  | ❌                                          |
+| agent_configs          | 0          | 0          | N/A                                  | ❌                                          |
+| archived_memory        | 0          | 0          | N/A                                  | ❌                                          |
+| heartbeat_configs      | 0          | 0          | N/A                                  | ❌                                          |
+| project_config_history | 0          | 0          | N/A                                  | ❌                                          |
+| project_metrics        | 0          | 0          | N/A                                  | ❌                                          |
+| project_skills         | 0          | 0          | N/A                                  | ❌                                          |
+| skill_feedback         | 0          | 0          | N/A                                  | ❌                                          |
+| task_outcomes          | 0          | 0          | N/A                                  | ❌                                          |
+| task_patterns          | 0          | 0          | N/A                                  | ❌                                          |
+| task_results           | 0          | 0          | N/A                                  | ❌                                          |
+| tool_definitions       | 0          | 0          | N/A                                  | ❌                                          |
+| user_profiles          | 0          | 0          | N/A                                  | ❌                                          |
+
+Key findings:
+- `meetings` (56 rows), `memory` (63 rows), `skills` (188 rows),
+  `learning_insights` (84 rows) have data but `project_id` is NULL.
+  This means the Gleam code that writes to these tables does NOT set
+  `project_id`. The rows exist but are not associated with any project.
+- `project_communications` (382 rows) uses project_id
+  `00000000-0000-0000-0000-000000000001` — a different project (likely
+  the nupi/nezha coordination layer).
+- `skill_audit_log` (29 rows) has data but no psypi project_id and is
+  NOT used by any Gleam code. Likely from another project.
+
+### 361c. Tables WITHOUT `project_id` Column (psypi-Scoped or Shared)
+
+These tables don't have a `project_id` column. They're either:
+- psypi-specific (prefixed with `psypi_` or `agent_`)
+- Shared infrastructure tables
+- Other project tables
+
+**psypi-Specific (used by Gleam code):**
+
+| Table             | Rows | Gleam Code Uses?                                 | Notes                      |
+| ----------------- | ---- | ------------------------------------------------ | -------------------------- |
+| agent_souls       | 2    | ✅ a_db_reader, s_db_reader, agent_identity, seed | A/S soul definitions       |
+| agent_jobs        | ?    | ✅ a_db_reader, s_db_reader, agent_identity       | Agent work items           |
+| agent_prefixes    | 3    | ✅ seed.gleam                                     | A, S, G prefix definitions |
+| agent_sessions    | 19   | ✅ a_db_reader.is_s_still_idle                    | Session tracking           |
+| agent_identities  | ?    | ✅ agents.gleam                                   | Agent identity records     |
+| inter_reviews     | ?    | ✅ inter_review.gleam, monitor_ai                 | Review flow                |
+| psypi_config      | ?    | ✅ psypi_config.gleam, seed                       | Key-value config           |
+| psypi_event_hooks | ?    | ✅ event_hooks.gleam                              | Hook status tracking       |
+| activity_log      | ?    | ✅ monitor.gleam, monitor_ai                      | Activity tracking          |
+| provider_api_keys | ?    | ✅ monitor.gleam                                  | API key management         |
+| code_versions     | ?    | ✅ code_version.gleam, monitor_ai                 | Version tracking           |
+| meeting_opinions  | ?    | ✅ meeting.gleam                                  | Meeting opinions           |
+
+**Other Project / Not Used by psypi Gleam:**
+
+| Table                 | Rows | Notes                                                           |
+| --------------------- | ---- | --------------------------------------------------------------- |
+| notifications         | 1    | monitor.gleam reads/writes but 1 row only; likely other project |
+| soul                  | 2    | Competing soul table (see #343); NOT used by Gleam              |
+| agent_identity        | 0    | Different from agent_identities; empty                          |
+| agent_moods           | 0    | Not used by Gleam                                               |
+| agent_scores          | 0    | Not used by Gleam                                               |
+| ai_capabilities       | 0    | Not used by Gleam                                               |
+| api_keys              | 0    | Not used by Gleam                                               |
+| auto_category_rules   | 0    | Not used by Gleam                                               |
+| auto_tag_rules        | 0    | Not used by Gleam                                               |
+| bootstrap_state       | 0    | Not used by Gleam                                               |
+| dead_letter_queue     | 0    | Not used by Gleam                                               |
+| direct_insert_audit   | 0    | Audit trigger table                                             |
+| email_verifications   | 0    | User auth system                                                |
+| event_log             | 0    | Not used by Gleam                                               |
+| failure_alerts        | 0    | Not used by Gleam                                               |
+| failure_patterns      | 0    | Not used by Gleam                                               |
+| failure_root_causes   | 0    | Not used by Gleam                                               |
+| insert_reminders      | 0    | Not used by Gleam                                               |
+| issue_comments        | 0    | Not used by Gleam                                               |
+| issue_events          | 0    | Not used by Gleam                                               |
+| issue_labels          | 0    | Not used by Gleam                                               |
+| knowledge_links       | 0    | Not used by Gleam                                               |
+| labels                | 0    | Not used by Gleam                                               |
+| long_tasks_pause      | 0    | Not used by Gleam                                               |
+| mcp_configs           | 0    | MCP server configs                                              |
+| mcp_tools             | 0    | MCP tool registry                                               |
+| memories              | 7    | Different from `memory`; not used by Gleam                      |
+| milestones            | 0    | Not used by Gleam                                               |
+| password_resets       | 0    | User auth system                                                |
+| payment_analytics     | 0    | Payment system                                                  |
+| payment_refunds       | 0    | Payment system                                                  |
+| payment_webhooks      | 0    | Payment system                                                  |
+| payments              | 0    | Payment system                                                  |
+| priority_learnings    | 0    | Not used by Gleam                                               |
+| process_pids          | 0    | Not used by Gleam                                               |
+| project_docs          | 0    | Not used by Gleam                                               |
+| project_visits        | 0    | Not used by Gleam                                               |
+| projects              | 1    | Has psypi project row                                           |
+| prompt_suggestions    | 0    | Not used by Gleam                                               |
+| rate_limits           | 0    | Not used by Gleam                                               |
+| reflections           | 0    | Not used by Gleam                                               |
+| reminder_templates    | 0    | Not used by Gleam                                               |
+| retry_learning        | 0    | Not used by Gleam                                               |
+| retry_strategies      | 0    | Not used by Gleam                                               |
+| review_comments       | 0    | Not used by Gleam                                               |
+| review_labels         | 0    | Not used by Gleam                                               |
+| scheduled_tasks       | 0    | Not used by Gleam                                               |
+| skill_builder_config  | 0    | Not used by Gleam                                               |
+| skill_versions        | 0    | Not used by Gleam                                               |
+| stuck_tasks_tracking  | 0    | Not used by Gleam                                               |
+| subscription_plans    | 0    | Payment system                                                  |
+| subscriptions         | 0    | Payment system                                                  |
+| system_directives     | 0    | Not used by Gleam                                               |
+| system_reviews        | 0    | Not used by Gleam                                               |
+| table_documentation   | 0    | Not used by Gleam                                               |
+| task_audit_log        | 0    | Not used by Gleam                                               |
+| task_comments         | 0    | Not used by Gleam                                               |
+| task_outcome_features | 0    | Not used by Gleam                                               |
+| task_templates        | 0    | Not used by Gleam                                               |
+| test_uuid_col         | 0    | Test table                                                      |
+| user_payment_methods  | 0    | Payment system                                                  |
+| user_profiles         | 0    | User system                                                     |
+| user_sessions         | 0    | User auth system                                                |
+| users                 | 0    | User auth system                                                |
+
+### 361d. Critical Finding — `project_id` NOT Set in INSERT Statements
+
+The following Gleam modules INSERT into tables that have a `project_id`
+column but do NOT include `project_id` in the INSERT:
+
+| Module          | Table                  | Has project_id? | Sets project_id?     | Impact                           |
+| --------------- | ---------------------- | --------------- | -------------------- | -------------------------------- |
+| meeting.gleam   | meetings               | YES             | ❌ NO                 | 56 rows with NULL project_id     |
+| learning.gleam  | memory                 | YES             | ❌ NO                 | 63 rows with NULL project_id     |
+| skill.gleam     | skills                 | YES             | ❌ NO                 | 188 rows with NULL project_id    |
+| areflect.gleam  | learning_insights      | YES             | ❌ NO                 | 84 rows with NULL project_id     |
+| broadcast.gleam | project_communications | YES             | ❌ NO                 | Uses wrong project_id            |
+| areflect.gleam  | issues                 | YES             | ❌ NO (in save_issue) | Will fail on NOT NULL constraint |
+| areflect.gleam  | tasks                  | YES             | ❌ NO (in save_task)  | Will fail on NOT NULL constraint |
+
+Wait — `task.gleam` and `issue_db.gleam` DO set `project_id`:
+```gleam
+INSERT INTO tasks (title, description, priority, created_by, project_id) VALUES (...)
+INSERT INTO issues (title, description, severity, issue_type, created_by, project_id) VALUES (...)
+```
+
+But `areflect.gleam` does NOT:
+```gleam
+INSERT INTO issues (title, description, severity, created_by)  -- Missing project_id!
+INSERT INTO tasks (title, description, priority, created_by)    -- Missing project_id!
+```
+
+And the other modules (meeting, learning, skill, broadcast) also don't
+set `project_id`.
+
+**Issue #356** | Severity: **HIGH** | Category: Logic — `meeting.gleam`, `learning.gleam`, `skill.gleam`, `areflect.gleam`, `broadcast.gleam` INSERT into tables with `project_id` column but don't set it; rows have NULL project_id; `areflect.save_issue` and `areflect.save_task` will fail on NOT NULL constraint
+
+### 361e. `project_communications` Uses Wrong project_id
+
+The `broadcast.gleam` module inserts into `project_communications` but
+doesn't set `project_id`. The 382 existing rows use
+`00000000-0000-0000-0000-000000000001`, which is NOT the psypi project
+UUID. This means either:
+1. The broadcast module is writing for a different project, or
+2. The `project_communications` table has a DEFAULT project_id of
+   `00000000-0000-0000-0000-000000000001`, or
+3. Another project (nupi/nezha) is writing to this table
+
+**Issue #357** | Severity: **MEDIUM** | Category: Logic — `project_communications` uses project_id `00000000-0000-0000-0000-000000000001` instead of psypi's UUID; data ownership unclear
+
+### 361f. Summary — Table Ownership
+
+**psypi-specific tables (12)**: agent_souls, agent_jobs, agent_prefixes,
+agent_sessions, agent_identities, inter_reviews, psypi_config,
+psypi_event_hooks, activity_log, provider_api_keys, code_versions,
+meeting_opinions
+
+**psypi data tables with project_id (2)**: tasks, issues (100% psypi data)
+
+**Shared tables with NULL project_id (4)**: meetings, memory, skills,
+learning_insights (psypi Gleam writes but doesn't set project_id)
+
+**Other project tables (68+)**: payment_*, user_*, subscription_*,
+email_verifications, password_resets, mcp_*, soul, agent_identity,
+agent_moods, etc.
+
+**Infrastructure tables (8)**: direct_insert_audit, projects,
+notifications, memories, process_pids, rate_limits, event_log,
+test_uuid_col
+
+**Total tables in database: 96**
+**psypi-relevant tables: ~18** (12 specific + 2 with data + 4 shared)
+**Other project tables: ~78**
