@@ -7,16 +7,16 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**87 issues tracked** (#100-#186) across 7 audit categories.
+**108 issues tracked** (#100-#207) across 9 audit categories.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 22    | 25.3%      |
-| **HIGH**     | 36    | 41.4%      |
-| **MEDIUM**   | 24    | 27.6%      |
-| **LOW**      | 5     | 5.7%       |
+| **CRITICAL** | 24    | 22.2%      |
+| **HIGH**     | 40    | 37.0%      |
+| **MEDIUM**   | 37    | 34.3%      |
+| **LOW**      | 7     | 6.5%       |
 
 ### Category Breakdown
 
@@ -31,19 +31,21 @@ No assumptions. No documentation trust. Only verified facts.
 | **Concurrency**           | 8      | 1         | No connection pooling, double debounce, BigInt decode failure       |
 | **Prompt Pipeline**       | 12     | 3         | Phantom tables block S-bot/A-bot, system_directives dead letter     |
 | **Code/SQL Bugs**         | 17     | 3         | Missing ::text casts, wrong SQL, NOT NULL violations                |
+| **FFI Binding Audit**     | 8      | 1         | get_config returns wrong type, dead exports, blocking I/O           |
+| **Error Handling Audit**  | 13     | 1         | 6 swallowed errors returning Ok(default), no logging infrastructure |
 | **Review Corrections**    | 2      | 2         | Previous review had false claims                                    |
 
 ### Top 5 System-Stopping Issues
 
-1. **#175/#177 — Phantom `agent_souls`/`agent_jobs` tables**: Both S-bot and A-bot soul loading fails. S-bot falls back to hardcoded text. A-bot workflow terminates with error. The entire A/S agent coordination is non-functional.
+1. **#187 — `get_config` FFI returns `null|string` not `Some|None`**: The debounce logic in `hook_on_agent_end` NEVER matches `option.Some`, so `idle_since` is always re-recorded and debounce never fires. This is the ROOT CAUSE of A-bot wakeup failure.
 
-2. **#169 — Double debounce creates 20+ minute delays**: JS setTimeout (15 min from DB) + Gleam manual check (5 min from _configStore) stack. A-bot wake-up is effectively disabled.
+2. **#175/#177 — Phantom `agent_souls`/`agent_jobs` tables**: Both S-bot and A-bot soul loading fails. S-bot falls back to hardcoded text. A-bot workflow terminates with error. The entire A/S agent coordination is non-functional.
 
-3. **#179 — System directives dead letter**: `system_directives` table exists but is never read by `before_agent_start` hook. A→S communication relies solely on `pi_send_message`, which is unreliable.
+3. **#195 — `is_s_still_idle` always returns `Ok(True)`**: `COUNT(*)` returns bigint but decoder uses `decode.int` which fails on string, and the error branch returns `Ok(True)`. S is always considered idle.
 
-4. **#132/#104/#105 — Dropped `project_id` column**: `issues.project_id` was dropped from live DB, but `areflect.save_issue()` and `areflect.save_task()` still INSERT into it. All issue and task creation fails with NOT NULL violation.
+4. **#179 — System directives dead letter**: `system_directives` table exists but is never read by `before_agent_start` hook. A→S communication relies solely on `pi_send_message`, which is unreliable.
 
-5. **#167/#171 — No connection pooling + disconnect not awaited**: Every query opens a new TCP connection and the close is not awaited. Under load, PostgreSQL connection exhaustion is inevitable.
+5. **#132/#104/#105 — Dropped `project_id` column**: `issues.project_id` was dropped from live DB, but `areflect.save_issue()` and `areflect.save_task()` still INSERT into it. All issue and task creation fails with NOT NULL violation.
 
 ### What Works
 
@@ -20664,3 +20666,302 @@ The A-bot pipeline in `a_prompt_builder` uses `PromptComposition` but:
 | 184 | Prompt pipeline | A-bot identity prompt hardcoded, contradicts DB-driven instruction       | MEDIUM   |
 | 185 | Prompt pipeline | Raw `entries_json` in prompt confuses LLM                                | MEDIUM   |
 | 186 | Prompt pipeline | S-bot fallback soul is incomplete vs migration 008 content               | MEDIUM   |
+
+---
+
+## 313. ERROR HANDLING AUDIT — SWALLOWED ERRORS AND SILENT FAILURES
+
+### 313a. Critical: `is_s_still_idle` Returns `Ok(True)` on Decode Error
+
+File: [a_db_reader.gleam:44](src/a_db_reader.gleam#L44)
+
+```gleam
+case decode.run(row, count_decoder()) {
+  Ok(cnt) -> Ok(cnt == 0)
+  Error(_) -> Ok(True)  // ← Decode failure treated as "idle"
+}
+```
+
+The `count_decoder()` uses `decode.int` for `COUNT(*) as cnt`. But PostgreSQL `COUNT(*)`
+returns `bigint`, which node-postgres delivers as a string (not a JS number). `decode.int`
+fails on string input, so `Error(_)` is ALWAYS hit. Result: `is_s_still_idle()` always
+returns `Ok(True)` — S is always considered idle regardless of actual session state.
+
+This means the guard in `hook_on_agent_end.gleam:coordinate_with_s()` that checks
+`a_db_reader.is_s_still_idle()` is useless — it always proceeds as if S is idle.
+
+**Issue #195** | Severity: **CRITICAL** | Category: Error Handling / Type Mismatch
+
+### 313b. `fetch_jobs_by_prefix` Error → Empty List → A-bot Runs Without Jobs
+
+File: [agent_identity.gleam:205](src/agent_identity.gleam#L205)
+
+```gleam
+let jobs = case jobs_result {
+  Ok(j) -> j
+  Error(_) -> []  // ← DB error silently becomes empty jobs list
+}
+```
+
+When `fetch_jobs_by_prefix` fails (e.g., `agent_jobs` table doesn't exist), the error
+is swallowed and A-bot runs with no jobs. The A-bot prompt will contain no job context,
+causing it to generate generic reminders instead of targeted guidance.
+
+**Issue #196** | Severity: HIGH | Category: Error Handling
+
+### 313c. `issue_db.count_by_severity` Decode Error → `Ok(0)` → False Zero Count
+
+File: [issue_db.gleam:251](src/issue_db.gleam#L251)
+
+```gleam
+case decode.run(row, count_decoder()) {
+  Ok(n) -> Ok(n)
+  Error(_) -> Ok(0)  // ← Decode failure returns zero count
+}
+```
+
+Same `bigint` decode issue as #195. When the count decode fails, the function returns
+`Ok(0)` — reporting zero issues when there may be many. This feeds into the monitor's
+health check logic, making the system appear healthier than it is.
+
+**Issue #197** | Severity: HIGH | Category: Error Handling
+
+### 313d. `tool_commit` Swallows Git Diff Errors → Commits Without Context
+
+File: [tool_commit.gleam:40-47](src/tool_commit.gleam#L40-L47)
+
+```gleam
+let diff = case exec_sync("git diff HEAD") {
+  Ok(out) -> ...
+  Error(_) -> ""  // ← Git diff failure → empty diff
+}
+let files = case exec_sync("git diff --name-only && git diff --cached --name-only") {
+  Ok(out) -> out
+  Error(_) -> ""  // ← Git files failure → empty file list
+}
+```
+
+When git commands fail (wrong directory, no git repo, etc.), the diff and file list
+are empty strings. The inter-review request is then submitted with no context about
+what changed, making A-bot's review impossible.
+
+**Issue #198** | Severity: MEDIUM | Category: Error Handling
+
+### 313e. `a_context_utils.current_time_ms` Returns 0 on Error
+
+File: [a_context_utils.gleam:47](src/a_context_utils.gleam#L47)
+
+```gleam
+case now_ms() {
+  Ok(t) -> t
+  Error(_) -> 0  // ← Time error becomes epoch 0
+}
+```
+
+If `now_ms()` fails (unlikely but possible), the timestamp becomes 0 (Jan 1, 1970).
+This would make all time-based calculations wildly incorrect.
+
+**Issue #199** | Severity: LOW | Category: Error Handling
+
+### 313f. `hook_on_before_agent_start` — Soul Load Failure Returns Hardcoded Fallback
+
+File: [hook_on_before_agent_start.gleam:18-26](src/hook_on_before_agent_start.gleam#L18-L26)
+
+```gleam
+case soul_result {
+  Ok(soul_content) -> promise.resolve(Ok(soul_content))
+  Error(e) ->
+    promise.resolve(Ok(
+      "You are the Somatic Agentbot (S-agentbot). ... "
+      <> "[SOUL LOAD FAILED: " <> e <> "]",
+    ))
+}
+```
+
+When soul loading fails (which it does EVERY TIME because `agent_souls` table doesn't
+exist), the S-bot gets a hardcoded fallback soul with an error message embedded in the
+prompt. The LLM may or may not act on this error. The fallback soul is minimal and
+doesn't include any project-specific context, directives, or skills.
+
+**Issue #200** | Severity: HIGH | Category: Error Handling (already tracked as #175)
+
+### 313g. `monitor_ai.get_recent_context` — Decode Error → Empty String
+
+File: [monitor_ai.gleam:134](src/monitor_ai.gleam#L134)
+
+```gleam
+case decode.run(row, context_row_decoder()) {
+  Ok(text) -> text
+  Error(_) -> ""  // ← Decode failure → empty string
+}
+```
+
+When activity log rows fail to decode, they're silently replaced with empty strings.
+This means the A-bot's context about S's recent activity may be incomplete or empty,
+leading to uninformed monitoring decisions.
+
+**Issue #201** | Severity: MEDIUM | Category: Error Handling
+
+### 313h. `monitor_ai.get_suggestions` — Decode Error → Empty List
+
+File: [monitor_ai.gleam:371](src/monitor_ai.gleam#L371)
+
+```gleam
+case decode.run(row, suggestion_decoder()) {
+  Ok(s) -> [s]
+  Error(_) -> []  // ← Decode failure → missing suggestion
+}
+```
+
+Same pattern — failed decodes produce empty lists, silently losing data.
+
+**Issue #202** | Severity: MEDIUM | Category: Error Handling
+
+### 313i. `memory.search` — Decode Error → Empty List
+
+File: [memory.gleam:119](src/memory.gleam#L119)
+
+```gleam
+case decode.run(row, memory_decoder()) {
+  Ok(mem) -> [mem]
+  Error(_) -> []  // ← Decode failure → missing memory
+}
+```
+
+Memory search results that fail to decode are silently dropped. If many rows fail
+(e.g., due to missing `::text` casts), the search returns fewer results than expected.
+
+**Issue #203** | Severity: MEDIUM | Category: Error Handling
+
+### 313j. `monitor_ai.determine_action` — Decode Error Returns "unknown" Action
+
+File: [monitor_ai.gleam:531](src/monitor_ai.gleam#L531)
+
+```gleam
+case decode.run(row, action_row_decoder()) {
+  Ok(action) -> Ok(action)
+  Error(_) ->
+    Ok(MonitorAction(action: "unknown", details: "Could not decode action"))
+}
+```
+
+When the action decoder fails, the monitor returns `Ok(MonitorAction("unknown", ...))`
+instead of an error. This means the A-bot will proceed with an "unknown" action rather
+than signaling that something is wrong.
+
+**Issue #204** | Severity: MEDIUM | Category: Error Handling
+
+### 313k. `db.disconnect` Not Awaited — Connection Leak
+
+File: [db.gleam:82](src/db.gleam#L82)
+
+```gleam
+let _ = disconnect(conn)  // ← Returns Promise but NOT awaited
+```
+
+`disconnect` returns `Promise(Result(Nil, DbError))` but is discarded with `let _ =`.
+The disconnect may fail silently, leaving connections open. Under load, this causes
+PostgreSQL connection exhaustion.
+
+**Issue #205** | Severity: HIGH | Category: Error Handling (already tracked as #167)
+
+### 313l. `hook_on_tool_result` — Fragile Error Detection via String Matching
+
+File: [hook_on_tool_result.gleam:10-14](src/hook_on_tool_result.gleam#L10-L14)
+
+```gleam
+let is_error =
+  string.contains(result_json, "\"error\"")
+  || string.contains(result_json, "Error:")
+  || string.contains(result_json, "execution error")
+  || string.contains(result_json, "tool_execution_blocked")
+  || string.contains(result_json, "\"is_error\":true")
+```
+
+Error detection relies on string matching against JSON content. This will produce:
+- **False positives**: Any JSON containing the word "error" in a non-error context
+  (e.g., `"error_handling": "enabled"`) will be treated as an error
+- **False negatives**: Error responses with different formats won't be detected
+- The `extract_error_msg` function uses crude string splitting instead of JSON parsing
+
+**Issue #206** | Severity: MEDIUM | Category: Error Handling
+
+### 313m. Error Handling Pattern Summary
+
+| Pattern                            | Count | Risk                                      |
+| ---------------------------------- | ----- | ----------------------------------------- |
+| `Error(_) -> Ok(default_value)`    | 6     | HIGH — hides failures, returns wrong data |
+| `Error(_) -> []`                   | 4     | MEDIUM — silently drops data              |
+| `Error(_) -> ""`                   | 3     | MEDIUM — silently drops data              |
+| `Error(_) -> 0`                    | 2     | MEDIUM — wrong numeric data               |
+| `let _ = promise_result`           | 1     | HIGH — connection leak                    |
+| Fragile string matching for errors | 1     | MEDIUM — false positives/negatives        |
+
+**Root Cause**: Gleam's error handling encourages `Error(_)` patterns, but the codebase
+doesn't have a logging infrastructure to record what went wrong. Errors are swallowed
+because there's no way to log them — the only notification mechanism is `notify_info`
+which requires a `ctx` object that isn't always available in utility functions.
+
+**Issue #207** | Severity: HIGH | Category: Architecture — No Error Logging Infrastructure
+
+---
+
+## 314. FFI BINDING AUDIT — DETAILED FINDINGS
+
+### 314a. Complete @external Binding Map
+
+| Gleam Module        | FFI File               | Function                   | Gleam Type                                             | JS Returns         | Match?              |
+| ------------------- | ---------------------- | -------------------------- | ------------------------------------------------------ | ------------------ | ------------------- |
+| pi_extension        | pi_extension_ffi.mjs   | notify_error               | (a, String) -> Nil                                     | undefined          | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | notify_warning             | (a, String) -> Nil                                     | undefined          | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | notify_info                | (a, String) -> Nil                                     | undefined          | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | set_status                 | (a, String, String) -> Nil                             | undefined          | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | ctx_is_idle                | (a) -> Bool                                            | boolean            | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | ctx_has_pending_messages   | (a) -> Bool                                            | boolean            | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | ctx_get_entries_json       | (a) -> String                                          | string             | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | ctx_get_context_usage_json | (a) -> String                                          | string             | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | ctx_get_cwd                | (a) -> String                                          | string             | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | pi_send_message            | (a, String, String, String) -> Nil                     | undefined          | ⚠️ 4th param ignored |
+| pi_extension        | pi_extension_ffi.mjs   | read_file_sync             | (String) -> Result(String, String)                     | Ok/Error           | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | call_monitor               | (a, String, String) -> Promise(Result(String, String)) | Promise(Ok/Error)  | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | ctx_reload                 | (a) -> Promise(Nil)                                    | Promise(undefined) | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | exec_sync                  | (String) -> Result(String, String)                     | Ok/Error           | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | unwrapGleamResult          | (a) -> b                                               | object             | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | gleamValueToJson           | (a) -> b                                               | any                | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | now_ms                     | () -> Int                                              | number             | ✅                   |
+| pi_extension        | pi_extension_ffi.mjs   | **get_config**             | (String) -> **Option(String)**                         | **null \| string** | **❌ BROKEN**        |
+| pi_extension        | pi_extension_ffi.mjs   | set_config                 | (String, String) -> Nil                                | undefined          | ✅                   |
+| agent_identity      | agent_identity_ffi.mjs | check_git_exists           | (String) -> Bool                                       | boolean            | ✅                   |
+| extension_generator | node_ffi.mjs           | get_project_root           | () -> String                                           | string             | ✅                   |
+| a_context_utils     | node_ffi.mjs           | now_ms                     | () -> Result(Int, String)                              | Ok(number)         | ✅                   |
+| db                  | node_ffi.mjs           | get_project_id_env         | () -> String                                           | string             | ✅                   |
+| db                  | node_ffi.mjs           | get_database_url           | () -> String                                           | string             | ✅                   |
+| main                | node_ffi.mjs           | spawn_pi                   | (List(String)) -> Promise(Int)                         | Promise(number)    | ✅                   |
+
+**25 bindings total. 1 CRITICAL mismatch. 1 semantic issue (ignored parameter).**
+
+### 314b. Dead FFI Exports (Not Bound to Any Gleam @external)
+
+| FFI File           | Function                       | Parameters     | Status                                 |
+| ------------------ | ------------------------------ | -------------- | -------------------------------------- |
+| node_ffi.mjs       | execute(cmd, timeout)          | String, Int    | Dead — no Gleam binding                |
+| node_ffi.mjs       | exists(cmd)                    | String         | Dead — no Gleam binding                |
+| node_ffi.mjs       | get_env(name)                  | String         | Dead — no Gleam binding                |
+| node_ffi.mjs       | ensure_dir(path)               | String         | Dead — no Gleam binding                |
+| node_ffi.mjs       | write_text_file(path, content) | String, String | Dead — no Gleam binding                |
+| time_utils_ffi.mjs | now_iso8601()                  | ()             | Dead — no Gleam binding, orphaned file |
+
+**6 dead exports across 2 files.**
+
+---
+
+## 315. UPDATED ISSUE COUNT
+
+Total issues tracked: **#100-#207** = **108 issues**
+
+| Severity | Count |
+| -------- | ----- |
+| CRITICAL | 24    |
+| HIGH     | 40    |
+| MEDIUM   | 37    |
+| LOW      | 7     |
