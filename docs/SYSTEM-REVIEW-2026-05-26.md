@@ -7,17 +7,17 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**164 issues tracked** (#100-#283) across 22 audit categories.
+**167 issues tracked** (#100-#289) across 23 audit categories.
 ⚠️ **CRITICAL CORRECTION (§333)**: 8 issues retracted — previous "phantom table" claims were based on querying wrong database.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 34    | 20.7%      |
-| **HIGH**     | 65    | 39.6%      |
-| **MEDIUM**   | 55    | 33.5%      |
-| **LOW**      | 19    | 11.6%      |
+| **CRITICAL** | 34    | 20.4%      |
+| **HIGH**     | 65    | 38.9%      |
+| **MEDIUM**   | 58    | 34.7%      |
+| **LOW**      | 22    | 13.2%      |
 
 ### Category Breakdown
 
@@ -23562,3 +23562,188 @@ For code or non-English text, it could be off by 2-3x.
 **Issue #282** | Severity: **MEDIUM** | Category: Logic — `compose()` called instead of `compose_within_budget()`, token budget never enforced for A-bot system prompt
 
 **Issue #283** | Severity: **LOW** | Category: Architecture — S-bot system prompt has no budget management at all
+
+---
+
+## 344. EVENT HOOKS MODULE — RECORD_TRIGGER AND HOOK STATUS
+
+### 344a. Hook Registration vs Actual Firing
+
+The `psypi_event_hooks` table has 30 registered hooks, but only 7 are active:
+
+| Event Name           | Status   | Trigger Count | Last Triggered      |
+| -------------------- | -------- | ------------- | ------------------- |
+| `tool_call`          | active   | 2712          | 2026-05-27 16:05:03 |
+| `tool_result`        | active   | 2707          | 2026-05-27 16:05:04 |
+| `agent_start`        | active   | 561           | 2026-05-27 15:57:01 |
+| `agent_end`          | active   | 380           | 2026-05-26 04:01:53 |
+| `before_agent_start` | active   | 146           | 2026-05-27 15:57:01 |
+| `session_start`      | active   | 64            | 2026-05-26 05:47:31 |
+| `model_select`       | active   | 60            | 2026-05-23 07:46:24 |
+| 23 other hooks       | inactive | 0             | NULL                |
+
+Key observation: `agent_end` has 380 triggers but the A-bot NEVER actually
+wakes up (due to broken FFI config — see §342). The `record_trigger` call
+succeeds because it only updates the DB, it doesn't verify the hook logic.
+
+### 344b. `record_error` Is Never Called
+
+The `event_hooks.gleam` module has a `record_error(event_name, error_msg)`
+function that increments `error_count` and sets `last_error` in the DB.
+However, the generated `extension.js` NEVER calls this function.
+
+The generated hook handlers use `ctx.ui.notify()` for error display:
+```javascript
+ctx.ui.notify('Hook agent_end error: ' + (e.message || String(e)), 'error');
+```
+
+But they don't call `event_hooks_record_error()`. This means:
+- `error_count` is always 0 for all hooks
+- `last_error` is always NULL
+- The `hook_status = 'error'` auto-escalation (after 5 errors) never triggers
+- There is no observability into hook failures from the DB
+
+### 344c. `worker_action` Column Orphan
+
+The `psypi_event_hooks` table has a `worker_action` column (text, nullable)
+that is not used by any Gleam code. The Gleam code uses `agentbot_action`
+instead. This appears to be a schema evolution artifact — `worker_action`
+was the original name, renamed to `agentbot_action` in the Gleam code but
+the DB column was never dropped.
+
+### 344d. COALESCE vs decode.optional Mismatch
+
+The SQL queries use `COALESCE(agentbot_action, '')` and `COALESCE(last_triggered::text, '')`
+to convert NULLs to empty strings. But the Gleam decoder uses `decode.optional(decode.string)`.
+
+When COALESCE converts NULL to '', node-postgres returns the empty string.
+`decode.optional(decode.string)` then wraps it as `Some("")`, not `None`.
+The `opt_to_str` function converts `Some("")` to `""`, which works for display
+but loses the semantic distinction between "no value" and "empty value".
+
+This is not a bug per se, but it means the `decode.optional` is unnecessary —
+`decode.string` would work the same after COALESCE.
+
+### 344e. `hook_on_tool_result` Sends as A-agentbot
+
+`hook_on_tool_result.gleam` sends error messages via:
+```gleam
+pi_send_message(pi, "autonomic-error", "[from A-agentbot:] Tool error: ...", "persistent")
+```
+
+But this hook runs in the S-bot context (it's triggered by S-bot tool calls).
+Sending a message as "from A-agentbot" from S-bot context is misleading.
+The A-bot might not even be active, but the message implies it is.
+
+### 344f. `hook_on_agent_start` Only Records Trigger
+
+`hook_on_agent_start.gleam` only calls `record_trigger("agent_start")` and
+does nothing else. This is a no-op hook that only updates the DB counter.
+It could be removed from the extension.js to reduce overhead.
+
+**Issue #284** | Severity: **MEDIUM** | Category: Observability — `record_error()` never called from extension.js, so error_count is always 0 and hook failure auto-escalation never triggers
+
+**Issue #285** | Severity: **LOW** | Category: Schema — `worker_action` column in psypi_event_hooks is orphaned (not used by Gleam code)
+
+**Issue #286** | Severity: **LOW** | Category: Logic — `hook_on_tool_result` sends messages as "from A-agentbot" from S-bot context
+
+---
+
+## 345. EXTENSION GENERATION — GLEAM TYPES TO EXTENSION.JS
+
+### 345a. The Generation Pipeline
+
+The extension generation pipeline works as follows:
+
+1. `extension_generator.gleam` defines registries of tools, hooks, commands, and renderers
+2. `pi_tool_call.gleam` provides types and JS text generation functions
+3. `gleam run -m extension_generator` generates `extension.js` from Gleam values
+4. Pi TUI loads `extension.js` at startup
+
+The pipeline is well-designed: Gleam types → JS text → extension.js → Pi runtime.
+
+### 345b. Import Strategy: Static vs Dynamic
+
+The generated extension.js uses TWO different import strategies:
+
+**Static imports** (top-level, for tools):
+```javascript
+import { add as task_add } from "./build/dev/javascript/psypi/task.mjs";
+```
+
+**Dynamic imports** (inside hooks, via `await import()`):
+```javascript
+const hook_on_agent_end_on_agent_end = (await import('./build/dev/javascript/psypi/hook_on_agent_end.mjs')).on_agent_end;
+```
+
+The dynamic imports are generated by `hook_import_line()` and are called
+EVERY TIME a hook fires. This means every `agent_end` event triggers a
+dynamic import of `hook_on_agent_end.mjs`. While Node.js caches modules
+after the first import, this is still unnecessary overhead.
+
+### 345c. `monitor.mjs` vs `monitor_ai.mjs` Confusion
+
+The extension imports from two separate monitor modules:
+- `monitor.mjs` — used by `session_start` and `model_select` hooks for `record_current_model`
+- `monitor_ai.mjs` — used by tools for `check_system_health`, `get_alerts`, etc.
+
+This is confusing because:
+1. Both modules deal with "monitoring"
+2. `monitor.gleam` handles model tracking and notifications
+3. `monitor_ai.gleam` handles system health and alerts
+4. The naming suggests they should be one module or clearly differentiated
+
+### 345d. `record_current_model` JSON Injection Risk
+
+`monitor.gleam:record_current_model` constructs JSON by string concatenation:
+```gleam
+dynamic.string("{\"model\": \"" <> model_name <> "\"}")
+```
+
+If `model_name` contains a double quote or backslash, the resulting JSON
+will be malformed, causing a PostgreSQL jsonb insert error. This should
+use proper JSON encoding (e.g., `gleam/json`).
+
+### 345e. `monitor.gleam` Notification Decoder — `read_at::text` Without COALESCE
+
+The `get_pending_notifications` query uses:
+```sql
+read_at::text as read_at
+```
+
+Without COALESCE, when `read_at` is NULL, `NULL::text` returns NULL.
+node-postgres returns JS `null`, and `decode.optional(decode.string)`
+correctly converts this to `None`. This WORKS, but is inconsistent with
+the `event_hooks.gleam` approach which uses COALESCE.
+
+### 345f. `monitor.gleam:set_model` — Race Condition
+
+The `set_model` function does:
+1. `UPDATE provider_api_keys SET status = 'not_used'` (reset ALL rows)
+2. `UPDATE provider_api_keys SET status = 'in_use' WHERE provider = $1` (set one row)
+
+Between steps 1 and 2, ALL providers are marked as "not_used". If another
+process reads the model at that exact moment, it will find no "in_use"
+provider. This is a classic TOCTOU race condition.
+
+### 345g. `monitor.gleam:mark_notifications_read` — Missing `::text` Cast
+
+```sql
+RETURNING id
+```
+
+The `id` column is UUID type. node-postgres returns UUID as a string,
+so `decode.int` would fail. But this function uses `list.length(result.rows)`
+instead of decoding, so it works — it just counts rows without reading IDs.
+
+However, the RETURNING clause is unnecessary since only the count is needed.
+A simpler query would be:
+```sql
+UPDATE notifications SET read_at = NOW() WHERE agent_id = $1 AND read_at IS NULL
+```
+
+**Issue #287** | Severity: **LOW** | Category: Performance — dynamic imports in hooks are called every time, should use static imports or cache
+
+**Issue #288** | Severity: **MEDIUM** | Category: Security — `record_current_model` constructs JSON by string concatenation, vulnerable to malformed input
+
+**Issue #289** | Severity: **LOW** | Category: Logic — `set_model` has TOCTOU race condition between reset and update steps
