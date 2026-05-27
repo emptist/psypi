@@ -7,17 +7,17 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**173 issues tracked** (#100-#301) across 26 audit categories.
+**176 issues tracked** (#100-#307) across 29 audit categories.
 ⚠️ **CRITICAL CORRECTION (§333)**: 8 issues retracted — previous "phantom table" claims were based on querying wrong database.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 34    | 19.7%      |
-| **HIGH**     | 68    | 39.3%      |
-| **MEDIUM**   | 50    | 28.9%      |
-| **LOW**      | 25    | 14.5%      |
+| **CRITICAL** | 36    | 20.5%      |
+| **HIGH**     | 70    | 39.8%      |
+| **MEDIUM**   | 45    | 25.6%      |
+| **LOW**      | 25    | 14.2%      |
 
 ### Category Breakdown
 
@@ -24078,3 +24078,312 @@ There is no single source of truth for the default project ID.
 **Issue #300** | Severity: **MEDIUM** | Category: Architecture — `code_version` depends on PostgreSQL stored functions not in any migration file
 
 **Issue #301** | Severity: **LOW** | Category: Data — default project UUID hardcoded in 4 separate locations with no single source of truth
+
+---
+
+## 349. PI_EXTENSION_FFI — GET_CONFIG FFI TYPE MISMATCH (DEEP ANALYSIS)
+
+### 349a. The Root Cause of A-Bot Wakeup Failure
+
+This section provides a complete trace of the `get_config` FFI type mismatch,
+proving it is the single root cause of the A-bot wakeup failure.
+
+**Gleam declaration** (`pi_extension.gleam:66`):
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "get_config")
+pub fn get_config(key: String) -> option.Option(String)
+```
+
+**JavaScript implementation** (`pi_extension_ffi.mjs:151-153`):
+```javascript
+export function get_config(key) {
+  return _configStore[key] || null;
+}
+```
+
+**The problem**: Gleam expects the return type to be `option.Option(String)`,
+which in the compiled JavaScript is either `new Some(value)` or `new None()`.
+But the JS function returns either:
+- A plain string (when key exists): e.g., `"1000"`
+- JavaScript `null` (when key doesn't exist)
+
+Neither of these is a valid Gleam `Option` variant.
+
+### 349b. Compiled Code Trace
+
+The compiled `hook_on_agent_end.mjs` shows:
+```javascript
+let $ = get_config("idle_since");
+if ($ instanceof $option.Some) {
+  let $1 = $[0];  // extract the string value
+  // ... debounce logic (NEVER REACHED)
+} else {
+  // None branch — records idle_since as now
+  let now = now_ms();
+  set_config("idle_since", $int.to_string(now));
+  // ... (ALWAYS REACHED)
+}
+```
+
+When `_configStore["idle_since"] = "1000"`:
+- `get_config("idle_since")` returns `"1000"` (a plain string)
+- `"1000" instanceof $option.Some` → `false` (strings are not Some instances)
+- Falls to `else` branch → records idle_since as now → debounce never checked
+
+When `_configStore["idle_since"]` is not set:
+- `get_config("idle_since")` returns `null`
+- `null instanceof $option.Some` → `false`
+- Falls to `else` branch → records idle_since as now → same result
+
+**Result**: The `Some` branch is NEVER reached. The debounce check NEVER
+happens. A-bot wakeup is COMPLETELY BROKEN.
+
+### 349c. The Same Bug Affects `get_config("monitor_debounce_ms")`
+
+```javascript
+let $3 = get_config("monitor_debounce_ms");
+if ($3 instanceof $option.Some) {
+  let debounce_str = $3[0];
+  // ... parse and use debounce_ms (NEVER REACHED)
+} else {
+  let debounce_ms = 300000;  // hardcoded default (ALWAYS USED)
+  // ...
+}
+```
+
+The debounce_ms from the database is NEVER read. The hardcoded default
+of 300000ms (5 minutes) is always used, regardless of what's in
+`psypi_config` or `_configStore`.
+
+### 349d. Why `set_config` Works But `get_config` Doesn't
+
+`set_config` is declared as:
+```gleam
+@external(javascript, "./pi_extension_ffi.mjs", "set_config")
+pub fn set_config(key: String, value: String) -> Nil
+```
+
+The JS implementation:
+```javascript
+export function set_config(key, value) {
+  _configStore[key] = value;
+}
+```
+
+This works because `set_config` doesn't need to return a Gleam type —
+it returns `Nil` (which Gleam maps to `undefined` in JS). The value
+IS stored correctly in `_configStore`. The problem is only in reading
+it back — `get_config` returns a raw string instead of wrapping it
+in `new Some(value)`.
+
+### 349e. The Fix
+
+The JS `get_config` should return proper Gleam Option types:
+```javascript
+import { Some, None } from './gleam.mjs';
+
+export function get_config(key) {
+  const value = _configStore[key];
+  if (value !== undefined && value !== null) {
+    return new Some(value);
+  }
+  return new None();
+}
+```
+
+Or alternatively, since the Gleam code already handles the `None` case
+with a fallback, the simpler fix is to always return `Some`:
+```javascript
+export function get_config(key) {
+  return _configStore[key] || "";  // return empty string, let Gleam handle it
+}
+```
+
+But this would require changing the Gleam declaration to return
+`String` instead of `Option(String)`, which would break the
+pattern-matching logic.
+
+### 349f. Impact Assessment
+
+This single bug causes:
+1. A-bot debounce never checked → A-bot may wake up too frequently or never
+2. `monitor_debounce_ms` from DB never read → hardcoded 5min always used
+3. `idle_since` always re-recorded on every `agent_end` → elapsed time always 0
+4. The entire A-bot wakeup mechanism is non-functional
+
+This is the **#1 critical bug** in the psypi system.
+
+**Issue #302** | Severity: **CRITICAL** | Category: FFI — `get_config` returns JS `null`/string instead of Gleam `Some`/`None`; A-bot wakeup completely broken; debounce never checked
+
+---
+
+## 350. PI_EXTENSION_FFI — GLEAMVALUETOJSON ANALYSIS
+
+### 350a. Pattern Matching by Constructor Name
+
+`gleamValueToJson` converts Gleam runtime values to plain JSON by inspecting
+`val.constructor?.name`. This is fragile because:
+
+1. JavaScript minifiers may rename constructors
+2. Some JavaScript engines don't preserve function names in all cases
+3. The pattern matching is incomplete — only handles specific known types
+
+### 350b. Hardcoded Type Name List
+
+```javascript
+if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || 
+    name.startsWith('Meeting$Meeting') || name.startsWith('Skill$Skill') || ...)
+```
+
+This list must be manually maintained. When a new Gleam type is added
+(e.g., `Project$Project`), it must be added here. If forgotten, the
+type will fall through to the generic object handler, which may produce
+incorrect JSON (e.g., including internal Gleam field indices instead
+of field names).
+
+### 350c. Missing Type: `Project`
+
+The `projects` table exists in the database, but there is no `Project`
+Gleam type and no `Project$Project` entry in `gleamValueToJson`. If a
+project record is ever returned through this function, it will be
+incorrectly serialized.
+
+### 350d. `NonEmpty` Handling Assumes Linked List Structure
+
+```javascript
+if (name === 'NonEmpty') {
+  const arr = [];
+  let cur = val;
+  while (cur && cur.constructor?.name === 'NonEmpty') {
+    arr.push(gleamValueToJson(cur.head));
+    cur = cur.tail;
+  }
+  return arr;
+}
+```
+
+This correctly walks the Gleam linked list. But if the list contains
+a non-`NonEmpty` tail (e.g., a custom type instead of `Empty`), the
+loop will stop early and the remaining elements will be lost.
+
+### 350e. `Some`/`None` Handling
+
+```javascript
+if (name === 'Some') return gleamValueToJson(val['0'] ?? val[0]);
+if (name === 'None') return null;
+```
+
+This correctly unwraps Gleam's `Some` to the inner value and `None` to
+JSON `null`. This is the CORRECT way to handle Option types — unlike
+`get_config` which returns raw JS values.
+
+**Issue #303** | Severity: **MEDIUM** | Category: Code — `gleamValueToJson` has hardcoded type name list; new Gleam types must be manually added
+
+**Issue #304** | Severity: **LOW** | Category: Code — `gleamValueToJson` missing `Project$Project` type handler
+
+---
+
+## 351. END-TO-END DATA FLOW — S PROMPT → TOOL CALL → DB → RESPONSE
+
+### 351a. The Complete Tool Call Flow
+
+When S (Somatic agent) calls a psypi tool, the following happens:
+
+1. **S generates tool call** → Pi runtime receives `{name: "psypi-task-list", params: {...}}`
+2. **Pi looks up registered tool** → Finds the `execute` function in `extension.js`
+3. **extension.js calls Gleam function** → e.g., `task_task_list("open", 10)`
+4. **Gleam function calls `db.with_connection()`** → Creates new PG connection
+5. **`db.connect()` runs** → TCP connect → auth → `SET app.current_project_id`
+6. **Gleam function executes SQL** → `db.query(conn, sql, params)`
+7. **node-postgres returns rows** → Each row is a JS object
+8. **Gleam decodes rows** → `decode.run(row, decoder)` for each row
+9. **Gleam constructs Result type** → `Ok(data)` or `Error(...)`
+10. **`db.disconnect()` runs** → Closes PG connection
+11. **Gleam returns Result** → Back to extension.js
+12. **`unwrapGleamResult()` runs** → Converts Gleam Result to `{ok, value/error}`
+13. **`gleamValueToJson()` runs** → Converts Gleam types to plain JSON
+14. **extension.js returns** → `{content: [{type: "text", text: "..."}]}`
+
+### 351b. Failure Points in the Flow
+
+| Step | Failure                                       | Impact                                          |
+| ---- | --------------------------------------------- | ----------------------------------------------- |
+| 4    | `db.connect()` fails                          | Tool returns generic error, no retry            |
+| 5    | `SET app.current_project_id` fails            | RLS policies may block queries                  |
+| 7    | node-postgres returns wrong JS type           | `decode.run()` fails → error branch             |
+| 8    | Missing `::text` cast                         | UUID/timestamp returns JS object → decode fails |
+| 8    | Wrong decoder (e.g., `decode.int` for bigint) | Decode fails → error branch                     |
+| 8    | `decode.optional(decode.string)` for jsonb    | JS object not string → decode fails             |
+| 10   | `disconnect()` fails                          | Connection leak (discarded)                     |
+| 12   | `unwrapGleamResult` misidentifies type        | Wrong JSON output                               |
+| 13   | `gleamValueToJson` missing type handler       | Incorrect JSON serialization                    |
+
+### 351c. The Inter-Review Commit Flow (Two-Phase)
+
+The commit flow is the most complex data flow in the system:
+
+**Phase 1: Trigger Review**
+1. S calls `psypi-commit` with `message` (no `review_id`)
+2. `tool_commit.on_commit()` calls `exec_sync("git diff")` to get changes
+3. `inter_review.request_review()` inserts into `inter_reviews` table
+4. Uses PostgreSQL function `request_inter_review()` (not in migrations!)
+5. Returns review_id to S
+
+**Phase 2: A-Bot Reviews**
+6. A-bot's `agent_end` hook fires (debounced)
+7. A-bot reads pending reviews from `inter_reviews` table
+8. A-bot calls `call_monitor()` to get LLM review
+9. A-bot writes `overall_score` to `inter_reviews` table
+
+**Phase 3: Commit**
+10. S calls `psypi-commit` with `message` and `review_id`
+11. `tool_commit.commit_if_reviewed()` reads review from DB
+12. Checks `overall_score >= 50`
+13. If passed, calls `exec_sync("git commit -m ...")`
+
+**Failure points**:
+- Step 4: `request_inter_review()` function may not exist in DB
+- Step 6: `agent_end` hook may not fire (get_config FFI bug)
+- Step 7: A-bot may not find pending reviews (query issues)
+- Step 8: `call_monitor()` may fail (API key, model issues)
+- Step 9: Writing score may fail (decode issues)
+- Step 11: Reading review may fail (missing `::text` casts)
+- Step 13: `shell_escape` may be insufficient for complex messages
+
+### 351d. The A-Bot Wakeup Flow (Currently Broken)
+
+1. S finishes a task → `agent_end` event fires
+2. Debounce timer starts (5min default, but see §349c)
+3. Timer fires → `hook_on_agent_end.on_agent_end()` called
+4. `ctx_is_idle(ctx)` checks if S is idle
+5. `ctx_has_pending_messages(ctx)` checks for pending messages
+6. If idle and no messages → `check_idle_since(ctx, pi)`
+7. `get_config("idle_since")` → **BROKEN** (returns null/string, not Some/None)
+8. Always falls to `None` branch → records `idle_since = now`
+9. Debounce never satisfied → A-bot never wakes up
+
+This is the complete chain of failure. The fix at step 7 would restore
+the entire A-bot wakeup mechanism.
+
+### 351e. The System Prompt Composition Flow
+
+1. `before_agent_start` event fires
+2. `hook_on_before_agent_start.on_before_agent_start()` called
+3. Reads agent identity from `agent_identities` table
+4. Reads directives from `directives` table (via `a_db_reader` or `s_db_reader`)
+5. Reads skills from `skills` table
+6. Composes system prompt from all components
+7. Returns `{systemPrompt: composed_text}`
+
+**Failure points**:
+- Step 3: `agent_identities` query may fail (missing `::text` casts)
+- Step 4: `directives` query may fail (wrong decoder)
+- Step 5: `skills` query may fail (jsonb decode issue)
+- Step 6: `compose()` called instead of `compose_within_budget()` (token overflow)
+- Step 7: If prompt is too long, LLM may truncate or fail
+
+**Issue #305** | Severity: **HIGH** | Category: Architecture — end-to-end data flow has 9+ failure points; most common failure is decode error from missing `::text` casts
+
+**Issue #306** | Severity: **HIGH** | Category: Logic — inter-review commit flow depends on unstored PG function `request_inter_review()` and broken A-bot wakeup
+
+**Issue #307** | Severity: **CRITICAL** | Category: Logic — A-bot wakeup chain completely broken at `get_config` FFI boundary; fix at this single point would restore entire mechanism
