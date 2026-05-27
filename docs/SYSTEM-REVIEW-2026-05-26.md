@@ -7,16 +7,16 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**108 issues tracked** (#100-#207) across 9 audit categories.
+**112 issues tracked** (#100-#211) across 10 audit categories.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 24    | 22.2%      |
-| **HIGH**     | 40    | 37.0%      |
-| **MEDIUM**   | 37    | 34.3%      |
-| **LOW**      | 7     | 6.5%       |
+| **CRITICAL** | 25    | 22.3%      |
+| **HIGH**     | 41    | 36.6%      |
+| **MEDIUM**   | 38    | 33.9%      |
+| **LOW**      | 8     | 7.1%       |
 
 ### Category Breakdown
 
@@ -20957,11 +20957,140 @@ which requires a `ctx` object that isn't always available in utility functions.
 
 ## 315. UPDATED ISSUE COUNT
 
-Total issues tracked: **#100-#207** = **108 issues**
+Total issues tracked: **#100-#211** = **112 issues**
 
 | Severity | Count |
 | -------- | ----- |
-| CRITICAL | 24    |
-| HIGH     | 40    |
-| MEDIUM   | 37    |
-| LOW      | 7     |
+| CRITICAL | 25    |
+| HIGH     | 41    |
+| MEDIUM   | 38    |
+| LOW      | 8     |
+
+---
+
+## 316. INTER-REVIEW COMMIT FLOW — END-TO-END TRACE
+
+### 316a. Flow Overview
+
+The inter-review commit flow has two phases:
+
+**Phase 1** — `tool_commit.trigger_review(message)`:
+```
+S-bot calls psypi-commit tool (no review_id)
+  → exec_sync("git diff && git diff --cached")  [gets diff]
+  → exec_sync("git diff --name-only ...")  [gets file list]
+  → inter_review.request_review(None, None, "autonomic", context)
+    → SELECT request_inter_review($1, $2, $3, $4, $5) as review_id
+      → SQL function INSERTs into inter_reviews (status='pending', overall_score=NULL)
+      → Returns new review UUID
+    → Gleam decodes review_id with decode.string  [works — UUID comes as string]
+  → Returns "Inter-review triggered (ID: xxx). Call psypi-commit again with this review_id."
+```
+
+**Phase 2** — `tool_commit.commit_if_reviewed(message, review_id)`:
+```
+S-bot calls psypi-commit tool (with review_id)
+  → inter_review.get_review_details(review_id)
+    → SELECT id, task_id, status, summary, overall_score, requested_at
+      FROM inter_reviews WHERE id = $1
+    → Decodes with review_decoder()
+      → id: decode.string  [UUID → string: WORKS in node-postgres]
+      → task_id: decode.optional(decode.string)  [UUID → string: WORKS]
+      → requested_at: decode.string  [timestamp → Date object: FAILS]
+      → overall_score: decode.optional(decode.int)  [integer: WORKS]
+  → Checks review.overall_score
+    → None → "Review not yet complete. A-bot is still reviewing."
+    → Some(score) where score >= 50 → git commit
+    → Some(score) where score < 50 → "Review score too low"
+```
+
+### 316b. Step-by-Step Failure Analysis
+
+| Step | What Should Happen            | What Actually Happens | Why                                              |
+| ---- | ----------------------------- | --------------------- | ------------------------------------------------ |
+| 1    | S-bot triggers review         | ✅ Works               | SQL function creates row                         |
+| 2    | A-bot picks up pending review | ❌ Never happens       | No code reads pending reviews from inter_reviews |
+| 3    | A-bot reviews code via LLM    | ❌ Never happens       | Step 2 never triggers                            |
+| 4    | A-bot writes review score     | ❌ Never happens       | `record_review_score` exists but is NEVER called |
+| 5    | S-bot commits with review_id  | ❌ Permanently blocked | `overall_score` is always NULL                   |
+
+### 316c. The Missing Link — No Code Path for A-bot Review Processing
+
+The `a_orchestrator.run_a_workflow()` does:
+1. Read soul from `agent_souls` (phantom table → fails)
+2. Read jobs from `agent_jobs` (phantom table → fails)
+3. Build prompt and call LLM
+4. Send response as `pi_send_message("autonomic-wakeup", response)`
+
+**There is NO code that:**
+- Reads `inter_reviews WHERE status = 'pending'`
+- Parses the review context (diff, files)
+- Constructs a review-specific prompt
+- Calls the LLM for review
+- Writes `overall_score` back to `inter_reviews`
+- Updates `status` from 'pending' to 'completed'
+
+The `monitor_ai.record_review_score(review_id, score)` function exists but is
+orphaned — no code path ever calls it.
+
+**Issue #208** | Severity: **CRITICAL** | Category: Missing Logic — Inter-Review Processing
+
+### 316d. `requested_at` Decode Failure — Missing `::text` Cast
+
+The SQL query in `get_review_details`:
+```sql
+SELECT id, task_id, status, summary, overall_score, requested_at
+FROM inter_reviews WHERE id = $1
+```
+
+`requested_at` is `timestamp with time zone`. node-postgres returns this as a
+JavaScript `Date` object, not a string. `decode.string` will fail because
+`Date` is not a string.
+
+**Impact:** Even if the inter-review flow were completed, `get_review_details`
+would fail to decode the row, returning `DecodeError("Failed to decode review")`.
+
+**Fix:** Add `::text` cast: `requested_at::text`
+
+**Issue #209** | Severity: HIGH | Category: Missing `::text` Cast
+
+### 316e. `list_reviews` Same `::text` Issue
+
+```sql
+SELECT id, task_id, status, summary, overall_score, requested_at
+FROM inter_reviews ORDER BY requested_at DESC LIMIT 100
+```
+
+Same missing `::text` casts on `id` (uuid), `task_id` (uuid), and `requested_at` (timestamp).
+
+**Issue #210** | Severity: HIGH | Category: Missing `::text` Cast
+
+### 316f. `record_review_score` — `id` Parameter Type Mismatch
+
+```gleam
+let sql = "UPDATE inter_reviews SET overall_score = $1 WHERE id = $2"
+let params = [dynamic.int(score), dynamic.string(review_id)]
+```
+
+`id` is `uuid` type in the database. `dynamic.string(review_id)` passes a string
+parameter. PostgreSQL will auto-cast string → uuid, so this works. But it's
+fragile — if the string is not a valid UUID, the query will fail with a type error.
+
+**Issue #211** | Severity: LOW | Category: Fragile Type Handling
+
+### 316g. Inter-Review Flow Summary
+
+The inter-review commit system is **completely non-functional**:
+
+| Component                   | Status     | Issue                              |
+| --------------------------- | ---------- | ---------------------------------- |
+| Trigger review (Phase 1)    | ✅ Works    | Creates pending review row         |
+| A-bot picks up review       | ❌ Missing  | No code reads pending reviews      |
+| A-bot processes review      | ❌ Missing  | No review-specific prompt logic    |
+| A-bot writes score          | ❌ Missing  | `record_review_score` never called |
+| S-bot commits (Phase 2)     | ❌ Blocked  | `overall_score` always NULL        |
+| `get_review_details` decode | ❌ Broken   | `requested_at` missing `::text`    |
+| `list_reviews` decode       | ❌ Broken   | Same `::text` issue                |
+| `record_review_score`       | ⚠️ Orphaned | Exists but never called            |
+
+**The inter-review system has NEVER completed a single review** (0 rows in `inter_reviews` table).
