@@ -24542,3 +24542,277 @@ So `"persistent"` is never used. The message always uses `display: true`.
 **Issue #311** | Severity: **MEDIUM** | Category: Logic — `shell_escape` doesn't escape newlines; commit messages with newlines break shell command
 
 **Issue #312** | Severity: **LOW** | Category: Logic — `hook_on_tool_call` only triggers auto-backup on "edit" tool; other file-modifying tools are missed
+
+---
+
+## 353. REMAINING MODULES — TYPES, FILE_UTILS, COMMAND_RELOAD, MAIN, SEED, MONITOR
+
+### 353a. `monitor.gleam:record_current_model` — String Passed as jsonb
+
+```gleam
+let params = [
+  dynamic.string("system"),
+  dynamic.string("model_used"),
+  dynamic.string("{\"model\": \"" <> model_name <> "\"}"),
+]
+```
+
+The `activity_log.context` column is `jsonb`. Passing a JavaScript string
+for a jsonb column will cause node-postgres to reject it with a type
+mismatch error. The string must be parsed as a JSON object first, or
+the SQL must cast it: `$3::jsonb`.
+
+Additionally, the JSON is constructed by string concatenation, which is
+vulnerable to injection if `model_name` contains a double quote or
+backslash (already noted as Issue #288).
+
+### 353b. `monitor.gleam:get_model` — Missing `::text` Casts
+
+```sql
+SELECT provider, model FROM provider_api_keys WHERE status = 'in_use' LIMIT 1
+```
+
+The `model` column is `text`, so `decode.string` works. But the `provider`
+column is also `text`, so this query is actually fine. No decode issues.
+
+However, there's a logical issue: if no provider has `status = 'in_use'`,
+the query returns no rows, and `get_model()` returns `Ok(None)`. But
+`set_model()` has a TOCTOU race condition (Issue #289) that could leave
+all providers as `not_used`.
+
+### 353c. `monitor.gleam:notification_decoder` — `created_at` Decode Issue
+
+```gleam
+use created_at <- decode.field("created_at", decode.string)
+```
+
+The `notifications.created_at` column is `timestamp without time zone`.
+node-postgres returns this as a JavaScript `Date` object. `decode.string`
+will fail.
+
+BUT — the `get_pending_notifications` query already has `::text` cast:
+```sql
+created_at::text as created_at
+```
+
+So this specific query works. However, the `read_at` column also has
+`::text` cast in the query:
+```sql
+read_at::text as read_at
+```
+
+But `read_at` can be NULL. When `read_at IS NULL`, `read_at::text`
+returns SQL NULL, which node-postgres returns as JavaScript `null`.
+Then `decode.optional(decode.string)` tries to decode `null` as
+`Option(String)`. This works correctly because Gleam's
+`decode.optional` handles `null` as `None`.
+
+Wait — actually, let me re-check. `read_at::text` when `read_at IS NULL`
+returns NULL in SQL. node-postgres returns `null` in JS. Gleam's
+`decode.optional(decode.string)` should handle this. But the
+`notification_decoder` uses `decode.optional(decode.string)`, which
+expects either `null` (→ None) or a string (→ Some). This is correct.
+
+### 353d. `monitor.gleam:mark_notifications_read` — Returns `Int` from Row Count
+
+```gleam
+Ok(list.length(result.rows))
+```
+
+The `RETURNING id` in the UPDATE returns UUID rows. But the function
+just counts them with `list.length(result.rows)`. This works, but
+it's wasteful — `RETURNING id` fetches all UUIDs just to count them.
+A `COUNT(*)` or using `rowCount` would be more efficient.
+
+### 353e. `seed.gleam` — `seed_agent_souls` Uses Complex Multi-Statement SQL
+
+```sql
+INSERT INTO agent_souls (...) SELECT ... WHERE NOT EXISTS (...);
+INSERT INTO agent_souls (...) SELECT ... WHERE NOT EXISTS (...);
+```
+
+This is a multi-statement SQL string. `db.query()` sends it as a single
+query. node-postgres may or may not support multi-statement queries.
+By default, `pg.Client.query()` only executes the first statement and
+ignores the rest. So the second INSERT (for 'S' soul) may never execute.
+
+### 353f. `seed.gleam` — `seed_agent_prefixes` Same Multi-Statement Issue
+
+Same problem — three INSERT statements in one SQL string. Only the first
+may execute.
+
+### 353g. `agent_identity_types.gleam` — `semantic_id` Logic Issue
+
+```gleam
+pub fn semantic_id(ctx: IdentityContext) -> Result(String, IdentityError) {
+  let prefix = case ctx.is_idle {
+    True -> "A"
+    False -> "S"
+  }
+```
+
+The agent ID prefix is determined by `is_idle`. But `is_idle` is a
+runtime property that changes during a session. An agent that starts
+as "S" (not idle) may become "A" (idle) later, changing its identity.
+This means the same agent process could have different IDs at different
+times, which could cause confusion in the `agent_identities` table.
+
+### 353h. `issue_types.gleam` — `Issue` Type Has `created_by` Field
+
+The `Issue` type includes `created_by: String`, but the `issues` table
+in the database may not have a `created_by` column (it was dropped or
+renamed). Let me verify:
+
+### 353i. `system_prompt_types.gleam` — `compose` vs `compose_within_budget`
+
+Both functions exist. `compose()` returns a string with ALL components
+sorted by priority. `compose_within_budget()` returns a `PromptComposition`
+with only the components that fit within the token budget.
+
+The problem (already documented) is that `hook_on_before_agent_start`
+calls `compose()` instead of `compose_within_budget()`, bypassing the
+token budget enforcement.
+
+### 353j. `file_utils.gleam` — Synchronous I/O in Event Hooks
+
+`file_utils.gleam` uses `simplifile.read()` and `simplifile.write()`,
+which are synchronous. When called from event hooks, this blocks the
+Node.js event loop. For small files this is acceptable, but for large
+files it could cause noticeable delays.
+
+### 353k. `command_reload.gleam` — No Error Handling
+
+```gleam
+pub fn on_autonomic_reload(ctx: a) -> promise.Promise(Result(String, String)) {
+  promise.map(ctx_reload(ctx), fn(_) {
+    Ok("Extensions reloaded.")
+  })
+}
+```
+
+If `ctx_reload()` fails, the error is silently ignored. The function
+always returns `Ok("Extensions reloaded.")` regardless of whether the
+reload succeeded.
+
+**Issue #313** | Severity: **HIGH** | Category: Type — `monitor.record_current_model` passes string for jsonb `context` column; node-postgres will reject
+
+**Issue #314** | Severity: **MEDIUM** | Category: Logic — `seed.gleam` uses multi-statement SQL; node-postgres may only execute first statement; second/third INSERTs may be silently dropped
+
+**Issue #315** | Severity: **LOW** | Category: Logic — `agent_identity_types.semantic_id` uses runtime `is_idle` for prefix; same agent process could have different IDs at different times
+
+**Issue #316** | Severity: **LOW** | Category: Logic — `command_reload` ignores `ctx_reload` errors; always returns success
+
+---
+
+## 354. node_pg FFI — MULTI-STATEMENT SQL CRASH
+
+### 354a. Multi-Statement SQL Returns Array, Not Object
+
+When `pg.Client.query()` receives a SQL string with multiple statements
+(separated by `;`), it returns an **array** of result objects indexed by
+position (`result[0]`, `result[1]`), NOT a single result object with
+`.rows`.
+
+Verified with live test:
+```javascript
+const r = await client.query('SELECT 1 as a; SELECT 2 as b');
+// r is { 0: { rows: [{a:1}], ... }, 1: { rows: [{b:2}], ... } }
+// r.rows is undefined!
+```
+
+The `executeQuery` function in `node_pg/ffi.mjs` does:
+```javascript
+const result = await pgClient.query(sql, jsParams);
+return new Ok(mapQueryResult(result));
+```
+
+`mapQueryResult` accesses `result.rows`, which is `undefined` for
+multi-statement results. This causes:
+- `arrayToList(undefined)` → crash or garbage
+- `result.rowCount` → `undefined` → `new None()` (harmless but wrong)
+- `result.command` → `undefined`
+- `result.fields` → `undefined`
+
+### 354b. Affected Callers
+
+**`seed.gleam`**: All three seed functions use multi-statement SQL:
+- `seed_agent_souls()`: 2 INSERT statements in one string
+- `seed_agent_prefixes()`: 3 INSERT statements in one string
+
+When `seed_idempotent` calls `db.query()`, the result goes through
+`mapQueryResult`, which will crash on the array result. The seed
+functions will report errors even though the SQL may have succeeded.
+
+**`simple_migrate.gleam`**: Migration scripts may contain multi-statement
+SQL. If any migration has multiple statements, the same crash occurs.
+
+### 354c. The Fix
+
+Either:
+1. Split multi-statement SQL into individual queries, OR
+2. Modify `executeQuery` in `ffi.mjs` to detect array results and
+   return only the first result, OR
+3. Add a `query_multi` function that handles array results properly
+
+Option 1 is the safest — it makes each query atomic and avoids the
+ambiguity of multi-statement results.
+
+**Issue #317** | Severity: **HIGH** | Category: FFI — `node_pg executeQuery` crashes on multi-statement SQL; `mapQueryResult` receives array instead of object; `seed.gleam` and `simple_migrate.gleam` affected
+
+---
+
+## 355. ISSUE_TYPES — Gleam Type vs DB Schema Gap
+
+### 355a. `Issue` Type Covers Only 14 of 31 DB Columns
+
+The Gleam `Issue` type has these fields:
+```
+id, title, description, severity, status, issue_type,
+created_at, resolved_at, created_by, discovered_by,
+environment, git_branch, git_hash, reported_by, source
+```
+
+The `issues` table has 31 columns:
+```
+id, title, description, issue_type, severity, status, created_by,
+discovered_at, related_issue_id, task_id, resolution, resolved_at,
+resolved_by, tags, metadata, created_at, updated_at, assignee,
+assignee_type, review_id, dlq_id, viewers, milestone_id,
+related_review_id, discovered_by, environment, git_branch, git_hash,
+reported_by, source, project_id
+```
+
+Missing from Gleam type (17 columns):
+- `discovered_at` (timestamptz) — when was the issue discovered
+- `related_issue_id` (uuid) — link to related issues
+- `task_id` (uuid) — link to tasks
+- `resolution` (text) — how the issue was resolved
+- `resolved_by` (text) — who resolved it
+- `tags` (ARRAY) — issue tags
+- `metadata` (jsonb) — arbitrary metadata
+- `updated_at` (timestamptz) — last update time
+- `assignee` (text) — who is assigned
+- `assignee_type` (text) — type of assignee
+- `review_id` (uuid) — link to inter-review
+- `dlq_id` (uuid) — dead letter queue reference
+- `viewers` (ARRAY) — who can see this issue
+- `milestone_id` (uuid) — link to milestone
+- `related_review_id` (uuid) — link to related review
+- `project_id` (uuid) — **THE KEY FIELD** — project scope
+
+The most critical missing field is `project_id`. The `issues` table has
+a `project_id` column (uuid), but the Gleam `Issue` type doesn't include
+it. This means:
+1. Issues are created without project context
+2. Issues cannot be filtered by project
+3. The RLS policy on `issues` (if any) may not work correctly
+
+### 355b. `issue_db.gleam` Decoder vs Actual Columns
+
+Despite the type gap, `issue_db.gleam` works because its SQL queries
+use `::text` casts and only select the columns that the decoder expects.
+The missing columns are simply never queried. This is a "works by
+coincidence" pattern — if someone adds a query that includes `tags` or
+`metadata`, they'll need new decoders.
+
+**Issue #318** | Severity: **MEDIUM** | Category: Type — `Issue` Gleam type covers only 14 of 31 DB columns; missing `project_id`, `tags`, `metadata`, `resolution`, `task_id`, and 12 others
