@@ -7,16 +7,17 @@ No assumptions. No documentation trust. Only verified facts.
 
 ## EXECUTIVE SUMMARY
 
-**160 issues tracked** (#100-#259) across 17 audit categories.
+**155 issues tracked** (#100-#262) across 18 audit categories.
+⚠️ **CRITICAL CORRECTION (§333)**: 8 issues retracted — previous "phantom table" claims were based on querying wrong database.
 
 ### Severity Breakdown
 
 | Severity     | Count | Percentage |
 | ------------ | ----- | ---------- |
-| **CRITICAL** | 32    | 20.0%      |
-| **HIGH**     | 63    | 39.4%      |
-| **MEDIUM**   | 50    | 31.3%      |
-| **LOW**      | 15    | 9.4%       |
+| **CRITICAL** | 31    | 20.0%      |
+| **HIGH**     | 58    | 37.4%      |
+| **MEDIUM**   | 50    | 32.3%      |
+| **LOW**      | 16    | 10.3%      |
 
 ### Category Breakdown
 
@@ -12702,6 +12703,8 @@ issue-get, skill-list/get/search, psypi-commit, memory-search
 
 ### 199.1 The Problem
 
+[Comments by user: which database are you using? two existing: correct: 'psypi', wrong:'nezha']
+
 Three modules query tables that **do not exist** in the database:
 
 | Module               | Query                                                                        | Table       | Exists? |
@@ -22353,7 +22356,7 @@ The entire inter-review commit flow is dead at step 2.
 
 ## 332. UPDATED ISSUE COUNT
 
-Total issues tracked: **#100-#259** = **160 issues**
+Total issues tracked: **#100-#259** = **160 issues** (BEFORE CORRECTION — see §333)
 
 | Severity | Count |
 | -------- | ----- |
@@ -22361,3 +22364,321 @@ Total issues tracked: **#100-#259** = **160 issues**
 | HIGH     | 63    |
 | MEDIUM   | 50    |
 | LOW      | 15    |
+
+---
+
+## 333. CRITICAL CORRECTION — WRONG DATABASE QUERIED
+
+### 333a. The Error
+
+All database verification queries in this review (§300-§332) were executed using
+`psql "$DATABASE_URL"`, but the `DATABASE_URL` environment variable was **empty**.
+This caused `psql` to connect to the default database (likely `postgres` or the
+user's default), NOT the `psypi` database.
+
+The correct command is: `psql -d psypi`
+
+### 333b. Impact on Previous Findings
+
+Many issues flagged as "phantom table" or "missing column" were **incorrect**.
+The tables and columns DO exist in the `psypi` database. The following issues
+are **RETRACTED** or **DOWNGRADED** based on correct database verification:
+
+#### Tables Verified as EXISTING in `psypi` Database
+
+| Table               | Previously Claimed | Actual Status | Row Count        |
+| ------------------- | ------------------ | ------------- | ---------------- |
+| `agent_souls`       | ❌ Phantom          | ✅ EXISTS      | 2 rows (A + S)   |
+| `agent_jobs`        | ❌ Phantom          | ✅ EXISTS      | 5+ rows          |
+| `agent_prefixes`    | ❌ Phantom          | ✅ EXISTS      | 3 rows (A, S, G) |
+| `code_versions`     | ❌ Phantom          | ✅ EXISTS      | 1,214 rows       |
+| `notifications`     | ❌ Phantom          | ✅ EXISTS      | 1 row            |
+| `psypi_event_hooks` | ❌ Phantom          | ✅ EXISTS      | 30 rows          |
+| `system_directives` | ✅ Exists           | ✅ EXISTS      | (confirmed)      |
+
+#### SQL Functions Verified as EXISTING
+
+| Function                 | Previously Claimed | Actual Status |
+| ------------------------ | ------------------ | ------------- |
+| `save_code_version()`    | ❌ Missing          | ✅ EXISTS      |
+| `get_code_versions()`    | ❌ Missing          | ✅ EXISTS      |
+| `restore_code_version()` | ❌ Missing          | ✅ EXISTS      |
+
+#### Columns Verified as EXISTING
+
+| Table                    | Column           | Previously Claimed | Actual Status                            |
+| ------------------------ | ---------------- | ------------------ | ---------------------------------------- |
+| `project_communications` | `priority`       | ❌ Missing          | ✅ EXISTS (text)                          |
+| `skills`                 | `reference_list` | ❌ Missing          | ✅ EXISTS                                 |
+| `issues`                 | `environment`    | ❌ Missing          | ✅ EXISTS (text)                          |
+| `issues`                 | `type`           | ❌ Missing          | ❌ STILL MISSING — column is `issue_type` |
+
+#### Columns Still MISSING or Wrong
+
+| Table                    | Column   | Status       | Note                                      |
+| ------------------------ | -------- | ------------ | ----------------------------------------- |
+| `project_communications` | `status` | ❌ Missing    | No status column; broadcast.stats() fails |
+| `issues`                 | `type`   | ❌ Wrong name | Column is `issue_type`, not `type`        |
+
+### 333c. Issues RETRACTED
+
+The following issues are retracted because the referenced tables/columns DO exist:
+
+- **#247** (code_version non-functional) — RETRACTED: table and functions exist, 1,214 versions stored
+- **#248** (prepare_context phantom code_versions) — RETRACTED: table exists
+- **#251** (event_hooks non-functional) — RETRACTED: table exists with 30 rows
+- **#252** (notification functions non-functional) — RETRACTED: table exists
+- **#255** (6 critical tables never created) — RETRACTED: all 6 tables exist
+- **#241** (seed targets phantom tables) — RETRACTED: tables exist
+- **#244** (broadcast.send missing priority) — RETRACTED: priority column exists
+- **#246** (broadcast.list missing priority) — RETRACTED: priority column exists
+
+### 333d. Issues DOWNGRADED
+
+The following issues are downgraded because the core infrastructure exists,
+even though there may be secondary problems:
+
+- **#235** (S-bot prompt always degraded) — DOWNGRADED from HIGH to MEDIUM:
+  `agent_souls` exists with data, but `s_db_reader.read_s_soul_from_db()`
+  may still fail if the Gleam code doesn't match the actual schema.
+  Need to verify the actual query works at runtime.
+
+- **#242** (psypi-my-id always degraded) — DOWNGRADED from MEDIUM to LOW:
+  `agent_souls` and `agent_jobs` exist with data. The fallback to degraded
+  identity may not be needed if the queries actually work.
+
+- **#258** (is_s_still_idle always True) — NEEDS RE-VERIFICATION:
+  `agent_sessions` exists. The bigint decode issue may still be real,
+  but the underlying table exists.
+
+### 333e. Issues Still VALID
+
+These issues remain valid regardless of the database correction:
+
+- **#253** (dual config stores no sync) — VALID: in-memory vs DB config mismatch
+- **#254** (idle_since lost on restart) — VALID: in-memory only
+- **#256** (no migration tracking) — VALID: design issue
+- **#257** (duplicate migration prefix 025) — VALID: coordination issue
+- **#259** (commit flow blocked by unwritten score) — VALID: logic issue
+- **#245** (broadcast.stats missing status + invalid comparison) — PARTIALLY VALID:
+  `status` column still missing; `priority >= 2` still invalid (text type)
+- **#249** (auto_file_issue references `type` not `issue_type`) — VALID: wrong column name
+- **#250** (task status 'FAILED' may not match) — VALID: needs verification
+
+### 333f. Root Cause of the Error
+
+The `db.gleam` module reads `DATABASE_URL` from environment:
+```gleam
+@external(javascript, "./node_ffi.mjs", "get_database_url")
+fn get_database_url() -> String
+```
+
+```javascript
+export function get_database_url() {
+  return process.env['DATABASE_URL'] || '';
+}
+```
+
+When `DATABASE_URL` is empty, `db.connect()` falls back to hardcoded config:
+```gleam
+"" ->
+  node_pg.create_config(
+    Some("postgres"), None, Some("localhost"), Some(5432), Some("psypi"),
+  )
+```
+
+This fallback correctly connects to the `psypi` database. So the Gleam runtime
+IS connecting to the correct database. The error was only in MY manual `psql`
+queries, which used `psql "$DATABASE_URL"` (empty → default DB) instead of
+`psql -d psypi`.
+
+**This means the Gleam code is likely working correctly against the right
+database, and many of the "phantom table" failures I documented may not
+actually occur at runtime.**
+
+**Issue #260** | Severity: **CRITICAL** | Category: Review Error — previous claims based on wrong database, many retracted
+
+---
+
+## 334. RE-VERIFICATION AGAINST CORRECT DATABASE
+
+### 334a. `psypi_config` Values
+
+```
+key                 | value
+--------------------+-----------------------------------------------------------
+idle_since          | 0
+last_wakeup         | (long text message, not a timestamp!)
+monitor_debounce_ms | 900000 (15 minutes!)
+monitor_enabled     | true
+```
+
+Key findings:
+1. `monitor_debounce_ms = 900000` (15 min) in DB, but `hook_on_agent_end` uses
+   in-memory store (starts empty → defaults to 300000 = 5 min). Neither matches.
+2. `last_wakeup` is being misused as a message store, not a timestamp.
+3. `idle_since = 0` is stored in DB, but `hook_on_agent_end` uses in-memory store.
+
+### 334b. `psypi_event_hooks` — Active and Working
+
+```
+event_name          | hook_status | trigger_count | error_count
+--------------------+-------------+---------------+-------------
+agent_end           | active      | 380           | 0
+agent_start         | active      | 557           | 0
+before_agent_start  | active      | 144           | 0
+model_select        | active      | 60            | 0
+session_start       | active      | 64            | 0
+tool_call           | active      | 2649          | 0
+tool_result         | active      | 2644          | 0
+```
+
+7 active hooks with significant trigger counts and zero errors.
+The `event_hooks` module IS functional at the database level.
+
+However, the Gleam code `event_hooks.record_trigger()` is called by
+`hook_on_before_agent_start` and `hook_on_agent_start`. If these calls
+fail at the Gleam level (e.g., decode errors), the trigger counts wouldn't
+increment. But they ARE incrementing, which suggests the Gleam code works.
+
+Wait — the trigger counts could also be incremented by the JS-level debounce
+wrapper in the generated extension.js, not by the Gleam code. Need to verify.
+
+### 334c. `agent_souls` — Both Agents Have Data
+
+```
+id_prefix | name      | role         | is_active
+----------+-----------+--------------+-----------
+S         | Somatic   | SomaticBot   | t
+A         | Autonomic | AutonomicBot | t
+```
+
+Both souls exist. The `s_db_reader.read_s_soul_from_db()` query:
+```sql
+SELECT content FROM agent_souls WHERE id_prefix = 'S' AND is_active = true
+```
+This should work. The `content` column is `text`, and the decoder uses
+`decode.string`. No type mismatch.
+
+But wait — the `a_db_reader.read_soul_from_db()` query:
+```sql
+SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'
+```
+This also should work. All three columns are `text`.
+
+### 334d. `agent_jobs` — Has Active Jobs
+
+```
+job                                                    | priority | category
+-------------------------------------------------------+----------+---------
+Inter-review S code changes...                          | 1        | review
+Review S behavior...                                    | 2        | behavior
+Anti-stupidity...                                       | 3        | safety
+Unblock stuck S tasks...                                | 4        | unblock
+Suggest doer-jobs to S...                               | 5        | suggestion
+```
+
+The `a_db_reader.read_a_jobs_from_db()` query:
+```sql
+SELECT j.job, j.priority, j.category
+FROM agent_jobs j
+JOIN agent_souls s ON j.soul_id = s.id
+WHERE s.id_prefix = 'A' AND j.is_active = true
+ORDER BY j.priority ASC
+```
+This should work. `priority` is `integer`, `job` and `category` are `text`.
+
+### 334e. `code_versions` — 1,214 Versions Stored
+
+The auto-backup system IS working. `hook_on_tool_call` successfully calls
+`code_version.save_version()`, which calls `save_code_version()` SQL function.
+
+This means the `hook_on_tool_call` module IS functional, contradicting my
+previous claim that it was broken.
+
+### 334f. `project_communications` — Has `priority` Column
+
+```
+column_name  | data_type
+-------------+----------
+priority     | text
+git_hash     | text
+git_branch   | text
+environment  | text
+```
+
+The `priority` column EXISTS as `text` type. So `broadcast.send()` INSERT
+with `priority` should work. However, `broadcast.stats()` still has issues:
+- `status` column does NOT exist → `COUNT(*) FILTER (WHERE status = 'sent')` fails
+- `priority >= 2` is invalid for `text` type → comparison error
+
+### 334g. `issues` — `issue_type` not `type`
+
+```
+column_name: issue_type (not "type")
+```
+
+`monitor_ai.auto_file_issue()` uses `type` in INSERT, but the actual column
+is `issue_type`. This INSERT will fail.
+
+### 334h. Remaining Genuine Issues After Correction
+
+After re-verification against the correct database, the following issues
+remain genuinely valid:
+
+1. **FFI type mismatch: `get_config` returns `null` instead of `Option(String)`**
+   — The in-memory `get_config` returns JS `null`, not Gleam `None`.
+   This is a real FFI contract violation.
+
+2. **Dual config store: in-memory vs DB not synchronized**
+   — `hook_on_agent_end` uses in-memory; `psypi_config` module uses DB.
+   Different values for `monitor_debounce_ms` (300000 vs 900000).
+
+3. **`broadcast.stats()` references missing `status` column**
+   — `project_communications` has no `status` column.
+
+4. **`broadcast.stats()` uses `priority >= 2` on text column**
+   — Invalid comparison.
+
+5. **`monitor_ai.auto_file_issue()` uses `type` instead of `issue_type`**
+   — Wrong column name.
+
+6. **`is_s_still_idle()` bigint decode issue**
+   — `COUNT(*)` returns bigint, `decode.int` may fail.
+   Need to verify if `agent_sessions` query actually hits this.
+
+7. **Inter-review score never written**
+   — `record_review_score()` exists but is never called by A-bot workflow.
+
+8. **`compose()` vs `compose_within_budget()`**
+   — System prompt composition ignores token budget.
+
+9. **`system_directives` never read by Gleam code**
+   — Table exists with data, but no Gleam module reads from it.
+
+10. **`last_wakeup` in `psypi_config` misused as message store**
+    — Should be a timestamp, contains long text.
+
+**Issue #261** | Severity: **HIGH** | Category: Config — monitor_debounce_ms mismatch (900000 in DB, 300000 in code, 15000 nowhere)
+
+**Issue #262** | Severity: **MEDIUM** | Category: Schema — last_wakeup misused as message store in psypi_config
+
+---
+
+## 335. CORRECTED ISSUE COUNT
+
+After retracting 8 issues (#241, #244, #246, #247, #248, #251, #252, #255)
+and adding 3 new issues (#260, #261, #262):
+
+Total issues tracked: **#100-#262** = **155 issues** (net -5 from correction)
+
+| Severity | Count |
+| -------- | ----- |
+| CRITICAL | 31    |
+| HIGH     | 58    |
+| MEDIUM   | 50    |
+| LOW      | 16    |
+
+Note: 8 issues retracted, 2 downgraded, 3 new issues added.
+The retracted issues are preserved in the document for audit trail
+but should be excluded from active issue counts.
