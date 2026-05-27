@@ -19112,3 +19112,530 @@ so it counts ALL sessions including provider sessions.
 | Total commands registered  | 2          |
 | Commands working           | 2 (100%)   |
 | Total issues found         | 100        |
+
+---
+
+## 298. CRITICAL CORRECTION — PHANTOM TABLE VERIFICATION (v5)
+
+**Date**: 2026-05-27
+**Method**: Direct `psql` queries against live database using `information_schema.tables`
+**Impact**: Earlier review sections (v3, v4) INCORRECTLY claimed some phantom tables exist.
+
+### 298.1 Definitive Table Existence Check
+
+Every table referenced in Gleam code was verified against `information_schema.tables`
+with `table_type = 'BASE TABLE'`:
+
+| Table Name          | Referenced In                        | EXISTS? | Previous Claim | Correction                       |
+| ------------------- | ------------------------------------ | ------- | -------------- | -------------------------------- |
+| `agent_souls`       | a_db_reader.gleam, s_db_reader.gleam | **NO**  | v4 said YES    | **WRONG** — table does not exist |
+| `agent_jobs`        | a_db_reader.gleam, s_db_reader.gleam | **NO**  | v4 said YES    | **WRONG** — table does not exist |
+| `notifications`     | monitor.gleam                        | **NO**  | v4 said YES    | **WRONG** — table does not exist |
+| `psypi_event_hooks` | event_hooks.gleam                    | **NO**  | v4 said YES    | **WRONG** — table does not exist |
+| `code_versions`     | code_version.gleam                   | **NO**  | v4 said YES    | **WRONG** — table does not exist |
+| `event_hooks`       | migration 003                        | **NO**  | —              | Neither table nor view exists    |
+| `agent_prefixes`    | migration 012                        | **NO**  | —              | Neither table nor view exists    |
+
+### 298.2 Root Cause of Previous Error
+
+The previous review used `information_schema.columns` to check for tables.
+When a table doesn't exist, `information_schema.columns` returns 0 rows.
+The reviewer incorrectly interpreted "0 columns" as "table exists but has no columns"
+instead of "table doesn't exist at all."
+
+The correct query is:
+```sql
+SELECT EXISTS(
+  SELECT 1 FROM information_schema.tables
+  WHERE table_name = 'agent_souls'
+  AND table_schema = 'public'
+  AND table_type = 'BASE TABLE'
+);
+-- Result: f (false) — table does NOT exist
+```
+
+### 298.3 Impact of Correction
+
+This correction INCREASES the severity of existing findings:
+
+1. **`a_db_reader.gleam`**: `read_soul_from_db()` queries `agent_souls` — **ALWAYS FAILS**
+   - Not "phantom table that exists" — table literally does not exist
+   - Every call returns `Error("relation 'agent_souls' does not exist")`
+
+2. **`a_db_reader.gleam`**: `read_a_jobs_from_db()` JOINs `agent_jobs` and `agent_souls` — **ALWAYS FAILS**
+   - Both tables don't exist
+   - Every call returns `Error("relation 'agent_jobs' does not exist")`
+
+3. **`s_db_reader.gleam`**: `read_s_soul_from_db()` queries `agent_souls` — **ALWAYS FAILS**
+   - Same as above
+
+4. **`s_db_reader.gleam`**: `read_s_jobs_from_db()` JOINs `agent_jobs` and `agent_souls` — **ALWAYS FAILS**
+   - Same as above
+
+5. **`event_hooks.gleam`**: ALL functions query `psypi_event_hooks` — **ALL ALWAYS FAIL**
+   - `list_all_hooks()`, `list_active_hooks()`, `record_trigger()`, `record_error()`, `set_hook_status()`
+   - Every call returns `Error("relation 'psypi_event_hooks' does not exist")`
+
+6. **`monitor.gleam`**: `get_pending_notifications()` and `mark_notifications_read()` query `notifications` — **ALWAYS FAILS**
+
+7. **`code_version.gleam`**: ALL functions query `code_versions` — **ALL ALWAYS FAILS**
+
+### 298.4 The `soul` Table — What Actually Exists
+
+The database has a `soul` table (not `agent_souls`) with columns:
+- `id` (uuid)
+- `role` (text) — e.g., "Monitor"
+- `responsibility` (text)
+- `domain` (text) — e.g., "database_consistency"
+- `event_triggers` (jsonb)
+- `task_patterns` (jsonb)
+- `verification_criteria` (text)
+- `remediation_steps` (text)
+- `is_active` (boolean)
+- `priority` (text)
+- `created_at` (timestamptz)
+- `updated_at` (timestamptz)
+
+The `a_db_reader.gleam` queries `agent_souls WHERE id_prefix = 'A'` but the
+actual table is `soul` with `role` column (not `id_prefix`). The correct query
+would be `soul WHERE role = 'Monitor'` (or similar).
+
+The `soul` table has 5 rows, all with `role = 'Monitor'`. There are NO rows
+for S-bot (Somatic) or A-bot (Autonomic) roles.
+
+### 298.5 Updated Phantom Table Count
+
+| Category                            | Count | Tables                                                                                                |
+| ----------------------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
+| Phantom tables (don't exist at all) | **7** | agent_souls, agent_jobs, notifications, psypi_event_hooks, code_versions, event_hooks, agent_prefixes |
+
+Previous count was 3. This is now **7 phantom tables**.
+
+---
+
+## 299. SCHEMA DRIFT ANALYSIS — Migration vs Live DB
+
+### 299.1 Methodology
+
+Compared every migration SQL file (003-026) against live database schema
+using `information_schema.columns`. Found massive drift.
+
+### 299.2 Summary
+
+| Metric                       | Value  |
+| ---------------------------- | ------ |
+| Total base tables in DB      | 78     |
+| Total views in DB            | 19     |
+| Total migration files        | 24     |
+| Tables created by migrations | ~20    |
+| Tables with NO migration     | **63** |
+| Views with NO migration      | **19** |
+
+### 299.3 Type Changes — Migration vs Live DB
+
+These columns were defined as `TEXT` in migrations but changed to different
+types in the live DB (likely by external ALTER TABLE or table recreation):
+
+| Table         | Column       | Migration Type       | Live DB Type       | Impact on Gleam                    |
+| ------------- | ------------ | -------------------- | ------------------ | ---------------------------------- |
+| tasks         | `result`     | TEXT                 | jsonb              | `decode.string` fails for non-null |
+| tasks         | `project_id` | TEXT (migration 015) | uuid               | Needs `::text` cast                |
+| skills        | `content`    | TEXT                 | jsonb              | `decode.string` fails for non-null |
+| skills        | `project_id` | (not in migration)   | uuid               | Needs `::text` cast                |
+| issues        | `project_id` | TEXT (migration 015) | **DOES NOT EXIST** | INSERT fails                       |
+| memory        | `metadata`   | (not in migration)   | jsonb              | Needs `::text` cast                |
+| memory        | `project_id` | (not in migration)   | uuid               | Needs `::text` cast                |
+| inter_reviews | `findings`   | (not in migration)   | jsonb              | Not queried by Gleam               |
+
+### 299.4 Dropped Columns — Migration vs Live DB
+
+These columns exist in migrations but were DROPPED from the live DB:
+
+| Table  | Column           | In Migration        | In Live DB | Impact                              |
+| ------ | ---------------- | ------------------- | ---------- | ----------------------------------- |
+| skills | `reference_list` | YES (TEXT)          | **NO**     | `skill.gleam` ALL queries fail      |
+| issues | `created_by`     | YES (TEXT NOT NULL) | **NO**     | `issue_db.gleam` ALL queries fail   |
+| issues | `environment`    | YES (TEXT)          | **NO**     | `issue_db.gleam` ALL queries fail   |
+| issues | `git_branch`     | YES (TEXT)          | **NO**     | `issue_db.gleam` ALL queries fail   |
+| issues | `git_hash`       | YES (TEXT)          | **NO**     | `issue_db.gleam` ALL queries fail   |
+| issues | `reported_by`    | YES (TEXT)          | **NO**     | `issue_db.gleam` ALL queries fail   |
+| issues | `source`         | YES (TEXT)          | **NO**     | `issue_db.gleam` ALL queries fail   |
+| issues | `project_id`     | YES (TEXT)          | **NO**     | `issue_db.gleam` INSERT/WHERE fails |
+
+### 299.5 Column Count Drift — Key Tables
+
+| Table         | Migration Columns            | Live DB Columns | Extra Columns      | Coverage |
+| ------------- | ---------------------------- | --------------- | ------------------ | -------- |
+| tasks         | 14 (migration 010) + 1 (025) | 56              | 41 extra           | 27%      |
+| skills        | 15 (migration 020)           | 54              | 39 extra           | 28%      |
+| inter_reviews | 6 (migration 024)            | 31              | 25 extra           | 19%      |
+| issues        | 16 (migration 015)           | 24              | 8 extra, 7 missing | 56%      |
+
+### 299.6 CHECK Constraint Drift
+
+| Table         | Column | Migration CHECK                                                                                     | Live DB CHECK                                               | Impact                                                        |
+| ------------- | ------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
+| inter_reviews | status | `'requested','in_progress','completed','failed'`                                                    | `'pending','in_progress','completed','failed','superseded'` | SQL function inserts 'pending' but migration says 'requested' |
+| skills        | source | `'clawhub','local','generated','imported'`                                                          | `'clawhub','local','generated','imported','ai-built'`       | Gleam SkillSource missing AiBuilt variant                     |
+| tasks         | status | `'PENDING','RUNNING','COMPLETED','FAILED','pending','running','completed','failed','FAKE_COMPLETE'` | (not checked)                                               | Mixed case in CHECK                                           |
+
+### 299.7 Migration Conflict — Duplicate Number 025
+
+Two migration files share number 025:
+- `025_add_tasks_project_id.sql` — adds project_id to tasks
+- `025_drop_system_directives.sql` — drops system_directives table
+
+Since `simple_migrate.gleam` runs files in sorted order and stops on first error,
+the second 025 file may or may not run depending on which sorts first.
+Both use `IF NOT EXISTS` / `IF EXISTS` so they're idempotent, but the duplicate
+number indicates lack of coordination.
+
+### 299.8 No Migration Tracking
+
+`simple_migrate.gleam` has NO tracking table. Every time it runs:
+1. Reads ALL .sql files from `src/migrations/`
+2. Sorts them by filename
+3. Executes EVERY statement in EVERY file
+4. Relies on `IF NOT EXISTS` / `IF EXISTS` for idempotency
+
+This means:
+- Dropped columns can't be re-dropped (ALTER TABLE DROP COLUMN IF EXISTS works)
+- But data modifications (INSERT, UPDATE) are re-executed every time
+- No way to know which migrations have been applied
+- No way to roll back
+
+---
+
+## 300. ISSUE_DB.GLEAM — COMPLETELY BROKEN (7 PHANTOM COLUMNS)
+
+### 300.1 The Problem
+
+`issue_db.gleam` references 7 columns that do NOT exist in the live `issues` table:
+
+| Column          | In issue_db.gleam         | In Live DB | Used In                 |
+| --------------- | ------------------------- | ---------- | ----------------------- |
+| `created_by`    | YES (NOT NULL in decoder) | **NO**     | SELECT, INSERT, decoder |
+| `discovered_by` | YES (optional in decoder) | **NO**     | SELECT, decoder         |
+| `environment`   | YES (optional in decoder) | **NO**     | SELECT, decoder         |
+| `git_branch`    | YES (optional in decoder) | **NO**     | SELECT, decoder         |
+| `git_hash`      | YES (optional in decoder) | **NO**     | SELECT, decoder         |
+| `reported_by`   | YES (optional in decoder) | **NO**     | SELECT, decoder         |
+| `source`        | YES (optional in decoder) | **NO**     | SELECT, decoder         |
+| `project_id`    | YES (in INSERT, WHERE)    | **NO**     | INSERT, WHERE filter    |
+
+### 300.2 Impact
+
+**ALL issue operations fail at runtime:**
+
+- `add()` — INSERT references `created_by` and `project_id` columns that don't exist → SQL error
+- `list()` — SELECT references 7 non-existent columns → SQL error
+- `get()` — SELECT references 7 non-existent columns, WHERE uses `project_id` → SQL error
+- `resolve()` — WHERE uses `project_id` → SQL error
+- `count()` — WHERE uses `project_id` → SQL error
+
+### 300.3 Live DB `issues` Table Columns (24 total)
+
+```
+id, title, description, issue_type, severity, status, discovered_by,
+discovered_at, related_issue_id, task_id, resolution, resolved_at,
+resolved_by, tags, metadata, created_at, updated_at, assignee,
+assignee_type, milestone_id, related_review_id, review_id, dlq_id, viewers
+```
+
+### 300.4 What Changed
+
+The `issues` table was completely rebuilt outside migrations. The migration 015
+defined 16 columns. The live DB has 24 columns, but only 9 overlap:
+`id, title, description, severity, status, issue_type, created_at, resolved_at, discovered_by`
+
+7 columns from migration were dropped: `created_by, environment, git_branch, git_hash, reported_by, source, project_id`
+
+15 new columns were added: `discovered_at, related_issue_id, task_id, resolution, resolved_by, tags, metadata, updated_at, assignee, assignee_type, milestone_id, related_review_id, review_id, dlq_id, viewers`
+
+### 300.5 Previous Review Error
+
+The v4 review said "issue_db.gleam OK — proper ::text casts, correct column names".
+This was WRONG. The issue_db.gleam was never tested against the live database.
+
+---
+
+## 301. SKILL.GLEAM — REFERENCE_LIST COLUMN DOES NOT EXIST
+
+### 301.1 The Problem
+
+`skill.gleam` references `reference_list` in ALL queries (list, get, search),
+but this column was dropped from the live `skills` table.
+
+### 301.2 Impact
+
+**ALL skill queries fail at runtime:**
+
+- `list()` — SELECT includes `reference_list::text` → SQL error "column reference_list does not exist"
+- `get()` — SELECT includes `reference_list` → SQL error
+- `search()` — SELECT includes `reference_list` → SQL error
+- `create()` — Does NOT reference `reference_list` → Works
+- `approve()` — Does NOT reference `reference_list` → Works
+
+### 301.3 Additional Issues
+
+- `content` column changed from TEXT to JSONB — needs `::text` cast
+- `SkillSource` type missing `AiBuilt` variant (DB CHECK includes 'ai-built')
+- `id` (UUID) not cast to `::text` in get() and search()
+
+---
+
+## 302. EVENT_HOOKS.GLEAM — ALL FUNCTIONS BROKEN (TABLE DOES NOT EXIST)
+
+### 302.1 The Problem
+
+`event_hooks.gleam` queries `psypi_event_hooks` table which does NOT exist.
+
+### 302.2 Functions Affected
+
+| Function              | SQL Target                    | Status                           |
+| --------------------- | ----------------------------- | -------------------------------- |
+| `list_all_hooks()`    | SELECT from psypi_event_hooks | **BROKEN** — table doesn't exist |
+| `list_active_hooks()` | SELECT from psypi_event_hooks | **BROKEN** — table doesn't exist |
+| `record_trigger()`    | UPDATE psypi_event_hooks      | **BROKEN** — table doesn't exist |
+| `record_error()`      | UPDATE psypi_event_hooks      | **BROKEN** — table doesn't exist |
+| `set_hook_status()`   | UPDATE psypi_event_hooks      | **BROKEN** — table doesn't exist |
+
+### 302.3 Downstream Impact
+
+- `hook_on_before_agent_start.gleam` calls `record_trigger()` → silently fails
+- `hook_on_agent_start.gleam` calls `record_trigger()` → silently fails
+- `hook_on_agent_end.gleam` calls `record_trigger()` → silently fails
+- `psypi-hooks-list` tool → returns error
+- `psypi-hooks-active` tool → returns error
+
+The hook trigger recording is completely non-functional. Every hook that
+tries to record its trigger silently fails (error is swallowed).
+
+---
+
+## 303. CODE_VERSION.GLEAM — ALL FUNCTIONS BROKEN (TABLE DOES NOT EXIST)
+
+### 303.1 The Problem
+
+`code_version.gleam` queries `code_versions` table which does NOT exist.
+
+### 303.2 Impact
+
+- `save_version()` — INSERT to code_versions → **BROKEN**
+- `query_versions()` — SELECT from code_versions → **BROKEN**
+- `doc_save_tool` — depends on save_version → **BROKEN**
+- Auto-backup in `hook_on_tool_call.gleam` — depends on save_version → **BROKEN**
+
+The entire auto-backup system is non-functional.
+
+---
+
+## 304. MONITOR.GLEAM — NOTIFICATIONS TABLE DOES NOT EXIST
+
+### 304.1 The Problem
+
+`monitor.gleam` functions `get_pending_notifications()` and `mark_notifications_read()`
+query the `notifications` table which does NOT exist.
+
+### 304.2 Impact
+
+- `get_pending_notifications()` — SELECT from notifications → **BROKEN**
+- `mark_notifications_read()` — UPDATE notifications → **BROKEN**
+
+---
+
+## 305. A_DB_READER AND S_DB_READER — SOUL/JOB QUERIES BROKEN
+
+### 305.1 The Problem
+
+Both `a_db_reader.gleam` and `s_db_reader.gleam` query `agent_souls` and `agent_jobs`
+tables which do NOT exist.
+
+### 305.2 Affected Functions
+
+| Module      | Function                | SQL Target                    | Status     |
+| ----------- | ----------------------- | ----------------------------- | ---------- |
+| a_db_reader | `read_soul_from_db()`   | SELECT from agent_souls       | **BROKEN** |
+| a_db_reader | `read_a_jobs_from_db()` | JOIN agent_jobs + agent_souls | **BROKEN** |
+| s_db_reader | `read_s_soul_from_db()` | SELECT from agent_souls       | **BROKEN** |
+| s_db_reader | `read_s_jobs_from_db()` | JOIN agent_jobs + agent_souls | **BROKEN** |
+
+### 305.3 The `soul` Table — What Actually Exists
+
+The database has a `soul` table (not `agent_souls`) with:
+- `role` (text) — "Monitor" (5 rows, all Monitor role)
+- `domain` (text) — e.g., "database_consistency"
+- `responsibility` (text) — description of responsibility
+- `event_triggers` (jsonb)
+- `task_patterns` (jsonb)
+- `is_active` (boolean)
+- `priority` (text)
+
+The Gleam code queries `agent_souls WHERE id_prefix = 'A'` but should query
+`soul WHERE role = 'Autonomic'` (or similar). However, the `soul` table only
+has Monitor entries — no Autonomic or Somatic entries exist.
+
+### 305.4 No Agent Jobs Table
+
+There is no equivalent to `agent_jobs` in the database. The concept of
+"agent jobs" (prioritized task categories per agent) exists only in the
+Gleam code, not in the database.
+
+---
+
+## 306. UPDATED CONSOLIDATED ISSUE COUNT — v5
+
+### 306.1 New Issues Found in This Session (sections 298-305)
+
+| #   | Category       | Issue                                                      | Severity |
+| --- | -------------- | ---------------------------------------------------------- | -------- |
+| 118 | Phantom table  | agent_souls does NOT exist (v4 incorrectly said YES)       | CRITICAL |
+| 119 | Phantom table  | agent_jobs does NOT exist (v4 incorrectly said YES)        | CRITICAL |
+| 120 | Phantom table  | notifications does NOT exist (v4 incorrectly said YES)     | CRITICAL |
+| 121 | Phantom table  | psypi_event_hooks does NOT exist (v4 incorrectly said YES) | CRITICAL |
+| 122 | Phantom table  | code_versions does NOT exist (v4 incorrectly said YES)     | CRITICAL |
+| 123 | Phantom table  | event_hooks does NOT exist (no table or view)              | CRITICAL |
+| 124 | Phantom table  | agent_prefixes does NOT exist (no table or view)           | CRITICAL |
+| 125 | Dropped column | skills.reference_list dropped from live DB                 | CRITICAL |
+| 126 | Dropped column | issues.created_by dropped from live DB                     | CRITICAL |
+| 127 | Dropped column | issues.environment dropped from live DB                    | HIGH     |
+| 128 | Dropped column | issues.git_branch dropped from live DB                     | HIGH     |
+| 129 | Dropped column | issues.git_hash dropped from live DB                       | HIGH     |
+| 130 | Dropped column | issues.reported_by dropped from live DB                    | HIGH     |
+| 131 | Dropped column | issues.source dropped from live DB                         | HIGH     |
+| 132 | Dropped column | issues.project_id dropped from live DB                     | CRITICAL |
+| 133 | Type change    | tasks.result TEXT→jsonb                                    | HIGH     |
+| 134 | Type change    | skills.content TEXT→jsonb                                  | HIGH     |
+| 135 | Type change    | tasks.project_id TEXT→uuid                                 | HIGH     |
+| 136 | Type change    | skills.project_id (not in migration)→uuid                  | HIGH     |
+| 137 | Schema drift   | 63 tables with no migration file                           | HIGH     |
+| 138 | Schema drift   | 19 views with no migration file                            | MEDIUM   |
+| 139 | Schema drift   | inter_reviews status CHECK changed (requested→pending)     | MEDIUM   |
+| 140 | Schema drift   | Duplicate migration number 025                             | LOW      |
+| 141 | Review error   | v4 incorrectly claimed 5 phantom tables exist              | CRITICAL |
+| 142 | Review error   | v4 said "issue_db.gleam OK" — it's completely broken       | CRITICAL |
+| 143 | No data        | soul table has only Monitor entries, no A/S entries        | HIGH     |
+
+### 306.2 Corrected Phantom Table Count
+
+Previous review counted 3 phantom tables, then corrected to 5, then said they all exist.
+The DEFINITIVE count based on `information_schema.tables WHERE table_type='BASE TABLE'`:
+
+| Phantom Table     | Referenced By            | Confirmed Non-Existent |
+| ----------------- | ------------------------ | ---------------------- |
+| agent_souls       | a_db_reader, s_db_reader | YES                    |
+| agent_jobs        | a_db_reader, s_db_reader | YES                    |
+| notifications     | monitor.gleam            | YES                    |
+| psypi_event_hooks | event_hooks.gleam        | YES                    |
+| code_versions     | code_version.gleam       | YES                    |
+| event_hooks       | migration 003 only       | YES                    |
+| agent_prefixes    | migration 012 only       | YES                    |
+
+**Total: 7 phantom tables** (up from 3 in v3, incorrectly reduced to 0 in v4)
+
+### 306.3 Updated Total
+
+| Category                                          | Count   | Severity      |
+| ------------------------------------------------- | ------- | ------------- |
+| Phantom tables (don't exist at all)               | 7       | CRITICAL      |
+| Dropped columns (in migration but not in live DB) | 8       | CRITICAL/HIGH |
+| Type changes (migration vs live DB)               | 4       | HIGH          |
+| SQL column name wrong                             | 2       | CRITICAL      |
+| NOT NULL violation (missing required column)      | 3       | CRITICAL      |
+| Code gen bug (unreachable code)                   | 1       | CRITICAL      |
+| Parameter order/semantics mismatch                | 1       | CRITICAL      |
+| UUID not cast to text                             | 9       | HIGH          |
+| Timestamp not cast to text                        | 4       | HIGH          |
+| JSONB not cast to text                            | 4       | HIGH          |
+| Missing Gleam type variants                       | 1       | MEDIUM        |
+| Template format bugs                              | 3       | HIGH          |
+| gleamValueToJson field names lost                 | 1       | HIGH          |
+| gleamValueToJson incomplete type list             | 1       | MEDIUM        |
+| unwrapGleamResult double stringify                | 1       | MEDIUM        |
+| Error swallowing / silent degradation             | 6       | HIGH          |
+| Double debounce logic                             | 1       | HIGH          |
+| is_s_still_idle catch-22                          | 1       | HIGH          |
+| is_s_still_idle no S-bot filter                   | 1       | MEDIUM        |
+| Review score never written                        | 1       | CRITICAL      |
+| Commit flow permanently blocked                   | 1       | CRITICAL      |
+| Dual config store                                 | 1       | MEDIUM        |
+| Config not synced (idle_since, debounce_ms)       | 3       | HIGH          |
+| SQL function parameter type mismatch              | 1       | MEDIUM        |
+| Extension generation bugs                         | 2       | MEDIUM        |
+| Missing parameter schema fields                   | 9       | MEDIUM        |
+| Hardcoded project_id UUID                         | 1       | MEDIUM        |
+| Projects table empty                              | 1       | HIGH          |
+| No connection pooling                             | 1       | MEDIUM        |
+| No migration tracking                             | 1       | MEDIUM        |
+| tool_consult is a stub                            | 1       | LOW           |
+| Shell injection risk                              | 1       | MEDIUM        |
+| Unreachable record_trigger                        | 1       | MEDIUM        |
+| Schema drift (63 untracked tables)                | 1       | HIGH          |
+| False positive error detection                    | 1       | MEDIUM        |
+| Sync/async mismatch                               | 1       | LOW           |
+| No transaction safety                             | 1       | MEDIUM        |
+| Token budget incomplete                           | 1       | LOW           |
+| Static template ignores result                    | 1       | MEDIUM        |
+| Doc-save can't get content                        | 1       | MEDIUM        |
+| Status case sensitivity                           | 1       | MEDIUM        |
+| FFI: pi_send_message ignores display              | 1       | MEDIUM        |
+| FFI: get_config empty string → None               | 1       | HIGH          |
+| FFI: call_monitor manual Ok/Error                 | 1       | MEDIUM        |
+| LLM: no conversation history                      | 1       | HIGH          |
+| LLM: retry with degraded reasoning                | 1       | MEDIUM        |
+| LLM: no timeout                                   | 1       | HIGH          |
+| LLM: no response validation                       | 1       | MEDIUM        |
+| Semantic ID based on state not role               | 1       | HIGH          |
+| compose doesn't enforce budget                    | 1       | HIGH          |
+| User prompt truncation hardcoded                  | 1       | MEDIUM        |
+| Migration statement splitting bug                 | 1       | MEDIUM        |
+| Seed data debounce mismatch                       | 1       | MEDIUM        |
+| Stale sessions not cleaned                        | 1       | LOW           |
+| FFI dead code (5 unused functions)                | 1       | LOW           |
+| Orphan config data (last_wakeup)                  | 1       | LOW           |
+| Duplicate now_ms with different signatures        | 1       | HIGH          |
+| Auto-backup saves post-edit not pre-edit          | 1       | MEDIUM        |
+| No data in soul table for A/S roles               | 1       | HIGH          |
+| 19 views with no migration                        | 1       | MEDIUM        |
+| Duplicate migration number 025                    | 1       | LOW           |
+| **TOTAL**                                         | **143** |               |
+
+### 306.4 Severity Breakdown — Updated
+
+| Severity | Count | Percentage |
+| -------- | ----- | ---------- |
+| CRITICAL | 22    | 15.4%      |
+| HIGH     | 40    | 28.0%      |
+| MEDIUM   | 49    | 34.3%      |
+| LOW      | 32    | 22.4%      |
+
+### 306.5 Module-by-Module Health Assessment — CORRECTED
+
+| Module             | Previous Status | Corrected Status | Key Issues                                         |
+| ------------------ | --------------- | ---------------- | -------------------------------------------------- |
+| issue_db.gleam     | OK              | **BROKEN**       | 7 phantom columns, project_id doesn't exist        |
+| event_hooks.gleam  | OK              | **BROKEN**       | psypi_event_hooks table doesn't exist              |
+| code_version.gleam | PARTIAL         | **BROKEN**       | code_versions table doesn't exist                  |
+| monitor.gleam      | PARTIAL         | **BROKEN**       | notifications table doesn't exist                  |
+| a_db_reader.gleam  | BROKEN          | **BROKEN**       | agent_souls and agent_jobs don't exist (confirmed) |
+| s_db_reader.gleam  | BROKEN          | **BROKEN**       | agent_souls and agent_jobs don't exist (confirmed) |
+| skill.gleam        | BROKEN          | **BROKEN**       | reference_list column dropped, content is jsonb    |
+
+### 306.6 Critical Path Summary — CORRECTED
+
+| Feature             | Previous | Corrected | Blockers                                 |
+| ------------------- | -------- | --------- | ---------------------------------------- |
+| Issue CRUD          | YES      | **NO**    | 7 phantom columns, project_id missing    |
+| Skill list          | YES      | **NO**    | reference_list dropped, content is jsonb |
+| Event hooks list    | YES      | **NO**    | psypi_event_hooks doesn't exist          |
+| Auto-backup on edit | PARTIAL  | **NO**    | code_versions doesn't exist              |
+| Notifications       | NO       | **NO**    | notifications doesn't exist              |
+| A-bot soul read     | BROKEN   | **NO**    | agent_souls doesn't exist                |
+| S-bot soul read     | BROKEN   | **NO**    | agent_souls doesn't exist                |
+| A-bot jobs read     | BROKEN   | **NO**    | agent_jobs doesn't exist                 |
+| S-bot jobs read     | BROKEN   | **NO**    | agent_jobs doesn't exist                 |
+
+**Working features reduced from previous estimate:**
+- Tools working end-to-end: ~10/35 (28.6%) — down from 18/35 (51.4%)
+- Hooks working correctly: 0/7 (0%) — down from 2/7 (28.6%)
+- All hook trigger recording is broken (psypi_event_hooks doesn't exist)
