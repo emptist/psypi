@@ -9,9 +9,9 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 | Severity | Count | Percentage |
 |----------|-------|------------|
-| **CRITICAL** | 7 | 5.0% |
-| **HIGH** | 42 | 30.2% |
-| **MEDIUM** | 70 | 50.4% |
+| **CRITICAL** | 6 | 4.3% |
+| **HIGH** | 41 | 29.5% |
+| **MEDIUM** | 72 | 51.8% |
 | **LOW** | 20 | 14.4% |
 | **TOTAL** | 139 | 100% |
 
@@ -20,28 +20,28 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | Category | Count | Findings |
 |----------|-------|----------|
 | missing_cast | 29 | 1C/17H |
-| logic_error | 16 | 3C/5H |
+| logic_error | 16 | 2C/4H |
 | design_flaw | 12 |  |
 | unused_columns | 10 |  |
 | wrong_status | 8 | 0C/2H |
 | missing_project_id | 8 | 1C/2H |
-| error_handling | 6 |  |
 | ffi_mismatch | 6 | 2C/2H |
 | missing_params | 6 | 0C/2H |
+| error_handling | 6 |  |
 | type_mismatch | 5 | 0C/3H |
 | style | 4 |  |
 | disconnected_systems | 4 | 0C/2H |
-| security | 3 |  |
 | hardcoded_config | 3 |  |
-| design | 3 |  |
 | config_desync | 3 | 0C/2H |
 | wrong_column | 3 | 0C/3H |
+| security | 3 |  |
 | dead_code | 3 |  |
+| design | 3 |  |
 | performance | 2 | 0C/1H |
 | test_coverage | 2 |  |
-| unused_table | 1 |  |
 | type_coverage | 1 |  |
 | wrong_decoder | 1 | 0C/1H |
+| unused_table | 1 |  |
 
 ## Findings by Severity
 
@@ -52,7 +52,6 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 121 | ffi_mismatch | pi_extension_ffi | get_config returns JS null/string not Gleam Option | A-bot debounce never fires; idle_since always reset; A-bot completely dead |
 | 249 | ffi_mismatch | pi_extension_ffi | get_config FFI returns JS null/string which never matches Gleam None/Some constructors | idle_since is always re-recorded as now(). Debounce never fires. A-bot wakeup is completely broken. |
 | 139 | logic_error | broadcast | broadcast.stats() 3 bugs: bigint decode, text>=int, missing status column | Stats query returns wrong results or fails |
-| 244 | logic_error | a_db_reader | No code updates agent_sessions.last_heartbeat — is_s_still_idle always returns True | A-bot can wake up while S is actively working. No guard against concurrent A+S execution. |
 | 261 | logic_error | multiple | A-bot wakeup chain has 4 sequential failures - entire A-bot system is non-functional | A-bot system is completely non-functional. No autonomous monitoring no inter-review no self-healing. The entire A/S dual-agent architecture is dead on the A side. |
 | 100 | missing_cast | inter_review | inter_review requested_at decode fails without ::text cast | Inter-review requests always fail to decode |
 | 116 | missing_project_id | areflect | areflect.save_issue omits project_id (NOT NULL, no default) | save_issue INSERT always fails; no issues can be saved via areflect |
@@ -68,7 +67,6 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 123 | ffi_mismatch | pi_extension_ffi | unwrapGleamResult may not handle all Gleam Result shapes | Error handling in extension.js may fail |
 | 250 | logic_error | agent_identity | semantic_id uses is_idle (momentary state) for A/S prefix (permanent identity) | When S is momentarily idle, it gets A-prefixed identity. Wrong soul loaded, wrong jobs fetched, wrong behavior. |
 | 251 | logic_error | a_orchestrator | compose() called instead of compose_within_budget() — token budget system unused | A-bot system prompt may exceed context window, causing LLM failures. Token budget system exists but is never used. |
-| 259 | logic_error | a_db_reader | is_s_still_idle counts ALL alive sessions, not just S-bot sessions | A-bot may think S is busy when only A-bot itself has an active session. Incorrect idle detection. |
 | 264 | logic_error | tool_commit | tool_commit permanently blocked: overall_score is always NULL because a_orchestrator never writes review response to DB | Commits are permanently blocked. The psypi-commit tool can never succeed in Phase 2. Users must commit manually outside the tool. |
 | 265 | logic_error | seed | seed.gleam multi-statement SQL: node-postgres may only execute first statement, silently dropping rest | Only the first soul (A) and first prefix (A) may be seeded. S and G prefixes/souls may be missing, causing identity and session failures. |
 | 101 | missing_cast | inter_review | inter_review id not cast to text | Decode may fail or return [object Object] |
@@ -135,7 +133,9 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 140 | logic_error | agent_identity | semantic_id uses is_idle for A/S prefix; idle S-agent gets wrong identity | Idle S-agent gets A- prefix; wrong session tracking |
 | 141 | logic_error | hook_on_agent_end | hook_on_tool_result synchronous return in async context | Hook may not properly chain with other hooks |
 | 160 | logic_error | hook_on_agent_end | A/S agent debounce logic: idle_since reset on every tool call | A-bot never goes idle; debounce never triggers; S-bot never activated |
+| 244 | logic_error | a_db_reader | No code updates agent_sessions.last_heartbeat — is_s_still_idle always returns True | is_s_still_idle() is a dead guard that never blocks. Not a system-stopping issue since ctx_is_idle is the real source of truth. Should be fixed to either update heartbeats or remove the redundant DB check. |
 | 248 | logic_error | monitor | monitor.set_model blanket reset race condition | Temporary window where no API key is active. Concurrent set_model calls could corrupt state. |
+| 259 | logic_error | a_db_reader | is_s_still_idle counts ALL alive sessions, not just S-bot sessions | A-bot may think S is busy when only A-bot itself has an active session. Incorrect idle detection. |
 | 267 | logic_error | event_hooks | record_trigger called twice per agent start: before_agent_start and agent_start both trigger on same event | Duplicate trigger records inflate event counts. Monitoring based on trigger counts will be inaccurate. |
 | 269 | logic_error | simple_migrate | simple_migrate.gleam may silently drop multi-statement migration scripts | Schema may be partially applied. Tables created but indexes/constraints/triggers silently dropped. This is worse than seed because it affects schema correctness. |
 | 271 | logic_error | command_listen | command_listen bypasses A-bot debounce chain — directly calls LLM and sends to S with no DB record | Human-triggered A messages bypass all safety mechanisms. No audit trail. No debounce. Could flood S with messages if human types rapidly. |
@@ -210,7 +210,7 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 - **Module**: `pi_extension_ffi`
 - **Status**: duplicate
 
-**Description**: Gleam expects Some(value)/None but JS returns null or string; pattern matching never works [DUPLICATE of #249 — more detailed]
+**Description**: Gleam expects Some(value)/None but JS returns null or string; pattern matching never works [DUPLICATE of #249 — more detailed] (duplicate of #249 which has more detailed evidence)
 
 **Evidence**: `pi_extension_ffi.mjs: return _configStore[key] || null`
 
@@ -241,19 +241,6 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `broadcast.gleam stats(): priority text>=2, status column does not exist in project_communications, COUNT(*) without ::INT`
 
 **Impact**: Stats query returns wrong results or fails
-
-### #244 — No code updates agent_sessions.last_heartbeat — is_s_still_idle always returns True
-
-- **Severity**: CRITICAL
-- **Category**: logic_error
-- **Module**: `a_db_reader`
-- **Status**: open
-
-**Description**: a_db_reader.gleam:34 queries WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes' but no Gleam code ever UPDATEs last_heartbeat. All 19 sessions have last_heartbeat from 20+ days ago. The query always returns cnt=0, so is_s_still_idle() always returns Ok(True).
-
-**Evidence**: `a_db_reader.gleam:34 SELECT COUNT(*) FROM agent_sessions WHERE status='alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'; grep -rh "UPDATE agent_sessions" src/*.gleam returns nothing; grep -rh "last_heartbeat" src/*.gleam only finds the SELECT`
-
-**Impact**: A-bot can wake up while S is actively working. No guard against concurrent A+S execution.
 
 ### #261 — A-bot wakeup chain has 4 sequential failures - entire A-bot system is non-functional
 
@@ -397,19 +384,6 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `a_orchestrator.gleam:66 compose(...); system_prompt_types.gleam has compose_within_budget() that truncates to fit context window`
 
 **Impact**: A-bot system prompt may exceed context window, causing LLM failures. Token budget system exists but is never used.
-
-### #259 — is_s_still_idle counts ALL alive sessions, not just S-bot sessions
-
-- **Severity**: HIGH
-- **Category**: logic_error
-- **Module**: `a_db_reader`
-- **Status**: open
-
-**Description**: a_db_reader.gleam:34 SELECT COUNT(*) FROM agent_sessions WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'. This counts ALL alive sessions including A-bot sessions. If A-bot has an active session, is_s_still_idle returns False even when S is idle.
-
-**Evidence**: `a_db_reader.gleam:34 no filter on agent prefix or role; counts all sessions with status=alive`
-
-**Impact**: A-bot may think S is busy when only A-bot itself has an active session. Incorrect idle detection.
 
 ### #264 — tool_commit permanently blocked: overall_score is always NULL because a_orchestrator never writes review response to DB
 
@@ -793,9 +767,9 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 - **Severity**: HIGH
 - **Category**: wrong_column
 - **Module**: `broadcast`
-- **Status**: open
+- **Status**: duplicate
 
-**Description**: broadcast.gleam stats() filters WHERE status = 'sent' but project_communications has no status column. Also compares priority (text) >= 2 (integer).
+**Description**: broadcast.gleam stats() filters WHERE status = 'sent' but project_communications has no status column. Also compares priority (text) >= 2 (integer). (duplicate of #139 which covers all 3 bugs in broadcast.stats())
 
 **Evidence**: `broadcast.gleam:261 WHERE status = 'sent'; \\d project_communications shows no status column`
 
@@ -1217,6 +1191,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 
 **Impact**: A-bot never goes idle; debounce never triggers; S-bot never activated
 
+### #244 — No code updates agent_sessions.last_heartbeat — is_s_still_idle always returns True
+
+- **Severity**: MEDIUM
+- **Category**: logic_error
+- **Module**: `a_db_reader`
+- **Status**: confirmed
+
+**Description**: a_db_reader.gleam:34 queries WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes' but no Gleam code ever UPDATEs last_heartbeat. The query always returns cnt=0, so is_s_still_idle() always returns Ok(True). However, this is a SECONDARY guard — the primary idle check is ctx_is_idle(ctx) from Pi context (hook_on_agent_end.gleam:18). The DB check on line 130 is redundant and its constant True return is harmless since ctx_is_idle already gates the flow.
+
+**Evidence**: `a_db_reader.gleam:34 SELECT COUNT(*) FROM agent_sessions WHERE status='alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'; grep -rh "UPDATE agent_sessions" src/*.gleam returns nothing; grep -rh "last_heartbeat" src/*.gleam only finds the SELECT`
+
+**Impact**: is_s_still_idle() is a dead guard that never blocks. Not a system-stopping issue since ctx_is_idle is the real source of truth. Should be fixed to either update heartbeats or remove the redundant DB check.
+
 ### #248 — monitor.set_model blanket reset race condition
 
 - **Severity**: MEDIUM
@@ -1229,6 +1216,19 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 **Evidence**: `monitor.gleam:104 UPDATE provider_api_keys SET status = 'not_used'; then line 113-115 UPDATE ... SET status = 'in_use' WHERE provider = $1`
 
 **Impact**: Temporary window where no API key is active. Concurrent set_model calls could corrupt state.
+
+### #259 — is_s_still_idle counts ALL alive sessions, not just S-bot sessions
+
+- **Severity**: MEDIUM
+- **Category**: logic_error
+- **Module**: `a_db_reader`
+- **Status**: confirmed
+
+**Description**: a_db_reader.gleam:34 SELECT COUNT(*) FROM agent_sessions WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'. This counts ALL alive sessions including A-bot sessions. If A-bot has an active session, is_s_still_idle returns False even when S is idle. NOTE: This function is a secondary guard that always returns True anyway (see #244), so the logic error has no practical impact. ctx_is_idle is the primary source of truth.
+
+**Evidence**: `a_db_reader.gleam:34 no filter on agent prefix or role; counts all sessions with status=alive`
+
+**Impact**: A-bot may think S is busy when only A-bot itself has an active session. Incorrect idle detection.
 
 ### #267 — record_trigger called twice per agent start: before_agent_start and agent_start both trigger on same event
 
@@ -2016,7 +2016,6 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 |---|---------|------------------------|
 | 249 | get_config FFI returns JS null/string which never matches Gleam None/Some constructors | idle_since is always re-recorded as now(). Debounce never fires. A-bot wakeup is completely broken. |
 | 139 | broadcast.stats() 3 bugs: bigint decode, text>=int, missing status column | Stats query returns wrong results or fails |
-| 244 | No code updates agent_sessions.last_heartbeat — is_s_still_idle always returns True | A-bot can wake up while S is actively working. No guard against concurrent A+S execution. |
 | 261 | A-bot wakeup chain has 4 sequential failures - entire A-bot system is non-functional | A-bot system is completely non-functional. No autonomous monitoring no inter-review no self-healing. The entire A/S dual-agent architecture is dead on the A side. |
 | 100 | inter_review requested_at decode fails without ::text cast | Inter-review requests always fail to decode |
 | 116 | areflect.save_issue omits project_id (NOT NULL, no default) | save_issue INSERT always fails; no issues can be saved via areflect |
@@ -2024,4 +2023,5 @@ Reviewer: `trae-ai` | Git: `706494e` (`after-rewriting`)
 | 262 | Dual config stores: FFI _configStore (in-memory) and psypi_config table (DB) are never synchronized | idle_since and monitor_debounce_ms are stored in _configStore (in-memory) but never persisted to DB. On process restart all debounce state is lost. psypi_config table exists but is not used by the debounce logic. |
 | 247 | a_orchestrator.run_a_workflow never writes inter-review response to DB | Inter-review responses are ephemeral. If Pi message queue is lost, review data is lost. No audit trail. Additionally, tool_commit is permanently blocked because overall_score is never written (see #264). |
 | 258 | Inter-review commit flow is permanently stuck — missing git add before git commit | Inter-review code changes are never actually committed. Review feedback is generated but code is not saved. |
+| 122 | set_config stores value but get_config cannot retrieve as Gleam Option | Config round-trip broken |
 
