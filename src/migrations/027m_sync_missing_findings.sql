@@ -6,11 +6,11 @@
 -- (using ON CONFLICT DO NOTHING since finding_number+review_id is unique)
 
 INSERT INTO review_findings (review_id, finding_number, severity, category, module, title, description, evidence, impact) VALUES
-('ca9e914c-cce6-4db4-b3b1-29779d8e1837', 261, 'critical', 'logic_error', 'multiple',
- 'A-bot wakeup chain has 4 sequential failures - entire A-bot system is non-functional',
- 'The A-bot wakeup chain has 4 sequential failures each of which alone would break the system: (1) get_config FFI returns JS null/string not Gleam Option so debounce never fires (#249), (2) is_s_still_idle always returns True because no code updates heartbeats (#244), (3) compose() called instead of compose_within_budget() so prompt may exceed context (#251), (4) a_orchestrator never writes inter-review response to DB (#247). All 4 must be fixed for A-bot to work.',
- 'hook_on_agent_end.gleam:34 get_config never matches; a_db_reader.gleam:34 no heartbeat updates; a_orchestrator.gleam:66 compose() not compose_within_budget(); a_orchestrator.gleam: no INSERT INTO inter_reviews',
- 'A-bot system is completely non-functional. No autonomous monitoring no inter-review no self-healing. The entire A/S dual-agent architecture is dead on the A side.'),
+('ca9e914c-cce6-4db4-b3b1-29779d8e1837', 261, 'high', 'logic_error', 'multiple',
+ 'A-bot wakeup chain: get_config FFI type mismatch prevents debounce from working',
+ 'The A-bot wakeup chain has a critical FFI type mismatch: get_config in pi_extension_ffi.mjs returns JS null/string, but hook_on_agent_end.gleam pattern-matches on option.None/option.Some. Since JS null is not Gleam None, the debounce logic cannot function. Additionally: (1) compose() is called instead of compose_within_budget() so prompt may exceed context (#251), (2) a_orchestrator never writes inter-review response to DB (#247). The is_s_still_idle() DB guard always returns True but this is harmless since ctx_is_idle is the primary source of truth (not #244).',
+ 'hook_on_agent_end.gleam:34 get_config never matches; a_orchestrator.gleam:66 compose() not compose_within_budget(); a_orchestrator.gleam: no INSERT INTO inter_reviews; ctx_is_idle is the primary idle check (line 18)',
+ 'get_config FFI mismatch means debounce state cannot be read/written correctly. A-bot may wake up every turn (no debounce) or never wake up (crash on pattern match). The inter-review and compose_within_budget issues compound the problem but are separate fixable items.'),
 ('ca9e914c-cce6-4db4-b3b1-29779d8e1837', 262, 'high', 'config_desync', 'pi_extension_ffi',
  'Dual config stores: FFI _configStore (in-memory) and psypi_config table (DB) are never synchronized',
  'hook_on_agent_end.gleam uses pi_extension.get_config/set_config which goes to FFI _configStore (in-memory JS object). psypi_config.gleam has its own get/set that reads/writes the psypi_config DB table. These two stores are completely independent. Setting a value via one is invisible to the other. Process restart loses all _configStore data.',
