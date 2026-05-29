@@ -12,9 +12,11 @@ pub type IssueSeverity {
 
 pub type IssueStatus {
   Open
+  Acknowledged
   InProgress
   Resolved
-  Closed
+  WontFix
+  Duplicate
 }
 
 pub type IssueType {
@@ -24,6 +26,7 @@ pub type IssueType {
   Improvement
   Question
   Debt
+  Proposal
 }
 
 pub type Issue {
@@ -67,10 +70,12 @@ pub fn string_to_severity(s: String) -> Result(IssueSeverity, String) {
 pub fn string_to_status(s: String) -> Result(IssueStatus, String) {
   case s {
     "open" -> Ok(Open)
+    "acknowledged" -> Ok(Acknowledged)
     "in_progress" -> Ok(InProgress)
     "resolved" -> Ok(Resolved)
-    "closed" -> Ok(Closed)
-    _ -> Error("Invalid status: " <> s <> ". Allowed: open, in_progress, resolved, closed")
+    "wont_fix" -> Ok(WontFix)
+    "duplicate" -> Ok(Duplicate)
+    _ -> Error("Invalid status: " <> s <> ". Allowed: open, acknowledged, in_progress, resolved, wont_fix, duplicate")
   }
 }
 
@@ -82,7 +87,8 @@ pub fn string_to_type(t: String) -> Result(IssueType, String) {
     "improvement" -> Ok(Improvement)
     "question" -> Ok(Question)
     "debt" -> Ok(Debt)
-    _ -> Error("Invalid issue_type: " <> t <> ". Allowed: bug, inconsistency, feature, improvement, question, debt")
+    "proposal" -> Ok(Proposal)
+    _ -> Error("Invalid issue_type: " <> t <> ". Allowed: bug, inconsistency, feature, improvement, question, debt, proposal")
   }
 }
 
@@ -104,5 +110,6 @@ pub fn type_to_string(t: IssueType) -> String {
     Improvement -> "improvement"
     Question -> "question"
     Debt -> "debt"
+    Proposal -> "proposal"
   }
 }

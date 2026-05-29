@@ -13,6 +13,8 @@ import system_review_types.{
   string_to_review_type, string_to_review_status, string_to_methodology,
   string_to_scope, string_to_follow_up_status,
   string_to_finding_severity, string_to_finding_status,
+}
+import project as proj
   SystemReview, ReviewFinding,
 }
 
@@ -166,6 +168,23 @@ fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
 }
 
 pub fn create_review(
+  review_type: String,
+  title: String,
+  description: String,
+  methodology: String,
+  scope: String,
+  reviewer_id: String,
+  cwd: String,
+) -> promise.Promise(Result(String, ReviewError)) {
+  promise.await(proj.resolve_or_create(cwd), fn(project_result) {
+    case project_result {
+      Ok(p) -> create_review_with_project(review_type, title, description, methodology, scope, reviewer_id, p.id)
+      Error(e) -> promise.resolve(Error(db_error_to_review_error(e)))
+    }
+  })
+}
+
+fn create_review_with_project(
   review_type: String,
   title: String,
   description: String,
