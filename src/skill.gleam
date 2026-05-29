@@ -11,6 +11,7 @@ pub type SkillSource {
   Local
   Generated
   Imported
+  AiBuilt
 }
 
 pub type SkillStatus {
@@ -51,6 +52,7 @@ fn string_to_source(s: String) -> Result(SkillSource, String) {
     "local" -> Ok(Local)
     "generated" -> Ok(Generated)
     "imported" -> Ok(Imported)
+    "ai-built" -> Ok(AiBuilt)
     _ -> Error("Unknown skill source: " <> s)
   }
 }

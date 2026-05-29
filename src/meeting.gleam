@@ -7,7 +7,6 @@ import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template}
 
 pub type MeetingStatus {
-  Pending
   Active
   Completed
   Cancelled
@@ -45,7 +44,6 @@ pub type MeetingError {
 
 fn string_to_status(s: String) -> Result(MeetingStatus, String) {
   case s {
-    "pending" -> Ok(Pending)
     "active" -> Ok(Active)
     "completed" -> Ok(Completed)
     "cancelled" -> Ok(Cancelled)
@@ -63,7 +61,7 @@ fn meeting_decoder() -> decode.Decoder(Meeting) {
   use consensus <- decode.field("consensus", decode.optional(decode.string))
 
   case string_to_status(status_str) {
-    Error(_) -> decode.failure(Meeting(id: id, topic: topic, created_by: created_by, status: Pending, created_at: created_at, consensus_at: consensus_at, consensus: consensus), "Unknown meeting status: " <> status_str)
+    Error(_) -> decode.failure(Meeting(id: id, topic: topic, created_by: created_by, status: Active, created_at: created_at, consensus_at: consensus_at, consensus: consensus), "Unknown meeting status: " <> status_str)
     Ok(status) -> decode.success(Meeting(
       id: id,
       topic: topic,

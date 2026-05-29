@@ -11,6 +11,7 @@ pub type TaskStatus {
   Running
   Completed
   Failed
+  FakeComplete
 }
 
 pub type Task {
@@ -45,6 +46,7 @@ pub fn string_to_status(s: String) -> Result(TaskStatus, String) {
     "running" | "RUNNING" -> Ok(Running)
     "completed" | "COMPLETED" -> Ok(Completed)
     "failed" | "FAILED" -> Ok(Failed)
+    "fake_complete" | "FAKE_COMPLETE" -> Ok(FakeComplete)
     _ -> Error("Unknown task status: " <> s)
   }
 }
