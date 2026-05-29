@@ -3,8 +3,6 @@
 // A project is identified by its filesystem path (from ctx.cwd).
 // The project_id is resolved fresh every time from the projects table.
 // If the path doesn't match any existing project, a new one is auto-created.
-// The database is shared across multiple projects. Old data without project_id
-// is preserved for historic study but is invisible to psypi tools.
 
 import db
 import gleam/dynamic
@@ -44,10 +42,6 @@ pub type ProjectError {
   DecodeError(String)
 }
 
-// -------------------------------------------------------------------
-// Converters
-// -------------------------------------------------------------------
-
 pub fn string_to_status(s: String) -> Result(ProjectStatus, String) {
   case s {
     "ACTIVE" -> Ok(Active)
@@ -64,10 +58,6 @@ pub fn status_to_string(s: ProjectStatus) -> String {
     Archived -> "ARCHIVED"
   }
 }
-
-// -------------------------------------------------------------------
-// Decoder
-// -------------------------------------------------------------------
 
 fn db_error_to_project_error(e: db.DbError) -> ProjectError {
   case e {
@@ -113,28 +103,8 @@ fn project_decoder() -> decode.Decoder(Project) {
   ))
 }
 
-fn decode_rows(
-  rows: List(dynamic.Dynamic),
-  decoder: decode.Decoder(a),
-) -> Result(List(a), ProjectError) {
-  case rows {
-    [] -> Ok([])
-    [row, ..rest] ->
-      case decode.run(row, decoder) {
-        Ok(value) ->
-          case decode_rows(rest, decoder) {
-            Ok(vs) -> Ok([value, ..vs])
-            Error(e) -> Error(e)
-          }
-        Error(_) -> Error(DecodeError("Failed to decode row"))
-      }
-  }
-}
-
-// -------------------------------------------------------------------
-// Queries
-// -------------------------------------------------------------------
-
+/// Resolve the current project from a filesystem path.
+/// Looks up WHERE path = $1. If not found, auto-creates a new project with status Active.
 pub fn resolve_by_path(
   path: String,
 ) -> promise.Promise(Result(Project, ProjectError)) {
@@ -155,46 +125,10 @@ pub fn resolve_by_path(
             case result.rows {
               [row, ..] ->
                 case decode.run(row, project_decoder()) {
-                  Ok(project) ->
-                    Ok(project)
-                  Error(_) ->
-                    Error(DecodeError("Failed to decode project"))
-                }
-              [] ->
-                Error(NotFound("No project at path: " <> path))
-            }
-        }
-      })
-    },
-    db_error_to_project_error,
-  )
-}
-
-pub fn get_by_id(
-  id: String,
-) -> promise.Promise(Result(Project, ProjectError)) {
-  db.with_connection(
-    fn(conn) {
-      let sql = "
-        SELECT id::text, name, description, path, language, framework,
-               status, git_remote, fingerprint,
-               created_at::text, updated_at::text, last_seen::text, last_qc_at::text
-        FROM projects
-        WHERE id = $1::uuid
-      "
-      let params = [dynamic.string(id)]
-      promise.map(db.query(conn, sql, params), fn(query_result) {
-        case query_result {
-          Error(e) -> Error(db_error_to_project_error(e))
-          Ok(result) ->
-            case result.rows {
-              [row, ..] ->
-                case decode.run(row, project_decoder()) {
                   Ok(project) -> Ok(project)
                   Error(_) -> Error(DecodeError("Failed to decode project"))
                 }
-              [] ->
-                Error(NotFound("No project with id: " <> id))
+              [] -> Error(NotFound("No project at path: " <> path))
             }
         }
       })
@@ -203,33 +137,7 @@ pub fn get_by_id(
   )
 }
 
-pub fn list_active() -> promise.Promise(Result(List(Project), ProjectError)) {
-  db.with_connection(
-    fn(conn) {
-      let sql = "
-        SELECT id::text, name, description, path, language, framework,
-               status, git_remote, fingerprint,
-               created_at::text, updated_at::text, last_seen::text, last_qc_at::text
-        FROM projects
-        WHERE status = 'ACTIVE'
-        ORDER BY name ASC
-      "
-      promise.map(db.query(conn, sql, []), fn(query_result) {
-        case query_result {
-          Error(e) -> Error(db_error_to_project_error(e))
-          Ok(result) ->
-            case decode_rows(result.rows, project_decoder()) {
-              Ok(projects) -> Ok(projects)
-              Error(e) -> Error(e)
-            }
-        }
-      })
-    },
-    db_error_to_project_error,
-  )
-}
-
-/// Resolve the project for a path, auto-creating a new one if not found.
+/// Resolve or auto-create the project for a path.
 pub fn resolve_or_create(
   path: String,
 ) -> promise.Promise(Result(Project, ProjectError)) {
@@ -269,8 +177,7 @@ fn insert_project(
                   Ok(p) -> Ok(p)
                   Error(_) -> Error(DecodeError("Failed to decode new project"))
                 }
-              [] ->
-                Error(QueryError("No project returned after insert"))
+              [] -> Error(QueryError("No project returned after insert"))
             }
         }
       })
@@ -279,13 +186,85 @@ fn insert_project(
   )
 }
 
-// -------------------------------------------------------------------
-// Helpers
-// -------------------------------------------------------------------
+pub fn get_by_id(
+  id: String,
+) -> promise.Promise(Result(Project, ProjectError)) {
+  db.with_connection(
+    fn(conn) {
+      let sql = "
+        SELECT id::text, name, description, path, language, framework,
+               status, git_remote, fingerprint,
+               created_at::text, updated_at::text, last_seen::text, last_qc_at::text
+        FROM projects
+        WHERE id = $1::uuid
+      "
+      let params = [dynamic.string(id)]
+      promise.map(db.query(conn, sql, params), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_project_error(e))
+          Ok(result) ->
+            case result.rows {
+              [row, ..] ->
+                case decode.run(row, project_decoder()) {
+                  Ok(project) -> Ok(project)
+                  Error(_) -> Error(DecodeError("Failed to decode project"))
+                }
+              [] -> Error(NotFound("No project with id: " <> id))
+            }
+        }
+      })
+    },
+    db_error_to_project_error,
+  )
+}
+
+pub fn list_active() -> promise.Promise(Result(List(Project), ProjectError)) {
+  db.with_connection(
+    fn(conn) {
+      let sql = "
+        SELECT id::text, name, description, path, language, framework,
+               status, git_remote, fingerprint,
+               created_at::text, updated_at::text, last_seen::text, last_qc_at::text
+        FROM projects
+        WHERE status = 'ACTIVE'
+        ORDER BY name ASC
+      "
+      promise.map(db.query(conn, sql, []), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_project_error(e))
+          Ok(result) ->
+            case decode_rows(result.rows, project_decoder()) {
+              Ok(projects) -> Ok(projects)
+              Error(e) -> Error(e)
+            }
+        }
+      })
+    },
+    db_error_to_project_error,
+  )
+}
+
+fn decode_rows(
+  rows: List(dynamic.Dynamic),
+  decoder: decode.Decoder(a),
+) -> Result(List(a), ProjectError) {
+  case rows {
+    [] -> Ok([])
+    [row, ..rest] ->
+      case decode.run(row, decoder) {
+        Ok(value) ->
+          case decode_rows(rest, decoder) {
+            Ok(vs) -> Ok([value, ..vs])
+            Error(e) -> Error(e)
+          }
+        Error(_) -> Error(DecodeError("Failed to decode row"))
+      }
+  }
+}
 
 fn project_name_from_path(path: String) -> String {
   let parts = string.split(path, "/")
-  case list_reverse(parts) {
+  case reverse_list(parts) {
     [last, ..] ->
       case last {
         "" -> path
@@ -295,13 +274,13 @@ fn project_name_from_path(path: String) -> String {
   }
 }
 
-fn list_reverse(list: List(a)) -> List(a) {
-  list_reverse_loop(list, [])
+fn reverse_list(list: List(a)) -> List(a) {
+  reverse_loop(list, [])
 }
 
-fn list_reverse_loop(list: List(a), acc: List(a)) -> List(a) {
+fn reverse_loop(list: List(a), acc: List(a)) -> List(a) {
   case list {
     [] -> acc
-    [first, ..rest] -> list_reverse_loop(rest, [first, ..acc])
+    [first, ..rest] -> reverse_loop(rest, [first, ..acc])
   }
 }
