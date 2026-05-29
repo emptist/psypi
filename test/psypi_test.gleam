@@ -38,7 +38,7 @@ pub fn generate_semantic_id_test() {
     global: True,
     cwd: "",
   ))
-  |> should.equal(Ok("G-S-non-project-openrouter-owl-alpha"))
+  |> should.equal(Ok("S-G-openrouter-owl-alpha"))
 
   semantic_id(IdentityContext(
     is_idle: True,
@@ -49,7 +49,7 @@ pub fn generate_semantic_id_test() {
     global: True,
     cwd: "",
   ))
-  |> should.equal(Ok("G-A-non-project-openrouter-owl-alpha"))
+  |> should.equal(Ok("A-G-openrouter-owl-alpha"))
 
   semantic_id(IdentityContext(
     is_idle: False,
@@ -95,7 +95,7 @@ pub fn generate_semantic_id_with_thinking_test() {
     global: True,
     cwd: "",
   ))
-  |> should.equal(Ok("G-A-non-project-openrouter-owl-alpha-high"))
+  |> should.equal(Ok("A-G-openrouter-owl-alpha-high"))
 }
 
 pub fn no_fallback_test() {

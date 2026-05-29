@@ -224,3 +224,32 @@ fn a_job_row_decoder() -> decode.Decoder(String) {
   use category <- decode.field("category", decode.string)
   decode.success("  " <> int.to_string(priority) <> ". [" <> category <> "] " <> job)
 }
+
+pub fn get_last_a_session_at() -> promise.Promise(Result(String, String)) {
+  db.with_connection(
+    fn(conn) {
+      let sql = "SELECT value FROM config WHERE key = 'last_a_session_at'"
+      promise.map(db.query(conn, sql, []), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_string(e))
+          Ok(result) ->
+            case result.rows {
+              [] -> Ok("")
+              [row, ..] -> {
+                case decode.run(row, config_value_decoder()) {
+                  Ok(v) -> Ok(v)
+                  Error(_) -> Ok("")
+                }
+              }
+            }
+        }
+      })
+    },
+    db_error_to_string,
+  )
+}
+
+fn config_value_decoder() -> decode.Decoder(String) {
+  use value <- decode.field("value", decode.string)
+  decode.success(value)
+}

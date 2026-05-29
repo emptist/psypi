@@ -58,6 +58,7 @@ pub fn build_user_prompt_with_cwd_test() {
     "entries...",
     "/home/user/project",
     "No active tasks",
+    "",
   )
   should.be_true(string.contains(text, "Working directory: /home/user/project"))
 }
@@ -68,6 +69,7 @@ pub fn build_user_prompt_no_cwd_test() {
     "entries...",
     "",
     "No active tasks",
+    "",
   )
   should.be_false(string.contains(text, "Working directory:"))
 }
@@ -78,6 +80,7 @@ pub fn build_user_prompt_with_usage_test() {
     "entries...",
     "/cwd",
     "No active tasks",
+    "",
   )
   should.be_true(string.contains(text, "Context usage:"))
 }
@@ -88,6 +91,7 @@ pub fn build_user_prompt_no_usage_test() {
     "entries...",
     "/cwd",
     "No active tasks",
+    "",
   )
   should.be_false(string.contains(text, "Context usage:"))
 }
@@ -98,6 +102,7 @@ pub fn build_user_prompt_has_project_state_test() {
     "entries...",
     "/cwd",
     "3 active tasks",
+    "",
   )
   should.be_true(string.contains(text, "3 active tasks"))
   should.be_true(string.contains(text, "Project State"))
@@ -109,6 +114,7 @@ pub fn build_user_prompt_has_recent_section_test() {
     "User: hello\nAssistant: hi",
     "/cwd",
     "No tasks",
+    "",
   )
   should.be_true(string.contains(text, "Recent Conversation"))
   should.be_true(string.contains(text, "User: hello"))
@@ -116,7 +122,7 @@ pub fn build_user_prompt_has_recent_section_test() {
 
 pub fn build_user_prompt_truncates_long_entries_test() {
   let long_entries = string.repeat("x", 5000)
-  let text = a_prompt_builder.build_user_prompt("{}", long_entries, "/cwd", "state")
+  let text = a_prompt_builder.build_user_prompt("{}", long_entries, "/cwd", "state", "")
   should.be_true(string.contains(text, "..."))
 }
 
@@ -126,18 +132,19 @@ pub fn build_user_prompt_no_detailed_instructions_test() {
     "entries...",
     "/cwd",
     "No tasks",
+    "",
   )
   should.be_true(string.contains(text, "polite reminder"))
   should.be_true(string.contains(text, "Do NOT give detailed"))
 }
 
 pub fn build_user_prompt_inter_review_detection_test() {
-  // When entries contain inter-review keywords, prompt should switch to review mode
   let text = a_prompt_builder.build_user_prompt(
     "{}",
     "User: I need inter-review for this issue report",
     "/cwd",
     "No tasks",
+    "",
   )
   should.be_true(string.contains(text, "INTER-REVIEW REQUESTED"))
   should.be_true(string.contains(text, "TOP priority"))
@@ -151,19 +158,44 @@ pub fn build_user_prompt_inter_review_fix_plan_test() {
     "User: Here is my fix plan for the debounce bug",
     "/cwd",
     "No tasks",
+    "",
   )
   should.be_true(string.contains(text, "INTER-REVIEW REQUESTED"))
 }
 
 pub fn build_user_prompt_normal_reminder_test() {
-  // Normal entries without inter-review keywords should get polite reminder
   let text = a_prompt_builder.build_user_prompt(
     "{}",
     "User: I fixed a bug",
     "/cwd",
     "No tasks",
+    "",
   )
   should.be_true(string.contains(text, "polite reminder"))
   should.be_true(string.contains(text, "gentle nudge"))
   should.be_false(string.contains(text, "INTER-REVIEW REQUESTED"))
+}
+
+pub fn build_user_prompt_with_commit_info_test() {
+  let text = a_prompt_builder.build_user_prompt(
+    "{}",
+    "entries...",
+    "/cwd",
+    "No tasks",
+    "abc123 fix: debounce bug\ndef456 feat: add review",
+  )
+  should.be_true(string.contains(text, "Recent Commits"))
+  should.be_true(string.contains(text, "debounce bug"))
+  should.be_true(string.contains(text, "CRITICAL"))
+}
+
+pub fn build_user_prompt_no_commit_info_test() {
+  let text = a_prompt_builder.build_user_prompt(
+    "{}",
+    "entries...",
+    "/cwd",
+    "No tasks",
+    "",
+  )
+  should.be_false(string.contains(text, "Recent Commits"))
 }

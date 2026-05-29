@@ -325,3 +325,65 @@ pub fn is_review_complete(
     }
   })
 }
+
+pub fn save_review_result(
+  review_id: String,
+  summary: String,
+  score: Int,
+) -> promise.Promise(Result(Nil, InterReviewError)) {
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "UPDATE inter_reviews SET status = 'completed', summary = $1, overall_score = $2, completed_at = NOW() WHERE id = $3"
+      let params = [dynamic.string(summary), dynamic.int(score), dynamic.string(review_id)]
+
+      promise.map(db.query(conn, sql, params), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_inter_review_error(e))
+          Ok(_) -> Ok(Nil)
+        }
+      })
+    },
+    db_error_to_inter_review_error,
+  )
+}
+
+pub fn create_review_for_commits(
+  reviewer_id: String,
+  commit_info: String,
+) -> promise.Promise(Result(String, InterReviewError)) {
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "SELECT request_inter_review(NULL, NULL, 'main', $1, $2) as review_id"
+
+      let context_json =
+        json.to_string(
+          json.object([
+            #("text", json.string(commit_info)),
+            #("source", json.string("a-bot-autonomous-review")),
+          ]),
+        )
+
+      let params = [dynamic.string(reviewer_id), dynamic.string(context_json)]
+
+      promise.map(db.query(conn, sql, params), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_inter_review_error(e))
+          Ok(result) -> {
+            case result.rows {
+              [] -> Error(QueryError("No review ID returned"))
+              [row, ..] -> {
+                case decode.run(row, review_id_decoder()) {
+                  Ok(review_id) -> Ok(review_id)
+                  Error(_) -> Error(DecodeError("Failed to decode review_id"))
+                }
+              }
+            }
+          }
+        }
+      })
+    },
+    db_error_to_inter_review_error,
+  )
+}

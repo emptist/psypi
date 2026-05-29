@@ -74,6 +74,7 @@ pub fn build_user_prompt(
   entries_json: String,
   cwd: String,
   project_state: String,
+  commit_info: String,
 ) -> String {
   let context_section = case cwd == "" {
     True -> ""
@@ -87,7 +88,15 @@ pub fn build_user_prompt(
     "## Project State (from database):\n"
     <> project_state <> "\n\n"
 
-  // Detect if S is asking for inter-review (meeting topic or message contains issue references)
+  let commit_section = case commit_info == "" {
+    True -> ""
+    False ->
+      "## S-bot's Recent Commits (review these):\n"
+      <> commit_info <> "\n\n"
+      <> "You must review these commits. Check for bugs, design issues, or problems. "
+      <> "If you find serious issues, start your response with 'CRITICAL' or 'URGENT'.\n\n"
+  }
+
   let is_inter_review = string.contains(entries_json, "inter-review")
     || string.contains(entries_json, "Inter-Review")
     || string.contains(entries_json, "issue report")
@@ -118,7 +127,7 @@ pub fn build_user_prompt(
       <> "Just a gentle nudge like 'Would you continue with X?' or 'Mind checking Y?'\n\n"
       <> truncate(entries_json, 2000)
   }
-  context_section <> usage_section <> state_section <> recent_section
+  context_section <> usage_section <> state_section <> commit_section <> recent_section
 }
 
 fn truncate(s: String, max: Int) -> String {
