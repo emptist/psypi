@@ -46,7 +46,7 @@ fn seed_agent_souls() -> promise.Promise(Result(Nil, SeedError)) {
 fn seed_psypi_config() -> promise.Promise(Result(Nil, SeedError)) {
   seed_idempotent(
     "psypi_config",
-    "INSERT INTO psypi_config (key, value) VALUES ('monitor_debounce_ms','300000'), ('last_wakeup','') ON CONFLICT (key) DO NOTHING"
+    "INSERT INTO psypi_config (key, value) VALUES ('monitor_debounce_ms','300000'), ('last_wakeup',''), ('idle_since','0'), ('last_a_session_at','') ON CONFLICT (key) DO NOTHING"
   )
 }
 

@@ -228,7 +228,7 @@ fn a_job_row_decoder() -> decode.Decoder(String) {
 pub fn get_last_a_session_at() -> promise.Promise(Result(String, String)) {
   db.with_connection(
     fn(conn) {
-      let sql = "SELECT value FROM config WHERE key = 'last_a_session_at'"
+      let sql = "SELECT value FROM psypi_config WHERE key = 'last_a_session_at'"
       promise.map(db.query(conn, sql, []), fn(query_result) {
         case query_result {
           Error(e) -> Error(db_error_to_string(e))

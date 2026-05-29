@@ -49,6 +49,18 @@ export function ctx_get_cwd(ctx) {
   return ctx.cwd;
 }
 
+export function ctx_get_source(ctx) {
+  return ctx.model?.provider || '';
+}
+
+export function ctx_get_model_id(ctx) {
+  return ctx.model?.id || '';
+}
+
+export function ctx_get_thinking_level(ctx) {
+  return ctx.model?.thinkingLevel || '';
+}
+
 export function pi_send_message(pi, customType, content, display) {
   pi.sendMessage({
     customType: String(customType),
@@ -144,33 +156,6 @@ export function exec_sync(command) {
 
 export function now_ms() {
   return Date.now();
-}
-
-// Simple in-memory config store for idle_since tracking
-let _configStore = {};
-
-export function get_config(key) {
-  return _configStore[key] || null;
-}
-
-export function set_config(key, value) {
-  _configStore[key] = value;
-}
-
-export function get_agent_id(ctx) {
-  const prefix = ctx.isIdle() ? 'A' : 'S';
-  const cwd = ctx.cwd || '';
-  const parts = cwd.split('/').filter(s => s !== '');
-  const dir = parts.length > 0 ? parts[parts.length - 1] : '';
-  const hasGit = cwd !== '' && (() => { try { require('fs').existsSync(require('path').join(cwd, '.git')); return true; } catch { return false; } })();
-  const project = hasGit ? dir : 'G';
-  const source = ctx.model?.provider || '';
-  const model = ctx.model?.id || '';
-  const thinking = ctx.model?.thinkingLevel || '';
-  if (!model) return '';
-  let id = prefix + '-' + project + '-' + source + '-' + model;
-  if (thinking) id += '-' + thinking;
-  return id;
 }
 
 export function unwrapGleamResult(result) {

@@ -55,6 +55,33 @@ fn resolve_project(cwd: String) -> String {
 @external(javascript, "./agent_identity_ffi.mjs", "check_git_exists")
 fn check_git_exists(cwd: String) -> Bool
 
+pub fn compute_id(
+  is_idle: Bool,
+  cwd: String,
+  source: String,
+  model: String,
+  thinking_level: String,
+) -> String {
+  let project = resolve_project(cwd)
+  let global = case check_git_exists(cwd) {
+    True -> False
+    False -> True
+  }
+  let ctx = IdentityContext(
+    is_idle: is_idle,
+    project: project,
+    source: source,
+    model: model,
+    thinking_level: thinking_level,
+    global: global,
+    cwd: cwd,
+  )
+  case semantic_id(ctx) {
+    Ok(id) -> id
+    Error(_) -> ""
+  }
+}
+
 // -------------------------------------------------------------------
 // Semantic ID
 // -------------------------------------------------------------------

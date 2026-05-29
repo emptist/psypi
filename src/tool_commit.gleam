@@ -1,6 +1,7 @@
+import agent_identity
 import gleam/javascript/promise
 import gleam/string
-import pi_extension.{exec_sync, get_agent_id}
+import pi_extension.{ctx_get_cwd, ctx_get_model_id, ctx_get_source, ctx_get_thinking_level, ctx_is_idle, exec_sync}
 
 fn shell_escape(s: String) -> String {
   s
@@ -15,7 +16,13 @@ pub fn on_commit(
   ctx: a,
   _pi: b,
 ) -> promise.Promise(Result(String, String)) {
-  let agent_id = get_agent_id(ctx)
+  let agent_id = agent_identity.compute_id(
+    ctx_is_idle(ctx),
+    ctx_get_cwd(ctx),
+    ctx_get_source(ctx),
+    ctx_get_model_id(ctx),
+    ctx_get_thinking_level(ctx),
+  )
   let tagged_message = case agent_id {
     "" -> message
     id -> message <> " [AI:" <> id <> "]"

@@ -3,20 +3,20 @@ import a_db_reader
 import a_orchestrator
 import gleam/int
 import gleam/javascript/promise
-import gleam/option
 import gleam/string
 import pi_extension.{
   ctx_get_context_usage_json, ctx_get_cwd, ctx_get_entries_json,
-  ctx_has_pending_messages, ctx_is_idle, get_config, now_ms, notify_info,
-  pi_send_message, set_config,
+  ctx_has_pending_messages, ctx_is_idle, now_ms, notify_info,
+  pi_send_message,
 }
+import psypi_config
 
 pub fn on_agent_end(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
   notify_info(ctx, "[AUTONOMIC] on_agent_end FIRED — debounce elapsed, entering handler")
   case ctx_is_idle(ctx), ctx_has_pending_messages(ctx) {
     False, _ -> {
       notify_info(ctx, "[AUTONOMIC] S is not idle — clearing idle_since")
-      set_config("idle_since", "0")
+      let _ = psypi_config.set("idle_since", "0")
       promise.resolve(Ok(Nil))
     }
     True, True -> {
@@ -31,79 +31,61 @@ pub fn on_agent_end(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
 }
 
 fn check_idle_since(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
-  case get_config("idle_since") {
-    option.None -> {
-      // First time seeing idle — record timestamp
-      let now = now_ms()
-      set_config("idle_since", int.to_string(now))
-      notify_info(ctx, "[AUTONOMIC] idle_since recorded: " <> int.to_string(now))
-      promise.resolve(Ok(Nil))
-    }
-    option.Some("0") -> {
-      // idle_since was cleared (S was active) — record new timestamp
-      let now = now_ms()
-      set_config("idle_since", int.to_string(now))
-      notify_info(ctx, "[AUTONOMIC] idle_since recorded: " <> int.to_string(now))
-      promise.resolve(Ok(Nil))
-    }
-    option.Some(idle_since_str) -> {
-      case int.parse(idle_since_str) {
-        Error(_) -> {
-          notify_info(ctx, "[AUTONOMIC] idle_since parse error — resetting")
-          set_config("idle_since", "0")
-          promise.resolve(Ok(Nil))
-        }
-        Ok(idle_since) -> {
-          let now = now_ms()
-          let elapsed = now - idle_since
-          // Read debounceMs from config (default 300000ms = 5min)
-          case get_config("monitor_debounce_ms") {
-            option.Some(debounce_str) -> {
-              case int.parse(debounce_str) {
-                Ok(debounce_ms) -> {
-                  case elapsed >= debounce_ms {
-                    True -> {
-                      notify_info(ctx, "[AUTONOMIC] debounce satisfied: elapsed=" <> int.to_string(elapsed) <> "ms >= " <> int.to_string(debounce_ms) <> "ms")
-                      set_config("idle_since", "0")
-                      let entries_json = ctx_get_entries_json(ctx)
-                      coordinate_with_s(ctx, pi, entries_json)
-                    }
-                    False -> {
-                      notify_info(ctx, "[AUTONOMIC] debounce NOT satisfied: elapsed=" <> int.to_string(elapsed) <> "ms < " <> int.to_string(debounce_ms) <> "ms")
-                      promise.resolve(Ok(Nil))
-                    }
-                  }
-                }
-                Error(_) -> {
-                  // Can't parse debounce — proceed anyway
-                  notify_info(ctx, "[AUTONOMIC] debounce parse error — proceeding")
-                  set_config("idle_since", "0")
-                  let entries_json = ctx_get_entries_json(ctx)
-                  coordinate_with_s(ctx, pi, entries_json)
-                }
-              }
-            }
-            option.None -> {
-              // No debounce config — use default 300000ms
-              let debounce_ms = 300000
-              case elapsed >= debounce_ms {
-                True -> {
-                  notify_info(ctx, "[AUTONOMIC] debounce satisfied (default): elapsed=" <> int.to_string(elapsed) <> "ms >= " <> int.to_string(debounce_ms) <> "ms")
-                  set_config("idle_since", "0")
-                  let entries_json = ctx_get_entries_json(ctx)
-                  coordinate_with_s(ctx, pi, entries_json)
-                }
-                False -> {
-                  notify_info(ctx, "[AUTONOMIC] debounce NOT satisfied (default): elapsed=" <> int.to_string(elapsed) <> "ms < " <> int.to_string(debounce_ms) <> "ms")
-                  promise.resolve(Ok(Nil))
-                }
-              }
-            }
+  promise.await(psypi_config.get("idle_since"), fn(result) {
+    case result {
+      Error(_) -> {
+        let now = now_ms()
+        let _ = psypi_config.set("idle_since", int.to_string(now))
+        notify_info(ctx, "[AUTONOMIC] idle_since recorded: " <> int.to_string(now))
+        promise.resolve(Ok(Nil))
+      }
+      Ok("0") -> {
+        let now = now_ms()
+        let _ = psypi_config.set("idle_since", int.to_string(now))
+        notify_info(ctx, "[AUTONOMIC] idle_since recorded: " <> int.to_string(now))
+        promise.resolve(Ok(Nil))
+      }
+      Ok(idle_since_str) -> {
+        case int.parse(idle_since_str) {
+          Error(_) -> {
+            notify_info(ctx, "[AUTONOMIC] idle_since parse error — resetting")
+            let _ = psypi_config.set("idle_since", "0")
+            promise.resolve(Ok(Nil))
+          }
+          Ok(idle_since) -> {
+            let now = now_ms()
+            let elapsed = now - idle_since
+            check_debounce(ctx, pi, elapsed)
           }
         }
       }
     }
-  }
+  })
+}
+
+fn check_debounce(
+  ctx: a,
+  pi: b,
+  elapsed: Int,
+) -> promise.Promise(Result(Nil, String)) {
+  promise.await(psypi_config.get_debounce_ms(), fn(debounce_result) {
+    let debounce_ms = case debounce_result {
+      Ok(ms) -> ms
+      Error(_) -> 300000
+    }
+    case elapsed >= debounce_ms {
+      True -> {
+        notify_info(ctx, "[AUTONOMIC] debounce satisfied: elapsed=" <> int.to_string(elapsed) <> "ms >= " <> int.to_string(debounce_ms) <> "ms")
+        let _ = psypi_config.set("idle_since", "0")
+        let entries_json = ctx_get_entries_json(ctx)
+        coordinate_with_s(ctx, pi, entries_json)
+      }
+      False -> {
+        notify_info(ctx, "[AUTONOMIC] debounce NOT satisfied: elapsed=" <> int.to_string(elapsed) <> "ms < " <> int.to_string(debounce_ms) <> "ms")
+        promise.resolve(Ok(Nil))
+      }
+    }
+  })
 }
 
 fn coordinate_with_s(

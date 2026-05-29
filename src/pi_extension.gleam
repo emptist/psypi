@@ -10,7 +10,6 @@
 //   - At the JS level, they are simple wrappers around ctx.ui.*
 
 import gleam/javascript/promise
-import gleam/option
 
 @external(javascript, "./pi_extension_ffi.mjs", "notify_error")
 pub fn notify_error(ctx: a, message: String) -> Nil
@@ -39,6 +38,15 @@ pub fn ctx_get_context_usage_json(ctx: a) -> String
 @external(javascript, "./pi_extension_ffi.mjs", "ctx_get_cwd")
 pub fn ctx_get_cwd(ctx: a) -> String
 
+@external(javascript, "./pi_extension_ffi.mjs", "ctx_get_source")
+pub fn ctx_get_source(ctx: a) -> String
+
+@external(javascript, "./pi_extension_ffi.mjs", "ctx_get_model_id")
+pub fn ctx_get_model_id(ctx: a) -> String
+
+@external(javascript, "./pi_extension_ffi.mjs", "ctx_get_thinking_level")
+pub fn ctx_get_thinking_level(ctx: a) -> String
+
 @external(javascript, "./pi_extension_ffi.mjs", "pi_send_message")
 pub fn pi_send_message(pi: a, custom_type: String, content: String, display: String) -> Nil
 
@@ -62,12 +70,3 @@ pub fn gleam_value_to_json(val: a) -> b
 
 @external(javascript, "./pi_extension_ffi.mjs", "now_ms")
 pub fn now_ms() -> Int
-
-@external(javascript, "./pi_extension_ffi.mjs", "get_config")
-pub fn get_config(key: String) -> option.Option(String)
-
-@external(javascript, "./pi_extension_ffi.mjs", "set_config")
-pub fn set_config(key: String, value: String) -> Nil
-
-@external(javascript, "./pi_extension_ffi.mjs", "get_agent_id")
-pub fn get_agent_id(ctx: a) -> String

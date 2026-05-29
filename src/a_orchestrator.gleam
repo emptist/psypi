@@ -5,8 +5,9 @@ import gleam/javascript/promise
 import gleam/string
 import pi_extension.{
   call_monitor, ctx_is_idle, exec_sync, notify_info,
-  now_ms, pi_send_message, set_config,
+  now_ms, pi_send_message,
 }
+import psypi_config
 import system_prompt_types.{compose}
 
 pub fn run_a_workflow(
@@ -136,7 +137,7 @@ fn handle_monitor_response(
         }
         True -> {
           let now = now_ms()
-          set_config("last_a_session_at", int.to_string(now))
+          let _ = psypi_config.set("last_a_session_at", int.to_string(now))
           notify_info(
             ctx,
             "[AUTONOMIC] sending wake-up, response length="
