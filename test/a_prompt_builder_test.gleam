@@ -186,7 +186,6 @@ pub fn build_user_prompt_with_commit_info_test() {
   )
   should.be_true(string.contains(text, "Recent Commits"))
   should.be_true(string.contains(text, "debounce bug"))
-  should.be_true(string.contains(text, "CRITICAL"))
 }
 
 pub fn build_user_prompt_no_commit_info_test() {

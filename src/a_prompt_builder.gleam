@@ -91,10 +91,8 @@ pub fn build_user_prompt(
   let commit_section = case commit_info == "" {
     True -> ""
     False ->
-      "## S-bot's Recent Commits (review these):\n"
+      "## S-bot's Recent Commits:\n"
       <> commit_info <> "\n\n"
-      <> "You must review these commits. Check for bugs, design issues, or problems. "
-      <> "If you find serious issues, start your response with 'CRITICAL' or 'URGENT'.\n\n"
   }
 
   let is_inter_review = string.contains(entries_json, "inter-review")

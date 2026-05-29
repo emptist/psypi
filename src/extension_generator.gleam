@@ -306,7 +306,7 @@ fn consult_tool() -> PiToolCall {
 fn commit_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-commit",
-    description: "Commit changes with agent ID tagging. S-bot only.",
+    description: "Commit changes with agent ID tagging.",
     params: [
       PiParam(name: "message", param_type: "string", required: True),
     ],

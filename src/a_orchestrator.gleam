@@ -3,9 +3,8 @@ import a_prompt_builder
 import gleam/int
 import gleam/javascript/promise
 import gleam/string
-import inter_review
 import pi_extension.{
-  call_monitor, ctx_is_idle, exec_sync, get_agent_id, notify_info,
+  call_monitor, ctx_is_idle, exec_sync, notify_info,
   now_ms, pi_send_message, set_config,
 }
 import system_prompt_types.{compose}
@@ -66,39 +65,25 @@ fn run_full_workflow(
                         Error(_) -> ""
                       }
                       let commit_info = get_recent_commits(last_session)
-                      let agent_id = get_agent_id(ctx)
+                      let system_prompt =
+                        compose(a_prompt_builder.build_system_prompt(
+                          soul_content,
+                          a_jobs,
+                          context_window,
+                        ))
+                      let user_prompt =
+                        a_prompt_builder.build_user_prompt(
+                          usage_json,
+                          entries_json,
+                          cwd,
+                          project_state,
+                          commit_info,
+                        )
+                      notify_info(ctx, "[AUTONOMIC] A thinking...")
                       promise.await(
-                        create_inter_review(agent_id, commit_info),
-                        fn(review_id) -> promise.Promise(Result(Nil, String)) {
-                          let system_prompt =
-                            compose(a_prompt_builder.build_system_prompt(
-                              soul_content,
-                              a_jobs,
-                              context_window,
-                            ))
-                          let user_prompt =
-                            a_prompt_builder.build_user_prompt(
-                              usage_json,
-                              entries_json,
-                              cwd,
-                              project_state,
-                              commit_info,
-                            )
-                          notify_info(
-                            ctx,
-                            "[AUTONOMIC] A thinking... (review_id: " <> review_id <> ")",
-                          )
-                          promise.await(
-                            call_monitor(ctx, user_prompt, system_prompt),
-                            fn(monitor_result) {
-                              handle_monitor_response(
-                                ctx,
-                                pi,
-                                monitor_result,
-                                review_id,
-                              )
-                            },
-                          )
+                        call_monitor(ctx, user_prompt, system_prompt),
+                        fn(monitor_result) {
+                          handle_monitor_response(ctx, pi, monitor_result)
                         },
                       )
                     },
@@ -134,30 +119,10 @@ fn get_recent_commits(since_timestamp: String) -> String {
   }
 }
 
-fn create_inter_review(
-  agent_id: String,
-  commit_info: String,
-) -> promise.Promise(String) {
-  case commit_info == "" {
-    True -> promise.resolve("")
-    False ->
-      promise.map(
-        inter_review.create_review_for_commits(agent_id, commit_info),
-        fn(result) {
-          case result {
-            Ok(id) -> id
-            Error(_) -> ""
-          }
-        },
-      )
-  }
-}
-
 fn handle_monitor_response(
   ctx: a,
   pi: b,
   monitor_result: Result(String, String),
-  review_id: String,
 ) -> promise.Promise(Result(Nil, String)) {
   case monitor_result {
     Ok(response) -> {
@@ -169,8 +134,18 @@ fn handle_monitor_response(
           )
           promise.resolve(Ok(Nil))
         }
-        True ->
-          save_review_and_wake_up(ctx, pi, response, review_id)
+        True -> {
+          let now = now_ms()
+          set_config("last_a_session_at", int.to_string(now))
+          notify_info(
+            ctx,
+            "[AUTONOMIC] sending wake-up, response length="
+              <> int.to_string(string.length(response)),
+          )
+          pi_send_message(pi, "autonomic-wakeup", response, "persistent")
+          notify_info(ctx, "[AUTONOMIC] wake-up sent")
+          promise.resolve(Ok(Nil))
+        }
       }
     }
     Error(e) -> {
@@ -182,45 +157,4 @@ fn handle_monitor_response(
       promise.resolve(Ok(Nil))
     }
   }
-}
-
-fn save_review_and_wake_up(
-  ctx: a,
-  pi: b,
-  response: String,
-  review_id: String,
-) -> promise.Promise(Result(Nil, String)) {
-  let save_promise = case review_id != "" {
-    True -> inter_review.save_review_result(review_id, response, 75)
-    False -> promise.resolve(Ok(Nil))
-  }
-  promise.await(save_promise, fn(_) {
-    let now = now_ms()
-    set_config("last_a_session_at", int.to_string(now))
-    let has_serious = string.contains(response, "CRITICAL")
-      || string.contains(response, "critical")
-      || string.contains(response, "URGENT")
-      || string.contains(response, "urgent")
-    let prefix = case has_serious {
-      True -> "[INTER-REVIEW: SERIOUS ISSUES FOUND] "
-      False -> ""
-    }
-    let review_note = case review_id != "" {
-      True -> " (inter-review: " <> review_id <> ")"
-      False -> ""
-    }
-    notify_info(
-      ctx,
-      "[AUTONOMIC] sending wake-up, response length="
-        <> int.to_string(string.length(response)),
-    )
-    pi_send_message(
-      pi,
-      "autonomic-wakeup",
-      prefix <> response <> review_note,
-      "persistent",
-    )
-    notify_info(ctx, "[AUTONOMIC] wake-up sent")
-    promise.resolve(Ok(Nil))
-  })
 }
