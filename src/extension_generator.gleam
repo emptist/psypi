@@ -306,16 +306,14 @@ fn consult_tool() -> PiToolCall {
 fn commit_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-commit",
-    description: "Commit with Monitor inter-review.",
+    description: "Commit changes with agent ID tagging. S-bot only.",
     params: [
       PiParam(name: "message", param_type: "string", required: True),
-      PiParam(name: "review_id", param_type: "string", required: False),
     ],
     module: "tool_commit",
     fn_name: "on_commit",
     args: [
       from_param("params.message || ''"),
-      from_param("params.review_id || ''"),
       lit("ctx"),
       lit("pi"),
     ],

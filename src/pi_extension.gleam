@@ -68,3 +68,6 @@ pub fn get_config(key: String) -> option.Option(String)
 
 @external(javascript, "./pi_extension_ffi.mjs", "set_config")
 pub fn set_config(key: String, value: String) -> Nil
+
+@external(javascript, "./pi_extension_ffi.mjs", "get_agent_id")
+pub fn get_agent_id(ctx: a) -> String

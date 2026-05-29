@@ -157,6 +157,22 @@ export function set_config(key, value) {
   _configStore[key] = value;
 }
 
+export function get_agent_id(ctx) {
+  const prefix = ctx.isIdle() ? 'A' : 'S';
+  const cwd = ctx.cwd || '';
+  const parts = cwd.split('/').filter(s => s !== '');
+  const dir = parts.length > 0 ? parts[parts.length - 1] : '';
+  const hasGit = cwd !== '' && (() => { try { require('fs').existsSync(require('path').join(cwd, '.git')); return true; } catch { return false; } })();
+  const project = hasGit ? dir : 'G';
+  const source = ctx.model?.provider || '';
+  const model = ctx.model?.id || '';
+  const thinking = ctx.model?.thinkingLevel || '';
+  if (!model) return '';
+  let id = prefix + '-' + project + '-' + source + '-' + model;
+  if (thinking) id += '-' + thinking;
+  return id;
+}
+
 export function unwrapGleamResult(result) {
   if (!result) return { ok: false, error: 'null result' };
   const typeName = result.constructor?.name || '';
