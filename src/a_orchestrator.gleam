@@ -114,7 +114,15 @@ fn run_full_workflow(
 fn get_recent_commits(since_timestamp: String) -> String {
   let cmd = case since_timestamp {
     "" -> "git log --oneline -20"
-    ts -> "git log --oneline --since=\"" <> ts <> "\""
+    ts -> {
+      let secs = case int.parse(ts) {
+        Ok(ms) -> int.to_string(ms / 1000)
+        Error(_) -> "0"
+      }
+      "git log --oneline --since=\"@"
+      <> secs
+      <> " seconds\""
+    }
   }
   case exec_sync(cmd) {
     Ok(out) ->
