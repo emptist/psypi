@@ -25,19 +25,18 @@ pub fn semantic_id(ctx: IdentityContext) -> Result(String, IdentityError) {
     False -> "S"
   }
 
-  let global_prefix = case ctx.global {
-    True -> "G-"
-    False -> ""
+  let project = case ctx.global {
+    True -> "G"
+    False -> ctx.project
   }
 
   case ctx.model {
     "" -> Error(MissingSessionId)
     _ -> {
       let base =
-        global_prefix
-        <> prefix
+        prefix
         <> "-"
-        <> ctx.project
+        <> project
         <> "-"
         <> ctx.source
         <> "-"

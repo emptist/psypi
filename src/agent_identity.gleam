@@ -1,7 +1,7 @@
 // agent_identity.gleam — Agent identity resolution + enrichment from DB
 
 import agent_identity_types.{
-  type IdentityContext, type IdentityError, ConnectionError, QueryError, NotFound,
+  type IdentityContext, type IdentityError, IdentityContext, ConnectionError, QueryError, NotFound,
 }
 import db
 import gleam/dynamic
@@ -65,19 +65,18 @@ fn semantic_id(ctx: IdentityContext) -> Result(String, IdentityError) {
     False -> "S"
   }
 
-  let global_prefix = case ctx.global {
-    True -> "G-"
-    False -> ""
+  let project = case ctx.global {
+    True -> "G"
+    False -> ctx.project
   }
 
   case ctx.model {
     "" -> Error(NotFound("missing model id"))
     _ -> {
       let base =
-        global_prefix
-        <> prefix
+        prefix
         <> "-"
-        <> ctx.project
+        <> project
         <> "-"
         <> ctx.source
         <> "-"
@@ -186,12 +185,22 @@ pub fn get_enriched_identity(
   ctx: IdentityContext,
 ) -> promise.Promise(Result(EnrichedIdentity, IdentityError)) {
   let project = resolve_project(ctx.cwd)
-  let _global = case check_git_exists(ctx.cwd) {
+  let global = case check_git_exists(ctx.cwd) {
     True -> False
     False -> True
   }
 
-  case semantic_id(ctx) {
+  let resolved_ctx = IdentityContext(
+    is_idle: ctx.is_idle,
+    project: project,
+    source: ctx.source,
+    model: ctx.model,
+    thinking_level: ctx.thinking_level,
+    global: global,
+    cwd: ctx.cwd,
+  )
+
+  case semantic_id(resolved_ctx) {
     Ok(id) -> {
       let prefix = case string.contains(id, "A-") || ctx.is_idle {
         True -> "A"
