@@ -1,0 +1,89 @@
+# Critical Migration Plan – Smart Order of Fixes
+
+## Goal
+Enable full dynamic `project_id` resolution from `ctx.cwd` and restore a clean, buildable codebase while preserving all existing functionality.
+
+## Guiding Principles
+1. **Fix foundational infrastructure first** – the project resolution layer must work before any tool can use it.
+2. **Commit after each successful build** – guarantees a known‑good state and easy rollback.
+3. **Address the most urgent semantics** – A‑S shifting, inter‑review flow, and then peripheral tools.
+4. **Preserve type safety** – all enums (IssueStatus, TaskStatus, SkillSource, MeetingStatus) must align with DB CHECK constraints.
+5. **No hand‑written JS** – only use Gleam/F molecules and the `extension_generator`.
+
+## Phase‑wise Execution Order
+
+### Phase 1 – Core Infrastructure (must compile before anything else)
+| Step | File / Module | Action |
+|------|---------------|--------|
+| 1.1 | `src/project.gleam` | Add full `Project` type, resolver (`resolve_by_path`, `resolve_or_create(cwd)`), utility helpers, and whitelist `Project$Project` in `pi_extension_ffi.mjs`. |
+| 1.2 | `src/issue_types.gleam` | Align `IssueStatus` with DB CHECK (add `Acknowledged`, `WontFix`, `Duplicate`). |
+| 1.3 | `src/task.gleam` | Align `TaskStatus` (add `FakeComplete`). |
+| 1.4 | `src/skill.gleam` | Add `AiBuilt` to `SkillSource`. |
+| 1.5 | `src/meeting.gleam` | Remove `Pending` from `MeetingStatus`. |
+| 1.6 | `src/db.gleam` | Verify default UUID only used for RLS session variable; no functional changes needed. |
+| 1.7 | `src/pi_extension_ffi.mjs` | Add `Project$Project`, `SystemReview$SystemReview`, `ReviewFinding$ReviewFinding` to `gleamValueToJson` whitelist. |
+| 1.8 | Run `gleam build` – **must succeed**. |
+| 1.9 | Commit with message: `chore: add project type & align enums`. |
+
+### Phase 2 – Project‑Aware Core Tools
+| Step | File / Module | Action |
+|------|---------------|--------|
+| 2.1 | `src/task.gleam` | Refactor `add` to accept `cwd: String`; resolve project via `project.resolve_or_create(cwd)`; add `proj_error_to_task_error` conversion; update tool args (`lit("ctx.cwd || ''")`). |
+| 2.2 | `src/issue.gleam` | Mirror 2.1 changes (cwd → resolve → insert). |
+| 2.3 | `src/issue_tools.gleam` | Ensure all public APIs use the resolver; add missing imports & error converters. |
+| 2.4 | `src/learning.gleam` | Refactor `save` to use `cwd`; resolve project; add `proj_error_to_learning_error`; update tool args. |
+| 2.5 | `src/memory.gleam` | Same pattern as 2.4. |
+| 2.6 | `src/areflect.gleam` | Verify it uses `project.resolve_or_create(cwd)` for all inserts; add any missing imports (`lit`). |
+| 2.7 | `src/system_review_tools.gleam` | Refactor `create_review` etc. to use resolver; add `proj_error_to_review_error`. |
+| 2.8 | `src/broadcast.gleam` | Add resolver handling for any project‑scoped payloads. |
+| 2.9 | `src/meeting.gleam` | Add resolver handling to `add`‑style APIs. |
+| 2.10| Run `gleam build` – **must succeed**. |
+| 2.11| Commit with message: `fix: make all core tools project‑aware`. |
+
+### Phase 3 – A‑S (Autonomic‑Somatic) Shifting Mechanism
+| Step | Action |
+|------|--------|
+| 3.1 | Verify `hook_on_agent_end.gleam` reads `idle_since` from `psypi_config` table (no longer uses stale in‑memory store). |
+| 3.2 | Confirm `a_orchestrator.gleam` loads `agent_souls` and `agent_jobs` via `a_db_reader` and respects `ctx.isIdle()` correctly. |
+| 3.3 | Ensure `psypi-config` table fields (`idle_since`, `monitor_debounce_ms`) are correctly migrated and default to 300 000 ms. |
+| 3.4 | Run `gleam build` and execute a quick sanity test: `psypi-autonomic-status` → confirm no alerts. |
+| 3.5| Commit with message: `fix: restore A‑S shifting mechanism`. |
+
+### Phase 4 – Inter‑Review Flow & Findings
+| Step | Action |
+|------|--------|
+| 4.1 | Verify `psypi-review-create` can create a system review with the new `Project$Project` link. |
+| 4.2 | Test `psypi-finding-add` – ensure findings are linked to the correct `review_id` and use the updated `IssueStatus`/`FindingStatus` enums. |
+| 4.3 | Run `psypi-review-severity` and `psypi-finding-count` – they must return correct breakdowns. |
+| 4.4| Commit with message: `fix: inter‑review flow works with project resolution`. |
+
+### Phase 5 – Remaining Tooling & Documentation
+| Step | Action |
+|------|--------|
+| 5.1 | Update any remaining hard‑coded UUID references (search `0d324e68‑b399‑4b85‑bd8a‑6b1ef7b46168`). |
+| 5.2 | Ensure all tool registrations (`psypi‑task‑add`, `psypi‑issue‑add`, etc.) include `lit("ctx.cwd || ''")` in their argument lists. |
+| 5.3 | Regenerate docs (`docs/CORRECTION-PLAN-2026-05-28.md`, `docs/TYPE-MATRIX-2026-05-28.md`) if any content needs reflecting new enum values. |
+| 5.4 | Run full test suite (if available) and verify no regressions. |
+| 5.5 | Final commit: `chore: clean up remaining UUIDs & finalize docs`. |
+
+## Execution Checklist
+- [ ] **Commit after every successful `gleam build`.**
+- [ ] **Tag each commit with a concise, descriptive message** (see above).
+- [ ] **Run `psypi‑autonomic‑status` after each phase** to ensure no runtime alerts.
+- [ ] **Verify a minimal smoke test** (`psypi‑task‑add`, `psypi‑issue‑add`, `psypi‑learn‑save`) works after Phase 2.
+- [ ] **Document any blockers** immediately in the next commit message.
+
+## Risks & Mitigations
+| Risk | Mitigation |
+|------|------------|
+| Introducing a syntax error that blocks the build | Always run `gleam build` before committing; if it fails, revert the last edit and fix the underlying issue. |
+| Project resolution returning an unexpected error | Add exhaustive logging in `project.resolve_or_create(cwd)` and unit‑test with a known fixture path. |
+| Missing enum value causing DB CHECK violation | Keep the enum ↔ DB mapping tables in sync; run `psypi‑issue‑count` etc. to verify. |
+| Breaking the A‑S shifting mechanism | Keep the old in‑memory fallback temporarily, then remove it only after Phase 3 passes. |
+
+---
+
+**Next Immediate Action:**  
+Create the `src/project.gleam` module (already done) and commit the foundational enum updates. Then proceed to Phase 2 step 2.1 (refactor `task.gleam`). After each edit, run `gleam build` and `psypi‑commit` with the appropriate message.
+
+This plan guarantees that the most critical infrastructure is solid before we attempt the higher‑level inter‑review and A‑S shifting logic, keeping the migration safe, incremental, and fully reversible via git commits.  
