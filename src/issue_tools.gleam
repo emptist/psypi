@@ -5,12 +5,13 @@ import pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param
 pub fn issue_add_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-issue-add",
-    description: "Add a new issue. Project is resolved from ctx.cwd automatically.",
+    description: "Add a new issue. project_id defaults to current project if not specified.",
     params: [
       string_param("title"),
       opt_string_param("description"),
       opt_string_param("severity"),
       opt_string_param("issue_type"),
+      opt_string_param("project_id"),
     ],
     module: "issue_db",
     fn_name: "add",
@@ -20,7 +21,7 @@ pub fn issue_add_tool() -> PiToolCall {
       from_param("params.severity || \"medium\""),
       from_param("params.issue_type || \"bug\""),
       from_param("params.created_by || \"psypi\""),
-      lit("ctx.cwd || ''"),
+      from_param("params.project_id || \"0d324e68-b399-4b85-bd8a-6b1ef7b46168\""),
     ],
     result_format: template("Issue added: ${r.value}"),
   )
@@ -75,14 +76,11 @@ pub fn issue_count_tool() -> PiToolCall {
 pub fn issue_get_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-issue-get",
-    description: "Get a single issue by ID. Project is resolved from ctx.cwd automatically.",
+    description: "Get a single issue by ID. Only returns issues belonging to the current project.",
     params: [string_param("id")],
     module: "issue_db",
     fn_name: "get",
-    args: [
-      from_param("params.id || \"\""),
-      lit("ctx.cwd || ''"),
-    ],
+    args: [from_param("params.id || \"\"")],
     result_format: template("Issue: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
@@ -90,7 +88,7 @@ pub fn issue_get_tool() -> PiToolCall {
 pub fn issue_resolve_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-issue-resolve",
-    description: "Resolve an issue by ID. Project is resolved from ctx.cwd automatically.",
+    description: "Resolve an issue by ID. Only resolves issues belonging to the current project.",
     params: [
       string_param("id"),
       opt_string_param("resolution"),
@@ -100,7 +98,6 @@ pub fn issue_resolve_tool() -> PiToolCall {
     args: [
       from_param("params.id || \"\""),
       from_param("params.resolution || \"resolved\""),
-      lit("ctx.cwd || ''"),
     ],
     result_format: template("Issue resolved: ${r.value}"),
   )

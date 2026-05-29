@@ -23,7 +23,7 @@ pub fn review_create_tool() -> PiToolCall {
       from_param("params.methodology || \"mixed\""),
       from_param("params.scope || \"full\""),
       from_param("params.reviewer_id || \"psypi\""),
-      lit("ctx.cwd || ''"),
+      from_param("params.project_id || \"0d324e68-b399-4b85-bd8a-6b1ef7b46168\""),
     ],
     result_format: template("Review created: ${r.value}"),
   )

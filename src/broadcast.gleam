@@ -4,7 +4,6 @@ import gleam/javascript/promise
 import gleam/option.{type Option, None, Some}
 import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
-import project as proj
 
 pub type BroadcastPriority {
   Low
@@ -122,54 +121,29 @@ fn db_error_to_broadcast_error(e: db.DbError) -> BroadcastError {
   }
 }
 
-fn project_error_to_broadcast_error(e: proj.ProjectError) -> BroadcastError {
-  case e {
-    proj.ConnectionError(msg) -> ConnectionError(msg)
-    proj.QueryError(msg) -> QueryError(msg)
-    proj.NotFound(msg) -> NotFound(msg)
-    proj.DecodeError(msg) -> DecodeError(msg)
-  }
-}
-
 pub fn send(
   agent_id: String,
   message: String,
   priority_str: String,
-  cwd: String,
+  project_id: String,
 ) -> promise.Promise(Result(String, BroadcastError)) {
   case string_to_priority(priority_str) {
     Error(e) -> promise.resolve(Error(DecodeError(e)))
     Ok(priority) -> {
-      promise.await(proj.resolve_or_create(cwd), fn(project_result) {
-        case project_result {
-          Ok(p) -> send_with_project(agent_id, message, priority, p.id)
-          Error(e) -> promise.resolve(Error(project_error_to_broadcast_error(e)))
-        }
-      })
-    }
-  }
-}
-
-fn send_with_project(
-  agent_id: String,
-  message: String,
-  priority: BroadcastPriority,
-  project_id: String,
-) -> promise.Promise(Result(String, BroadcastError)) {
-  db.with_connection(fn(conn) {
-    let sql = "
-      INSERT INTO project_communications
-      (project_id, from_ai, message_type, content, priority, metadata)
-      VALUES ($1, $2, 'broadcast', $3, $4, $5)
-      RETURNING id
-    "
-    let params = [
-      dynamic.string(project_id),
-      dynamic.string(agent_id),
-      dynamic.string(message),
-      dynamic.string(priority_to_string(priority)),
-      dynamic.string("{\"sent_at\": \"now\"}"),
-    ]
+      db.with_connection(fn(conn) {
+        let sql = "
+          INSERT INTO project_communications
+          (project_id, from_ai, message_type, content, priority, metadata)
+          VALUES ($1, $2, 'broadcast', $3, $4, $5)
+          RETURNING id
+        "
+        let params = [
+          dynamic.string(project_id),
+          dynamic.string(agent_id),
+          dynamic.string(message),
+          dynamic.string(priority_to_string(priority)),
+          dynamic.string("{\"sent_at\": \"now\"}"),
+        ]
 
         promise.map(db.query(conn, sql, params), fn(query_result) {
           case query_result {
@@ -315,15 +289,15 @@ pub fn stats(
 pub fn broadcast_send_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-broadcast-send",
-    description: "Send a broadcast message. Project is resolved from ctx.cwd automatically.",
-    params: [string_param("message"), string_param("priority")],
+    description: "Send a broadcast message",
+    params: [string_param("message"), string_param("priority"), string_param("project_id")],
     module: "broadcast",
     fn_name: "send",
     args: [
       from_param("'psypi'"),
       from_param("params.message || \"\""),
       from_param("params.priority || 'normal'"),
-      lit("ctx.cwd || ''"),
+      from_param("params.project_id || \"\""),
     ],
     result_format: template("Broadcast sent: ${r.value}"),
   )

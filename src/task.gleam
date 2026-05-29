@@ -5,14 +5,12 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import db
 import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, template, lit, from_param, string_param, opt_string_param}
-import project as proj
 
 pub type TaskStatus {
   Pending
   Running
   Completed
   Failed
-  FakeComplete
 }
 
 pub type Task {
@@ -47,7 +45,6 @@ pub fn string_to_status(s: String) -> Result(TaskStatus, String) {
     "running" | "RUNNING" -> Ok(Running)
     "completed" | "COMPLETED" -> Ok(Completed)
     "failed" | "FAILED" -> Ok(Failed)
-    "fake_complete" | "FAKE_COMPLETE" -> Ok(FakeComplete)
     _ -> Error("Unknown task status: " <> s)
   }
 }
@@ -115,21 +112,6 @@ pub fn db_error_to_task_error(e: db.DbError) -> TaskError {
 }
 
 pub fn add(
-  title: String,
-  description: String,
-  priority: Int,
-  created_by: String,
-  cwd: String,
-) -> promise.Promise(Result(String, TaskError)) {
-  promise.await(proj.resolve_or_create(cwd), fn(project_result) {
-    case project_result {
-      Ok(p) -> add_with_project_id(title, description, priority, created_by, p.id)
-      Error(e) -> promise.resolve(Error(db_error_to_task_error(e)))
-    }
-  })
-}
-
-fn add_with_project_id(
   title: String,
   description: String,
   priority: Int,
@@ -289,16 +271,16 @@ pub fn get(
 pub fn task_add_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-task-add",
-    description: "Add a new task. project is resolved from ctx.cwd automatically.",
-    params: [string_param("title")],
+    description: "Add a new task. project_id optional (defaults to default project).",
+    params: [string_param("title"), opt_string_param("project_id")],
     module: "task",
     fn_name: "add",
     args: [
       from_param("params.title || \"\""),
       lit("\"\""),
       lit("5"),
-      lit("\"psypi\""),
-      lit("ctx.cwd || ''"),
+      lit("\"cli\""),
+      from_param("params?.project_id || '0d324e68-b399-4b85-bd8a-6b1ef7b46168'"),
     ],
     result_format: template("Task: ${r.value}"),
   )

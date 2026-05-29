@@ -8,7 +8,6 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import db
 import issue_types.{type Issue, type IssueError, ConnectionError, QueryError, DecodeError, NotFound, Medium, Open, Bug, string_to_severity, string_to_status, string_to_type}
-import project as proj
 
 fn db_error_to_issue_error(e: db.DbError) -> IssueError {
   case e {
@@ -77,22 +76,6 @@ fn count_decoder() -> decode.Decoder(Int) {
 }
 
 pub fn add(
-  title: String,
-  description: String,
-  severity: String,
-  issue_type: String,
-  created_by: String,
-  cwd: String,
-) -> promise.Promise(Result(String, IssueError)) {
-  promise.await(proj.resolve_or_create(cwd), fn(project_result) {
-    case project_result {
-      Ok(p) -> add_with_project(title, description, severity, issue_type, created_by, p.id)
-      Error(e) -> promise.resolve(Error(db_error_to_issue_error(e)))
-    }
-  })
-}
-
-fn add_with_project(
   title: String,
   description: String,
   severity: String,
@@ -278,19 +261,6 @@ pub fn count(
 
 pub fn get(
   issue_id: String,
-  cwd: String,
-) -> promise.Promise(Result(Issue, IssueError)) {
-  promise.await(proj.resolve_or_create(cwd), fn(project_result) {
-    case project_result {
-      Ok(p) -> get_by_id(issue_id, p.id)
-      Error(e) -> promise.resolve(Error(db_error_to_issue_error(e)))
-    }
-  })
-}
-
-fn get_by_id(
-  issue_id: String,
-  project_id: String,
 ) -> promise.Promise(Result(Issue, IssueError)) {
   db.with_connection(fn(conn) {
     let sql = "
@@ -300,7 +270,7 @@ fn get_by_id(
       FROM issues
       WHERE id = $1 AND project_id = $2
     "
-    let params = [dynamic.string(issue_id), dynamic.string(project_id)]
+    let params = [dynamic.string(issue_id), dynamic.string("0d324e68-b399-4b85-bd8a-6b1ef7b46168")]
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
         Error(e) -> Error(db_error_to_issue_error(e))
@@ -323,20 +293,6 @@ fn get_by_id(
 pub fn resolve(
   issue_id: String,
   resolution: String,
-  cwd: String,
-) -> promise.Promise(Result(String, IssueError)) {
-  promise.await(proj.resolve_or_create(cwd), fn(project_result) {
-    case project_result {
-      Ok(p) -> resolve_by_id(issue_id, resolution, p.id)
-      Error(e) -> promise.resolve(Error(db_error_to_issue_error(e)))
-    }
-  })
-}
-
-fn resolve_by_id(
-  issue_id: String,
-  resolution: String,
-  project_id: String,
 ) -> promise.Promise(Result(String, IssueError)) {
   db.with_connection(fn(conn) {
     let sql = "
@@ -345,7 +301,7 @@ fn resolve_by_id(
       WHERE id = $1 AND project_id = $3
       RETURNING id
     "
-    let params = [dynamic.string(issue_id), dynamic.string(resolution), dynamic.string(project_id)]
+    let params = [dynamic.string(issue_id), dynamic.string(resolution), dynamic.string("0d324e68-b399-4b85-bd8a-6b1ef7b46168")]
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
         Error(e) -> Error(db_error_to_issue_error(e))

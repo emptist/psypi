@@ -7,6 +7,7 @@ import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template}
 
 pub type MeetingStatus {
+  Pending
   Active
   Completed
   Cancelled
@@ -44,6 +45,7 @@ pub type MeetingError {
 
 fn string_to_status(s: String) -> Result(MeetingStatus, String) {
   case s {
+    "pending" -> Ok(Pending)
     "active" -> Ok(Active)
     "completed" -> Ok(Completed)
     "cancelled" -> Ok(Cancelled)
@@ -61,7 +63,7 @@ fn meeting_decoder() -> decode.Decoder(Meeting) {
   use consensus <- decode.field("consensus", decode.optional(decode.string))
 
   case string_to_status(status_str) {
-    Error(_) -> decode.failure(Meeting(id: id, topic: topic, created_by: created_by, status: Active, created_at: created_at, consensus_at: consensus_at, consensus: consensus), "Unknown meeting status: " <> status_str)
+    Error(_) -> decode.failure(Meeting(id: id, topic: topic, created_by: created_by, status: Pending, created_at: created_at, consensus_at: consensus_at, consensus: consensus), "Unknown meeting status: " <> status_str)
     Ok(status) -> decode.success(Meeting(
       id: id,
       topic: topic,
@@ -161,14 +163,14 @@ pub fn list(
   db.with_connection(fn(conn) {
     let sql = case status {
       Some(_) -> "
-        SELECT id::text, topic, created_by, status, created_at::text, consensus_at::text, consensus
+        SELECT id, topic, created_by, status, created_at::text, consensus_at::text, consensus
         FROM meetings
         WHERE status = $1
         ORDER BY created_at DESC
         LIMIT 100
       "
       None -> "
-        SELECT id::text, topic, created_by, status, created_at::text, consensus_at::text, consensus
+        SELECT id, topic, created_by, status, created_at::text, consensus_at::text, consensus
         FROM meetings
         ORDER BY created_at DESC
         LIMIT 100
@@ -201,7 +203,7 @@ pub fn get(
 ) -> promise.Promise(Result(Meeting, MeetingError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT id::text, topic, created_by, status, created_at::text, consensus_at::text, consensus
+      SELECT id, topic, created_by, status, created_at::text, consensus_at::text, consensus
       FROM meetings
       WHERE id = $1
     "
@@ -271,7 +273,7 @@ pub fn list_opinions(
 ) -> promise.Promise(Result(List(Opinion), MeetingError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT id::text, meeting_id::text, author, perspective, reasoning, created_at::text
+      SELECT id, meeting_id, author, perspective, reasoning, created_at::text
       FROM meeting_opinions
       WHERE meeting_id = $1
       ORDER BY created_at ASC

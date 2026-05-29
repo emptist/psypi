@@ -178,7 +178,7 @@ export function gleamValueToJson(val) {
     }
     return arr;
   }
-  if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || name.startsWith('Meeting$Meeting') || name.startsWith('Skill$Skill') || name.startsWith('Opinion$Opinion') || name.startsWith('Broadcast$Broadcast') || name.startsWith('Learning$Learning') || name.startsWith('Memory$Memory') || name.startsWith('AgentIdentity$AgentIdentity') || name.startsWith('Directive$Directive') || name.startsWith('InterReview$InterReview') || name.startsWith('CodeVersion$CodeVersion') || name.startsWith('ActivityLog$ActivityLog') || name.startsWith('Config$Config') || name.startsWith('Stats$Stats') || name.startsWith('Project$Project') || name.startsWith('SystemReview$SystemReview') || name.startsWith('ReviewFinding$ReviewFinding')) {
+  if (name.startsWith('Task$Task') || name.startsWith('Issue$Issue') || name.startsWith('Meeting$Meeting') || name.startsWith('Skill$Skill') || name.startsWith('Opinion$Opinion') || name.startsWith('Broadcast$Broadcast') || name.startsWith('Learning$Learning') || name.startsWith('Memory$Memory') || name.startsWith('AgentIdentity$AgentIdentity') || name.startsWith('Directive$Directive') || name.startsWith('InterReview$InterReview') || name.startsWith('CodeVersion$CodeVersion') || name.startsWith('ActivityLog$ActivityLog') || name.startsWith('Config$Config') || name.startsWith('Stats$Stats')) {
     return Object.fromEntries(Object.entries(val).map(([k, v]) => [k, gleamValueToJson(v)]));
   }
   if (name === 'Some') return gleamValueToJson(val['0'] ?? val[0]);

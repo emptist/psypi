@@ -87,46 +87,26 @@ fn db_error_to_reflection_error(e: db.DbError) -> ReflectionError {
 pub fn areflect(
   text: String,
   agent_id: String,
-  cwd: String,
 ) -> promise.Promise(Result(ReflectionResult, ReflectionError)) {
   case parse(text) {
     Error(e) -> promise.resolve(Error(DecodeError(e)))
     Ok(#(learnings, issues, tasks, issue_list_count)) -> {
-      promise.await(proj.resolve_or_create(cwd), fn(project_result) {
-        case project_result {
-          Ok(p) -> areflect_with_project(text, agent_id, p.id, learnings, issues, tasks, issue_list_count)
-          Error(e) -> promise.resolve(Error(db_error_to_reflection_error(e)))
-        }
-      })
-    }
-  }
-}
-
-fn areflect_with_project(
-  text: String,
-  agent_id: String,
-  project_id: String,
-  learnings: List(String),
-  issues: List(String),
-  tasks: List(String),
-  issue_list_count: Int,
-) -> promise.Promise(Result(ReflectionResult, ReflectionError)) {
-  db.with_connection(fn(conn) {
-    promise.await(save_learnings(conn, learnings, agent_id, project_id), fn(_) {
-      promise.await(save_issues(conn, issues, agent_id, project_id), fn(_) {
-        promise.await(save_tasks(conn, tasks, agent_id, project_id), fn(_) {
-          promise.map(fetch_recent_issues(conn, issue_list_count), fn(issue_list) {
-            case issue_list {
-              Ok(issues) -> Ok(ReflectionResult(
-                learnings: list.length(learnings),
-                issues: list.length(issues),
-                tasks: list.length(tasks),
-                issue_list: issues,
-              ))
-              Error(e) -> Error(e)
-            }
-          })
-        })
+      db.with_connection(fn(conn) {
+        promise.await(save_learnings(conn, learnings, agent_id), fn(_) {
+          promise.await(save_issues(conn, issues, agent_id), fn(_) {
+            promise.await(save_tasks(conn, tasks, agent_id), fn(_) {
+              promise.map(fetch_recent_issues(conn, issue_list_count), fn(issue_list) {
+                case issue_list {
+                  Ok(issues) -> Ok(ReflectionResult(
+                    learnings: list.length(learnings),
+                    issues: list.length(issues),
+                    tasks: list.length(tasks),
+                    issue_list: issues,
+                  ))
+                  Error(e) -> Error(e)
+                }
+              })
+            })
           })
         })
       }, db_error_to_reflection_error)
@@ -224,13 +204,12 @@ fn save_issues(
   conn: db.Connection,
   issues: List(String),
   agent_id: String,
-  project_id: String,
 ) -> promise.Promise(Result(Nil, ReflectionError)) {
   case issues {
     [] -> promise.resolve(Ok(Nil))
     [first, ..rest] -> {
-      promise.await(save_issue(conn, first, agent_id, project_id), fn(_) {
-        save_issues(conn, rest, agent_id, project_id)
+      promise.await(save_issue(conn, first, agent_id), fn(_) {
+        save_issues(conn, rest, agent_id)
       })
     }
   }
@@ -240,17 +219,16 @@ fn save_issue(
   conn: db.Connection,
   content: String,
   agent_id: String,
-  project_id: String,
 ) -> promise.Promise(Result(Nil, ReflectionError)) {
   let sql = "
-    INSERT INTO issues (title, description, severity, created_by, project_id)
-    VALUES ($1, $2, 'medium', $3, $4)
+    INSERT INTO issues (title, description, severity, created_by)
+    VALUES ($1, $2, 'medium', $3)
   "
   let title = case string.split(content, "\n") {
     [first, ..] -> string.slice(first, 0, 200)
     _ -> string.slice(content, 0, 200)
   }
-  let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id), dynamic.string(project_id)]
+  let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id)]
 
   promise.map(db.query(conn, sql, params), fn(query_result) {
     case query_result {
