@@ -35,20 +35,21 @@ The previous design coupled inter-review with psypi-commit in a two-phase workfl
 
 ### 2.2 A-bot Workflow
 
-When S-bot is truly idle (all conditions must be met):
-1. `ctx.isIdle` is `true`
-2. Debounce time has elapsed (default 5 minutes)
-3. No agent session exists (any agent start event resets `idle_since` to 0)
+A-bot's behavior is **database-driven**, not hardcoded:
+- `agent_souls` table defines A's identity, role, and responsibilities
+- `agent_jobs` table defines A's prioritized work items (including "Inter-review S code changes")
+- The orchestrator loads soul + jobs from DB, builds a prompt, and calls the monitor (LLM)
+- The LLM decides what to do based on its jobs — we do NOT force steps
 
-Then A-bot:
-1. Gets recent S-bot commits since last A-bot session (`get_recent_commits`)
-2. Creates an inter-review record via `inter_review.create_review_for_commits`
-3. Includes commit info in the prompt for A-bot's review
-4. Calls the monitor (LLM) to review the commits
-5. Saves the review result via `inter_review.save_review_result`
-6. Updates `last_a_session_at` config timestamp
-7. Sends wake-up message to S-bot with review summary
-8. Flags serious issues (CRITICAL/URGENT) in the wake-up message prefix
+What the orchestrator provides (context, not commands):
+1. Loads soul from `agent_souls` (identity, behavior rules)
+2. Loads jobs from `agent_jobs` (prioritized work items)
+3. Loads project state (tasks, issues)
+4. Gets recent commits since last A-bot session (as context for the LLM)
+5. Builds prompt with all of the above
+6. Calls monitor (LLM) — the LLM decides what to do
+7. Sends the LLM's response to S-bot as a wake-up message
+8. Updates `last_a_session_at` timestamp
 
 ### 2.3 Key Principle: A and S Never Work Simultaneously
 
@@ -59,8 +60,9 @@ Every piece of work must be inter-reviewed by A-bot, naturally:
 
 ### 2.4 Commit Logic (Simplified)
 
-- Only S-bot commits using psypi-commit tool
-- psypi-commit always appends the agent id to the commit message
+- psypi-commit appends the agent id to the commit message honestly
+- `get_agent_id(ctx)` returns the caller's real ID — no manipulation
+- Whoever calls psypi-commit gets their own ID tagged (S-bot gets S- prefix, A-bot gets A- prefix)
 - No inter-review gate on commit — commit happens immediately
 - Inter-review happens AFTER commit, during A-bot's autonomous time
 
@@ -105,15 +107,15 @@ The `id_prefix` column in `agent_souls` and `agent_prefixes` tables remains `A` 
 
 ### 3.4 a_orchestrator.gleam (Phase 01-04)
 - Added `get_recent_commits()` — runs `git log --oneline` since last A-bot session
-- Added `create_inter_review()` — async wrapper for `inter_review.create_review_for_commits`
-- Added `save_review_and_wake_up()` — saves review result, then sends wake-up with flags
-- `run_full_workflow()` now: gets commits → creates review → calls monitor → saves result → wakes S
-- Wake-up message prefixes `[INTER-REVIEW: SERIOUS ISSUES FOUND]` when CRITICAL/URGENT detected
+- Provides commit_info as context to the LLM via `build_user_prompt`
+- Does NOT force inter-review as a step — the LLM decides based on its DB jobs
+- `handle_monitor_response()` sends the LLM's response directly to S-bot
+- Updates `last_a_session_at` timestamp after each A-bot session
 
 ### 3.5 a_prompt_builder.gleam
 - Added `commit_info` parameter to `build_user_prompt()`
-- When commits exist, adds "S-bot's Recent Commits" section to prompt
-- Instructs A-bot to review commits and flag serious issues with CRITICAL/URGENT
+- When commits exist, adds "S-bot's Recent Commits" section as context
+- Does NOT instruct the LLM to review — the LLM reads its jobs from DB and decides
 
 ### 3.6 a_db_reader.gleam
 - Added `get_last_a_session_at()` — reads `last_a_session_at` from config table
@@ -151,6 +153,7 @@ S-bot calls psypi-commit("fix: debounce bug")
     │
     ▼
 tool_commit.on_commit() appends [AI:S-psypi-openrouter-owl-alpha]
+(get_agent_id returns the caller's real ID honestly)
     │
     ▼
 git commit -m "fix: debounce bug [AI:S-psypi-openrouter-owl-alpha]"
@@ -162,22 +165,20 @@ S-bot becomes idle → debounce timer starts
 A-bot wakes (ctx.isIdle=true, debounce elapsed, no agent session)
     │
     ▼
-A-bot gets recent commits since last_a_session_at
+A-bot loads: soul (agent_souls) + jobs (agent_jobs) + project state
     │
     ▼
-A-bot creates inter-review record (inter_reviews table)
+A-bot gets recent commits since last_a_session_at (as context)
     │
     ▼
-A-bot reviews commits via monitor (LLM)
+A-bot builds prompt with soul, jobs, state, commits
     │
     ▼
-A-bot saves review result (status=completed, summary, score)
+A-bot calls monitor (LLM) — LLM decides what to do based on its jobs
+    │
+    ▼
+A-bot sends LLM's response to S-bot as wake-up message
     │
     ▼
 A-bot updates last_a_session_at in config
-    │
-    ▼
-A-bot sends wake-up message to S-bot
-    └─ If serious issues: "[INTER-REVIEW: SERIOUS ISSUES FOUND] ..."
-    └─ If OK: normal review summary + "(inter-review: <id>)"
 ```
