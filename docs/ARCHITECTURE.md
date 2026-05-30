@@ -29,6 +29,56 @@ A communicates with S via `sendMessage()`. S is an LLM — it reads and understa
 
 **Anti-pattern to avoid**: Building database-mediated communication pipelines (like the removed `system_directives` table). See README.md "Lesson: The system_directives Anti-Pattern".
 
+## A/S Dual-Agent Model — Core Design
+
+### Biological Analogy
+
+A and S borrow from the autonomic and somatic nervous systems. Like alternating current, they **never work simultaneously** — when one is active, the other is idle. They look like two bots but are actually the same Pi extension instance, differentiated only by `id_prefix` in the `agent_souls` table, which gives them different roles and jobs.
+
+- **S (Somatic)**: The doer. Executes tasks, writes code, uses tools. Active when the user is interacting.
+- **A (Autonomic)**: The checker. Focuses on PDCA's **Check** phase — inter-review, behavior review, anti-stupidity. Can plan but should not execute. Active only when S is idle.
+
+### A-bot's Two Modes: Waiting and Working
+
+A-bot has exactly two modes:
+
+1. **Waiting mode** — A stopwatch runs, counting how long S has been continuously idle (`ctx.isIdle() === true` and `ctx.isStreaming === false`). The stopwatch **resets to zero** on any S activity signal. The stopwatch **resets to zero** when A starts working.
+
+2. **Working mode** — Triggered when and only when the stopwatch reaches `monitor_debounce_ms`. A reads soul/jobs from DB, calls LLM via `call_monitor()`, and sends results to S.
+
+**The stopwatch is the only technically non-trivial part of the entire A/S system.** Everything else uses Pi's built-in support (`pi.on()`, `pi.sendMessage()`, `ctx.ui.notify()`).
+
+### Stopwatch Logic (CRITICAL)
+
+```
+Stopwatch state: psypi_config.idle_since (Unix ms timestamp, or "0" when not running)
+
+On ANY S activity (agent_end while S is NOT idle, tool_call, user input):
+  → stopwatch RESETS TO ZERO (idle_since = "0")
+
+On agent_end AND ctx.isIdle()=true AND no pending messages:
+  → IF idle_since = "0": START stopwatch (idle_since = now_ms()), DO NOT work yet
+  → IF idle_since != "0": CHECK elapsed = now_ms() - idle_since
+      → elapsed >= monitor_debounce_ms: RESET stopwatch, START WORKING
+      → elapsed < monitor_debounce_ms: DO NOTHING, keep waiting
+
+When A starts working: stopwatch RESETS TO ZERO
+```
+
+**Key invariant**: The stopwatch ONLY advances while S is continuously idle. Any S activity resets it. A working also resets it. This guarantees A never interrupts S.
+
+**NEVER reduce debounce time as a "fix"** — the debounce duration is a design choice, not a bug.
+
+### A-bot Communication Rules
+
+- **A's thinking/progress** → `ctx.ui.notify()` — visible in TUI, does NOT trigger S
+- **A's output for S** → `pi.sendMessage({customType: 'autonomic-wakeup', content: msg}, {triggerTurn: true})` — injects message into S's session, triggers a new S turn
+- Both A and S can see each other's messages, forming a **dialogue pattern**
+
+### Why A-bot Must Work
+
+Without A-bot, psypi has no autonomous capability. All tools are passive — they only fire when S calls them. A-bot is the only component that proactively observes, reviews, and suggests. Without it, psypi is just a Pi extension with tools, not an autonomous system.
+
 ## System Prompt Composition
 
 Both A and S read their identity from the `agent_souls` table (joined by `id_prefix`):

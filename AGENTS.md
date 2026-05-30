@@ -44,6 +44,20 @@ Inside Pi TUI, use `/psypi-my-id` to verify identity.
 
 Connect manually: `psql -d psypi`
 
+### ⚠️ CRITICAL: Always use `-d psypi`
+
+**NEVER run `psql` without `-d psypi`.** The default `psql` connects to a database named after your OS user (e.g. `jk`), which has many of the same tables but is a DIFFERENT database. Running queries without `-d psypi` will silently read/write the wrong data.
+
+```bash
+# CORRECT — always specify the database
+psql -d psypi -c "SELECT COUNT(*) FROM review_findings;"
+
+# WRONG — connects to `jk` database by default
+psql -c "SELECT COUNT(*) FROM review_findings;"
+```
+
+The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is not set. The danger is only with manual `psql` commands or `DATABASE_URL` setting is wrong or shared(should change the variable name).
+
 ### Key Tables
 
 | Table                 | Purpose                                                                            |
@@ -65,6 +79,11 @@ Connect manually: `psql -d psypi`
 | `compaction_history`  | Context compaction summaries                                                       |
 | `event_hooks`         | Hook registry                                                                      |
 | `table_documentation` | Meta-table documenting schema (outdated, 24 rows)                                  |
+| `system_reviews`      | System review records (code quality audits, architecture reviews)                  |
+| `review_findings`     | Individual findings from system reviews (severity, category, evidence, impact)     |
+| `review_comments`     | Comments on review findings                                                        |
+| `review_labels`       | Labels/tags for review findings                                                    |
+| `inter_reviews`       | Inter-agent code reviews (A↔S code change reviews)                                 |
 
 ### `id_prefix`
 
@@ -211,14 +230,143 @@ To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 
 **⚠️ NEVER restart psypi by yourself.** Never run `pkill`, `node bin/ppi.mjs`, `npx`, or any Pi restart commands. That is A-bot's job or the human's job. S-bot dies when Pi restarts — that is normal. Do not try to resurrect yourself.
 
-## agent_end Workflow (A-S Communication)
+## A/S Dual-Agent Model — Core Design
 
-When S-worker finishes a turn, `agent_end` fires:
+### Biological Analogy
 
-1. **Debounce Wait** — Read `monitor_debounce_ms` from `psypi_config` table (default: 300000ms = 5 min). Start `setTimeout`. No early exit, no idle check before timer.
-2. **After debounce** — `hook_on_agent_end.gleam` checks `ctx.isIdle()`. If idle, reads soul from DB, composes wake-up via `call_monitor()`, sends via `pi_send_message` with type `autonomic-wakeup`.
+A and S borrow from the autonomic and somatic nervous systems. Like alternating current, they **never work simultaneously** — when one is active, the other is idle. They look like two bots but are actually the same Pi extension instance, differentiated only by `id_prefix` in the `agent_souls` table, which gives them different roles and jobs.
 
-Changes to debounce take effect immediately (read fresh from DB each event).
+- **S (Somatic)**: The doer. Executes tasks, writes code, uses tools. Active when the user is interacting.
+- **A (Autonomic)**: The checker. Focuses on PDCA's **Check** phase — comprehensive review of S's work across all PDCA dimensions (see "A-bot's Check Scope" below). Active only when S is idle.
+
+### A-bot's Two Modes: Waiting and Working
+
+A-bot has exactly two modes:
+
+1. **Waiting mode** — A stopwatch runs, counting how long S has been continuously idle (`ctx.isIdle() === true` and `ctx.isStreaming === false`). The stopwatch **resets to zero** on any S activity signal. The stopwatch **resets to zero** when A starts working.
+
+2. **Working mode** — Triggered when and only when the stopwatch reaches `monitor_debounce_ms`. A reads soul/jobs from DB, calls LLM via `call_monitor()`, and sends results to S.
+
+**The stopwatch is the only technically non-trivial part of the entire A/S system.** Everything else uses Pi's built-in support (`pi.on()`, `pi.sendMessage()`, `ctx.ui.notify()`).
+
+### Stopwatch Logic (CRITICAL — read this until you understand it)
+
+```
+Stopwatch state: stored as psypi_config.idle_since (Unix ms timestamp, or "0" when not running)
+
+On ANY S activity (agent_end fires while S is NOT idle, or any tool_call, or any user input):
+  → stopwatch RESETS TO ZERO (idle_since = "0")
+
+On agent_end fires AND ctx.isIdle() === true AND ctx.hasPendingMessages() === false:
+  → IF stopwatch is at zero (idle_since = "0"):
+      → START stopwatch: idle_since = now_ms()
+      → DO NOT start working yet — wait for debounce
+  → IF stopwatch is running (idle_since != "0"):
+      → READ elapsed = now_ms() - idle_since
+      → IF elapsed >= monitor_debounce_ms:
+          → RESET stopwatch (idle_since = "0")
+          → START WORKING: call_monitor() → pi_send_message()
+      → IF elapsed < monitor_debounce_ms:
+          → DO NOTHING — keep waiting
+
+When A starts working:
+  → stopwatch RESETS TO ZERO (idle_since = "0")
+```
+
+**Key invariant**: The stopwatch only advances while S is continuously idle. Any S activity resets it. A working also resets it. This guarantees A never interrupts S.
+
+### A-bot's Check Scope
+
+A's primary job is **Check** across all PDCA dimensions, not just inter-review:
+
+1. **Behavior compliance** — Did S follow the PDCA cycle? Was Plan done before Do? Did Check lead to Act? Because of the alternating-current model, A always has enough time to deeply inspect S's behavior patterns from the previous turn.
+
+2. **Code quality & standards** — Code conventions, database conventions, Gleam type safety, FFI policy compliance, no fake Gleam patterns.
+
+3. **Database quality** — Schema correctness, data integrity, type coverage (are all DB enum columns backed by Gleam types?), query patterns (no N+1, no missing indexes).
+
+4. **Documentation quality** — Are skill docs up to date? Are ADRs recorded? Is the README current? Are findings from system reviews documented?
+
+5. **Inter-review** — The most direct and convenient check: review S's code and document changes from this turn. Results MUST be saved to the `inter_reviews` database table. The message to S MUST reference the review ID so S can look it up, and SHOULD include a brief summary of key findings.
+
+6. **Follow-up enforcement** — In the next alternating cycle, A MUST verify whether S responded to the previous round's check findings. Unaddressed findings are NOT allowed to slip through — A must escalate or re-raise them.
+
+**Inter-review is a subset of Check, not the whole of Check.** A reviews behavior, code, data, docs, and follows up — inter-review is just the most structured and convenient part.
+
+### A-bot Communication Rules
+
+- **A's thinking/progress** → `ctx.ui.notify()` — visible in TUI, does NOT trigger S
+- **A's output for S** → `pi.sendMessage({customType: 'autonomic-wakeup', content: msg}, {triggerTurn: true})` — injects message into S's session, triggers a new S turn
+- Both A and S can see each other's messages, forming a **dialogue pattern**
+
+### Why A-bot Must Work
+
+Without A-bot, psypi has no autonomous capability. All tools are passive — they only fire when S calls them. A-bot is the only component that proactively observes, reviews, and suggests. Without it, psypi is just a Pi extension with tools, not an autonomous system.
+
+## Issues → Tasks: The Derivation Principle
+
+**Issues (Plans) → Tasks.** This is the simple formula.
+
+1. **Every plan starts from something new or something wrong** — that is an issue. Issues are the natural starting point for all work.
+
+2. **Issues accept discussion through comments** — investigations, analysis, and plans live as comments on the issue. A database-backed issue with comments supports threaded discussion; a file-system plan does not.
+
+3. **When the plan in an issue is discussed or felt sound enough, then comes the task.** Tasks are deduced from issues (plans). This is a logical and behavioral relationship, not a programmatic one — there is no foreign key from tasks to issues, and there should not be. The derivation is a matter of discipline, not schema.
+
+**How agents should work**: When you (S or A) identify something new or something wrong, create an issue first. Use issue comments to investigate, analyze, and plan. When the plan is sound enough, create a task from it. This is how PDCA's Plan phase works — the issue IS the plan, and the task IS the do. A checks that S follows this flow: issues before tasks, discussion before action.
+
+## The Review → Issue → Task Closed Loop
+
+Review findings do not stay buried in `review_findings` — they flow into issues, which flow into tasks, which are reviewed again. This is the complete PDCA closed loop:
+
+```
+A-bot inter-review / system review
+  → findings recorded in review_findings
+  → findings ALSO reported as issues (with related_review_id linking back)
+    → issue comments: root cause analysis, solution discussion, action plan
+      → if conflicting views or needs structured dialogue: convene a meeting (psypi-meeting-add)
+        → meeting produces consensus → feeds back into issue plan
+      → when plan is sound: tasks created from the issue
+        → task execution (S does the work)
+          → mid-process inter-review (A checks S's work in progress)
+          → periodic system review (A reviews overall system health)
+            → new findings → new issues → new tasks → ...
+```
+
+**Critical rule**: Every significant finding from a review should become an issue. This is an agent behavior guideline, not a programmatic constraint — no new FK needed, just reference IDs in comments and descriptions. A finding without a corresponding issue is an orphan — it was observed but never acted upon.
+
+**How agents should work**: After completing a review (inter-review or system review), create issues for the significant findings. In the issue, analyze root cause, discuss solutions, and plan actions. When the plan is agreed upon, derive tasks. During task execution, A reviews progress. New findings from those reviews create new issues. The loop never breaks — every problem is tracked from discovery to resolution.
+
+### Job化而非程序化
+
+The closed loop is enforced through **jobs**, not programmatic constraints. A's jobs are loaded every time A activates. Each job is a behavioral guideline that A follows naturally:
+
+| Priority | Category    | Job                                                                                                       |
+| -------- | ----------- | --------------------------------------------------------------------------------------------------------- |
+| 12       | closed_loop | Check if issue discussion needs a meeting: conflicting views or structured A-S dialogue → convene meeting |
+| 11       | closed_loop | Check task execution follow-up: verify S addressed previous review findings                               |
+| 10       | closed_loop | Check planned issues have tasks: when issue has sound plan, verify tasks exist                            |
+| 9        | closed_loop | Check issues have discussion and plan: issues should have comments with analysis                          |
+| 8        | closed_loop | Check review findings have corresponding issues: every finding should become an issue                     |
+| 7        | definition  | Review own soul, responsibilities, and jobs — update if stale                                             |
+| 6        | maintenance | Identify stale S tasks, suggest cleanup                                                                   |
+| 5        | suggestion  | Suggest doer-jobs to S when context is right                                                              |
+| 4        | unblock     | Unblock stuck S tasks                                                                                     |
+| 3        | safety      | Anti-stupidity: catch dangerous S behavior                                                                |
+| 2        | behavior    | Review S behavior: PDCA compliance                                                                        |
+| 1        | review      | Inter-review S code changes                                                                               |
+
+**Principle**: What you want to program, make a job instead. Jobs load every cycle, A reads them, A decides what to do. No FK constraints, no triggers, no stored procedures — just behavioral guidelines that A follows because they are in A's job list.
+
+## agent_end Workflow (A-bot Activation)
+
+When S finishes a turn, Pi fires `agent_end`:
+
+1. **extension.js debounce** — `setTimeout(callback, debounceMs)` with timer dedup (clear previous timer before starting new one). Debounce value read from `psypi_config.monitor_debounce_ms` (cached after first read).
+2. **After debounce timer fires** — `hook_on_agent_end.on_agent_end(ctx, pi)` executes the stopwatch logic above.
+3. **If stopwatch satisfied** — `a_orchestrator.run_a_workflow()` reads soul+jobs+state from DB, builds prompts, calls `call_monitor()`, sends result via `pi_send_message()`.
+
+Changes to debounce take effect after restart (cached at module level in extension.js).
 
 ## Skills System
 

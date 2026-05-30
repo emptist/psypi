@@ -56,6 +56,17 @@ pub type IssueError {
   DecodeError(String)
 }
 
+pub type IssueComment {
+  IssueComment(
+    id: String,
+    issue_id: String,
+    author: String,
+    content: String,
+    is_internal: Bool,
+    created_at: String,
+  )
+}
+
 pub fn string_to_severity(s: String) -> Result(IssueSeverity, String) {
   case s {
     "critical" -> Ok(Critical)

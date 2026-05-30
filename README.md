@@ -51,57 +51,57 @@ gleam run -m extension_generator
 
 All functionality is exposed as Pi tools — use them inside the TUI, never from shell.
 
-| Tool | Description |
-| --- | --- |
-| **Identity** | |
-| `psypi-my-id` | Get the calling agent's full identity |
-| **Tasks** | |
-| `psypi-task-add` | Add a new task |
-| `psypi-tasks` | List tasks (filter by status/project_id) |
-| `psypi-task-complete` | Mark a task as completed |
-| **Issues** | |
-| `psypi-issue-add` | File a new issue |
-| `psypi-issues` | List issues |
-| `psypi-issue-count` | Count issues |
-| `psypi-issue-get` | Get a single issue by ID |
-| `psypi-issue-resolve` | Resolve an issue |
-| **Docs/Versions** | |
-| `psypi-doc-save` | Save a file version |
-| `psypi-doc-list` | List version history |
-| **Skills** | |
-| `psypi-skill-list` | List skills |
-| `psypi-skill-get` | Get a skill by ID |
-| `psypi-skill-search` | Search skills by name |
-| **Meetings** | |
-| `psypi-meetings` | List meetings |
-| `psypi-meeting-get` | Get a meeting by ID |
-| `psypi-meeting-opinions` | List opinions for a meeting |
-| `psypi-meeting-add` | Create a new meeting |
-| `psypi-meeting-say` | Add an opinion to a meeting |
-| **Learning/Memory** | |
-| `psypi-learn-save` | Save a learning to memory |
-| `psypi-memory-search` | Search memories by keyword |
-| **Broadcast** | |
-| `psypi-broadcast-send` | Send a broadcast message |
-| `psypi-broadcasts` | List broadcast messages |
-| **Reflection** | |
-| `psypi-areflect` | Extract [LEARN], [ISSUE], [TASK] markers from text |
-| **Autonomic** | |
-| `psypi-autonomic-status` | Get Monitor status |
-| `psypi-autonomic-health` | Get system health metrics |
-| `psypi-autonomic-alerts` | Get active alerts |
-| `psypi-autonomic-stats` | Get Monitor statistics |
-| `psypi-autonomic-suggest` | Get work suggestions |
-| **Hooks** | |
-| `psypi-hooks-list` | List all event hooks |
-| `psypi-hooks-active` | List active hooks |
-| **Agents** | |
-| `psypi-agents` | List all registered agents |
-| **Stats** | |
-| `psypi-stats-show` | Show project statistics |
-| **Other** | |
-| `psypi-consult-autonomic` | Consult A-bot for difficult decisions |
-| `psypi-commit` | Commit with Monitor inter-review |
+| Tool                      | Description                                        |
+| ------------------------- | -------------------------------------------------- |
+| **Identity**              |                                                    |
+| `psypi-my-id`             | Get the calling agent's full identity              |
+| **Tasks**                 |                                                    |
+| `psypi-task-add`          | Add a new task                                     |
+| `psypi-tasks`             | List tasks (filter by status/project_id)           |
+| `psypi-task-complete`     | Mark a task as completed                           |
+| **Issues**                |                                                    |
+| `psypi-issue-add`         | File a new issue                                   |
+| `psypi-issues`            | List issues                                        |
+| `psypi-issue-count`       | Count issues                                       |
+| `psypi-issue-get`         | Get a single issue by ID                           |
+| `psypi-issue-resolve`     | Resolve an issue                                   |
+| **Docs/Versions**         |                                                    |
+| `psypi-doc-save`          | Save a file version                                |
+| `psypi-doc-list`          | List version history                               |
+| **Skills**                |                                                    |
+| `psypi-skill-list`        | List skills                                        |
+| `psypi-skill-get`         | Get a skill by ID                                  |
+| `psypi-skill-search`      | Search skills by name                              |
+| **Meetings**              |                                                    |
+| `psypi-meetings`          | List meetings                                      |
+| `psypi-meeting-get`       | Get a meeting by ID                                |
+| `psypi-meeting-opinions`  | List opinions for a meeting                        |
+| `psypi-meeting-add`       | Create a new meeting                               |
+| `psypi-meeting-say`       | Add an opinion to a meeting                        |
+| **Learning/Memory**       |                                                    |
+| `psypi-learn-save`        | Save a learning to memory                          |
+| `psypi-memory-search`     | Search memories by keyword                         |
+| **Broadcast**             |                                                    |
+| `psypi-broadcast-send`    | Send a broadcast message                           |
+| `psypi-broadcasts`        | List broadcast messages                            |
+| **Reflection**            |                                                    |
+| `psypi-areflect`          | Extract [LEARN], [ISSUE], [TASK] markers from text |
+| **Autonomic**             |                                                    |
+| `psypi-autonomic-status`  | Get Monitor status                                 |
+| `psypi-autonomic-health`  | Get system health metrics                          |
+| `psypi-autonomic-alerts`  | Get active alerts                                  |
+| `psypi-autonomic-stats`   | Get Monitor statistics                             |
+| `psypi-autonomic-suggest` | Get work suggestions                               |
+| **Hooks**                 |                                                    |
+| `psypi-hooks-list`        | List all event hooks                               |
+| `psypi-hooks-active`      | List active hooks                                  |
+| **Agents**                |                                                    |
+| `psypi-agents`            | List all registered agents                         |
+| **Stats**                 |                                                    |
+| `psypi-stats-show`        | Show project statistics                            |
+| **Other**                 |                                                    |
+| `psypi-consult-autonomic` | Consult A-bot for difficult decisions              |
+| `psypi-commit`            | Commit with Monitor inter-review                   |
 
 ## Adding a Pi Tool
 
@@ -121,26 +121,69 @@ Think of A and S like **alternating current** — they are never active at the s
 
 This mirrors the biological **autonomic and somatic nervous systems**: the autonomic system monitors and regulates in the background; the somatic system executes voluntary actions. They don't fire simultaneously — they take turns, each responding to the other's state.
 
-### A-bot: Quality Guardian, Not a Doer
+A and S look like two bots but are actually the same Pi extension instance, differentiated only by `id_prefix` in the `agent_souls` table, which gives them different roles and jobs.
 
-A-bot's role is **observation, analysis, and communication**. A has infinite time between S's sessions — if A doesn't wake S, S sleeps forever. A should use that time to maintain the quality of the AI working process, not to execute tasks.
+### A-bot's Two Modes: Waiting and Working
+
+A-bot has exactly two modes of existence:
+
+1. **Waiting mode** — A stopwatch runs, counting how long S has been **continuously idle** (`ctx.isIdle() === true`, `ctx.isStreaming === false`). The stopwatch **resets to zero** on any S activity signal. The stopwatch **resets to zero** when A starts working.
+
+2. **Working mode** — Triggered when and only when the stopwatch reaches `monitor_debounce_ms`. A reads soul/jobs from DB, calls LLM via `call_monitor()`, and sends results to S.
+
+**The stopwatch is the only technically non-trivial part of the entire A/S system.** Everything else uses Pi's built-in support (`pi.on()`, `pi.sendMessage()`, `ctx.ui.notify()`).
+
+### Stopwatch Logic (CRITICAL)
+
+```
+Stopwatch state: psypi_config.idle_since (Unix ms timestamp, or "0" when not running)
+
+On ANY S activity (agent_end while S is NOT idle, tool_call, user input):
+  → stopwatch RESETS TO ZERO (idle_since = "0")
+
+On agent_end AND ctx.isIdle()=true AND no pending messages:
+  → IF idle_since = "0": START stopwatch (idle_since = now_ms()), DO NOT work yet
+  → IF idle_since != "0": CHECK elapsed = now_ms() - idle_since
+      → elapsed >= monitor_debounce_ms: RESET stopwatch, START WORKING
+      → elapsed < monitor_debounce_ms: DO NOTHING, keep waiting
+
+When A starts working: stopwatch RESETS TO ZERO
+```
+
+**Key invariant**: The stopwatch ONLY advances while S is continuously idle. Any S activity resets it. A working also resets it. This guarantees A never interrupts S.
+
+**NEVER reduce debounce time as a "fix"** — the debounce duration is a design choice, not a bug. If A-bot doesn't fire, it means S hasn't been idle long enough. That is correct behavior.
+
+### A-bot Communication Rules
+
+- **A's thinking/progress** → `ctx.ui.notify()` — visible in TUI, does NOT trigger S
+- **A's output for S** → `pi.sendMessage({customType: 'autonomic-wakeup', content: msg}, {triggerTurn: true})` — injects message into S's session, triggers a new S turn
+- Both A and S can see each other's messages, forming a **dialogue pattern**
+
+### Why A-bot Must Work
+
+Without A-bot, psypi has no autonomous capability. All tools are passive — they only fire when S calls them. A-bot is the only component that proactively observes, reviews, and suggests. Without it, psypi is just a Pi extension with tools, not an autonomous system.
+
+### A-bot: Quality Guardian, Not a MainDoer
+
+A-bot's role is **observation, analysis, and communication**, it mainly works on the "check" phase in PDCA. A has infinite time between S's sessions — if A doesn't wake S, S sleeps forever. A should use that time to maintain the quality of the AI working process, not to execute tasks.
 
 **What A does:**
-- **Ongoing review**: After each S session, A reviews S's behavior — did S report issues before fixing them? Did S plan before acting? Did S update docs after modifying code? Did S update skills? Did S update `table_documentation` after schema changes?
-- **Inter-review**: When `psypi-commit` is used, A reviews the specific code changes — are Gleam files real Gleam or polluted by handwritten JS strings? Are decoders matching DB column types? Are queries parameterized?
+- **Behavior review**: After each S session, A reviews S's behavior — did S report issues before fixing them? Did S plan before acting? Did S update docs after modifying code? Did S update skills? Did S update `table_documentation` after schema changes?
+- **Inter-review**:  A reviews the specific code changes — are Gleam files real Gleam or polluted by handwritten JS strings? Are decoders matching DB column types? Are queries parameterized?
 - **Anti-stupidity**: A catches dangerous S actions — deleting code before committing, trying to use sqlite3, trying to restart Pi, creating fake Gleam files, bypassing QC review
 - **Suggest, don't command**: A gives reminders and suggestions, not instructions. S is intelligent — A should present findings and let S think for itself. S may have doubts or confusions, and can ask A back. This is a two-way dialogue, not a command chain.
 
 **What A does NOT do:**
 - Execute code changes (that's S's job)
 - Research competitors or draft business proposals directly (A can suggest S do this when context is right, but A doesn't do it)
-- Give generic wake-up messages ("hey S, continue working") — A's messages should contain specific, meaningful findings from review
+- Give disturbing wake-up messages ("hey S, continue working") — A's messages should contain specific, meaningful findings from review which will not disturb S's workflow.
 
-**A's tool access**: A has access to all 36 Pi tools (task-add, issue-add, commit, etc.). A *can* add tasks, file issues, or commit. But A should use these sparingly — preferring to suggest S take action. The exception: when A needs to record a finding (filing an issue, adding a task) that S should address later.
+**A's tool access**: A has access to all Pi tools (task-add, issue-add, commit, etc.). A *can* add tasks, file issues, or commit. But A should use these sparingly — preferring to suggest S take action. The exception: when A needs to record a finding (filing an issue, adding a task) that S should address later.
 
 ### S-bot: The Doer
 
-S-bot is the executor — it works inside the Pi agent lifetime, using tools to complete tasks. S follows instructions from the human user or suggestions from A.
+S-bot is the executor — it works mainly on PDCA's "Plan","Do","Act" phases,inside the Pi agent lifetime, using tools to complete tasks. S follows instructions from the human user or suggestions from A.
 
 **What S does:**
 - Execute tasks using Pi tools

@@ -96,6 +96,46 @@ Review ID: `df31f009-7f00-4b91-8eec-e6c1c832af24` (status: pending)
 |------|-------------|
 | d02f8a8b | Review inter-review process and logic — deep investigation |
 
+## System Review Task (Ongoing)
+
+### Review ID: ca9e914c-cce6-4db4-b3b1-29779d8e1837
+- **Title:** Architecture Over-Engineering Audit
+- **Methodology:** 5-question framework: (1) Who uses them? (2) Why not simpler? (3) Real problem? (4) Real Gleam solve? (5) Inevitable?
+- **Status:** in_progress — 24 findings saved to `review_findings` table (#430-#453)
+- **Severity breakdown:** 5 critical, 10 high, 8 medium, 1 low
+
+### Key Findings Summary
+
+| Category | Count | Worst Offenders |
+|----------|-------|-----------------|
+| over_engineering | 4 | a_orchestrator (161 lines, 1 caller), a_db_reader (255 lines, false per-agent split), s_db_reader (94 lines, 1 used fn) |
+| redundant_check | 2 | is_s_still_idle() queries ghost table, hook_on_agent_end double-checks idle |
+| ghost_table | 2 | agent_sessions (never written to), system_reviews (didn't exist until this session!) |
+| duplicate_code | 3 | db_error_to_string x20 copies, two MonitorError types, duplicate now_ms FFI |
+| dead_code | 6 | read_s_jobs_from_db, current_time_ms, housekeeping, prepare_context, check_safety, analyze_and_act, record_review_score |
+| false_abstraction | 1 | monitor_ai + monitor = 877 lines with same error type, no separation principle |
+| boilerplate | 1 | db.with_connection forces 20 copies of error mapper |
+| logic_error | 4 | FAILED status doesn't exist in tasks table (3 bugs), string.contains error detection |
+
+### Meta-Finding: system_review_db.gleam Was Dead Code (#453)
+- The `system_reviews` and `review_findings` tables **did not exist** in the database before this session
+- No migration ever created `system_reviews`; migration 027 creates `review_findings` but depends on `system_reviews`
+- All 559 lines of `system_review_db.gleam` would fail at runtime with "relation does not exist"
+- Tables were created during this session to make the system review infrastructure functional
+- **All previous review findings were inserted via raw SQL migrations, not through the Gleam API**
+
+### What Still Needs Auditing
+- `task.gleam`, `issue_db.gleam`, `project.gleam`, `meeting.gleam`, `skill.gleam`, `broadcast.gleam`, `areflect.gleam`, `memory.gleam`, `learning.gleam`, `agents.gleam`, `code_version.gleam`, `event_hooks.gleam`, `inter_review.gleam` — all follow the same db_error_to_* boilerplate pattern
+- `hook_on_tool_call.gleam` — needs review for similar issues
+- `seed.gleam`, `simple_migrate.gleam` — utility files
+- The entire `psypi_config.gleam` — DB-backed config that may have similar issues
+
+### Next Steps for System Review
+1. Continue auditing remaining files with 5-question framework
+2. Focus on the db_error_to_* boilerplate pattern — it's in every DB module
+3. Verify findings #430-#453 are actionable and not duplicates of earlier reviews
+4. When audit is complete, mark review as completed via `system_review_db.complete_review()`
+
 ## Build & Deploy
 
 ```bash
