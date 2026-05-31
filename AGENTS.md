@@ -469,6 +469,33 @@ Three valid patterns:
 
 The ONLY hand-written JS files are the 4 `*_ffi.mjs` files. Everything else is auto-generated or uses proper FFI.
 
+## Reference Materials (`../refers/`)
+
+The sibling directory `../refers/` contains a curated collection of reference resources:
+
+| Directory | Content |
+|---|---|
+| `pi/` | Pi project resources |
+| `gleam-language/` | Gleam language references |
+| `otp/` | OTP/Elixir design patterns |
+| `langchain/` | LangChain patterns and examples |
+| `lively4-core/` | Lively4 self-programming environment |
+| `everything-claude-code/` | Claude Code usage resources |
+| `Flowise/` | Flowise workflow builder |
+| `opencode/` | OpenCode resources |
+| `repomix/` | Repomix code packaging |
+| `vercel-ai-sdk/` | Vercel AI SDK |
+| `nodejs-cli-apps-best-practices/` | Node.js CLI best practices |
+| `json/` | JSON format references |
+| `agent-skills/` | Agent skill resources |
+| `awesome-opensource-boilerplates/` | Open source boilerplates |
+| `self_reports/` | Self-reporting resources |
+| `taches-cc-resources/` | Taches CC resources |
+| `puter/` | Puter resources |
+| `some_others/` | Miscellaneous references |
+
+**Use `read` to explore these when relevant.** They are valuable references for architecture patterns, language features, and design inspiration.
+
 ## Lessons Learned
 
 ### The `system_directives` Anti-Pattern
