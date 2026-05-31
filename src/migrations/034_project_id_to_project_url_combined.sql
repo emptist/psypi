@@ -125,9 +125,9 @@ SELECT s.id,
     s.instructions, s.manifest, s.content_hash, s.created_at, s.updated_at, s.builder,
     s.maintainer, s.build_metadata, s.generation_prompt, s.category, s.content,
     s.trigger_phrases, s.anti_patterns, s.quick_start, s.examples, s.embedding,
-    s.viewers, p.name AS project_name
+    s.viewers,
+    s.project_url AS project_name
 FROM skills s
-LEFT JOIN projects p ON s.project_url = p.git_remote
 WHERE s.status = 'approved' AND s.is_enabled = true
 ORDER BY s.rating DESC, s.safety_score DESC;
 
@@ -143,9 +143,9 @@ SELECT s.id,
     s.instructions, s.manifest, s.content_hash, s.created_at, s.updated_at, s.builder,
     s.maintainer, s.build_metadata, s.generation_prompt, s.category, s.content,
     s.trigger_phrases, s.anti_patterns, s.quick_start, s.examples, s.embedding,
-    s.viewers, p.name AS project_name
+    s.viewers,
+    s.project_url AS project_name
 FROM skills s
-LEFT JOIN projects p ON s.project_url = p.git_remote
 WHERE s.status = 'pending' OR (s.review_status = 'needs_manual_review' AND s.status = 'approved')
 ORDER BY s.safety_score, s.created_at DESC;
 
@@ -158,7 +158,6 @@ SELECT ir.id,
     ir.requested_at, ir.review_round, ir.overall_score,
     EXTRACT(epoch FROM (now() - ir.requested_at)) / 60 AS pending_minutes
 FROM inter_reviews ir
-LEFT JOIN projects p ON ir.project_url = p.git_remote
 LEFT JOIN tasks t ON t.project_url = ir.project_url
 WHERE ir.status = 'pending'
 ORDER BY ir.requested_at;
