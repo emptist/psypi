@@ -73,6 +73,7 @@ pub type PiEventHook {
     args: List(FnArg),
     debounce_ms_module: String,
     debounce_ms_fn: String,
+    cancel_on: List(String),
     guard: Option(String),
     on_success: HookSuccessAction,
     on_error: HookErrorAction,
@@ -227,13 +228,13 @@ pub fn to_js_text(tool: PiToolCall) -> String {
     "        const result = await " <> call_expr <> ";",
     "        const r = unwrapGleamResult(result);",
     "        if (!r.ok) {",
-    "          pi_extension_notify_error(ctx, 'Tool " <> name <> " error: ' + r.error);",
+    "          pi_extension_ctx_notify(ctx, 'Tool " <> name <> " error: ' + r.error, 'error');",
     "        }",
     "        return r.ok ? { content: [{ type: \"text\", text: "
       <> result_js
       <> " }] } : { content: [{ type: \"text\", text: `Error: ${r.error}` }] };",
     "      } catch(e) {",
-    "        pi_extension_notify_error(ctx, 'Tool " <> name <> " exception: ' + (e.message || String(e)));",
+    "        pi_extension_ctx_notify(ctx, 'Tool " <> name <> " exception: ' + (e.message || String(e)), 'error');",
     "        return { content: [{ type: \"text\", text: `Error: ${e.message || String(e)}` }] };",
     "      }",
     "    }",
@@ -371,6 +372,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       args:,
       debounce_ms_module:,
       debounce_ms_fn:,
+      cancel_on:,
       guard: _,
       on_success:,
       on_error:,
@@ -386,6 +388,20 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         NotifyError ->
           "        ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
       }
+      let cancel_js =
+        cancel_on
+        |> list.map(fn(ev) {
+          [
+            "  // Cancel debounce timer on: " <> ev,
+            "  pi.on('" <> ev <> "', async (_event, _ctx) => {",
+            "    if (_debounceTimerId) { clearTimeout(_debounceTimerId); _debounceTimerId = null; }",
+            "  });",
+            "",
+          ]
+          |> list.map(fn(s) { s <> "\n" })
+          |> string.concat
+        })
+        |> string.concat
       [
         "  // Event hook (debounced): " <> event_name,
         "  let _debounceTimerId = null;",
@@ -404,7 +420,6 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      _debounceTimerId = setTimeout(async () => {",
         "        _debounceTimerId = null;",
         "        try {",
-        "          ctx.ui.notify('[AUTONOMIC] setTimeout callback fired for " <> event_name <> "', 'info');",
         "          " <> hook_import_ln,
         "          const result = await " <> call <> ";",
         "          const r = unwrapGleamResult(result);",
@@ -423,6 +438,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       ]
       |> list.map(fn(s) { s <> "\n" })
       |> string.concat
+      <> cancel_js
     }
   }
 }
@@ -528,6 +544,7 @@ pub fn debounced_hook(
   args: List(FnArg),
   debounce_ms_module: String,
   debounce_ms_fn: String,
+  cancel_on: List(String),
   guard: Option(String),
   on_success: HookSuccessAction,
   on_error: HookErrorAction,
@@ -539,6 +556,7 @@ pub fn debounced_hook(
     args:,
     debounce_ms_module:,
     debounce_ms_fn:,
+    cancel_on:,
     guard:,
     on_success:,
     on_error:,

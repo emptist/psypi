@@ -26,37 +26,6 @@ pub fn decode_rows(
   |> result.all
 }
 
-pub fn is_s_still_idle() -> promise.Promise(Result(Bool, String)) {
-  db.with_connection(
-    fn(conn) {
-      let sql =
-        "SELECT COUNT(*) as cnt FROM agent_sessions "
-        <> "WHERE status = 'alive' AND last_heartbeat > NOW() - INTERVAL '5 minutes'"
-      promise.map(db.query(conn, sql, []), fn(query_result) {
-        case query_result {
-          Error(e) -> Error(db_error_to_string(e))
-          Ok(result) ->
-            case result.rows {
-              [] -> Ok(True)
-              [row, ..] -> {
-                case decode.run(row, count_decoder()) {
-                  Ok(cnt) -> Ok(cnt == 0)
-                  Error(_) -> Ok(True)
-                }
-              }
-            }
-        }
-      })
-    },
-    db_error_to_string,
-  )
-}
-
-fn count_decoder() -> decode.Decoder(Int) {
-  use cnt <- decode.field("cnt", decode.int)
-  decode.success(cnt)
-}
-
 pub fn read_soul_from_db() -> promise.Promise(Result(String, String)) {
   db.with_connection(
     fn(conn) {

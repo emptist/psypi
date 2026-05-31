@@ -235,11 +235,20 @@ Both bots should periodically review their own **database definitions** — soul
 
 ### System-Review vs Inter-Review
 
-These are **completely different tasks**:
-- **System-review**: A thorough review of the entire project — codebase, database, docs, architecture. Like the deep review that produced `REVIEW-2026-05-24-DEEP.md`. This is a major undertaking.
-- **Inter-review**: A focused review of specific code changes, triggered by `psypi-commit`. Quick, targeted, per-change.
+These are fundamentally different types of monitoring:
 
-Do not confuse them. The database had them mixed up — S's "system-review" job was listed as "inter-review", which is wrong.
+- **Inter-review** = **Process monitoring** (front-loaded management, consistent with PDCA). A reviews S's work **during** the current working cycle — what S just did, what code S just changed, what decisions S just made. Focused, targeted, timely. This is A-bot's primary job. Like a quality inspector on a production line checking each unit as it passes. Results go to `inter_reviews` table.
+
+- **System-review** = **Terminal monitoring**. A comprehensive review of the **entire system** across all dimensions — codebase architecture, database schema integrity, documentation completeness, type coverage, code duplication patterns, missing Gleam types, stale data, accumulated technical debt. This is **S's job** (or an external AI invited by the user), NOT A's job. A is an added mechanism, not Pi's native component — complex tasks like system-review should be done by S. A can prompt S to do a system-review when A judges it is needed. Results go to `system_reviews` + `review_findings` tables.
+
+| Aspect | Inter-Review | System-Review |
+|--------|-------------|---------------|
+| Scope | S's current work | Entire system |
+| Timing | Every A-bot cycle | Periodic / on-demand |
+| Who | A-bot | S-bot or external AI |
+| Focus | Specific changes | All dimensions |
+| Output | `inter_reviews` table | `system_reviews` + `review_findings` tables |
+| Analogy | Quality inspector | Annual audit |
 
 ## Key Files
 

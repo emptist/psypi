@@ -243,37 +243,31 @@ A and S borrow from the autonomic and somatic nervous systems. Like alternating 
 
 A-bot has exactly two modes:
 
-1. **Waiting mode** — A stopwatch runs, counting how long S has been continuously idle (`ctx.isIdle() === true` and `ctx.isStreaming === false`). The stopwatch **resets to zero** on any S activity signal. The stopwatch **resets to zero** when A starts working.
+1. **Waiting mode** — S is working or has not been idle long enough. The debounce timer in extension.js counts down. Any S activity resets the timer.
 
-2. **Working mode** — Triggered when and only when the stopwatch reaches `monitor_debounce_ms`. A reads soul/jobs from DB, calls LLM via `call_monitor()`, and sends results to S.
+2. **Working mode** — Triggered when the debounce timer fires (after `monitor_debounce_ms` of continuous S inactivity). A reads soul/jobs from DB, calls LLM via `call_monitor()`, and sends results to S.
 
-**The stopwatch is the only technically non-trivial part of the entire A/S system.** Everything else uses Pi's built-in support (`pi.on()`, `pi.sendMessage()`, `ctx.ui.notify()`).
+**The debounce timer is the only technically non-trivial part of the entire A/S system.** Everything else uses Pi's built-in support (`pi.on()`, `pi.sendMessage()`, `ctx.ui.notify()`).
 
-### Stopwatch Logic (CRITICAL — read this until you understand it)
+### Debounce Timer Logic (CRITICAL — read this until you understand it)
 
 ```
-Stopwatch state: stored as psypi_config.idle_since (Unix ms timestamp, or "0" when not running)
+In extension.js, on each agent_end event:
+  → CLEAR previous timer (if any)
+  → SET new timer: setTimeout(callback, monitor_debounce_ms)
 
-On ANY S activity (agent_end fires while S is NOT idle, or any tool_call, or any user input):
-  → stopwatch RESETS TO ZERO (idle_since = "0")
+When timer fires (after monitor_debounce_ms of no new agent_end events):
+  → CALL hook_on_agent_end.on_agent_end(ctx, pi)
+  → Gleam code checks ctx_is_idle(ctx):
+      → True:  run_a_bot() — read soul/jobs, call LLM, send result
+      → False: do nothing (S became active during debounce period)
 
-On agent_end fires AND ctx.isIdle() === true AND ctx.hasPendingMessages() === false:
-  → IF stopwatch is at zero (idle_since = "0"):
-      → START stopwatch: idle_since = now_ms()
-      → DO NOT start working yet — wait for debounce
-  → IF stopwatch is running (idle_since != "0"):
-      → READ elapsed = now_ms() - idle_since
-      → IF elapsed >= monitor_debounce_ms:
-          → RESET stopwatch (idle_since = "0")
-          → START WORKING: call_monitor() → pi_send_message()
-      → IF elapsed < monitor_debounce_ms:
-          → DO NOTHING — keep waiting
-
-When A starts working:
-  → stopwatch RESETS TO ZERO (idle_since = "0")
+Key invariant: The timer only fires if S has been continuously idle
+for the full debounce period. Any S activity (new agent_end event)
+resets the timer. This guarantees A never interrupts S.
 ```
 
-**Key invariant**: The stopwatch only advances while S is continuously idle. Any S activity resets it. A working also resets it. This guarantees A never interrupts S.
+**Why this works**: Pi fires `agent_end` each time S finishes a turn. While S is working (multiple turns), each `agent_end` resets the timer. When S truly stops, no more `agent_end` events fire, and the timer eventually reaches zero. The `ctx_is_idle()` check at timer fire time is a safety net — if S somehow became active again during the debounce period (edge case), the hook silently does nothing.
 
 ### A-bot's Check Scope
 
@@ -292,6 +286,23 @@ A's primary job is **Check** across all PDCA dimensions, not just inter-review:
 6. **Follow-up enforcement** — In the next alternating cycle, A MUST verify whether S responded to the previous round's check findings. Unaddressed findings are NOT allowed to slip through — A must escalate or re-raise them.
 
 **Inter-review is a subset of Check, not the whole of Check.** A reviews behavior, code, data, docs, and follows up — inter-review is just the most structured and convenient part.
+
+### Inter-Review vs System-Review
+
+These are fundamentally different types of monitoring, performed by different agents:
+
+- **Inter-review** = **Process monitoring** (front-loaded management, consistent with PDCA). A reviews S's work **during** the current working cycle — what S just did, what code S just changed, what decisions S just made. It is focused, targeted, and timely. This is A-bot's primary job. Like a quality inspector on a production line checking each unit as it passes.
+
+- **System-review** = **Terminal monitoring**. A comprehensive review of the **entire system** across all dimensions — codebase architecture, database schema integrity, documentation completeness, type coverage, code duplication patterns, missing Gleam types, stale data, accumulated technical debt. This is **S's job** (or an external AI invited by the user), NOT A's job. A is an added mechanism, not Pi's native component — complex tasks like system-review should be done by S, which has full Pi capabilities. A can, however, prompt S to do a system-review when A judges it is needed.
+
+| Aspect | Inter-Review | System-Review |
+|--------|-------------|---------------|
+| Scope | S's current work | Entire system |
+| Timing | Every A-bot cycle | Periodic / on-demand |
+| Who | A-bot | S-bot or external AI |
+| Focus | Specific changes | All dimensions |
+| Output | `inter_reviews` table | `system_reviews` + `review_findings` tables |
+| Analogy | Quality inspector | Annual audit |
 
 ### A-bot Communication Rules
 
@@ -337,7 +348,7 @@ A-bot inter-review / system review
 
 **How agents should work**: After completing a review (inter-review or system review), create issues for the significant findings. In the issue, analyze root cause, discuss solutions, and plan actions. When the plan is agreed upon, derive tasks. During task execution, A reviews progress. New findings from those reviews create new issues. The loop never breaks — every problem is tracked from discovery to resolution.
 
-### Job化而非程序化
+### Jobs Over Code
 
 The closed loop is enforced through **jobs**, not programmatic constraints. A's jobs are loaded every time A activates. Each job is a behavioral guideline that A follows naturally:
 
@@ -363,8 +374,8 @@ The closed loop is enforced through **jobs**, not programmatic constraints. A's 
 When S finishes a turn, Pi fires `agent_end`:
 
 1. **extension.js debounce** — `setTimeout(callback, debounceMs)` with timer dedup (clear previous timer before starting new one). Debounce value read from `psypi_config.monitor_debounce_ms` (cached after first read).
-2. **After debounce timer fires** — `hook_on_agent_end.on_agent_end(ctx, pi)` executes the stopwatch logic above.
-3. **If stopwatch satisfied** — `a_orchestrator.run_a_workflow()` reads soul+jobs+state from DB, builds prompts, calls `call_monitor()`, sends result via `pi_send_message()`.
+2. **After debounce timer fires** — `hook_on_agent_end.on_agent_end(ctx, pi)` checks `ctx_is_idle(ctx)`. If idle, calls `run_a_bot()`.
+3. **run_a_bot()** reads soul+jobs+state from DB, builds prompts, calls `call_monitor()`, sends result via `pi_send_message()` with `triggerTurn: true`.
 
 Changes to debounce take effect after restart (cached at module level in extension.js).
 

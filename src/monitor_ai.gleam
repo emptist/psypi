@@ -558,8 +558,8 @@ pub fn auto_file_issue(
     fn(conn) {
       let sql =
         "
-      INSERT INTO issues (title, description, severity, type, created_by, discovered_by, environment)
-      VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'development')
+      INSERT INTO issues (title, description, severity, issue_type, created_by, discovered_by, project_id, environment)
+      VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'psypi', 'development')
       RETURNING id
     "
       let title = "Tool error: " <> tool_name

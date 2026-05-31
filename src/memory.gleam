@@ -38,6 +38,12 @@ fn db_error_to_memory_error(e: db.DbError) -> MemoryError {
   }
 }
 
+/// Decoder for RETURNING id (single field)
+fn id_decoder() -> decode.Decoder(String) {
+  use id <- decode.field("id", decode.string)
+  decode.success(id)
+}
+
 /// Decoder for Memory
 fn memory_decoder() -> decode.Decoder(Memory) {
   use id <- decode.field("id", decode.string)
@@ -79,9 +85,9 @@ pub fn save(
           case result.rows {
             [] -> Error(QueryError("No ID returned"))
             [row, ..] -> {
-              case decode.run(row, memory_decoder()) {
-                Ok(mem) -> Ok(mem.id)
-                Error(_) -> Error(DecodeError("Failed to decode memory"))
+              case decode.run(row, id_decoder()) {
+                Ok(id) -> Ok(id)
+                Error(_) -> Error(DecodeError("Failed to decode RETURNING id"))
               }
             }
           }
@@ -98,7 +104,7 @@ pub fn search(
 ) -> promise.Promise(Result(List(Memory), MemoryError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT * FROM memory 
+      SELECT id, content, tags, source, agent_id, importance, created_at::text FROM memory
       WHERE content ILIKE $1 OR tags::text ILIKE $1
       ORDER BY importance DESC, created_at DESC
       LIMIT $2

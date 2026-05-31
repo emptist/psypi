@@ -1,5 +1,5 @@
 import gleam/javascript/promise
-import pi_extension.{notify_info}
+import pi_extension.{ctx_notify}
 
 pub fn on_consult(
   question: String,
@@ -9,7 +9,7 @@ pub fn on_consult(
     True -> "What should I consider?"
     False -> question
   }
-  notify_info(ctx, "[AUTONOMIC] Consult: " <> user_question)
+  ctx_notify(ctx, "[AUTONOMIC] Consult: " <> user_question, "info")
   // Note: pi_send_message signature is (pi, customType, content, display)
   // but here ctx is passed as first arg since the Gleam FFI uses (ctx, ...)
   // We use a simple approach: notify and return the question for the S-worker

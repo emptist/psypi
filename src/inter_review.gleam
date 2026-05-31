@@ -145,7 +145,7 @@ pub fn get_review_details(
   db.with_connection(
     fn(conn) {
       let sql =
-        "SELECT id, task_id, status, summary, overall_score, requested_at FROM inter_reviews WHERE id = $1"
+        "SELECT id, task_id, status, summary, overall_score, requested_at::text FROM inter_reviews WHERE id = $1"
       let params = [dynamic.string(review_id)]
 
       promise.map(db.query(conn, sql, params), fn(query_result) {
@@ -280,9 +280,9 @@ pub fn list_reviews(
     fn(conn) {
       let sql = case status {
         Some(_) ->
-          "SELECT id, task_id, status, summary, overall_score, requested_at FROM inter_reviews WHERE status = $1 ORDER BY requested_at DESC LIMIT 100"
+          "SELECT id, task_id, status, summary, overall_score, requested_at::text FROM inter_reviews WHERE status = $1 ORDER BY requested_at DESC LIMIT 100"
         None ->
-          "SELECT id, task_id, status, summary, overall_score, requested_at FROM inter_reviews ORDER BY requested_at DESC LIMIT 100"
+          "SELECT id, task_id, status, summary, overall_score, requested_at::text FROM inter_reviews ORDER BY requested_at DESC LIMIT 100"
       }
 
       let params = case status {

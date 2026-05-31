@@ -1,10 +1,10 @@
 import gleam/javascript/promise
-import pi_extension.{ctx_reload, notify_info}
+import pi_extension.{ctx_notify, ctx_reload}
 
 pub fn on_autonomic_reload(ctx: a) -> promise.Promise(Result(String, String)) {
-  notify_info(ctx, "Reloading extensions...")
+  ctx_notify(ctx, "Reloading extensions...", "info")
   promise.map(ctx_reload(ctx), fn(_) {
-    notify_info(ctx, "Extensions reloaded. Monitor updated.")
+    ctx_notify(ctx, "Extensions reloaded. Monitor updated.", "info")
     Ok("Extensions reloaded.")
   })
 }

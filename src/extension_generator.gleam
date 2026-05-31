@@ -165,6 +165,7 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       [lit("ctx"), lit("pi")],
       "psypi_config",
       "get_debounce_ms",
+      ["agent_start", "input"],
       None,
       SilentSuccess,
       NotifyError,
@@ -230,7 +231,7 @@ fn imports_text(tools: List(PiToolCall)) -> String {
       "// DO NOT EDIT - Regenerate with: gleam run -m extension_generator",
       "",
       "import { Text, Box } from \"@mariozechner/pi-tui\";",
-      "import { notify_error as pi_extension_notify_error, unwrap_gleam_result as unwrapGleamResult, gleam_value_to_json as gleamValueToJson } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
+      "import { ctx_notify as pi_extension_ctx_notify, unwrap_gleam_result as unwrapGleamResult, gleam_value_to_json as gleamValueToJson } from \"./build/dev/javascript/psypi/pi_extension.mjs\";",
       "import { record_trigger as event_hooks_record_trigger } from \"./build/dev/javascript/psypi/event_hooks.mjs\";",
       "",
     ]

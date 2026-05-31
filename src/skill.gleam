@@ -183,7 +183,7 @@ pub fn get(
 ) -> promise.Promise(Result(Skill, SkillError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content, reference_list
+      SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content::text, reference_list::text
       FROM skills
       WHERE name = $1
     "
@@ -213,7 +213,7 @@ pub fn search(
 ) -> promise.Promise(Result(List(Skill), SkillError)) {
   db.with_connection(fn(conn) {
     let sql = "
-      SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content, reference_list
+      SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content::text, reference_list::text
       FROM skills
       WHERE name ILIKE $1 OR description ILIKE $1
       ORDER BY name ASC

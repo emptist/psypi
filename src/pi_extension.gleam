@@ -11,14 +11,8 @@
 
 import gleam/javascript/promise
 
-@external(javascript, "./pi_extension_ffi.mjs", "notify_error")
-pub fn notify_error(ctx: a, message: String) -> Nil
-
-@external(javascript, "./pi_extension_ffi.mjs", "notify_warning")
-pub fn notify_warning(ctx: a, message: String) -> Nil
-
-@external(javascript, "./pi_extension_ffi.mjs", "notify_info")
-pub fn notify_info(ctx: a, message: String) -> Nil
+@external(javascript, "./pi_extension_ffi.mjs", "ctx_notify")
+pub fn ctx_notify(ctx: a, message: String, notify_type: String) -> Nil
 
 @external(javascript, "./pi_extension_ffi.mjs", "set_status")
 pub fn set_status(ctx: a, key: String, text: String) -> Nil
@@ -48,13 +42,22 @@ pub fn ctx_get_model_id(ctx: a) -> String
 pub fn ctx_get_thinking_level(ctx: a) -> String
 
 @external(javascript, "./pi_extension_ffi.mjs", "pi_send_message")
-pub fn pi_send_message(pi: a, custom_type: String, content: String, display: String) -> Nil
+pub fn pi_send_message(
+  pi: a,
+  custom_type: String,
+  content: String,
+  display: String,
+) -> Nil
 
 @external(javascript, "./pi_extension_ffi.mjs", "read_file_sync")
 pub fn read_file_sync(path: String) -> Result(String, String)
 
 @external(javascript, "./pi_extension_ffi.mjs", "call_monitor")
-pub fn call_monitor(ctx: a, user_prompt: String, system_prompt: String) -> promise.Promise(Result(String, String))
+pub fn call_monitor(
+  ctx: a,
+  user_prompt: String,
+  system_prompt: String,
+) -> promise.Promise(Result(String, String))
 
 @external(javascript, "./pi_extension_ffi.mjs", "ctx_reload")
 pub fn ctx_reload(ctx: a) -> promise.Promise(Nil)

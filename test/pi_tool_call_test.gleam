@@ -207,6 +207,7 @@ pub fn debounced_hook_to_js_test() {
     [],
     "psypi_config",
     "get_debounce_ms",
+    ["agent_start", "input"],
     None,
     pi_tool_call.SilentSuccess,
     pi_tool_call.NotifyError,
@@ -217,6 +218,8 @@ pub fn debounced_hook_to_js_test() {
   should.be_true(string.contains(js, "debounceMs"))
   should.be_true(string.contains(js, "psypi_config_get_debounce_ms()"))
   should.be_true(string.contains(js, "Event hook (debounced)"))
+  should.be_true(string.contains(js, "Cancel debounce timer on: agent_start"))
+  should.be_true(string.contains(js, "Cancel debounce timer on: input"))
 }
 
 pub fn debounced_hook_timer_dedup_test() {
@@ -227,6 +230,7 @@ pub fn debounced_hook_timer_dedup_test() {
     [],
     "psypi_config",
     "get_debounce_ms",
+    [],
     None,
     pi_tool_call.SilentSuccess,
     pi_tool_call.NotifyError,
@@ -245,6 +249,7 @@ pub fn debounced_hook_debounce_caching_test() {
     [],
     "psypi_config",
     "get_debounce_ms",
+    [],
     None,
     pi_tool_call.SilentSuccess,
     pi_tool_call.NotifyError,

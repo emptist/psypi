@@ -221,8 +221,8 @@ fn save_issue(
   agent_id: String,
 ) -> promise.Promise(Result(Nil, ReflectionError)) {
   let sql = "
-    INSERT INTO issues (title, description, severity, created_by)
-    VALUES ($1, $2, 'medium', $3)
+    INSERT INTO issues (title, description, severity, created_by, project_id)
+    VALUES ($1, $2, 'medium', $3, '0d324e68-b399-4b85-bd8a-6b1ef7b46168')
   "
   let title = case string.split(content, "\n") {
     [first, ..] -> string.slice(first, 0, 200)

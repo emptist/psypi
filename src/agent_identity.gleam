@@ -1,7 +1,6 @@
-// agent_identity.gleam — Agent identity resolution + enrichment from DB
-
 import agent_identity_types.{
-  type IdentityContext, type IdentityError, IdentityContext, ConnectionError, QueryError, NotFound,
+  type IdentityContext, type IdentityError, IdentityContext, ConnectionError,
+  QueryError, NotFound, semantic_id,
 }
 import db
 import gleam/dynamic
@@ -11,10 +10,6 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import pi_tool_call.{type PiToolCall, PiToolCall, lit, raw_json}
-
-// -------------------------------------------------------------------
-// Types
-// -------------------------------------------------------------------
 
 pub type EnrichedIdentity {
   EnrichedIdentity(
@@ -34,10 +29,6 @@ pub type EnrichedIdentity {
     jobs: List(String),
   )
 }
-
-// -------------------------------------------------------------------
-// Project & globals
-// -------------------------------------------------------------------
 
 fn resolve_project(cwd: String) -> String {
   case cwd {
@@ -82,45 +73,6 @@ pub fn compute_id(
   }
 }
 
-// -------------------------------------------------------------------
-// Semantic ID
-// -------------------------------------------------------------------
-
-fn semantic_id(ctx: IdentityContext) -> Result(String, IdentityError) {
-  let prefix = case ctx.is_idle {
-    True -> "A"
-    False -> "S"
-  }
-
-  let project = case ctx.global {
-    True -> "G"
-    False -> ctx.project
-  }
-
-  case ctx.model {
-    "" -> Error(NotFound("missing model id"))
-    _ -> {
-      let base =
-        prefix
-        <> "-"
-        <> project
-        <> "-"
-        <> ctx.source
-        <> "-"
-        <> ctx.model
-
-      case ctx.thinking_level {
-        "" -> Ok(base)
-        tl -> Ok(base <> "-" <> tl)
-      }
-    }
-  }
-}
-
-// -------------------------------------------------------------------
-// DB helpers
-// -------------------------------------------------------------------
-
 fn db_error_to_identity_error(e: db.DbError) -> IdentityError {
   case e {
     db.ConnectionError(msg) -> ConnectionError(msg)
@@ -162,10 +114,6 @@ fn fetch_soul_by_prefix(
   }, db_error_to_identity_error)
 }
 
-// -------------------------------------------------------------------
-// Jobs query (shared by both agents)
-// -------------------------------------------------------------------
-
 fn job_row_decoder() -> decode.Decoder(String) {
   use job <- decode.field("job", decode.string)
   use priority <- decode.field("priority", decode.int)
@@ -204,10 +152,6 @@ fn fetch_jobs_by_prefix(prefix: String) -> promise.Promise(Result(List(String), 
   }, db_error_to_identity_error)
 }
 
-// -------------------------------------------------------------------
-// Enriched identity: semantic ID + DB soul + jobs
-// -------------------------------------------------------------------
-
 pub fn get_enriched_identity(
   ctx: IdentityContext,
 ) -> promise.Promise(Result(EnrichedIdentity, IdentityError)) {
@@ -227,13 +171,13 @@ pub fn get_enriched_identity(
     cwd: ctx.cwd,
   )
 
+  let prefix = case ctx.is_idle {
+    True -> "A"
+    False -> "S"
+  }
+
   case semantic_id(resolved_ctx) {
     Ok(id) -> {
-      let prefix = case string.contains(id, "A-") || ctx.is_idle {
-        True -> "A"
-        False -> "S"
-      }
-
       promise.await(fetch_soul_by_prefix(prefix), fn(soul_result) {
         promise.await(fetch_jobs_by_prefix(prefix), fn(jobs_result) {
           let jobs = case jobs_result {
@@ -259,23 +203,7 @@ pub fn get_enriched_identity(
                   jobs: jobs,
                 )))
             }
-            Error(_) ->
-              promise.resolve(Ok(EnrichedIdentity(
-                id: id,
-                prefix: prefix,
-                role: prefix <> "-bot",
-                name: prefix <> " Agentbot",
-                domain: "unknown",
-                responsibilities: "",
-                trigger_type: "",
-                drive_mode: "",
-                activation: "",
-                project: project,
-                model: ctx.model,
-                source: ctx.source,
-                thinking_level: ctx.thinking_level,
-                jobs: jobs,
-              )))
+            Error(e) -> promise.resolve(Error(e))
           }
         })
       })
@@ -284,11 +212,6 @@ pub fn get_enriched_identity(
   }
 }
 
-// -------------------------------------------------------------------
-// Pi tool
-// -------------------------------------------------------------------
-
-/// Pi tool: psypi-my-id — get the calling agent's full identity (ID, role, responsibilities, jobs)
 pub fn my_id_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-my-id",

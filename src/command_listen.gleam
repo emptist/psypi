@@ -1,7 +1,7 @@
 import gleam/javascript/promise
 import gleam/string
 import pi_extension.{
-  call_monitor, notify_info, pi_send_message,
+  call_monitor, ctx_notify, pi_send_message,
 }
 
 pub fn on_autonomic_listen(
@@ -11,7 +11,7 @@ pub fn on_autonomic_listen(
 ) -> promise.Promise(Result(String, String)) {
   case args == "" {
     True -> {
-      notify_info(ctx, "Usage: /autonomic-listen <message>")
+      ctx_notify(ctx, "Usage: /autonomic-listen <message>", "info")
       promise.resolve(Ok("Usage: /autonomic-listen <message>"))
     }
     False -> {
@@ -22,7 +22,7 @@ pub fn on_autonomic_listen(
         <> "Think about what they need and compose a clear, specific message to S. "
         <> "Be brief and actionable."
       let user_prompt = "Human says: " <> args
-      notify_info(ctx, "[AUTONOMIC] A thinking about human message...")
+      ctx_notify(ctx, "[AUTONOMIC] A thinking about human message...", "info")
       promise.await(
         call_monitor(ctx, user_prompt, system_prompt),
         fn(result) {
@@ -33,11 +33,11 @@ pub fn on_autonomic_listen(
                 False -> "[A-agentbot] " <> response
               }
               pi_send_message(pi, "autonomic-wakeup", message, "persistent")
-              notify_info(ctx, "[AUTONOMIC] wake-up sent")
+              ctx_notify(ctx, "[AUTONOMIC] wake-up sent", "info")
               promise.resolve(Ok("A processed the message and sent to S."))
             }
             Error(e) -> {
-              notify_info(ctx, "[AUTONOMIC] <ERROR> call_monitor: " <> e)
+              ctx_notify(ctx, "[AUTONOMIC] <ERROR> call_monitor: " <> e, "error")
               promise.resolve(Error("A failed to process: " <> e))
             }
           }
