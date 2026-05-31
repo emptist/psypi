@@ -235,6 +235,8 @@ Both bots should periodically review their own **database definitions** — soul
 
 ### System-Review vs Inter-Review
 
+> See `docs/DESIGN-inter-review-PDCA.md` for the full design document.
+
 These are fundamentally different types of quality control:
 
 - **Inter-review** = A-bot's **Check** in the PDCA cycle. It happens *between* S-bot sessions (the "inter-" prefix is literal — between turns). A reviews whatever S just did (code, docs, data, decisions) and files findings to the `inter_reviews` table. Then S wakes, reads A's feedback, and acts on it (PDCA's Act). Results go to the `inter_reviews` table.
@@ -279,6 +281,7 @@ These are fundamentally different types of quality control:
 - `src/hook_on_before_agent_start.gleam` — S system prompt from DB
 - `src/psypi_config.gleam` — psypi_config table reads/writes (debounce_ms, etc.)
 - `src/system_prompt_types.gleam` — PromptComposition with context window budget
+- `docs/DESIGN-inter-review-PDCA.md` — inter-review design: PDCA cycle, data flow, comparison with system-review
 
 ## agent_end Workflow (A-S Communication)
 
