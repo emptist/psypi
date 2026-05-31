@@ -83,12 +83,12 @@ The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is 
 | `review_findings`     | Individual findings from system reviews (severity, category, evidence, impact)     |
 | `review_comments`     | Comments on review findings                                                        |
 | `review_labels`       | Labels/tags for review findings                                                    |
-| `inter_reviews`       | Inter-agent code reviews (A↔S code change reviews)                                 |
+| `inter_reviews`       | In-process QC records — A-bot's review of S's current work (code, docs, data, decisions) |
 
 ### `id_prefix`
 
 Field in `agent_souls` table (`text UNIQUE NOT NULL`):
-- `'A'` — Autonomic Agentbot (quality guardian: reviews S behavior and work, inter-reviews code changes, anti-stupidity enforcement)
+- `'A'` — Autonomic Agentbot (quality guardian: performs in-process QC via inter-review, monitors S behavior, enforces anti-stupidity rules)
 - `'S'` — Somatic Agentbot (the doer: prompt-driven task execution, considers A suggestions thoughtfully)
 
 A and S work like **alternating current** — never active simultaneously. When S finishes and goes idle, A wakes up and reviews. When A finishes, S may be woken. They alternate, never overlap. See README.md "The A/S Dialogue Model" for full details.
@@ -279,30 +279,32 @@ A's primary job is **Check** across all PDCA dimensions, not just inter-review:
 
 3. **Database quality** — Schema correctness, data integrity, type coverage (are all DB enum columns backed by Gleam types?), query patterns (no N+1, no missing indexes).
 
-4. **Documentation quality** — Are skill docs up to date? Are ADRs recorded? Is the README current? Are findings from system reviews documented?
+4. **Documentation quality** — Are skill docs up to date? Are ADRs recorded? Is the README current? Is the `table_documentation` accurate and complete?
 
-5. **Inter-review** — The most direct and convenient check: review S's code and document changes from this turn. Results MUST be saved to the `inter_reviews` database table. The message to S MUST reference the review ID so S can look it up, and SHOULD include a brief summary of key findings.
+5. **Inter-review** — The core of A's Check: immediate quality control of S's current work. A reviews the specific piece of work S just completed — code changes, documentation updates, database modifications, and decisions made. This is in-process QC, not end-of-line QC: timely, targeted, and focused on what just happened. Results MUST be saved to the `inter_reviews` database table. The message to S MUST reference the review ID so S can look it up, and SHOULD include a brief summary of key findings.
 
 6. **Follow-up enforcement** — In the next alternating cycle, A MUST verify whether S responded to the previous round's check findings. Unaddressed findings are NOT allowed to slip through — A must escalate or re-raise them.
 
-**Inter-review is a subset of Check, not the whole of Check.** A reviews behavior, code, data, docs, and follows up — inter-review is just the most structured and convenient part.
+**Inter-review is the most structured and visible part of Check, but not the whole of Check.** A also reviews behavior compliance, database quality, documentation quality, and follows up on prior findings. Inter-review is simply the component with the clearest input (S's latest work) and the most structured output (`inter_reviews` table).
 
 ### Inter-Review vs System-Review
 
-These are fundamentally different types of monitoring, performed by different agents:
+These are fundamentally different types of quality control, performed by different agents, at different times:
 
-- **Inter-review** = **Process monitoring** (front-loaded management, consistent with PDCA). A reviews S's work **during** the current working cycle — what S just did, what code S just changed, what decisions S just made. It is focused, targeted, and timely. This is A-bot's primary job. Like a quality inspector on a production line checking each unit as it passes.
+- **Inter-review** = **In-process QC** (immediate, front-loaded). When S finishes a turn, A reviews the specific work S just produced — whether it's a code change, a documentation update, a database modification, or a behavioral decision. Like a quality inspector on a production line examining each unit as it passes. Narrow in scope but immediate and actionable. This is A-bot's primary job. Results go to the `inter_reviews` table.
 
-- **System-review** = **Terminal monitoring**. A comprehensive review of the **entire system** across all dimensions — codebase architecture, database schema integrity, documentation completeness, type coverage, code duplication patterns, missing Gleam types, stale data, accumulated technical debt. This is **S's job** (or an external AI invited by the user), NOT A's job. A is an added mechanism, not Pi's native component — complex tasks like system-review should be done by S, which has full Pi capabilities. A can, however, prompt S to do a system-review when A judges it is needed.
+- **System-review** = **End-of-line QC** (delayed, comprehensive). A thorough examination of the **entire system** across all dimensions — codebase architecture, database schema integrity, type coverage, documentation completeness, code duplication patterns, missing Gleam types, stale data, and accumulated technical debt. Like an annual audit that looks at the whole factory, not just one unit. Broad in scope but infrequent and deep. This is **S's job** (or an external AI invited by the user), NOT A's job. A is an added mechanism, not Pi's native component — complex tasks like system-review should be done by S, which has full Pi capabilities. A can, however, prompt S to do a system-review when A judges it is needed. Results go to `system_reviews` + `review_findings` tables.
 
 | Aspect | Inter-Review | System-Review |
 |--------|-------------|---------------|
-| Scope | S's current work | Entire system |
+| Nature | In-process QC (immediate) | End-of-line QC (delayed) |
+| Scope | S's current work unit | Entire system |
 | Timing | Every A-bot cycle | Periodic / on-demand |
 | Who | A-bot | S-bot or external AI |
-| Focus | Specific changes | All dimensions |
+| Inputs | Code, docs, data, decisions from this turn | All source files, DB schema, docs, configs |
+| Focus | Specific changes, behavior, data quality | Architecture, type coverage, tech debt, completeness |
 | Output | `inter_reviews` table | `system_reviews` + `review_findings` tables |
-| Analogy | Quality inspector | Annual audit |
+| Analogy | Quality inspector on the line | Annual audit of the whole factory |
 
 ### A-bot Communication Rules
 

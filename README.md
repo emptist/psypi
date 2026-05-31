@@ -101,7 +101,7 @@ All functionality is exposed as Pi tools — use them inside the TUI, never from
 | `psypi-stats-show`        | Show project statistics                            |
 | **Other**                 |                                                    |
 | `psypi-consult-autonomic` | Consult A-bot for difficult decisions              |
-| `psypi-commit`            | Commit with Monitor inter-review                   |
+| `psypi-commit`            | Commit with two-phase QC (inter-review gate)       |
 
 ## Adding a Pi Tool
 
@@ -235,20 +235,22 @@ Both bots should periodically review their own **database definitions** — soul
 
 ### System-Review vs Inter-Review
 
-These are fundamentally different types of monitoring:
+These are fundamentally different types of quality control:
 
-- **Inter-review** = **Process monitoring** (front-loaded management, consistent with PDCA). A reviews S's work **during** the current working cycle — what S just did, what code S just changed, what decisions S just made. Focused, targeted, timely. This is A-bot's primary job. Like a quality inspector on a production line checking each unit as it passes. Results go to `inter_reviews` table.
+- **Inter-review** = **In-process QC** (immediate, front-loaded). When S finishes a turn, A reviews the specific work S just produced — whether it's a code change, a documentation update, a database modification, or a behavioral decision. Like a quality inspector on a production line examining each unit as it passes. Narrow in scope but immediate and actionable. This is A-bot's primary job. Results go to the `inter_reviews` table.
 
-- **System-review** = **Terminal monitoring**. A comprehensive review of the **entire system** across all dimensions — codebase architecture, database schema integrity, documentation completeness, type coverage, code duplication patterns, missing Gleam types, stale data, accumulated technical debt. This is **S's job** (or an external AI invited by the user), NOT A's job. A is an added mechanism, not Pi's native component — complex tasks like system-review should be done by S. A can prompt S to do a system-review when A judges it is needed. Results go to `system_reviews` + `review_findings` tables.
+- **System-review** = **End-of-line QC** (delayed, comprehensive). A thorough examination of the **entire system** across all dimensions — codebase architecture, database schema integrity, type coverage, documentation completeness, code duplication patterns, missing Gleam types, stale data, and accumulated technical debt. Like an annual audit that looks at the whole factory, not just one unit. Broad in scope but infrequent and deep. This is **S's job** (or an external AI invited by the user), NOT A's job. A is an added mechanism, not Pi's native component — complex tasks like system-review should be done by S. A can prompt S to do a system-review when A judges it is needed. Results go to `system_reviews` + `review_findings` tables.
 
 | Aspect | Inter-Review | System-Review |
 |--------|-------------|---------------|
-| Scope | S's current work | Entire system |
+| Nature | In-process QC (immediate) | End-of-line QC (delayed) |
+| Scope | S's current work unit | Entire system |
 | Timing | Every A-bot cycle | Periodic / on-demand |
 | Who | A-bot | S-bot or external AI |
-| Focus | Specific changes | All dimensions |
+| Inputs | Code, docs, data, decisions from this turn | All source files, DB schema, docs, configs |
+| Focus | Specific changes, behavior, data quality | Architecture, type coverage, tech debt, completeness |
 | Output | `inter_reviews` table | `system_reviews` + `review_findings` tables |
-| Analogy | Quality inspector | Annual audit |
+| Analogy | Quality inspector on the line | Annual audit of the whole factory |
 
 ## Key Files
 
