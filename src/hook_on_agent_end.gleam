@@ -6,7 +6,7 @@ import gleam/javascript/promise
 import gleam/string
 import pi_extension.{
   call_monitor, ctx_get_context_usage_json, ctx_get_cwd,
-  ctx_get_entries_json, ctx_is_idle, now_ms, pi_send_message,
+  ctx_get_entries_json, ctx_is_idle, ctx_notify, now_ms, pi_send_message,
 }
 import psypi_config
 import system_prompt_types
@@ -40,7 +40,8 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
       pi_send_message(pi, "autonomic-error", msg, "persistent")
       promise.resolve(Ok(Nil))
     }
-    Ok(context_window) ->
+    Ok(context_window) -> {
+      let _ = ctx_notify(ctx, "[A-agentbot] Reading soul from database...", "status")
       promise.await(a_db_reader.read_soul_from_db(), fn(soul_result) {
         case soul_result {
           Error(e) -> {
@@ -50,7 +51,8 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
             pi_send_message(pi, "autonomic-error", msg, "persistent")
             promise.resolve(Ok(Nil))
           }
-          Ok(soul_content) ->
+          Ok(soul_content) -> {
+            let _ = ctx_notify(ctx, "[A-agentbot] Reading A jobs from database...", "status")
             promise.await(a_db_reader.read_a_jobs_from_db(), fn(jobs_result) {
               case jobs_result {
                 Error(e) -> {
@@ -60,7 +62,8 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                   pi_send_message(pi, "autonomic-error", msg, "persistent")
                   promise.resolve(Ok(Nil))
                 }
-                Ok(a_jobs) ->
+                Ok(a_jobs) -> {
+                  let _ = ctx_notify(ctx, "[A-agentbot] Reading project state...", "status")
                   promise.await(
                     a_db_reader.read_project_state_from_db(),
                     fn(state_result) {
@@ -68,6 +71,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                         Ok(s) -> s
                         Error(e) -> "Failed to read project state: " <> e
                       }
+                      let _ = ctx_notify(ctx, "[A-agentbot] Getting last session time...", "status")
                       promise.await(
                         a_db_reader.get_last_a_session_at(),
                         fn(last_session_result) {
@@ -75,13 +79,16 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                             Ok(ts) -> ts
                             Error(_) -> ""
                           }
+                          let _ = ctx_notify(ctx, "[A-agentbot] Getting recent commits...", "status")
                           let commit_info = get_recent_commits(last_session)
+                          let _ = ctx_notify(ctx, "[A-agentbot] Building system prompt...", "status")
                           let system_prompt =
                             system_prompt_types.compose(a_prompt_builder.build_system_prompt(
                               soul_content,
                               a_jobs,
                               context_window,
                             ))
+                          let _ = ctx_notify(ctx, "[A-agentbot] Building user prompt...", "status")
                           let user_prompt =
                             a_prompt_builder.build_user_prompt(
                               usage_json,
@@ -90,6 +97,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                               project_state,
                               commit_info,
                             )
+                          let _ = ctx_notify(ctx, "[A-agentbot] Calling monitor...", "status")
                           promise.await(
                             call_monitor(ctx, user_prompt, system_prompt),
                             fn(monitor_result) {
@@ -97,22 +105,31 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                 Ok(response) -> {
                                   case ctx_is_idle(ctx) {
                                     True -> {
+                                      let _ = ctx_notify(ctx, "[A-agentbot] Updating session time...", "status")
                                       let _ = psypi_config.set(
                                         "last_a_session_at",
                                         int.to_string(now_ms()),
                                       )
+                                      let _ = ctx_notify(ctx, "[A-agentbot] Sending wake-up message...", "status")
+                                      let tagged = case string.starts_with(response, "[A]") || string.starts_with(response, "[A-agentbot]") {
+                                        True -> response
+                                        False -> "[A-agentbot] " <> response
+                                      }
                                       pi_send_message(
                                         pi,
                                         "autonomic-wakeup",
-                                        response,
+                                        tagged,
                                         "persistent",
                                       )
                                     }
-                                    False -> Nil
+                                    False -> {
+                                      let _ = ctx_notify(ctx, "[A-agentbot] Cancelled due to user activity", "status")
+                                    }
                                   }
                                   promise.resolve(Ok(Nil))
                                 }
                                 Error(e) -> {
+                                  let _ = ctx_notify(ctx, "[A-agentbot] Monitor error occurred", "status")
                                   pi_send_message(
                                     pi,
                                     "autonomic-error",
@@ -128,10 +145,13 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                       )
                     },
                   )
+                }
               }
             })
+          }
         }
       })
+    }
   }
 }
 

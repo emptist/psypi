@@ -391,10 +391,15 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let cancel_js =
         cancel_on
         |> list.map(fn(ev) {
+          let cancel_msg = case ev {
+            "agent_start" -> "S became active"
+            "input" -> "user activity"
+            _ -> ev
+          }
           [
             "  // Cancel debounce timer on: " <> ev,
             "  pi.on('" <> ev <> "', async (_event, _ctx) => {",
-            "    if (_debounceTimerId) { clearTimeout(_debounceTimerId); _debounceTimerId = null; }",
+            "    if (_debounceTimerId) { clearTimeout(_debounceTimerId); _debounceTimerId = null; _ctx.ui.notify('[A-agentbot] Waiting cancelled — " <> cancel_msg <> "', 'status'); }",
             "  });",
             "",
           ]
@@ -408,6 +413,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "  let _debounceMs = null;",
         "  pi.on('" <> event_name <> "', async (event, ctx) => {",
         "    try {",
+        "      const _wasWaiting = _debounceTimerId !== null;",
         "      if (_debounceTimerId) clearTimeout(_debounceTimerId);",
         "      _debounceTimerId = null;",
         "      " <> debounce_import,
@@ -430,6 +436,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         error_catch,
         "        }",
         "      }, _debounceMs);",
+        "      if (!_wasWaiting) { ctx.ui.notify('[A-agentbot] Waiting for S to become idle...', 'status'); }",
         "    } catch(e) {",
         "      ctx.ui.notify('Hook " <> event_name <> " debounce error: ' + (e.message || String(e)), 'error');",
         "    }",
