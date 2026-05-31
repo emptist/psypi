@@ -5,6 +5,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import db
+import project.{project_url}
 import system_review_types.{
   type ReviewError, type ReviewFinding, type SystemReview,
   ConnectionError, QueryError, NotFound, DecodeError,
@@ -33,7 +34,7 @@ fn review_decoder() -> decode.Decoder(SystemReview) {
   use title <- decode.field("title", decode.optional(decode.string))
   use description <- decode.field("description", decode.optional(decode.string))
   use reviewer_id <- decode.field("reviewer_id", decode.optional(decode.string))
-  use project_id <- decode.field("project_id", decode.optional(decode.string))
+  use project_url <- decode.field("project_url", decode.optional(decode.string))
   use methodology_str <- decode.field("methodology", decode.optional(decode.string))
   use scope_str <- decode.field("scope", decode.optional(decode.string))
   use follow_up_status_str <- decode.field("follow_up_status", decode.string)
@@ -76,7 +77,7 @@ fn review_decoder() -> decode.Decoder(SystemReview) {
     title: title,
     description: description,
     reviewer_id: reviewer_id,
-    project_id: project_id,
+    project_url: project_url,
     methodology: methodology,
     scope: scope,
     follow_up_status: follow_up_status,
@@ -172,11 +173,11 @@ pub fn create_review(
   methodology: String,
   scope: String,
   reviewer_id: String,
-  project_id: String,
 ) -> promise.Promise(Result(String, ReviewError)) {
+  let project_url = project_url()
   db.with_connection(fn(conn) {
     let sql = "
-      INSERT INTO system_reviews (review_type, title, description, methodology, scope, reviewer_id, project_id, status)
+      INSERT INTO system_reviews (review_type, title, description, methodology, scope, reviewer_id, project_url, status)
       VALUES ($1, $2, $3, $4, $5, $6, $7, 'in_progress')
       RETURNING id::text
     "
@@ -187,7 +188,7 @@ pub fn create_review(
       dynamic.string(methodology),
       dynamic.string(scope),
       dynamic.string(reviewer_id),
-      dynamic.string(project_id),
+      dynamic.string(project_url),
     ]
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {
@@ -261,7 +262,7 @@ pub fn get_review(
   db.with_connection(fn(conn) {
     let sql = "
       SELECT id::text, review_type, status, current_state, target_id, target_type,
-             title, description, reviewer_id, project_id::text,
+             title, description, reviewer_id, project_url::text,
              methodology, scope, follow_up_status,
              follow_up_due::text, git_hash, git_branch,
              related_issue_id::text,
@@ -302,7 +303,7 @@ pub fn list_reviews(
     let offset_idx = param_count + 2
     let sql = "
       SELECT id::text, review_type, status, current_state, target_id, target_type,
-             title, description, reviewer_id, project_id::text,
+             title, description, reviewer_id, project_url::text,
              methodology, scope, follow_up_status,
              follow_up_due::text, git_hash, git_branch,
              related_issue_id::text,

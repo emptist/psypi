@@ -1,17 +1,18 @@
 // issue_tools.gleam — Issue Pi tool registrations
 
-import pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template}
+import pi_tool_call.{
+  type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template,
+}
 
 pub fn issue_add_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-issue-add",
-    description: "Add a new issue. project_id defaults to current project if not specified.",
+    description: "Add a new issue. project_url is auto-resolved from git remote or cwd.",
     params: [
       string_param("title"),
       opt_string_param("description"),
       opt_string_param("severity"),
       opt_string_param("issue_type"),
-      opt_string_param("project_id"),
     ],
     module: "issue_db",
     fn_name: "add",
@@ -21,7 +22,6 @@ pub fn issue_add_tool() -> PiToolCall {
       from_param("params.severity || \"medium\""),
       from_param("params.issue_type || \"bug\""),
       from_param("params.created_by || \"psypi\""),
-      from_param("params.project_id || \"0d324e68-b399-4b85-bd8a-6b1ef7b46168\""),
     ],
     result_format: template("Issue added: ${r.value}"),
   )
@@ -30,7 +30,7 @@ pub fn issue_add_tool() -> PiToolCall {
 pub fn issue_list_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-issues",
-    description: "List issues. By default shows only current project issues. Pass project_id=ALL to show all projects.",
+    description: "List issues. Pass project_id=ALL to show all projects.",
     params: [
       opt_string_param("status"),
       opt_string_param("severity"),
@@ -54,7 +54,7 @@ pub fn issue_list_tool() -> PiToolCall {
 pub fn issue_count_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-issue-count",
-    description: "Count issues. By default counts only current project issues. Pass project_id=ALL to count all projects.",
+    description: "Count issues. Pass project_id=ALL to count all projects.",
     params: [
       opt_string_param("status"),
       opt_string_param("severity"),

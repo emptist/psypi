@@ -7,6 +7,7 @@ import gleam/result
 import gleam/string
 import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
+import project.{project_url}
 
 pub type ReflectionError {
   ConnectionError(String)
@@ -220,15 +221,16 @@ fn save_issue(
   content: String,
   agent_id: String,
 ) -> promise.Promise(Result(Nil, ReflectionError)) {
+  let project_url = project_url()
   let sql = "
-    INSERT INTO issues (title, description, severity, created_by, project_id)
-    VALUES ($1, $2, 'medium', $3, '0d324e68-b399-4b85-bd8a-6b1ef7b46168')
+    INSERT INTO issues (title, description, severity, created_by, project_url)
+    VALUES ($1, $2, 'medium', $3, $4)
   "
   let title = case string.split(content, "\n") {
     [first, ..] -> string.slice(first, 0, 200)
     _ -> string.slice(content, 0, 200)
   }
-  let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id)]
+  let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id), dynamic.string(project_url)]
 
   promise.map(db.query(conn, sql, params), fn(query_result) {
     case query_result {
@@ -258,15 +260,16 @@ fn save_task(
   content: String,
   agent_id: String,
 ) -> promise.Promise(Result(Nil, ReflectionError)) {
+  let project_url = project_url()
   let sql = "
-    INSERT INTO tasks (title, description, priority, created_by)
-    VALUES ($1, $2, 5, $3)
+    INSERT INTO tasks (title, description, priority, created_by, project_url)
+    VALUES ($1, $2, 5, $3, $4)
   "
   let title = case string.split(content, "\n") {
     [first, ..] -> string.slice(first, 0, 200)
     _ -> string.slice(content, 0, 200)
   }
-  let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id)]
+  let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id), dynamic.string(project_url)]
 
   promise.map(db.query(conn, sql, params), fn(query_result) {
     case query_result {

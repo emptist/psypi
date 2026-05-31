@@ -2,10 +2,7 @@
 import { spawn, execSync } from 'child_process';
 import { Ok, Error } from './gleam.mjs';
 
-// Get project root (for extension_generator.gleam)
-export function get_project_root() {
-  return process.cwd();
-}
+
 
 // Spawn Pi process
 export function spawn_pi(args) {
@@ -47,11 +44,6 @@ export function exists(cmd) {
 // Get environment variable
 export function get_env(name) {
   return process.env[name] || '';
-}
-
-// Get project ID for RLS policies (PSYPI_PROJECT_ID env var, or empty string for default)
-export function get_project_id_env() {
-  return process.env['PSYPI_PROJECT_ID'] || '';
 }
 
 export function get_database_url() {

@@ -122,8 +122,8 @@ The `id_prefix` column in `agent_souls` and `agent_prefixes` tables remains `A` 
 - Used to determine the time window for fetching recent S-bot commits
 
 ### 3.7 inter_review.gleam
-- Added `save_review_result(review_id, summary, score)` — updates inter_reviews with completed status
-- Added `create_review_for_commits(reviewer_id, commit_info)` — creates review record via DB function
+- `save(summary, score, findings, suggestions)` — the only function needed. A-bot calls Monitor LLM to review S's work, then files the result directly. No task binding, no request/pending flow, no commit_hash coupling. Inter-review is A's autonomous Check — it occurs between S sessions, not gated on any specific commit.
+- Previously planned functions `create_review_for_commits` and `save_review_result` were removed from the plan. They implied a 1:1 commit-to-review coupling that contradicts the "inter-" (between sessions) nature of inter-review. Inter-review is not "create review FOR commits" — it's A doing PDCA Check between S turns.
 
 ### 3.8 pi_extension_ffi.mjs
 - Added `get_agent_id(ctx)` — computes agent ID from context (prefix, project, source, model, thinking)

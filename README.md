@@ -101,7 +101,7 @@ All functionality is exposed as Pi tools — use them inside the TUI, never from
 | `psypi-stats-show`        | Show project statistics                            |
 | **Other**                 |                                                    |
 | `psypi-consult-autonomic` | Consult A-bot for difficult decisions              |
-| `psypi-commit`            | Commit with two-phase QC (inter-review gate)       |
+| `psypi-commit`            | Commit with agent ID tagging (S-bot only)          |
 
 ## Adding a Pi Tool
 
@@ -237,20 +237,33 @@ Both bots should periodically review their own **database definitions** — soul
 
 These are fundamentally different types of quality control:
 
-- **Inter-review** = **In-process QC** (immediate, front-loaded). When S finishes a turn, A reviews the specific work S just produced — whether it's a code change, a documentation update, a database modification, or a behavioral decision. Like a quality inspector on a production line examining each unit as it passes. Narrow in scope but immediate and actionable. This is A-bot's primary job. Results go to the `inter_reviews` table.
+- **Inter-review** = A-bot's **Check** in the PDCA cycle. It happens *between* S-bot sessions (the "inter-" prefix is literal — between turns). A reviews whatever S just did (code, docs, data, decisions) and files findings to the `inter_reviews` table. Then S wakes, reads A's feedback, and acts on it (PDCA's Act). Results go to the `inter_reviews` table.
+
+  PDCA cycle:
+  | Phase | Agent | What |
+  |-------|-------|------|
+  | **Plan** | S (or A suggests) | Decide what to do next |
+  | **Do** | S | Write code, commit, use tools |
+  | **Check** | A | Inter-review between S sessions |
+  | **Act** | S | Address A's findings, improve |
+
+  ```
+  S plans & does → A checks (inter-review) → S acts → S plans & does → A checks → ...
+  ```
 
 - **System-review** = **End-of-line QC** (delayed, comprehensive). A thorough examination of the **entire system** across all dimensions — codebase architecture, database schema integrity, type coverage, documentation completeness, code duplication patterns, missing Gleam types, stale data, and accumulated technical debt. Like an annual audit that looks at the whole factory, not just one unit. Broad in scope but infrequent and deep. This is **S's job** (or an external AI invited by the user), NOT A's job. A is an added mechanism, not Pi's native component — complex tasks like system-review should be done by S. A can prompt S to do a system-review when A judges it is needed. Results go to `system_reviews` + `review_findings` tables.
 
 | Aspect | Inter-Review | System-Review |
 |--------|-------------|---------------|
-| Nature | In-process QC (immediate) | End-of-line QC (delayed) |
-| Scope | S's current work unit | Entire system |
-| Timing | Every A-bot cycle | Periodic / on-demand |
-| Who | A-bot | S-bot or external AI |
-| Inputs | Code, docs, data, decisions from this turn | All source files, DB schema, docs, configs |
-| Focus | Specific changes, behavior, data quality | Architecture, type coverage, tech debt, completeness |
+| Nature | A's **Check** between S sessions (PDCA) | Comprehensive audit of entire system |
+| Scope | What S just did (code, docs, data, decisions) | Entire codebase + DB schema + docs + config |
+| Timing | Between every S-bot cycle | Periodic / on-demand |
+| Who | A-bot (autonomous) | S-bot (or external AI invited by user) |
+| Inputs | S's recent work | All source files, DB schema, docs, configs |
+| Focus | Correctness, behavior, data quality | Architecture, type coverage, tech debt, completeness |
 | Output | `inter_reviews` table | `system_reviews` + `review_findings` tables |
-| Analogy | Quality inspector on the line | Annual audit of the whole factory |
+| PDCA role | **Check** | S doing a deep self-assessment |
+| Analogy | Doctor checking vitals between shifts | Annual full-body scan |
 
 ## Key Files
 
@@ -261,8 +274,7 @@ These are fundamentally different types of quality control:
 - `src/agent_identity.gleam` — identity resolution (single source of truth)
 - `src/agent_identity_types.gleam` — IdentityContext, AgentIdentity types
 - `src/db.gleam` — database access layer (all DB ops go through here)
-- `src/a_orchestrator.gleam` — A-bot workflow orchestrator (fully_functional gate + full workflow)
-- `src/a_prompt_builder.gleam` — A-bot system/user prompt composition + inter-review detection
+- `src/a_prompt_builder.gleam` — A-bot system/user prompt composition
 - `src/hook_on_agent_end.gleam` — agent_end hook: idle_since gating + debounce + A-bot trigger
 - `src/hook_on_before_agent_start.gleam` — S system prompt from DB
 - `src/psypi_config.gleam` — psypi_config table reads/writes (debounce_ms, etc.)
@@ -294,7 +306,7 @@ When the S-worker finishes a turn, the `agent_end` event fires. The autonomic ho
 
 **Key insight:** `setTimeout` callback uses `pi_send_message()` (persistent) because the TUI session may be dormant.
 
-**Note:** A-bot is currently gated behind `fully_functional = False` in `a_orchestrator.gleam`. It sends only a simple greeting. To enable full A-bot workflow, change to `True` and rebuild.
+**Note:** A-bot's full workflow runs via `hook_on_agent_end.gleam` which handles idle_since debounce gating, DB reads, LLM call, and wake-up message composition inline.
 
 ## Lesson: The `system_directives` Anti-Pattern
 

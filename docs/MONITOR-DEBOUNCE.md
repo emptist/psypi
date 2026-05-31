@@ -56,7 +56,7 @@ Values (in milliseconds):
 1. When `agent_end` fires (S-agentbot finishes)
 2. extension.js: `setTimeout(callback, debounceMs)` with timer dedup (clear previous timer before starting new one). Debounce value read from `psypi_config.monitor_debounce_ms` (cached after first read).
 3. After debounce timer fires, `hook_on_agent_end.on_agent_end(ctx, pi)` executes the stopwatch logic above.
-4. If stopwatch satisfied — `a_orchestrator.run_a_workflow()` reads soul+jobs+state from DB, builds prompts, calls `call_monitor()`, sends result via `pi_send_message()`.
+4. If stopwatch satisfied — `hook_on_agent_end.gleam`'s `coordinate_when_idle()` reads soul+jobs+state from DB via `a_db_reader`, builds prompts via `a_prompt_builder`, calls `call_monitor()`, sends result via `pi_send_message()`.
 
 **Changes to debounce take effect after restart** (cached at module level in extension.js).
 

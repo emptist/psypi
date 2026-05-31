@@ -56,7 +56,7 @@ psql -d psypi -c "SELECT COUNT(*) FROM review_findings;"
 psql -c "SELECT COUNT(*) FROM review_findings;"
 ```
 
-The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is not set. The danger is only with manual `psql` commands or `DATABASE_URL` setting is wrong or shared(should change the variable name).
+The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is not set. The danger is only with manual `psql` commands — or if `DATABASE_URL` is set to the wrong database.
 
 ### Key Tables
 
@@ -83,12 +83,12 @@ The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is 
 | `review_findings`     | Individual findings from system reviews (severity, category, evidence, impact)     |
 | `review_comments`     | Comments on review findings                                                        |
 | `review_labels`       | Labels/tags for review findings                                                    |
-| `inter_reviews`       | In-process QC records — A-bot's review of S's current work (code, docs, data, decisions) |
+| `inter_reviews`       | A-bot's PDCA **Check** — inter-review of S's work between S sessions (code, docs, data, decisions). Not gated on commits. |
 
 ### `id_prefix`
 
 Field in `agent_souls` table (`text UNIQUE NOT NULL`):
-- `'A'` — Autonomic Agentbot (quality guardian: performs in-process QC via inter-review, monitors S behavior, enforces anti-stupidity rules)
+- `'A'` — Autonomic Agentbot (quality guardian: performs PDCA **Check** between S sessions — inter-review, behavior compliance, anti-stupidity)
 - `'S'` — Somatic Agentbot (the doer: prompt-driven task execution, considers A suggestions thoughtfully)
 
 A and S work like **alternating current** — never active simultaneously. When S finishes and goes idle, A wakes up and reviews. When A finishes, S may be woken. They alternate, never overlap. See README.md "The A/S Dialogue Model" for full details.
@@ -172,10 +172,10 @@ To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 | `psypi-doc-save` | `code_version` | Save file version (auto-backup before AI edits) |
 | `psypi-doc-list` | `code_version` | List version history for a file                 |
 
-### Commit (QC Two-Phase)
+### Commit
 | Tool           | Module   | Description                                     |
 | -------------- | -------- | ----------------------------------------------- |
-| `psypi-commit` | `commit` | Commit with Monitor review (see workflow below) |
+| `psypi-commit` | `commit` | Commit with agent ID tagging (S-bot only)       |
 
 ### Reflection
 | Tool             | Module     | Description                                                               |
@@ -216,17 +216,15 @@ To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 | ------------------ | ------- | ----------------------------------------------------------- |
 | `psypi-stats-show` | `stats` | Project statistics (tasks, issues, skills, meetings counts) |
 
-## Commit Workflow (QC Two-Phase)
+## Commit Workflow
 
-`psypi-commit` requires a review_id — no ticket, no commit.
+`psypi-commit` is simple: it commits immediately with the agent ID appended.
 
-**Phase 1:** Call `psypi-commit` without `review_id` → stages changes, sends review request to S-worker. A reviews diff, responds PASS/FAIL + score + review_id.
+**Flow:** S makes changes → S calls `psypi-commit("message")` → commit lands with `[AI:<agent-id>]` tag. No review gate. No two-phase flow. No `review_id` parameter.
 
-**Phase 2:** Call `psypi-commit` with `review_id` → performs actual git commit.
+After commit, S goes idle → A wakes → A performs inter-review (PDCA Check) → A saves findings to `inter_reviews` table → A sends results to S for the next cycle.
 
-**Proper flow:** S makes changes → S calls `psypi-commit` (no review_id) → A reviews diff → A responds with review_id → S calls `psypi-commit` with review_id → commit lands.
-
-**Note:** S MUST use `psypi-commit` for all commits. The two-phase review ensures A reviews S's work before it lands. There is no self-review loop — A is the reviewer, not S.
+**Note:** S MUST use `psypi-commit` for all commits (not raw `git commit`). The agent ID tag is how we track who did what.
 
 **⚠️ NEVER restart psypi by yourself.** Never run `pkill`, `node bin/ppi.mjs`, `npx`, or any Pi restart commands. That is A-bot's job or the human's job. S-bot dies when Pi restarts — that is normal. Do not try to resurrect yourself.
 
@@ -267,7 +265,7 @@ for the full debounce period. Any S activity (new agent_end event)
 resets the timer. This guarantees A never interrupts S.
 ```
 
-**Why this works**: Pi fires `agent_end` each time S finishes a turn. While S is working (multiple turns), each `agent_end` resets the timer. When S truly stops, no more `agent_end` events fire, and the timer eventually reaches zero. The `ctx_is_idle()` check at timer fire time is a safety net — if S somehow became active again during the debounce period (edge case), the hook silently does nothing.
+**Why this works**: Pi fires `agent_end` each time S finishes a turn. While S is working (multiple turns), each `agent_end` resets the timer. When S truly stops, no more `agent_end` events fire, and after `monitor_debounce_ms` of silence the timer fires. The `ctx_is_idle()` check at timer fire time is a safety net — if S somehow became active again during the debounce period (edge case), the hook silently does nothing.
 
 ### A-bot's Check Scope
 
@@ -281,7 +279,19 @@ A's primary job is **Check** across all PDCA dimensions, not just inter-review:
 
 4. **Documentation quality** — Are skill docs up to date? Are ADRs recorded? Is the README current? Is the `table_documentation` accurate and complete?
 
-5. **Inter-review** — The core of A's Check: immediate quality control of S's current work. A reviews the specific piece of work S just completed — code changes, documentation updates, database modifications, and decisions made. This is in-process QC, not end-of-line QC: timely, targeted, and focused on what just happened. Results MUST be saved to the `inter_reviews` database table. The message to S MUST reference the review ID so S can look it up, and SHOULD include a brief summary of key findings.
+5. **Inter-review** — The core of A's Check: A reviews whatever S just produced (code, docs, data, decisions) during A's autonomous time between S sessions. The "inter-" prefix is literal — it happens *between* S turns, not gated on commits or tied to specific tasks. Results MUST be saved to the `inter_reviews` database table. The message to S MUST reference the review ID so S can look it up, and SHOULD include a brief summary of key findings.
+
+   PDCA cycle:
+   | Phase | Agent | What |
+   |-------|-------|------|
+   | **Plan** | S (or A suggests) | Decide what to do next |
+   | **Do** | S | Write code, commit, use tools |
+   | **Check** | A | Inter-review between S sessions |
+   | **Act** | S | Address A's findings, improve |
+
+   ```
+   S plans & does → A checks (inter-review) → S acts → S plans & does → A checks → ...
+   ```
 
 6. **Follow-up enforcement** — In the next alternating cycle, A MUST verify whether S responded to the previous round's check findings. Unaddressed findings are NOT allowed to slip through — A must escalate or re-raise them.
 
@@ -291,20 +301,33 @@ A's primary job is **Check** across all PDCA dimensions, not just inter-review:
 
 These are fundamentally different types of quality control, performed by different agents, at different times:
 
-- **Inter-review** = **In-process QC** (immediate, front-loaded). When S finishes a turn, A reviews the specific work S just produced — whether it's a code change, a documentation update, a database modification, or a behavioral decision. Like a quality inspector on a production line examining each unit as it passes. Narrow in scope but immediate and actionable. This is A-bot's primary job. Results go to the `inter_reviews` table.
+- **Inter-review** = A's **Check** in the PDCA cycle. A autonomously reviews whatever S just produced (code, docs, data, decisions) during the "inter" space between N sessions. The "inter-" prefix is literal — between S turns, not gated on commits, not 1:1 with tasks. Narrow in scope, immediate and actionable. This is A-primary job. Results go to the `inter_reviews` table.
+
+  PDCA cycle:
+  | Phase | Agent | What |
+  |-------|-------|------|
+  | **Plan** | S (or A suggests) | Decide what to do next |
+  | **Do** | S | Write code, commit, use tools |
+  | **Check** | A | Inter-review between S sessions |
+  | **Act** | S | Address A's findings, improve |
+
+  ```
+  S plans & does → A checks (inter-review) → S acts → S plans & does → A checks → ...
+  ```
 
 - **System-review** = **End-of-line QC** (delayed, comprehensive). A thorough examination of the **entire system** across all dimensions — codebase architecture, database schema integrity, type coverage, documentation completeness, code duplication patterns, missing Gleam types, stale data, and accumulated technical debt. Like an annual audit that looks at the whole factory, not just one unit. Broad in scope but infrequent and deep. This is **S's job** (or an external AI invited by the user), NOT A's job. A is an added mechanism, not Pi's native component — complex tasks like system-review should be done by S, which has full Pi capabilities. A can, however, prompt S to do a system-review when A judges it is needed. Results go to `system_reviews` + `review_findings` tables.
 
 | Aspect | Inter-Review | System-Review |
 |--------|-------------|---------------|
-| Nature | In-process QC (immediate) | End-of-line QC (delayed) |
-| Scope | S's current work unit | Entire system |
-| Timing | Every A-bot cycle | Periodic / on-demand |
-| Who | A-bot | S-bot or external AI |
-| Inputs | Code, docs, data, decisions from this turn | All source files, DB schema, docs, configs |
-| Focus | Specific changes, behavior, data quality | Architecture, type coverage, tech debt, completeness |
+| Nature | A's **Check** between S sessions (PDCA) | Comprehensive audit of entire system |
+| Scope | What S just produced (code, docs, data, decisions) | Entire codebase + DB schema + docs + config |
+| Timing | Between S sessions (every A cycle) | Periodic / on-demand |
+| Who | A-bot (autonomous) | S-bot (or external AI invited by user) |
+| Inputs | S's recent work | All source files, DB schema, docs, configs |
+| Focus | Correctness, behavior, data quality | Architecture, type coverage, tech debt, completeness |
 | Output | `inter_reviews` table | `system_reviews` + `review_findings` tables |
-| Analogy | Quality inspector on the line | Annual audit of the whole factory |
+| PDCA role | **Check** | S doing a deep self-assessment |
+| Analogy | Doctor checking vitals between shifts | Annual full-body scan |
 
 ### A-bot Communication Rules
 
@@ -333,22 +356,26 @@ Without A-bot, psypi has no autonomous capability. All tools are passive — the
 Review findings do not stay buried in `review_findings` — they flow into issues, which flow into tasks, which are reviewed again. This is the complete PDCA closed loop:
 
 ```
-A-bot inter-review / system review
-  → findings recorded in review_findings
-  → findings ALSO reported as issues (with related_review_id linking back)
+A-bot inter-review (PDCA Check between S sessions)
+  → findings saved to inter_reviews table
+  → significant findings also become issues
     → issue comments: root cause analysis, solution discussion, action plan
       → if conflicting views or needs structured dialogue: convene a meeting (psypi-meeting-add)
         → meeting produces consensus → feeds back into issue plan
       → when plan is sound: tasks created from the issue
         → task execution (S does the work)
-          → mid-process inter-review (A checks S's work in progress)
-          → periodic system review (A reviews overall system health)
+          → next A cycle: inter-review checks S's work + follow-up on prior findings
             → new findings → new issues → new tasks → ...
+
+S-bot system-review (periodic, on-demand)
+  → comprehensive audit of entire system
+  → findings saved to system_reviews + review_findings tables
+  → significant findings become issues → same loop as above
 ```
 
 **Critical rule**: Every significant finding from a review should become an issue. This is an agent behavior guideline, not a programmatic constraint — no new FK needed, just reference IDs in comments and descriptions. A finding without a corresponding issue is an orphan — it was observed but never acted upon.
 
-**How agents should work**: After completing a review (inter-review or system review), create issues for the significant findings. In the issue, analyze root cause, discuss solutions, and plan actions. When the plan is agreed upon, derive tasks. During task execution, A reviews progress. New findings from those reviews create new issues. The loop never breaks — every problem is tracked from discovery to resolution.
+**How agents should work**: After inter-review, A creates issues for significant findings. After system-review, S does the same. In the issue, analyze root cause, discuss solutions, and plan actions. When the plan is sound, derive tasks. During task execution, A's next inter-review checks progress and follows up on prior findings. The loop never breaks — every problem is tracked from discovery to resolution.
 
 ### Jobs Over Code
 
@@ -414,7 +441,7 @@ Pi runtime (tools, hooks, commands)
 
 ## FFI Files
 
-Hand-written JS files (only these 3):
+Hand-written JS files (only these 4):
 - `src/pi_extension_ffi.mjs` — ctx.ui.notify, ctx.isIdle, pi_send_message, call_monitor, etc.
 - `src/agent_identity_ffi.mjs` — check_git_exists
 - `src/node_ffi.mjs` — get_env, get_project_id_env
@@ -423,7 +450,7 @@ Hand-written JS files (only these 3):
 ## Critical Rules
 
 1. **Use Pi tools, not shell commands** — `/psypi-task-add`, not `psql` or CLI
-2. **Use `psypi-commit`** for commits (not `git commit`) — mandatory Monitor review
+2. **Use `psypi-commit`** for commits (not `git commit`) — commits immediately with agent ID tag. Inter-review happens after, during A's autonomous time.
 3. **Read files first** — `read` then `edit` with exact match
 4. **Never spawn Pi from Pi tools** — infinite loop crash
 5. **Gleam types** — Enums are source of truth. Validate at boundary via `string_to_*()` → `Result`, never pass raw strings to SQL
@@ -467,7 +494,7 @@ The `system_directives` table, `psypi-direct-agentbot` tool, `psypi-clear-direct
 | `src/issue_tools.gleam`               | Issue CRUD + Pi tools                                     |
 | `src/meeting.gleam`                   | Meeting CRUD + Pi tools                                   |
 | `src/monitor_ai.gleam`                | Autonomic monitoring tools                                |
-| `src/commit.gleam`                    | QC two-phase commit                                       |
+| `src/commit.gleam`                    | Simple commit with agent ID tagging                       |
 | `src/simple_migrate.gleam`            | DB migration runner                                       |
 | `src/seed.gleam`                      | Initial data seeder                                       |
 | `AGENTS.md`                           | This file — agent quick guide                             |

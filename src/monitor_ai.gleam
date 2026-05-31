@@ -9,6 +9,7 @@ import pi_tool_call.{
   type PiCommandReg, type PiToolCall, PiToolCall, command, raw_json,
   template, from_param, lit,
 }
+import project.{project_url}
 
 pub type MonitorError {
   ConnectionError(String)
@@ -554,17 +555,18 @@ pub fn auto_file_issue(
   tool_name: String,
   error_message: String,
 ) -> promise.Promise(Result(String, MonitorError)) {
+  let project_url = project_url()
   db.with_connection(
     fn(conn) {
       let sql =
         "
-      INSERT INTO issues (title, description, severity, issue_type, created_by, discovered_by, project_id, environment)
-      VALUES ($1, $2, 'high', 'bug', 'monitor', 'monitor', 'psypi', 'development')
+      INSERT INTO issues (title, description, severity, issue_type, created_by, project_url)
+      VALUES ($1, $2, 'high', 'bug', 'monitor', $3)
       RETURNING id
     "
       let title = "Tool error: " <> tool_name
       let description = "Error from " <> tool_name <> ": " <> error_message
-      let params = [dynamic.string(title), dynamic.string(description)]
+      let params = [dynamic.string(title), dynamic.string(description), dynamic.string(project_url)]
 
       promise.map(db.query(conn, sql, params), fn(result) {
         case result {

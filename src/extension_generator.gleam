@@ -17,6 +17,7 @@ import gleam/io
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import simplifile
 import issue_tools.{
   issue_add_tool, issue_count_tool, issue_get_tool, issue_list_tool,
   issue_resolve_tool,
@@ -323,7 +324,7 @@ fn commit_tool() -> PiToolCall {
 }
 
 pub fn write_extension() -> Nil {
-  let project_root = get_project_root()
+  let assert Ok(project_root) = simplifile.current_directory()
   let extension_path = filepath.join(project_root, "extension.js")
   let content = generate()
   case write_file(extension_path, content) {
@@ -337,5 +338,4 @@ pub fn main() {
   write_extension()
 }
 
-@external(javascript, "./node_ffi.mjs", "get_project_root")
-pub fn get_project_root() -> String
+

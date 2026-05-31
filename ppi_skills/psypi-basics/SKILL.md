@@ -71,7 +71,20 @@ The orchestrator (`a_orchestrator.gleam`) does NOT force steps. It:
 - `get_agent_id` returns the **caller's real ID honestly** — no manipulation
 - Whoever calls it gets their own ID tagged (S-bot gets S- prefix, A-bot gets A- prefix)
 - No inter-review gate — commit happens immediately
-- Inter-review happens AFTER commit, during A-bot's autonomous time
+- Inter-review is A's PDCA **Check** that occurs *between* S sessions, not tied to commits. The "inter-" prefix is literal — between S turns:
+
+  ```
+  S plans & does → A checks (inter-review) → S acts → S plans & does → ...
+  ```
+
+  | Phase | Agent | What |
+  |-------|-------|------|
+  | Plan | S (or A suggests) | Decide what to do |
+  | Do | S | Write code, commit |
+  | Check | A | Inter-review between S sessions |
+  | Act | S | Address A's findings |
+
+  Inter-review is not "review FOR commits" — A reviews whatever S just produced.
 
 ## Common Pi Tools
 

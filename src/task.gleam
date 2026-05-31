@@ -1,10 +1,14 @@
+import db
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import db
-import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, template, lit, from_param, string_param, opt_string_param}
+import pi_tool_call.{
+  type PiToolCall, PiToolCall, raw_json, template, lit, from_param, string_param,
+  opt_string_param,
+}
+import project.{project_url}
 
 pub type TaskStatus {
   Pending
@@ -29,7 +33,7 @@ pub type Task {
     completed_at: Option(String),
     created_by: String,
     source: Option(String),
-    project_id: Option(String),
+    project_url: Option(String),
   )
 }
 
@@ -65,26 +69,11 @@ pub fn task_decoder() -> decode.Decoder(Task) {
   use completed_at <- decode.field("completed_at", decode.optional(decode.string))
   use created_by <- decode.field("created_by", decode.string)
   use source <- decode.field("source", decode.optional(decode.string))
-  use project_id <- decode.field("project_id", decode.optional(decode.string))
+  use project_url <- decode.field("project_url", decode.optional(decode.string))
 
   case string_to_status(status_str) {
-    Error(_) -> decode.failure(Task(id: id, title: title, description: description, status: Pending, priority: priority, result: result, error: error, retry_count: retry_count, created_at: created_at, updated_at: updated_at, completed_at: completed_at, created_by: created_by, source: source, project_id: project_id), "Unknown task status: " <> status_str)
-    Ok(status) -> decode.success(Task(
-      id: id,
-      title: title,
-      description: description,
-      status: status,
-      priority: priority,
-      result: result,
-      error: error,
-      retry_count: retry_count,
-      created_at: created_at,
-      updated_at: updated_at,
-      completed_at: completed_at,
-      created_by: created_by,
-      source: source,
-      project_id: project_id,
-    ))
+    Error(_) -> decode.failure(Task(id:, title:, description:, status: Pending, priority:, result:, error:, retry_count:, created_at:, updated_at:, completed_at:, created_by:, source:, project_url:), "Unknown task status: " <> status_str)
+    Ok(status) -> decode.success(Task(id:, title:, description:, status:, priority:, result:, error:, retry_count:, created_at:, updated_at:, completed_at:, created_by:, source:, project_url:))
   }
 }
 
@@ -106,7 +95,7 @@ pub fn id_decoder() -> decode.Decoder(String) {
   decode.success(id)
 }
 
-pub fn db_error_to_task_error(e: db.DbError) -> TaskError {
+fn db_error_to_task_error(e: db.DbError) -> TaskError {
   case e {
     db.ConnectionError(msg) -> ConnectionError(msg)
     db.QueryError(msg) -> QueryError(msg)
@@ -118,11 +107,11 @@ pub fn add(
   description: String,
   priority: Int,
   created_by: String,
-  project_id: String,
 ) -> promise.Promise(Result(String, TaskError)) {
+  let project_url = project_url()
   db.with_connection(fn(conn) {
     let sql = "
-      INSERT INTO tasks (title, description, priority, created_by, project_id)
+      INSERT INTO tasks (title, description, priority, created_by, project_url)
       VALUES ($1, $2, $3, $4, $5)
       RETURNING id
     "
@@ -131,11 +120,10 @@ pub fn add(
       dynamic.string(description),
       dynamic.int(priority),
       dynamic.string(created_by),
-      dynamic.string(project_id),
+      dynamic.string(project_url),
     ]
-
-    promise.map(db.query(conn, sql, params), fn(query_result) {
-      case query_result {
+    promise.map(db.query(conn, sql, params), fn(result) {
+      case result {
         Error(e) -> Error(db_error_to_task_error(e))
         Ok(result) -> {
           case result.rows {
@@ -153,15 +141,12 @@ pub fn add(
   }, db_error_to_task_error)
 }
 
-pub fn list(
-  status: Option(String),
-  project_id: Option(String),
-) -> promise.Promise(Result(List(Task), TaskError)) {
+pub fn list(status: Option(String)) -> promise.Promise(Result(List(Task), TaskError)) {
+  let project_url = project_url()
   db.with_connection(fn(conn) {
-    let #(sql, params) = sql_with_filters(status, project_id)
-
-    promise.map(db.query(conn, sql, params), fn(query_result) {
-      case query_result {
+    let #(sql, params) = sql_with_filters(status, project_url)
+    promise.map(db.query(conn, sql, params), fn(result) {
+      case result {
         Error(e) -> Error(db_error_to_task_error(e))
         Ok(result) -> {
           let decoded = result.rows
@@ -178,34 +163,27 @@ pub fn list(
 
 fn sql_with_filters(
   status: Option(String),
-  project_id: Option(String),
+  project_url: String,
 ) -> #(String, List(dynamic.Dynamic)) {
   let base_sql = "
     SELECT id, title, description, status, priority, result, error, retry_count,
            created_at::text, updated_at::text, completed_at::text, created_by, source,
-           project_id::text
+           project_url::text
     FROM tasks
+    WHERE project_url = $1
   "
   let order_limit = " ORDER BY priority DESC, created_at ASC LIMIT 100 "
 
-  case status, project_id {
-    Some(s), Some(p) ->
-      #(base_sql <> " WHERE status = $1 AND project_id = $2 " <> order_limit,
-        [dynamic.string(s), dynamic.string(p)])
-    Some(s), None ->
-      #(base_sql <> " WHERE status = $1 " <> order_limit,
-        [dynamic.string(s)])
-    None, Some(p) ->
-      #(base_sql <> " WHERE project_id = $1 " <> order_limit,
-        [dynamic.string(p)])
-    None, None ->
-      #(base_sql <> order_limit, [])
+  case status {
+    Some(s) ->
+      #(base_sql <> " AND status = $2 " <> order_limit,
+        [dynamic.string(project_url), dynamic.string(s)])
+    None ->
+      #(base_sql <> order_limit, [dynamic.string(project_url)])
   }
 }
 
-pub fn complete(
-  task_id: String,
-) -> promise.Promise(Result(String, TaskError)) {
+pub fn complete(task_id: String) -> promise.Promise(Result(String, TaskError)) {
   db.with_connection(fn(conn) {
     let sql = "
       UPDATE tasks
@@ -214,9 +192,8 @@ pub fn complete(
       RETURNING id
     "
     let params = [dynamic.string(task_id)]
-
-    promise.map(db.query(conn, sql, params), fn(query_result) {
-      case query_result {
+    promise.map(db.query(conn, sql, params), fn(result) {
+      case result {
         Error(e) -> Error(db_error_to_task_error(e))
         Ok(result) -> {
           case result.rows {
@@ -234,20 +211,19 @@ pub fn complete(
   }, db_error_to_task_error)
 }
 
-pub fn get(
-  task_id: String,
-) -> promise.Promise(Result(Task, TaskError)) {
+pub fn get(task_id: String) -> promise.Promise(Result(Task, TaskError)) {
+  let project_url = project_url()
   db.with_connection(fn(conn) {
     let sql = "
       SELECT id, title, description, status, priority, result, error, retry_count,
-             created_at::text, updated_at::text, completed_at::text, created_by, source
+             created_at::text, updated_at::text, completed_at::text, created_by, source,
+             project_url::text
       FROM tasks
-      WHERE id = $1
+      WHERE id = $1 AND project_url = $2
     "
-    let params = [dynamic.string(task_id)]
-
-    promise.map(db.query(conn, sql, params), fn(query_result) {
-      case query_result {
+    let params = [dynamic.string(task_id), dynamic.string(project_url)]
+    promise.map(db.query(conn, sql, params), fn(result) {
+      case result {
         Error(e) -> Error(db_error_to_task_error(e))
         Ok(result) -> {
           case result.rows {
@@ -269,12 +245,11 @@ pub fn get(
 // Pi Tool Call definitions
 // -------------------------------------------------------------------
 
-/// Pi tool: psypi-task-add — add a new task
 pub fn task_add_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-task-add",
-    description: "Add a new task. project_id optional (defaults to default project).",
-    params: [string_param("title"), opt_string_param("project_id")],
+    description: "Add a new task. project_url is auto-resolved from git remote or cwd.",
+    params: [string_param("title")],
     module: "task",
     fn_name: "add",
     args: [
@@ -282,32 +257,25 @@ pub fn task_add_tool() -> PiToolCall {
       lit("\"\""),
       lit("5"),
       lit("\"cli\""),
-      from_param("params?.project_id || '0d324e68-b399-4b85-bd8a-6b1ef7b46168'"),
     ],
     result_format: template("Task: ${r.value}"),
   )
 }
 
-/// Pi tool: psypi-tasks — list tasks
 pub fn task_list_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-tasks",
-    description: "List tasks, optionally filtered by status and project_id",
-    params: [
-      opt_string_param("status"),
-      opt_string_param("project_id"),
-    ],
+    description: "List tasks, optionally filtered by status",
+    params: [opt_string_param("status")],
     module: "task",
     fn_name: "list",
     args: [
       from_param("params?.status || null"),
-      from_param("params?.project_id || null"),
     ],
     result_format: raw_json(),
   )
 }
 
-/// Pi tool: psypi-task-complete — mark a task as completed
 pub fn task_complete_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-task-complete",

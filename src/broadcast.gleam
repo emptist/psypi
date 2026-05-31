@@ -4,6 +4,7 @@ import gleam/javascript/promise
 import gleam/option.{type Option, None, Some}
 import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
+import project.{project_url}
 
 pub type BroadcastPriority {
   Low
@@ -125,20 +126,20 @@ pub fn send(
   agent_id: String,
   message: String,
   priority_str: String,
-  project_id: String,
 ) -> promise.Promise(Result(String, BroadcastError)) {
+  let project_url = project_url()
   case string_to_priority(priority_str) {
     Error(e) -> promise.resolve(Error(DecodeError(e)))
     Ok(priority) -> {
       db.with_connection(fn(conn) {
         let sql = "
           INSERT INTO project_communications
-          (project_id, from_ai, message_type, content, priority, metadata)
+          (project_url, from_ai, message_type, content, priority, metadata)
           VALUES ($1, $2, 'broadcast', $3, $4, $5)
           RETURNING id
         "
         let params = [
-          dynamic.string(project_id),
+          dynamic.string(project_url),
           dynamic.string(agent_id),
           dynamic.string(message),
           dynamic.string(priority_to_string(priority)),
@@ -290,14 +291,13 @@ pub fn broadcast_send_tool() -> PiToolCall {
   PiToolCall(
     name: "psypi-broadcast-send",
     description: "Send a broadcast message",
-    params: [string_param("message"), string_param("priority"), string_param("project_id")],
+    params: [string_param("message"), string_param("priority")],
     module: "broadcast",
     fn_name: "send",
     args: [
       from_param("'psypi'"),
       from_param("params.message || \"\""),
       from_param("params.priority || 'normal'"),
-      from_param("params.project_id || \"\""),
     ],
     result_format: template("Broadcast sent: ${r.value}"),
   )

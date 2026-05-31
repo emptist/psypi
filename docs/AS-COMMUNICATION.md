@@ -130,7 +130,7 @@ The LLM needs to know who it is. The ID tells the LLM: "You are A-tools_ai-openr
 src/
   agent_identity.gleam          -- semantic_id computation + DB soul reader
   agent_identity_types.gleam    -- IdentityContext, AgentIdentity, IdentityError
-  hook_on_agent_end.gleam       -- A-S coordination: debounce + call_monitor
+  hook_on_agent_end.gleam       -- A-S coordination: debounce + idle_since gating + DB reads + LLM call + wake-up
   hook_on_before_agent_start.gleam -- S system prompt from DB
   a_db_reader.gleam             -- A's DB reads: soul, jobs, project state (id_prefix='A')
   a_prompt_builder.gleam        -- A's system/user prompt composition

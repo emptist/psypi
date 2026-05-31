@@ -137,8 +137,7 @@ src/
   tool_consult.gleam            -- psypi-consult-autonomic tool
   a_context_utils.gleam         -- Context window parsing, time utilities
   a_db_reader.gleam             -- A's DB reads: soul, jobs, project state (id_prefix='A')
-  a_orchestrator.gleam          -- A's workflow: fully_functional gate + full workflow
-  a_prompt_builder.gleam        -- A's system/user prompt composition + inter-review detection
+  a_prompt_builder.gleam        -- A's system/user prompt composition
 ```
 
 ## Typed Pipeline: Gleam → JS

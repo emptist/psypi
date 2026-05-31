@@ -14,7 +14,7 @@ Five sessions of focused work on the psypi project. All code changes are **built
 | `0920ec1` | 05-29 | chore: add project_id index to tasks table + migration |
 | `6e76948` | 05-29 | fix: update psypi-basics skill - system_config → psypi_config reference |
 | `e042c88` | 05-28 | cleanup: remove dead code + improve task-add description |
-| `79231eb` | 05-28 | cleanup: remove fully_functional dead code gate in a_orchestrator |
+| `79231eb` | 05-28 | cleanup: remove a_orchestrator.gleam (logic inlined into hook_on_agent_end) |
 | `ae0adda` | 05-28 | docs: update ARCHITECTURE.md, README.md + enable A-bot fully_functional |
 | `f6c7d2b` | 05-27 | fix: psypi-task-add project_id NOT NULL + debounce timer dedup + idle_since tracking |
 
@@ -35,7 +35,7 @@ Five sessions of focused work on the psypi project. All code changes are **built
 - **Status:** Built, waiting for Pi restart
 
 ### 3. A-bot Re-enabled (ae0adda)
-- `a_orchestrator.gleam`: Set `fully_functional = True` (was `False`)
+- `hook_on_agent_end.gleam`: A-bot workflow logic inlined (was in removed `a_orchestrator.gleam`)
 - Removed dead code gate in subsequent cleanup
 - **Status:** Built, waiting for Pi restart
 

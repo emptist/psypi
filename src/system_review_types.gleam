@@ -68,7 +68,7 @@ pub type SystemReview {
     title: Option(String),
     description: Option(String),
     reviewer_id: Option(String),
-    project_id: Option(String),
+    project_url: Option(String),
     methodology: Option(ReviewMethodology),
     scope: Option(ReviewScope),
     follow_up_status: FollowUpStatus,

@@ -3,6 +3,12 @@
 ## Date: 2026-05-29
 ## Source Commits: 01f702a, 3c7eaed, 5518253, 28faf98
 
+> **⚠️ HISTORICAL DOCUMENT** — This file records bugs found during a redesign session.
+> `a_orchestrator.gleam` has since been **removed** (its logic was inlined into
+> `hook_on_agent_end.gleam`). References to `a_orchestrator.gleam` throughout this
+> document are outdated. The bugs themselves were fixed in later sessions.
+> This file is kept for reference only and is no longer actionable.
+
 ---
 
 ## Bug #1: `a_db_reader.get_last_a_session_at()` queries non-existent `config` table
