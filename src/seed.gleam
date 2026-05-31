@@ -39,7 +39,7 @@ fn seed_idempotent(
 fn seed_agent_souls() -> promise.Promise(Result(Nil, SeedError)) {
   seed_idempotent(
     "agent_souls",
-    "INSERT INTO agent_souls (id_prefix, name, role, domain, responsibility, trigger_type, drive_mode, activation, content) SELECT 'A','Autonomic','AutonomicBot','autonomic','System health monitoring','event','autonomous','agent_end','# A' WHERE NOT EXISTS (SELECT 1 FROM agent_souls WHERE id_prefix='A'); INSERT INTO agent_souls (id_prefix, name, role, domain, responsibility, trigger_type, drive_mode, activation, content) SELECT 'S','Somatic','SomaticBot','somatic','Prompt-driven execution','prompt','reactive','user prompt','# S' WHERE NOT EXISTS (SELECT 1 FROM agent_souls WHERE id_prefix='S')"
+    "INSERT INTO agent_souls (id_prefix, name, role, domain, responsibility, trigger_type, drive_mode, activation, content) SELECT 'A','Autonomic','AutonomicBot','autonomic','PDCA Check between S sessions — inter-review, behavior compliance, anti-stupidity, follow-up enforcement','event','autonomous','agent_end','# A' WHERE NOT EXISTS (SELECT 1 FROM agent_souls WHERE id_prefix='A'); INSERT INTO agent_souls (id_prefix, name, role, domain, responsibility, trigger_type, drive_mode, activation, content) SELECT 'S','Somatic','SomaticBot','somatic','PDCA Do — prompt-driven task execution, follow A feedback, plan before do','prompt','reactive','user prompt, A message','# S' WHERE NOT EXISTS (SELECT 1 FROM agent_souls WHERE id_prefix='S')"
   )
 }
 
