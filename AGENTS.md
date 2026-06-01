@@ -89,7 +89,7 @@ The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is 
 
 Field in `agent_souls` table (`text UNIQUE NOT NULL`):
 - `'A'` — Autonomic Agentbot (quality guardian: performs PDCA **Check** between S sessions — inter-review, behavior compliance, anti-stupidity)
-- `'S'` — Somatic Agentbot (the doer: prompt-driven task execution, considers A suggestions thoughtfully)
+- `'S'` — Somatic Agentbot (Plan, Do, Act: prompt-driven task execution with full PDCA responsibility for Plan/Do/Act phases. A performs Check. S plans before doing, executes code, addresses A findings, and iterates.)
 
 A and S work like **alternating current** — never active simultaneously. When S finishes and goes idle, A wakes up and reviews. When A finishes, S may be woken. They alternate, never overlap. See README.md "The A/S Dialogue Model" for full details.
 

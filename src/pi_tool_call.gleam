@@ -186,7 +186,11 @@ pub fn params_to_js(params: List(PiParam)) -> String {
         |> list.map(fn(p) { "\"" <> p.name <> "\"" })
         |> string.join(", ")
 
-      "{ \"type\": \"object\",\n    \"properties\": {\n      " <> properties <> "\n    },\n    \"required\": [" <> required <> "]\n  }"
+      "{ \"type\": \"object\",\n    \"properties\": {\n      "
+      <> properties
+      <> "\n    },\n    \"required\": ["
+      <> required
+      <> "]\n  }"
     }
   }
 }
@@ -228,13 +232,17 @@ pub fn to_js_text(tool: PiToolCall) -> String {
     "        const result = await " <> call_expr <> ";",
     "        const r = unwrapGleamResult(result);",
     "        if (!r.ok) {",
-    "          pi_extension_ctx_notify(ctx, 'Tool " <> name <> " error: ' + r.error, 'error');",
+    "          pi_extension_ctx_notify(ctx, 'Tool "
+      <> name
+      <> " error: ' + r.error, 'error');",
     "        }",
     "        return r.ok ? { content: [{ type: \"text\", text: "
       <> result_js
       <> " }] } : { content: [{ type: \"text\", text: `Error: ${r.error}` }] };",
     "      } catch(e) {",
-    "        pi_extension_ctx_notify(ctx, 'Tool " <> name <> " exception: ' + (e.message || String(e)), 'error');",
+    "        pi_extension_ctx_notify(ctx, 'Tool "
+      <> name
+      <> " exception: ' + (e.message || String(e)), 'error');",
     "        return { content: [{ type: \"text\", text: `Error: ${e.message || String(e)}` }] };",
     "      }",
     "    }",
@@ -248,7 +256,15 @@ pub fn to_js_text(tool: PiToolCall) -> String {
 pub fn to_import_line(tool: PiToolCall) -> String {
   let base = "./build/dev/javascript/psypi"
   let alias = tool.module <> "_" <> tool.fn_name
-  "import { " <> tool.fn_name <> " as " <> alias <> " } from \"" <> base <> "/" <> tool.module <> ".mjs\";"
+  "import { "
+  <> tool.fn_name
+  <> " as "
+  <> alias
+  <> " } from \""
+  <> base
+  <> "/"
+  <> tool.module
+  <> ".mjs\";"
 }
 
 // -------------------------------------------------------------------
@@ -267,10 +283,22 @@ fn success_action_to_js(action: HookSuccessAction) -> String {
 pub fn hook_import_line(module: String, fn_name: String) -> String {
   let base = "./build/dev/javascript/psypi"
   let alias = module <> "_" <> fn_name
-  "const " <> alias <> " = (await import('" <> base <> "/" <> module <> ".mjs'))." <> fn_name <> ";"
+  "const "
+  <> alias
+  <> " = (await import('"
+  <> base
+  <> "/"
+  <> module
+  <> ".mjs'))."
+  <> fn_name
+  <> ";"
 }
 
-pub fn hook_call_expr(module: String, fn_name: String, args: List(FnArg)) -> String {
+pub fn hook_call_expr(
+  module: String,
+  fn_name: String,
+  args: List(FnArg),
+) -> String {
   let args_js =
     args
     |> list.map(fn(a) {
@@ -285,18 +313,14 @@ pub fn hook_call_expr(module: String, fn_name: String, args: List(FnArg)) -> Str
 
 pub fn event_hook_to_js(hook: PiEventHook) -> String {
   case hook {
-    PiSystemPromptHook(
-      event_name:,
-      module:,
-      fn_name:,
-      args:,
-      on_error:,
-    ) -> {
+    PiSystemPromptHook(event_name:, module:, fn_name:, args:, on_error:) -> {
       let import_ln = hook_import_line(module, fn_name)
       let call = hook_call_expr(module, fn_name, args)
       let error_catch = case on_error {
         NotifyError ->
-          "      ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
+          "      ctx.ui.notify('Hook "
+          <> event_name
+          <> " error: ' + (e.message || String(e)), 'error');\n"
       }
       [
         "  // Event hook (system prompt): " <> event_name,
@@ -306,7 +330,9 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      const result = await " <> call <> ";",
         "      const r = unwrapGleamResult(result);",
         "      if (r.ok) { return { systemPrompt: r.value }; }",
-        "      else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
+        "      else { ctx.ui.notify('Hook "
+          <> event_name
+          <> " failed: ' + r.error, 'error'); }",
         "      await event_hooks_record_trigger('" <> event_name <> "');",
         "    } catch(e) {",
         error_catch,
@@ -341,7 +367,9 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let success_js = success_action_to_js(on_success)
       let error_catch = case on_error {
         NotifyError ->
-          "      ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
+          "      ctx.ui.notify('Hook "
+          <> event_name
+          <> " error: ' + (e.message || String(e)), 'error');\n"
       }
       [
         "  // Event hook: " <> event_name,
@@ -352,7 +380,9 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      const result = await " <> call <> ";",
         "      const r = unwrapGleamResult(result);",
         "      if (r.ok) { " <> success_js <> " }",
-        "      else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
+        "      else { ctx.ui.notify('Hook "
+          <> event_name
+          <> " failed: ' + r.error, 'error'); }",
         "      await event_hooks_record_trigger('" <> event_name <> "');",
         guard_suffix,
         "    } catch(e) {",
@@ -377,16 +407,16 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       on_success:,
       on_error:,
     ) -> {
-      let debounce_import =
-        hook_import_line(debounce_ms_module, debounce_ms_fn)
-      let debounce_call =
-        debounce_ms_module <> "_" <> debounce_ms_fn <> "()"
+      let debounce_import = hook_import_line(debounce_ms_module, debounce_ms_fn)
+      let debounce_call = debounce_ms_module <> "_" <> debounce_ms_fn <> "()"
       let hook_import_ln = hook_import_line(module, fn_name)
       let call = hook_call_expr(module, fn_name, args)
       let success_js = success_action_to_js(on_success)
       let error_catch = case on_error {
         NotifyError ->
-          "        ctx.ui.notify('Hook " <> event_name <> " error: ' + (e.message || String(e)), 'error');\n"
+          "        ctx.ui.notify('Hook "
+          <> event_name
+          <> " error: ' + (e.message || String(e)), 'error');\n"
       }
       let cancel_js =
         cancel_on
@@ -396,10 +426,17 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
             "input" -> "user activity"
             _ -> ev
           }
+          let mark_worked = case ev {
+            "agent_start" -> "      _hasWorked = true;\n"
+            _ -> ""
+          }
           [
             "  // Cancel debounce timer on: " <> ev,
             "  pi.on('" <> ev <> "', async (_event, _ctx) => {",
-            "    if (_debounceTimerId) { clearTimeout(_debounceTimerId); _debounceTimerId = null; _ctx.ui.notify('[A-agentbot] Waiting cancelled — " <> cancel_msg <> "', 'status'); }",
+            mark_worked,
+            "    if (_debounceTimerId) { clearTimeout(_debounceTimerId); _debounceTimerId = null; _ctx.ui.notify('[A-agentbot] Waiting cancelled — "
+              <> cancel_msg
+              <> "', 'status'); }",
             "  });",
             "",
           ]
@@ -411,8 +448,10 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "  // Event hook (debounced): " <> event_name,
         "  let _debounceTimerId = null;",
         "  let _debounceMs = null;",
+        "  let _hasWorked = false;",
         "  pi.on('" <> event_name <> "', async (event, ctx) => {",
         "    try {",
+        "      if (!_hasWorked) { return; }",
         "      const _wasWaiting = _debounceTimerId !== null;",
         "      if (_debounceTimerId) clearTimeout(_debounceTimerId);",
         "      _debounceTimerId = null;",
@@ -420,17 +459,22 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      if (_debounceMs == null) {",
         "        const debounceResult = await " <> debounce_call <> ";",
         "        const dr = unwrapGleamResult(debounceResult);",
-        "        if (!dr.ok) { ctx.ui.notify('Hook " <> event_name <> " <ERROR> debounce config: ' + dr.error, 'error'); return; }",
+        "        if (!dr.ok) { ctx.ui.notify('Hook "
+          <> event_name
+          <> " <ERROR> debounce config: ' + dr.error, 'error'); return; }",
         "        _debounceMs = dr.value;",
         "      }",
         "      _debounceTimerId = setTimeout(async () => {",
         "        _debounceTimerId = null;",
+        "        _hasWorked = false;",
         "        try {",
         "          " <> hook_import_ln,
         "          const result = await " <> call <> ";",
         "          const r = unwrapGleamResult(result);",
         "          if (r.ok) { " <> success_js <> " }",
-        "          else { ctx.ui.notify('Hook " <> event_name <> " failed: ' + r.error, 'error'); }",
+        "          else { ctx.ui.notify('Hook "
+          <> event_name
+          <> " failed: ' + r.error, 'error'); }",
         "          await event_hooks_record_trigger('" <> event_name <> "');",
         "        } catch(e) {",
         error_catch,
@@ -438,7 +482,9 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      }, _debounceMs);",
         "      if (!_wasWaiting) { ctx.ui.notify('[A-agentbot] Waiting for S to become idle...', 'status'); }",
         "    } catch(e) {",
-        "      ctx.ui.notify('Hook " <> event_name <> " debounce error: ' + (e.message || String(e)), 'error');",
+        "      ctx.ui.notify('Hook "
+          <> event_name
+          <> " debounce error: ' + (e.message || String(e)), 'error');",
         "    }",
         "  });",
         "",
@@ -490,8 +536,14 @@ pub fn message_renderer_to_js(renderer: PiMessageRenderer) -> String {
     False -> ""
   }
   [
-    "  pi.registerMessageRenderer('" <> renderer.custom_type <> "', (message, { expanded }, theme) => {",
-    "    let text = theme.fg(" <> prefix_color_js <> ", '" <> renderer.prefix <> " ');",
+    "  pi.registerMessageRenderer('"
+      <> renderer.custom_type
+      <> "', (message, { expanded }, theme) => {",
+    "    let text = theme.fg("
+      <> prefix_color_js
+      <> ", '"
+      <> renderer.prefix
+      <> " ');",
     "    text += theme.fg(" <> content_color_js <> ", message.content);",
     details_block,
     "    const box = new Box(1, 1, (t) => theme.bg('customMessageBg', t));",
@@ -515,13 +567,7 @@ pub fn system_prompt_hook(
   args: List(FnArg),
   on_error: HookErrorAction,
 ) -> PiEventHook {
-  PiSystemPromptHook(
-    event_name:,
-    module:,
-    fn_name:,
-    args:,
-    on_error:,
-  )
+  PiSystemPromptHook(event_name:, module:, fn_name:, args:, on_error:)
 }
 
 pub fn event_hook(
@@ -600,7 +646,9 @@ pub fn command_to_js(cmd: PiCommandReg) -> String {
         "        " <> import_line,
         "        const result = await " <> call <> ";",
         "        const r = unwrapGleamResult(result);",
-        "        return r.ok ? { content: [{ type: \"text\", text: " <> result_js <> " }] } : { content: [{ type: \"text\", text: `Error: ${r.error}` }] };",
+        "        return r.ok ? { content: [{ type: \"text\", text: "
+          <> result_js
+          <> " }] } : { content: [{ type: \"text\", text: `Error: ${r.error}` }] };",
         "      } catch(e) {",
         "        return { content: [{ type: \"text\", text: `Error: ${e.message || String(e)}` }] };",
         "      }",
