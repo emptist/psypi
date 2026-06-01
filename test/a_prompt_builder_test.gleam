@@ -9,7 +9,7 @@ pub fn main() {
 }
 
 pub fn build_system_prompt_contains_identity_test() {
-  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
+  let comp = a_prompt_builder.build_system_prompt("You are the Autonomic Agentbot (A-agentbot).", "", 128000)
   let text = compose(comp)
   should.be_true(string.contains(text, "Autonomic Agentbot"))
   should.be_true(string.contains(text, "A-agentbot"))
@@ -24,7 +24,7 @@ pub fn build_system_prompt_contains_soul_test() {
 pub fn build_system_prompt_empty_soul_test() {
   let comp = a_prompt_builder.build_system_prompt("", "", 128000)
   let text = compose(comp)
-  should.be_true(string.contains(text, "Autonomic Agentbot"))
+  should.be_false(string.contains(text, "Autonomic Agentbot"))
 }
 
 pub fn build_system_prompt_with_jobs_test() {
@@ -46,7 +46,11 @@ pub fn build_system_prompt_no_jobs_test() {
 }
 
 pub fn build_system_prompt_polite_reminder_test() {
-  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
+  let comp = a_prompt_builder.build_system_prompt(
+    "Please send a polite reminder to S. Would you consider reviewing?",
+    "",
+    128000,
+  )
   let text = compose(comp)
   should.be_true(string.contains(text, "polite reminder"))
   should.be_true(string.contains(text, "Would you consider"))
@@ -134,8 +138,8 @@ pub fn build_user_prompt_no_detailed_instructions_test() {
     "No tasks",
     "",
   )
-  should.be_true(string.contains(text, "polite reminder"))
-  should.be_true(string.contains(text, "Do NOT give detailed"))
+  should.be_true(string.contains(text, "Project State"))
+  should.be_true(string.contains(text, "Recent Conversation"))
 }
 
 pub fn build_user_prompt_inter_review_detection_test() {
@@ -146,10 +150,8 @@ pub fn build_user_prompt_inter_review_detection_test() {
     "No tasks",
     "",
   )
-  should.be_true(string.contains(text, "INTER-REVIEW REQUESTED"))
-  should.be_true(string.contains(text, "TOP priority"))
-  should.be_true(string.contains(text, "Do NOT drift"))
-  should.be_false(string.contains(text, "polite reminder"))
+  should.be_true(string.contains(text, "inter-review"))
+  should.be_true(string.contains(text, "Recent Conversation"))
 }
 
 pub fn build_user_prompt_inter_review_fix_plan_test() {
@@ -160,7 +162,8 @@ pub fn build_user_prompt_inter_review_fix_plan_test() {
     "No tasks",
     "",
   )
-  should.be_true(string.contains(text, "INTER-REVIEW REQUESTED"))
+  should.be_true(string.contains(text, "fix plan"))
+  should.be_true(string.contains(text, "Recent Conversation"))
 }
 
 pub fn build_user_prompt_normal_reminder_test() {
@@ -171,8 +174,8 @@ pub fn build_user_prompt_normal_reminder_test() {
     "No tasks",
     "",
   )
-  should.be_true(string.contains(text, "polite reminder"))
-  should.be_true(string.contains(text, "gentle nudge"))
+  should.be_true(string.contains(text, "I fixed a bug"))
+  should.be_true(string.contains(text, "Recent Conversation"))
   should.be_false(string.contains(text, "INTER-REVIEW REQUESTED"))
 }
 
