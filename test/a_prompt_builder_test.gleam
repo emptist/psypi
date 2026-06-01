@@ -8,26 +8,30 @@ pub fn main() {
   gleeunit.main()
 }
 
-pub fn build_system_prompt_contains_identity_test() {
-  let comp = a_prompt_builder.build_system_prompt("You are the Autonomic Agentbot (A-agentbot).", "", 128000)
+// --- build_system_prompt: soul content ---
+
+pub fn build_system_prompt_includes_soul_test() {
+  let comp = a_prompt_builder.build_system_prompt("You are A-bot.", "", 128000)
   let text = compose(comp)
-  should.be_true(string.contains(text, "Autonomic Agentbot"))
-  should.be_true(string.contains(text, "A-agentbot"))
+  should.be_true(string.contains(text, "You are A-bot."))
 }
 
-pub fn build_system_prompt_contains_soul_test() {
-  let comp = a_prompt_builder.build_system_prompt("Review code carefully", "", 128000)
+pub fn build_system_prompt_empty_soul_omits_soul_section_test() {
+  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
+  let text = compose(comp)
+  should.be_false(string.contains(text, "--- soul"))
+}
+
+pub fn build_system_prompt_soul_appears_in_output_test() {
+  let comp =
+    a_prompt_builder.build_system_prompt("Review code carefully", "", 128000)
   let text = compose(comp)
   should.be_true(string.contains(text, "Review code carefully"))
 }
 
-pub fn build_system_prompt_empty_soul_test() {
-  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
-  let text = compose(comp)
-  should.be_false(string.contains(text, "Autonomic Agentbot"))
-}
+// --- build_system_prompt: jobs ---
 
-pub fn build_system_prompt_with_jobs_test() {
+pub fn build_system_prompt_includes_jobs_test() {
   let comp = a_prompt_builder.build_system_prompt(
     "",
     "1. [review] Inter-review S code changes\n2. [unblock] Unblock stuck S jobs",
@@ -39,22 +43,26 @@ pub fn build_system_prompt_with_jobs_test() {
   should.be_true(string.contains(text, "Your Jobs"))
 }
 
-pub fn build_system_prompt_no_jobs_test() {
+pub fn build_system_prompt_no_jobs_omits_jobs_section_test() {
+  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
+  let text = compose(comp)
+  should.be_false(string.contains(text, "Your Jobs"))
+}
+
+pub fn build_system_prompt_placeholder_jobs_omits_jobs_section_test() {
   let comp = a_prompt_builder.build_system_prompt("", "  (no active jobs)", 128000)
   let text = compose(comp)
   should.be_false(string.contains(text, "Your Jobs"))
 }
 
-pub fn build_system_prompt_polite_reminder_test() {
-  let comp = a_prompt_builder.build_system_prompt(
-    "Please send a polite reminder to S. Would you consider reviewing?",
-    "",
-    128000,
-  )
-  let text = compose(comp)
-  should.be_true(string.contains(text, "polite reminder"))
-  should.be_true(string.contains(text, "Would you consider"))
+// --- build_system_prompt: budget ---
+
+pub fn build_system_prompt_budget_is_quarter_of_context_window_test() {
+  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
+  comp.budget.total_tokens |> should.equal(32000)
 }
+
+// --- build_user_prompt: cwd ---
 
 pub fn build_user_prompt_with_cwd_test() {
   let text = a_prompt_builder.build_user_prompt(
@@ -67,7 +75,7 @@ pub fn build_user_prompt_with_cwd_test() {
   should.be_true(string.contains(text, "Working directory: /home/user/project"))
 }
 
-pub fn build_user_prompt_no_cwd_test() {
+pub fn build_user_prompt_empty_cwd_omits_working_directory_test() {
   let text = a_prompt_builder.build_user_prompt(
     "{\"tokens\": 5000}",
     "entries...",
@@ -77,6 +85,8 @@ pub fn build_user_prompt_no_cwd_test() {
   )
   should.be_false(string.contains(text, "Working directory:"))
 }
+
+// --- build_user_prompt: context usage ---
 
 pub fn build_user_prompt_with_usage_test() {
   let text = a_prompt_builder.build_user_prompt(
@@ -89,7 +99,7 @@ pub fn build_user_prompt_with_usage_test() {
   should.be_true(string.contains(text, "Context usage:"))
 }
 
-pub fn build_user_prompt_no_usage_test() {
+pub fn build_user_prompt_empty_usage_omits_context_usage_test() {
   let text = a_prompt_builder.build_user_prompt(
     "{}",
     "entries...",
@@ -100,7 +110,9 @@ pub fn build_user_prompt_no_usage_test() {
   should.be_false(string.contains(text, "Context usage:"))
 }
 
-pub fn build_user_prompt_has_project_state_test() {
+// --- build_user_prompt: project state ---
+
+pub fn build_user_prompt_includes_project_state_test() {
   let text = a_prompt_builder.build_user_prompt(
     "{}",
     "entries...",
@@ -112,7 +124,9 @@ pub fn build_user_prompt_has_project_state_test() {
   should.be_true(string.contains(text, "Project State"))
 }
 
-pub fn build_user_prompt_has_recent_section_test() {
+// --- build_user_prompt: recent conversation ---
+
+pub fn build_user_prompt_includes_recent_conversation_test() {
   let text = a_prompt_builder.build_user_prompt(
     "{}",
     "User: hello\nAssistant: hi",
@@ -127,57 +141,12 @@ pub fn build_user_prompt_has_recent_section_test() {
 pub fn build_user_prompt_truncates_long_entries_test() {
   let long_entries = string.repeat("x", 5000)
   let text = a_prompt_builder.build_user_prompt("{}", long_entries, "/cwd", "state", "")
-  should.be_true(string.contains(text, "..."))
+  should.be_true(string.contains(text, "...[truncated]"))
+  // Original was 5000 chars; truncated output must be shorter
+  should.be_true(string.length(text) < string.length(long_entries))
 }
 
-pub fn build_user_prompt_no_detailed_instructions_test() {
-  let text = a_prompt_builder.build_user_prompt(
-    "{}",
-    "entries...",
-    "/cwd",
-    "No tasks",
-    "",
-  )
-  should.be_true(string.contains(text, "Project State"))
-  should.be_true(string.contains(text, "Recent Conversation"))
-}
-
-pub fn build_user_prompt_inter_review_detection_test() {
-  let text = a_prompt_builder.build_user_prompt(
-    "{}",
-    "User: I need inter-review for this issue report",
-    "/cwd",
-    "No tasks",
-    "",
-  )
-  should.be_true(string.contains(text, "inter-review"))
-  should.be_true(string.contains(text, "Recent Conversation"))
-}
-
-pub fn build_user_prompt_inter_review_fix_plan_test() {
-  let text = a_prompt_builder.build_user_prompt(
-    "{}",
-    "User: Here is my fix plan for the debounce bug",
-    "/cwd",
-    "No tasks",
-    "",
-  )
-  should.be_true(string.contains(text, "fix plan"))
-  should.be_true(string.contains(text, "Recent Conversation"))
-}
-
-pub fn build_user_prompt_normal_reminder_test() {
-  let text = a_prompt_builder.build_user_prompt(
-    "{}",
-    "User: I fixed a bug",
-    "/cwd",
-    "No tasks",
-    "",
-  )
-  should.be_true(string.contains(text, "I fixed a bug"))
-  should.be_true(string.contains(text, "Recent Conversation"))
-  should.be_false(string.contains(text, "INTER-REVIEW REQUESTED"))
-}
+// --- build_user_prompt: commit info ---
 
 pub fn build_user_prompt_with_commit_info_test() {
   let text = a_prompt_builder.build_user_prompt(
@@ -191,7 +160,7 @@ pub fn build_user_prompt_with_commit_info_test() {
   should.be_true(string.contains(text, "debounce bug"))
 }
 
-pub fn build_user_prompt_no_commit_info_test() {
+pub fn build_user_prompt_empty_commit_info_omits_commits_section_test() {
   let text = a_prompt_builder.build_user_prompt(
     "{}",
     "entries...",
