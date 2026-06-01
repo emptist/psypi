@@ -30,7 +30,7 @@ pub fn on_tool_call(
             Error(e) -> {
               let msg = "[FAIL] read: " <> e <> " | path: " <> file_path <> " | tool: " <> tool_name <> " | note: file exists on disk but FFI returned error — possible stale pi_extension_ffi.mjs in Node cache. Restart Pi TUI."
               set_status(ctx, "psypi-autobackup", msg)
-              pi_send_message(pi, "autonomic-error", "[A-agentbot] Auto-backup read failed: " <> msg, "persistent")
+              pi_send_message(pi, "autonomic-error", "[A-agentbot] Auto-backup read failed: " <> msg, "persistent", False)
               promise.resolve(Error(msg))
             }
             Ok(content) -> {
@@ -46,7 +46,7 @@ pub fn on_tool_call(
                     Error(e) -> {
                       let msg = "[FAIL] save_version: " <> string.inspect(e) <> " | path: " <> file_path
                       set_status(ctx, "psypi-autobackup", msg)
-                      pi_send_message(pi, "autonomic-error", "[A-agentbot] Auto-backup save failed: " <> msg, "persistent")
+                      pi_send_message(pi, "autonomic-error", "[A-agentbot] Auto-backup save failed: " <> msg, "persistent", False)
                       Error(msg)
                     }
                   }

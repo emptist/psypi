@@ -4,6 +4,7 @@ import a_prompt_builder
 import gleam/int
 import gleam/javascript/promise
 import gleam/string
+import inter_review
 import pi_extension.{
   call_monitor, ctx_get_context_usage_json, ctx_get_cwd,
   ctx_get_entries_json, ctx_is_idle, ctx_notify, now_ms, pi_send_message,
@@ -37,7 +38,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
         <> e
         <> ". Raw JSON: "
         <> string.slice(usage_json, 0, 300)
-      pi_send_message(pi, "autonomic-error", msg, "persistent")
+      pi_send_message(pi, "autonomic-error", msg, "persistent", False)
       promise.resolve(Ok(Nil))
     }
     Ok(context_window) -> {
@@ -48,7 +49,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
             let msg =
               "[A-agentbot] <ERROR> read_soul_from_db: "
               <> e
-            pi_send_message(pi, "autonomic-error", msg, "persistent")
+            pi_send_message(pi, "autonomic-error", msg, "persistent", False)
             promise.resolve(Ok(Nil))
           }
           Ok(soul_content) -> {
@@ -59,7 +60,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                   let msg =
                     "[A-agentbot] <ERROR> read_a_jobs_from_db: "
                     <> e
-                  pi_send_message(pi, "autonomic-error", msg, "persistent")
+                  pi_send_message(pi, "autonomic-error", msg, "persistent", False)
                   promise.resolve(Ok(Nil))
                 }
                 Ok(a_jobs) -> {
@@ -110,23 +111,49 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                         "last_a_session_at",
                                         int.to_string(now_ms()),
                                       )
-                                      let _ = ctx_notify(ctx, "[A-agentbot] Sending wake-up message...", "status")
-                                      let tagged = case string.starts_with(response, "[A]") || string.starts_with(response, "[A-agentbot]") {
-                                        True -> response
-                                        False -> "[A-agentbot] " <> response
-                                      }
-                                      pi_send_message(
-                                        pi,
-                                        "autonomic-wakeup",
-                                        tagged,
-                                        "persistent",
+                                      let _ = ctx_notify(ctx, "[A-agentbot] Saving inter-review to database...", "status")
+                                      promise.await(
+                                        inter_review.save(
+                                          response,
+                                          0,
+                                          "[]",
+                                          "[]",
+                                        ),
+                                        fn(save_result) {
+                                          case save_result {
+                                            Ok(review_id) -> {
+                                              let tagged = case string.starts_with(response, "[A]") || string.starts_with(response, "[A-agentbot]") {
+                                                True -> response
+                                                False -> "[A-agentbot] " <> response
+                                              }
+                                              let msg_with_id = tagged <> "\n\n[inter-review id: " <> review_id <> "]"
+                                              pi_send_message(
+                                                pi,
+                                                "autonomic-wakeup",
+                                                msg_with_id,
+                                                "persistent",
+                                                True,
+                                              )
+                                            }
+                                            Error(_) -> {
+                                              pi_send_message(
+                                                pi,
+                                                "autonomic-wakeup",
+                                                response,
+                                                "persistent",
+                                                False,
+                                              )
+                                            }
+                                          }
+                                          promise.resolve(Ok(Nil))
+                                        },
                                       )
                                     }
                                     False -> {
                                       let _ = ctx_notify(ctx, "[A-agentbot] Cancelled due to user activity", "status")
+                                      promise.resolve(Ok(Nil))
                                     }
                                   }
-                                  promise.resolve(Ok(Nil))
                                 }
                                 Error(e) -> {
                                   let _ = ctx_notify(ctx, "[A-agentbot] Monitor error occurred", "status")
@@ -135,6 +162,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                     "autonomic-error",
                                     "[A-agentbot] <ERROR> call_monitor: " <> e,
                                     "persistent",
+                                    False,
                                   )
                                   promise.resolve(Ok(Nil))
                                 }

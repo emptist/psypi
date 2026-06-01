@@ -39,7 +39,7 @@ pub fn project_url() -> ProjectUrl {
 
 1. **ProjectUrl is always fresh** — no caching, no storing in DB session state, no env var
 2. **Called at every use site** — each INSERT, each SELECT filter, each tool call
-3. **SQLite column changes** from `uuid` to `text` — stores the URL string or path string
+3. **PostgreSQL column changes** from `uuid` to `text` — stores the URL string or path string
 4. **No RLS** — explicit WHERE clauses with `project_url()` result
 5. **No hardcoded UUIDs** — all `0d324e68-...` references removed
 6. **No DB project table needed** — `projects` table can be dropped or kept for metadata only (name, path mapping), never for ID lookup

@@ -53,12 +53,12 @@ export function ctx_get_thinking_level(ctx) {
   return ctx.model?.thinkingLevel || '';
 }
 
-export function pi_send_message(pi, customType, content, display) {
+export function pi_send_message(pi, customType, content, display, triggerTurn) {
   pi.sendMessage({
     customType: String(customType),
     content: String(content),
-    display: true,
-  }, { triggerTurn: true });
+    display: display === "persistent" || display === "true" || display === true,
+  }, { triggerTurn: triggerTurn === true || triggerTurn === "true" });
 }
 
 export async function call_monitor(ctx, userPrompt, systemPrompt) {

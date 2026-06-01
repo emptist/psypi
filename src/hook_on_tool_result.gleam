@@ -22,6 +22,7 @@ pub fn on_tool_result(
         "autonomic-error",
         "[from A-agentbot:] Tool error: " <> display_name <> " — " <> short_msg,
         "persistent",
+        False,
       )
       Ok(Nil)
     }
