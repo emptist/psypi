@@ -94,6 +94,7 @@ Key tables and columns:
 - agent_souls: id (uuid), id_prefix (text), name (text), role (text), content (text), is_active (bool)
 - psypi_config: key (text), value (text)
 - code_versions: id (uuid), file_path (text), content (text), saved_by (text), saved_at (timestamptz)
+- memory: id (uuid), content (text), tags (text[]), source (text), importance (int), agent_id (text), created_at (timestamptz)
 
 NEVER hallucinate column names. If unsure, ask S or use Pi tools.
 NEVER run terminal commands — you have NO terminal access.
