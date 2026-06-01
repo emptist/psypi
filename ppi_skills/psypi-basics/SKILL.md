@@ -206,6 +206,8 @@ Pi runtime (tools, hooks, commands)
 
 ### Key Rules
 
+0. **Always run `pwd` first** — Before searching for files or exploring any project, run `pwd` to know your current working directory. Never assume the project root path. In this project, the path is `/Users/jk/gits/hub/tools_ai/psypi`, NOT `/Users/jk/gits/hub/psypi`. Use `pwd` + `find` to locate files, never hardcoded paths.
+
 1. **`extension.js` is auto-generated** — never hand-edit
 2. **Gleam `PiToolCall` values define all Pi tools** — add tools by creating Gleam values
 3. **FFI is minimal** — use pure Gleam libraries when possible
@@ -223,6 +225,10 @@ Pi runtime (tools, hooks, commands)
 | `promise.resolve("new Date()")`   | FFI function in `*_ffi.mjs`   |
 | `"(function(){ ... })()"` JS IIFE | Gleam FFI + Gleam string ops  |
 | Hand-editing `extension.js`       | Edit Gleam source, regenerate |
+
+## A-Bot Communication Rule
+
+**A must report tool results back to S.** When A calls tools during its Check phase and gets unexpected results (empty, errors, mismatches with Monitor reports), A must use `pi.sendMessage()` to report those findings. Never silently absorb tool results. If something looks wrong, treat it like a bug and report it — S has no other way to know what A discovered.
 
 ## A-Bot Event Flow
 

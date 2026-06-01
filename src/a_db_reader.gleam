@@ -31,20 +31,23 @@ pub fn read_soul_from_db() -> promise.Promise(Result(String, String)) {
   db.with_connection(
     fn(conn) {
       let sql =
-        "SELECT role, domain, responsibility FROM agent_souls WHERE id_prefix = 'A'"
+        "SELECT content FROM agent_souls WHERE id_prefix = 'A' AND is_active = true"
       promise.map(db.query(conn, sql, []), fn(query_result) {
         case query_result {
           Error(e) -> Error(db_error_to_string(e))
           Ok(result) ->
-            result.rows
-            |> decode_rows(soul_responsibility_decoder())
-            |> result.map(fn(entries) {
-              case entries {
-                [] -> Error("No AutonomicBot soul entries found")
-                _ -> Ok(string.join(entries, "\n"))
-              }
-            })
-            |> result.flatten
+            case result.rows {
+              [] ->
+                Error(
+                  "No AutonomicBot soul found. Check: SELECT * FROM agent_souls WHERE id_prefix='A'",
+                )
+              [row, ..] ->
+                case decode.run(row, content_decoder()) {
+                  Ok(content) -> Ok(content)
+                  Error(e) ->
+                    Error("decode soul content: " <> string.inspect(e))
+                }
+            }
         }
       })
     },
@@ -52,11 +55,9 @@ pub fn read_soul_from_db() -> promise.Promise(Result(String, String)) {
   )
 }
 
-fn soul_responsibility_decoder() -> decode.Decoder(String) {
-  use role <- decode.field("role", decode.string)
-  use domain <- decode.field("domain", decode.string)
-  use responsibility <- decode.field("responsibility", decode.string)
-  decode.success("[" <> role <> " | " <> domain <> "] " <> responsibility)
+fn content_decoder() -> decode.Decoder(String) {
+  use content <- decode.field("content", decode.string)
+  decode.success(content)
 }
 
 pub fn read_project_state_from_db() -> promise.Promise(Result(String, String)) {

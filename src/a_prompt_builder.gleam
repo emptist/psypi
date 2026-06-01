@@ -11,13 +11,8 @@ pub fn build_system_prompt(
 ) -> PromptComposition {
   let budget = context_window / 4
   new_composition(budget)
-  |> add_component(soul_component(a_identity_prompt()))
   |> add_soul_content(soul_content)
   |> add_a_jobs(a_jobs)
-}
-
-fn a_identity_prompt() -> String {
-  "Your identity, role, and behavior are defined by your soul and jobs loaded from the database below. Follow them."
 }
 
 fn add_soul_content(
@@ -81,8 +76,11 @@ pub fn build_user_prompt(
 }
 
 fn truncate(s: String, max: Int) -> String {
-  case string.length(s) > max {
-    True -> string.slice(s, 0, max) <> "..."
+  let len = string.length(s)
+  case len > max {
+    True ->
+      "...[truncated] "
+      |> string.append(string.slice(s, len - max, max))
     False -> s
   }
 }

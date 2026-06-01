@@ -334,6 +334,7 @@ These are fundamentally different types of quality control, performed by differe
 - **A's thinking/progress** → `ctx.ui.notify()` — visible in TUI, does NOT trigger S
 - **A's output for S** → `pi.sendMessage({customType: 'autonomic-wakeup', content: msg}, {triggerTurn: true})` — injects message into S's session, triggers a new S turn
 - Both A and S can see each other's messages, forming a **dialogue pattern**
+- **A MUST report tool results back to S** — When A calls tools during Check and gets unexpected results (empty, errors, mismatches), A must use `pi.sendMessage()` to report those findings. Never silently absorb tool results. If something looks wrong, treat it like a bug and report it.
 
 ### Why A-bot Must Work
 
@@ -448,6 +449,8 @@ Hand-written JS files (only these 4):
 - `src/time_utils_ffi.mjs` — date/time helpers
 
 ## Critical Rules
+
+0. **Always run `pwd` first** — Before searching for files or exploring the project, run `pwd` to know your current working directory. Never assume the project root path. The project may be at a different location than expected (e.g., `/Users/jk/gits/hub/tools_ai/psypi`, not `/Users/jk/gits/hub/psypi`). Use `pwd` + `find` to locate files, never hardcoded paths.
 
 1. **Use Pi tools, not shell commands** — `/psypi-task-add`, not `psql` or CLI
 2. **Use `psypi-commit`** for commits (not `git commit`) — commits immediately with agent ID tag. Inter-review happens after, during A's autonomous time.
