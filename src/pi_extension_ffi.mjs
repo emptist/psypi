@@ -53,12 +53,16 @@ export function ctx_get_thinking_level(ctx) {
   return ctx.model?.thinkingLevel || '';
 }
 
-export function pi_send_message(pi, customType, content, display, triggerTurn) {
+export function pi_send_message(pi, customType, content, display, triggerTurn, deliverAs) {
+  const options = { triggerTurn: triggerTurn === true || triggerTurn === "true" };
+  if (deliverAs === "nextTurn" || deliverAs === "followUp") {
+    options.deliverAs = deliverAs;
+  }
   pi.sendMessage({
     customType: String(customType),
     content: String(content),
     display: display === "persistent" || display === "true" || display === true,
-  }, { triggerTurn: triggerTurn === true || triggerTurn === "true" });
+  }, options);
 }
 
 export async function call_monitor(ctx, userPrompt, systemPrompt) {

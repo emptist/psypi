@@ -1,5 +1,19 @@
+import gleam/dynamic/decode
+import gleam/json
 import gleam/string
 import pi_extension.{pi_send_message}
+
+/// Decoder for tool results that use { ok: bool, error?: string } shape
+fn tool_error_decoder() -> decode.Decoder(String) {
+  use ok <- decode.field("ok", decode.bool)
+  case ok {
+    True -> decode.failure("ok:true means no error", "expected ok:false")
+    False -> {
+      use error_msg <- decode.field("error", decode.string)
+      decode.success(error_msg)
+    }
+  }
+}
 
 pub fn on_tool_result(
   result_json: String,
@@ -23,6 +37,7 @@ pub fn on_tool_result(
         "[from A-agentbot:] Tool error: " <> display_name <> " — " <> short_msg,
         "persistent",
         False,
+        "followUp",
       )
       Ok(Nil)
     }
@@ -30,68 +45,23 @@ pub fn on_tool_result(
 }
 
 /// Try to parse the result JSON and detect if it represents an error.
+/// Uses proper JSON decoding instead of fragile string matching.
 /// Returns Ok(error_message) if an error is found, Error(Nil) otherwise.
-fn try_parse_error(json: String) -> Result(String, Nil) {
-  // Look for the top-level ok:false pattern first
-  case string.contains(json, "\"ok\":false") {
-    True -> {
-      let msg = extract_json_field(json, "error")
-      Ok(msg)
-    }
-    False -> {
-      // Fallback: check for other error indicators
-      let has_error_marker =
-        string.contains(json, "Error:")
-        || string.contains(json, "execution error")
-        || string.contains(json, "tool_execution_blocked")
+fn try_parse_error(json_str: String) -> Result(String, Nil) {
+  // Primary: decode as { ok: false, error: "message" }
+  case json.decode(json_str, tool_error_decoder()) {
+    Ok(error_msg) -> Ok(error_msg)
+    Error(_) -> {
+      // Fallback: check for execution/tool blocked markers via structured patterns
+      // These are NOT normal tool output — they indicate tool execution was blocked
+      let is_blocked =
+        string.contains(json_str, "tool_execution_blocked")
+        || string.contains(json_str, "execution error")
 
-      case has_error_marker {
-        True -> {
-          let msg = case string.split(json, "Error:") {
-            [_, after] -> {
-              let trimmed = string.trim(after)
-              case string.length(trimmed) {
-                0 -> "Unknown error"
-                _ -> string.slice(trimmed, 0, 200)
-              }
-            }
-            _ -> "Unknown error"
-          }
-          Ok(msg)
-        }
+      case is_blocked {
+        True -> Ok("Tool execution blocked or errored")
         False -> Error(Nil)
       }
     }
-  }
-}
-
-/// Extract a field value from a simple JSON string.
-/// Handles both string values ("error": "msg") and object values ("error": {...}).
-fn extract_json_field(json: String, field: String) -> String {
-  let field_pattern = "\"" <> field <> "\""
-  case string.split(json, field_pattern) {
-    [_, after] -> {
-      let trimmed = string.trim(after)
-      case string.length(trimmed) {
-        0 -> "Unknown error"
-        _ -> {
-          let first = string.slice(trimmed, 0, 1)
-          case first {
-            // String value: "error": "some message"
-            "\"" -> {
-              let without_quote = case string.split(trimmed, "\"") {
-                [_quote, value, ..] -> value
-                _ -> trimmed
-              }
-              without_quote
-            }
-            // Object value: "error": {...}
-            "{" -> string.slice(trimmed, 0, 200)
-            _ -> string.slice(trimmed, 0, 200)
-          }
-        }
-      }
-    }
-    _ -> "Unknown error"
   }
 }

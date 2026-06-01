@@ -38,7 +38,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
         <> e
         <> ". Raw JSON: "
         <> string.slice(usage_json, 0, 300)
-      pi_send_message(pi, "autonomic-error", msg, "persistent", False)
+      pi_send_message(pi, "autonomic-error", msg, "persistent", False, "followUp")
       promise.resolve(Ok(Nil))
     }
     Ok(context_window) -> {
@@ -49,7 +49,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
             let msg =
               "[A-agentbot] <ERROR> read_soul_from_db: "
               <> e
-            pi_send_message(pi, "autonomic-error", msg, "persistent", False)
+            pi_send_message(pi, "autonomic-error", msg, "persistent", False, "followUp")
             promise.resolve(Ok(Nil))
           }
           Ok(soul_content) -> {
@@ -60,7 +60,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                   let msg =
                     "[A-agentbot] <ERROR> read_a_jobs_from_db: "
                     <> e
-                  pi_send_message(pi, "autonomic-error", msg, "persistent", False)
+                  pi_send_message(pi, "autonomic-error", msg, "persistent", False, "followUp")
                   promise.resolve(Ok(Nil))
                 }
                 Ok(a_jobs) -> {
@@ -133,6 +133,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                                 msg_with_id,
                                                 "persistent",
                                                 True,
+                                                "followUp",
                                               )
                                             }
                                             Error(_) -> {
@@ -142,6 +143,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                                 response,
                                                 "persistent",
                                                 False,
+                                                "followUp",
                                               )
                                             }
                                           }
@@ -163,6 +165,7 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                     "[A-agentbot] <ERROR> call_monitor: " <> e,
                                     "persistent",
                                     False,
+                                    "followUp",
                                   )
                                   promise.resolve(Ok(Nil))
                                 }

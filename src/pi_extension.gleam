@@ -48,6 +48,7 @@ pub fn pi_send_message(
   content: String,
   display: String,
   trigger_turn: Bool,
+  deliver_as: String,
 ) -> Nil
 
 @external(javascript, "./pi_extension_ffi.mjs", "read_file_sync")

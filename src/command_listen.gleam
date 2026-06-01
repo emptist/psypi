@@ -32,7 +32,7 @@ pub fn on_autonomic_listen(
                 True -> response
                 False -> "[A-agentbot] " <> response
               }
-              pi_send_message(pi, "autonomic-wakeup", message, "persistent", True)
+              pi_send_message(pi, "autonomic-wakeup", message, "persistent", True, "followUp")
               ctx_notify(ctx, "[AUTONOMIC] wake-up sent", "info")
               promise.resolve(Ok("A processed the message and sent to S."))
             }
