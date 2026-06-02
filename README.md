@@ -239,7 +239,7 @@ Both bots should periodically review their own **database definitions** — soul
 
 These are fundamentally different types of quality control:
 
-- **Inter-review** = A-bot's **Check** in the PDCA cycle. It happens *between* S-bot sessions (the "inter-" prefix is literal — between turns). A reviews whatever S just did (code, docs, data, decisions) and files findings to the `inter_reviews` table. Then S wakes, reads A's feedback, and acts on it (PDCA's Act). Results go to the `inter_reviews` table.
+- **Inter-review** = A-bot's **Check** in the PDCA cycle. It happens *between* S-bot sessions (the "inter-" prefix is literal — between turns). A reviews whatever S just did (code, docs, data, decisions) and writes its turn to the `inter_reviews` table — not as a formal review submission, but as the next line in an ongoing A↔S conversation. Then S wakes, reads A's message, and acts on it (PDCA's Act). The table is a chat log, not a review form.
 
   PDCA cycle:
   | Phase | Agent | What |
