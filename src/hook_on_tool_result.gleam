@@ -49,7 +49,7 @@ pub fn on_tool_result(
 /// Returns Ok(error_message) if an error is found, Error(Nil) otherwise.
 fn try_parse_error(json_str: String) -> Result(String, Nil) {
   // Primary: decode as { ok: false, error: "message" }
-  case json.decode(json_str, tool_error_decoder()) {
+  case json.parse(json_str, tool_error_decoder()) {
     Ok(error_msg) -> Ok(error_msg)
     Error(_) -> {
       // Fallback: check for execution/tool blocked markers via structured patterns
