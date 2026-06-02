@@ -3,6 +3,8 @@
 ## Date: 2026-06-01
 ## Status: Implemented (cleaned up)
 
+> **Note (added 2026-06-02)**: This design doc describes the *mechanics* of inter-review (when, by whom, where it lands). The *framing* of A's output was refined the next day: the inter-review is A's *turn to speak* in the PDCA conversation, not a formal review submission. The `inter_reviews` table is a chat log, not a review form. See [Conversational Frame](./DESIGN-A-BOT-NO-TOOLS-2026-06-02.md#conversational-frame-added-2026-06-02-after-user-feedback) for the refined framing (锵锵三人行 / 圆桌派 analogy) and [`A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md`](./A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md) for the rationale. The mechanics below are unchanged; only the framing of A's output is relaxed.
+
 ---
 
 ## What Is Inter-Review?
