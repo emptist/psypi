@@ -89,7 +89,7 @@ The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is 
 
 Field in `agent_souls` table (`text UNIQUE NOT NULL`):
 - `'A'` — Autonomic Agentbot (quality guardian: performs PDCA **Check** between S sessions — inter-review, behavior compliance, anti-stupidity)
-- `'S'` — Somatic Agentbot (Plan, Do, Act: prompt-driven task execution with full PDCA responsibility for Plan/Do/Act phases. A performs Check. S plans before doing, executes code, addresses A findings, and iterates.)
+- `'S'` — Somatic Agentbot (Plan, Do, Act: prompt-driven task execution. Like a patient who can self-check but has a doctor — S can check own work, but Check is A's professional responsibility. S plans before doing, executes code, addresses A findings, and iterates.)
 
 A and S work like **alternating current** — never active simultaneously. When S finishes and goes idle, A wakes up and reviews. When A finishes, S may be woken. They alternate, never overlap. See README.md "The A/S Dialogue Model" for full details.
 
@@ -101,14 +101,14 @@ This is the most-confused area in psypi docs. Memorize it before reading anythin
 
 | Concern                                  | A-bot            | S-bot            | External AI (user-invited) |
 |------------------------------------------|------------------|------------------|----------------------------|
-| **Inter-review** (PDCA Check)            | ✅ Owns it       | ❌ NEVER         | ❌ NEVER                   |
+| **Inter-review** (PDCA Check)            | ✅ Owns it (doctor) | ❌ Never as primary role | ❌ NEVER                   |
 | **System-review** (full audit)           | ❌ NEVER         | ✅ Owns it (on request) | ✅ Can do (on user request) |
 | **Who decides when system-review is needed** | A may suggest to S | S does not self-initiate | User decides |
 | **Who initiates system-review**         | A prompts S      | Only when A or user asks | On user request |
 | **Behavior compliance, code quality, DB quality, doc quality, follow-up** | ✅ Owns it | — | — |
 | **Code execution, file edits, git commits, system-reviews on demand** | — | ✅ Owns it | ✅ Owns it |
 
-**In one sentence**: A reviews, S does. System-review belongs to S (or an external AI invited by the user); A never does system-review and S never does inter-review. A can *prompt* S to do a system-review; A does not *do* the system-review itself.
+**In one sentence**: A is the doctor whose primary professional role is Check; S is the patient who can also self-check. System-review belongs to S (or an external AI invited by the user); A never does system-review. A can *prompt* S to do a system-review; A does not *do* the system-review itself. S can check own work, but inter-review is A's professional responsibility — like a doctor examining the patient.
 
 Canonical sources of truth (in this priority order):
 1. **`agent_souls.content` in DB** — the soul each agent reads every cycle
@@ -259,8 +259,8 @@ After commit, S goes idle → A wakes → A performs inter-review (PDCA Check) �
 
 A and S borrow from the autonomic and somatic nervous systems. Like alternating current, they **never work simultaneously** — when one is active, the other is idle. They look like two bots but are actually the same Pi extension instance, differentiated only by `id_prefix` in the `agent_souls` table, which gives them different roles and jobs.
 
-- **S (Somatic)**: The doer. Executes tasks, writes code, uses tools. Active when the user is interacting.
-- **A (Autonomic)**: The checker. Focuses on PDCA's **Check** phase — comprehensive review of S's work across all PDCA dimensions (see "A-bot's Check Scope" below). Active only when S is idle.
+- **S (Somatic)**: The doer. Executes tasks, writes code, uses tools. Active when the user is interacting. Like a patient — can self-check, but relies on the doctor for professional examination.
+- **A (Autonomic)**: The doctor-checker. Owns PDCA's **Check** phase — comprehensive review of S's work across all PDCA dimensions (see "A-bot's Check Scope" below). Active only when S is idle.
 
 ### A-bot's Two Modes: Waiting and Working
 
@@ -311,12 +311,14 @@ A's primary job is **Check** across all PDCA dimensions, not just inter-review:
    |-------|-------|------|
    | **Plan** | S (or A suggests) | Decide what to do next |
    | **Do** | S | Write code, commit, use tools |
-   | **Check** | A | Inter-review between S sessions |
+   | **Check** | A (primary) | Inter-review between S sessions — A is the doctor examining the patient |
    | **Act** | S | Address A's findings, improve |
 
    ```
    S plans & does → A checks (inter-review) → S acts → S plans & does → A checks → ...
    ```
+
+   *Doctor-patient analogy: S can self-check (like a patient monitoring own health), but Check is A's professional responsibility.*
 
 6. **Follow-up enforcement** — In the next alternating cycle, A MUST verify whether S responded to the previous round's check findings. Unaddressed findings are NOT allowed to slip through — A must escalate or re-raise them.
 
@@ -330,7 +332,7 @@ These are fundamentally different types of quality control, performed by differe
 
 **The non-negotiable rules** (also enforced in `agent_souls.content` and by migration `037_clarify_agent_roles.sql`):
 
-1. **Inter-review = A ONLY.** S NEVER does inter-review. External AI NEVER does inter-review.
+1. **Inter-review = A ONLY as primary role.** S can self-check own work (like a patient monitoring own health), but inter-review is A's professional responsibility — like a doctor examining the patient. External AI NEVER does inter-review.
 2. **System-review = S ONLY (or external AI on user request).** A NEVER does system-review. A *can prompt* S to do a system-review; A does not *do* the system-review itself.
 3. **S NEVER self-initiates a system-review.** S only runs a system-review when A or the user explicitly asks. S is not allowed to decide that "a system-review would be useful right now" on its own.
 4. **A CAN prompt S to do a system-review.** When A's inter-review surfaces patterns that need a deep audit (duplication across many files, tech debt accumulation, etc.), A's job is to *tell S* to do a system-review, not to do it.
@@ -345,7 +347,7 @@ Details:
   |-------|-------|------|
   | **Plan** | S (or A suggests) | Decide what to do next |
   | **Do** | S | Write code, commit, use tools |
-  | **Check** | A | Inter-review between S sessions |
+  | **Check** | A (primary) | Inter-review between S sessions — doctor examining patient |
   | **Act** | S | Address A's findings, improve |
 
   ```
