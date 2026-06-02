@@ -6,7 +6,6 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/result
 import gleam/string
-import project.{project_url}
 
 pub fn db_error_to_string(e: db.DbError) -> String {
   case e {
@@ -58,112 +57,6 @@ pub fn read_soul_from_db() -> promise.Promise(Result(String, String)) {
 fn content_decoder() -> decode.Decoder(String) {
   use content <- decode.field("content", decode.string)
   decode.success(content)
-}
-
-pub fn read_project_state_from_db() -> promise.Promise(Result(String, String)) {
-  let tasks_promise = read_active_tasks()
-  let issues_promise = read_open_issues()
-  promise.await(tasks_promise, fn(tasks_result) {
-    let tasks_text = case tasks_result {
-      Ok(t) -> t
-      Error(_) -> "  (tasks unavailable)"
-    }
-    promise.await(issues_promise, fn(issues_result) {
-      let issues_text = case issues_result {
-        Ok(i) -> i
-        Error(_) -> "  (issues unavailable)"
-      }
-      promise.resolve(Ok(
-        "ACTIVE TASKS:\n" <> tasks_text <> "\n\nOPEN ISSUES:\n" <> issues_text,
-      ))
-    })
-  })
-}
-
-fn read_active_tasks() -> promise.Promise(Result(String, String)) {
-  let project_url = project_url()
-  db.with_connection(
-    fn(conn) {
-      let sql =
-        "SELECT id::text, title, status, priority, is_stuck "
-        <> "FROM tasks WHERE status NOT IN ('COMPLETED','FAILED','FAKE_COMPLETE') "
-        <> "AND project_url = $1 "
-        <> "ORDER BY is_stuck DESC, priority DESC, updated_at ASC LIMIT 200"
-      promise.map(db.query(conn, sql, [dynamic.string(project_url)]), fn(query_result) {
-        case query_result {
-          Error(e) -> Error(db_error_to_string(e))
-          Ok(result) ->
-            case result.rows {
-              [] -> Ok("  (none)")
-              rows ->
-                rows
-                |> decode_rows(task_row_decoder())
-                |> result.map(fn(lines) { string.join(lines, "\n") })
-            }
-        }
-      })
-    },
-    db_error_to_string,
-  )
-}
-
-fn read_open_issues() -> promise.Promise(Result(String, String)) {
-  let project_url = project_url()
-  db.with_connection(
-    fn(conn) {
-      let sql =
-        "SELECT id::text, title, severity "
-        <> "FROM issues WHERE status NOT IN ('resolved','closed') "
-        <> "AND project_url = $1 "
-        <> "ORDER BY created_at DESC LIMIT 200"
-      promise.map(db.query(conn, sql, [dynamic.string(project_url)]), fn(query_result) {
-        case query_result {
-          Error(e) -> Error(db_error_to_string(e))
-          Ok(result) ->
-            case result.rows {
-              [] -> Ok("  (none)")
-              rows ->
-                rows
-                |> decode_rows(issue_row_decoder())
-                |> result.map(fn(lines) { string.join(lines, "\n") })
-            }
-        }
-      })
-    },
-    db_error_to_string,
-  )
-}
-
-fn task_row_decoder() -> decode.Decoder(String) {
-  use id <- decode.field("id", decode.string)
-  use title <- decode.field("title", decode.string)
-  use status <- decode.field("status", decode.string)
-  use priority <- decode.field("priority", decode.int)
-  use is_stuck <- decode.field("is_stuck", decode.bool)
-  let prefix = case is_stuck {
-    True -> "[STUCK] "
-    False -> ""
-  }
-  decode.success(
-    "  - "
-    <> prefix
-    <> "["
-    <> status
-    <> " p"
-    <> int.to_string(priority)
-    <> "] "
-    <> title
-    <> " (id: "
-    <> id
-    <> ")",
-  )
-}
-
-fn issue_row_decoder() -> decode.Decoder(String) {
-  use id <- decode.field("id", decode.string)
-  use title <- decode.field("title", decode.string)
-  use severity <- decode.field("severity", decode.string)
-  decode.success("  - [" <> severity <> "] " <> title <> " (id: " <> id <> ")")
 }
 
 pub fn read_a_jobs_from_db() -> promise.Promise(Result(String, String)) {

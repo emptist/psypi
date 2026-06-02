@@ -21,12 +21,11 @@ The user had to temporarily set `triggerTurn: false` to stop A-bot's raw LLM thi
 ```
 1. Read soul from DB          (a_db_reader.read_soul_from_db)
 2. Read jobs from DB          (a_db_reader.read_a_jobs_from_db)
-3. Read project state from DB (a_db_reader.read_project_state_from_db)
-4. Read last session time     (a_db_reader.get_last_a_session_at)
-5. Get recent commits         (exec_sync "git log")
-6. Build prompts              (a_prompt_builder)
-7. Call LLM                   (call_monitor)
-8. Send LLM response as text  (pi_send_message)
+3. Read last session time     (a_db_reader.get_last_a_session_at)
+4. Get recent commits         (exec_sync "git log")
+5. Build prompts              (a_prompt_builder)
+6. Call LLM                   (call_monitor)
+7. Send LLM response as text  (pi_send_message)
 ```
 
 **That's it.** A-bot has ZERO write operations. No `inter_review.save()`. No `issue_add`. No `task_add`. No database writes at all. A-bot is a read-only pipeline that asks an LLM what to think and forwards the text to S.

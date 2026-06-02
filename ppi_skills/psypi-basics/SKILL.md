@@ -51,10 +51,11 @@ A-bot's behavior is **not hardcoded** — it is defined by the database:
 The orchestrator (`a_orchestrator.gleam`) does NOT force steps. It:
 1. Loads soul from `agent_souls` via `a_db_reader.read_soul_from_db()` (reads role, domain, responsibility where `id_prefix='A'`)
 2. Loads jobs from `agent_jobs` via `a_db_reader.read_a_jobs_from_db()` (joins agent_jobs → agent_souls where `id_prefix='A'`)
-3. Loads project state (active tasks + open issues) via `a_db_reader.read_project_state_from_db()`
-4. Gets recent commits since `last_a_session_at` as context
-5. Builds prompt with all of the above
-6. Calls the monitor (LLM) — the LLM decides what to do based on its jobs
+3. Gets recent commits since `last_a_session_at` as context
+4. Builds prompt with all of the above
+5. Calls the monitor (LLM) — the LLM decides what to do based on its jobs
+
+> **A's context deliberately excludes the project state** (active tasks, open issues). Those are S's scope. A is a reviewer, not a secretary. If A needs to reference a specific task/issue, A writes the request ("S, please look up task abc-123") and S runs the query. See `docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md`.
 7. Sends the LLM's response to S-bot as wake-up message
 8. Updates `last_a_session_at` in `psypi_config` DB table
 

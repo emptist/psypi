@@ -8,12 +8,23 @@ import system_prompt_types
 
 const default_context_window: Int = 16_000
 
-/// Handle /autonomic-listen <message> — a direct human-to-A message.
+/// Handle /autonomic-listen <message> — a debug-only tool for peeking at
+/// A's environment.
 ///
-/// A is given the same context the autonomous hook would give it: soul (from
-/// agent_souls), jobs (from agent_jobs), and project state (active tasks +
-/// open issues, from the database). A reviews that context in light of the
-/// human's message and produces a text response. The response is:
+/// This is NOT a normal user-facing command. In normal operation psypi runs
+/// without human involvement: S does, A checks, the loop continues. The only
+/// time a human uses /autonomic-listen is when something is wrong and we
+/// have no other way to see what A sees (its prompt, its jobs, its recent
+/// context). The human is a fallback, not a primary actor.
+///
+/// A is given the SAME context the autonomous hook would give it: soul
+/// (from agent_souls), jobs (from agent_jobs), and (via the human's own
+/// observation) the recent session log + commits that A normally sees. A
+/// responds as if it were in autonomous mode — the human's message is just
+/// the question, A's context is unchanged. This is the point: the debug tool
+/// shows you what A actually sees, not an extended view.
+///
+/// A's response is:
 ///   1. saved to inter_reviews (same as the autonomous path)
 ///   2. sent to S via pi.sendMessage with triggerTurn: true (S sees it, can act)
 ///
@@ -21,6 +32,12 @@ const default_context_window: Int = 16_000
 /// terminal commands, or call psypi-* tools. If A needs data not in the
 /// prompt, it writes that need into its review and S will fetch it in the
 /// next turn. This is the explicit design (migration 038, 2026-06-02).
+///
+/// Self-monitor reminder: if the human is asking A about a tool error or a
+/// strange environment symptom, A's job (from the self-monitor entry in
+/// agent_jobs) is to report the anomaly to S via pi.sendMessage, not to
+/// wait for the human to fix it. S investigates. The human should not need
+/// to be in the loop.
 pub fn on_autonomic_listen(
   args: String,
   ctx: a,
@@ -32,11 +49,7 @@ pub fn on_autonomic_listen(
       promise.resolve(Ok("Usage: /autonomic-listen <message>"))
     }
     False -> {
-      ctx_notify(
-        ctx,
-        "[AUTONOMIC] A loading soul + jobs + project state...",
-        "status",
-      )
+      ctx_notify(ctx, "[AUTONOMIC] A loading soul + jobs...", "status")
       promise.await(a_db_reader.read_soul_from_db(), fn(soul_result) {
         case soul_result {
           Error(e) -> {
@@ -58,50 +71,40 @@ pub fn on_autonomic_listen(
                   )
                   promise.resolve(Error("A failed to load jobs: " <> e))
                 }
-                Ok(a_jobs) ->
+                Ok(a_jobs) -> {
+                  let _ =
+                    ctx_notify(
+                      ctx,
+                      "[AUTONOMIC] A thinking about human message...",
+                      "status",
+                    )
+                  let system_prompt =
+                    system_prompt_types.compose(
+                      a_prompt_builder.build_system_prompt(
+                        soul_content,
+                        a_jobs,
+                        default_context_window,
+                      ),
+                    )
+                  let user_prompt = build_user_prompt(args)
                   promise.await(
-                    a_db_reader.read_project_state_from_db(),
-                    fn(state_result) {
-                      let project_state = case state_result {
-                        Ok(s) -> s
-                        Error(e) -> "Failed to read project state: " <> e
+                    call_monitor(ctx, user_prompt, system_prompt),
+                    fn(result) {
+                      case result {
+                        Ok(response) ->
+                          finish_autonomic_listen(response, ctx, pi)
+                        Error(e) -> {
+                          ctx_notify(
+                            ctx,
+                            "[AUTONOMIC] <ERROR> call_monitor: " <> e,
+                            "error",
+                          )
+                          promise.resolve(Error("A failed to process: " <> e))
+                        }
                       }
-                      let _ =
-                        ctx_notify(
-                          ctx,
-                          "[AUTONOMIC] A thinking about human message...",
-                          "status",
-                        )
-                      let system_prompt =
-                        system_prompt_types.compose(
-                          a_prompt_builder.build_system_prompt(
-                            soul_content,
-                            a_jobs,
-                            default_context_window,
-                          ),
-                        )
-                      let user_prompt = build_user_prompt(args, project_state)
-                      promise.await(
-                        call_monitor(ctx, user_prompt, system_prompt),
-                        fn(result) {
-                          case result {
-                            Ok(response) ->
-                              finish_autonomic_listen(response, ctx, pi)
-                            Error(e) -> {
-                              ctx_notify(
-                                ctx,
-                                "[AUTONOMIC] <ERROR> call_monitor: " <> e,
-                                "error",
-                              )
-                              promise.resolve(Error(
-                                "A failed to process: " <> e,
-                              ))
-                            }
-                          }
-                        },
-                      )
                     },
                   )
+                }
               }
             })
         }
@@ -110,9 +113,9 @@ pub fn on_autonomic_listen(
   }
 }
 
-fn build_user_prompt(human_message: String, project_state: String) -> String {
-  "## Mode: direct human message to A
-" <> "The human is sending A a direct message (via /autonomic-listen). This is NOT the autonomous debounce path. There is no S session that just ended. A is asked to think and respond.\n\n" <> "## Human message\n" <> human_message <> "\n\n" <> "## Project State (from database, preloaded — A cannot query DB directly)\n" <> project_state <> "\n\n" <> "## A's expected response format\n" <> "Reply as plain text. Do NOT emit any tool-call XML (no <longcat_tool_call> or similar). A has no tool-calling capability.\n" <> "If the human is asking for an inter-review, structure the response as a normal inter-review: summary, score, findings, suggested next steps.\n" <> "If the human is asking A to act on something, A's role is to ask S to do it. A cannot do it directly. Compose a clear request for S in plain text.\n" <> "If A needs data that is not in the project_state above, write the request as a finding (\"S, please run SELECT ...\") and S will fetch it.\n"
+fn build_user_prompt(human_message: String) -> String {
+  "## Mode: debug-only human message to A
+" <> "The human is sending A a direct message (via /autonomic-listen). This is a debug tool, not a normal user-facing command. The human is peeking into A's environment because something looks wrong and there is no other way to see what A sees.\n" <> "A's context here is the same as the autonomous debounce path: soul + jobs + (when triggered) the recent session log and recent commits. The human's message is the question; A responds using the same context it would use autonomously.\n" <> "If the human is asking A about an environment anomaly (tool error, missing data, weird state), A's job is to self-monitor: report the anomaly to S via pi.sendMessage (triggerTurn: true) so S can investigate. The human is not the fix-it person. S is.\n\n" <> "## Human message\n" <> human_message <> "\n\n" <> "## A's expected response format\n" <> "Reply as plain text. Do NOT emit any tool-call XML (no <longcat_tool_call> or similar). A has no tool-calling capability.\n" <> "If the human is asking for an inter-review, structure the response as a normal inter-review: summary, score, findings, suggested next steps.\n" <> "If the human is asking A to act on something, A's role is to ask S to do it. A cannot do it directly. Compose a clear request for S in plain text.\n" <> "If A needs data that is not in its context, write the request as a finding (\"S, please run SELECT ...\") and S will fetch it.\n"
 }
 
 fn inter_review_error_to_string(e: inter_review.InterReviewError) -> String {

@@ -22,7 +22,9 @@ A and S are **conceptually the same agent** (one consciousness, one soul schema,
 
 **A reads its data from the prompt**, not from tools. A's soul, jobs, and S's recent session (entries + commits) are preloaded by Gleam code into the user_prompt before the LLM is called. A's response is plain text that is then **filed to `inter_reviews` and forwarded to S** for action.
 
-> **Scope note (added 2026-06-02 after user feedback):** A is inter-S-session Check only. A's preloaded context deliberately excludes the project state (active tasks, open issues). Those are S's scope, not A's. If A needs to reference a specific task or issue in a finding, A writes the request ("S, please look up task abc-123") and S runs the query. A is a reviewer, not a secretary. The `/autonomic-listen` direct human path still loads project state because that path is conversational and the human may ask anything.
+> **Scope note (added 2026-06-02 after user feedback):** A is inter-S-session Check only. A's preloaded context deliberately excludes the project state (active tasks, open issues). Those are S's scope, not A's. If A needs to reference a specific task or issue in a finding, A writes the request ("S, please look up task abc-123") and S runs the query. A is a reviewer, not a secretary. The `/autonomic-listen` debug tool uses the SAME context as the autonomous path — debug means "show me exactly what A sees", not "show me an extended view".
+>
+> **The `/autonomic-listen` tool is debug-only.** The whole psypi is designed to let the human do less and less until no human is actually needed. In normal operation the human is not in the loop. A detects its own environment anomalies (tool errors, missing data, weird state) and reports them to S via `pi.sendMessage` so S can investigate (see the `self_monitor` job in `agent_jobs` and the "Self-Monitor Workflow" section in A's soul). The human only uses `/autonomic-listen` as a last resort when no other way exists to peek into A's environment.
 
 ---
 
@@ -58,9 +60,10 @@ The Gleam hook `hook_on_agent_end.on_agent_end` (and `command_listen.on_autonomi
 2. **A's jobs** from `agent_jobs` (joined to A's soul, ordered by priority)
 3. (Hook path only) **Recent commits** via `git log` in a Gleam `exec_sync` call
 4. (Hook path only) **Session entries** (S's recent work) from `ctx.getEntriesJson()`
-5. (Direct human `/autonomic-listen` path only) **Project state** (active tasks + open issues) from `tasks` and `issues` tables — NOT loaded in the autonomous inter-review path, see scope note above.
 
-All five go into the `user_prompt` as pre-formatted text. A reads them as plain text.
+Both the autonomous hook and the `/autonomic-listen` debug tool preload the same four items. The debug tool does NOT add project state — that would defeat the purpose of "show me what A actually sees".
+
+All four go into the `user_prompt` as pre-formatted text. A reads them as plain text.
 
 ### Process: one LLM call
 
@@ -120,7 +123,7 @@ The fix is to make the architecture match the design intent: **A is a reviewer, 
 
 ### What A always does
 
-- Reads preloaded soul, jobs, project state from the user_prompt
+- Reads preloaded soul + jobs + (in hook path only) recent commits and session entries from the user_prompt
 - Produces one plain-text response
 - Saves the response to `inter_reviews`
 - Sends the response to S with `triggerTurn: true`
@@ -132,9 +135,9 @@ The fix is to make the architecture match the design intent: **A is a reviewer, 
 
 | File | Role |
 |---|---|
-| `src/hook_on_agent_end.gleam` | Autonomous path: timer fires, A reads state, calls LLM, saves, sends to S |
-| `src/command_listen.gleam` | Direct path: human runs `/autonomic-listen`, A responds immediately |
-| `src/a_db_reader.gleam` | DB helpers: `read_soul_from_db`, `read_a_jobs_from_db`, `read_project_state_from_db` |
+| `src/hook_on_agent_end.gleam` | Autonomous path: timer fires, A reads soul/jobs/commits, calls LLM, saves, sends to S |
+| `src/command_listen.gleam` | Debug path: human runs `/autonomic-listen`, A responds with the same context the autonomous path would see |
+| `src/a_db_reader.gleam` | DB helpers: `read_soul_from_db`, `read_a_jobs_from_db` (no project state — that's S's scope) |
 | `src/a_prompt_builder.gleam` | System/user prompt construction + `parse_review_score` |
 | `src/inter_review.gleam` | `save(requester_id, summary, score, findings, suggestions)` |
 | `src/pi_extension_ffi.mjs` | `call_monitor` FFI: text-only `completeSimple` wrapper |

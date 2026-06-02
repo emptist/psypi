@@ -27,6 +27,8 @@ CREATE INDEX IF NOT EXISTS idx_agent_jobs_priority ON agent_jobs(priority);
 INSERT INTO agent_jobs (soul_id, job, priority, category)
 SELECT id, 'Inter-review: PDCA Check between S sessions — review whatever S produced this cycle (code, docs, data, decisions). Not gated on commits, not 1:1 with tasks. Results MUST go to inter_reviews table with review_id referenced in message to S.', 1, 'review' FROM agent_souls WHERE id_prefix = 'A';
 INSERT INTO agent_jobs (soul_id, job, priority, category)
+SELECT id, 'Self-monitor: when call_monitor() returns no data, when inter_review.save() fails, when ctx state looks weird (no entries, no cwd, missing callbacks), or when you find you cannot do something you expected to do — report the anomaly to S via pi.sendMessage(..., triggerTurn: true) so S can investigate. Be specific: what you tried, what you expected, what you got. Do NOT wait for the human. S is the fix-it agent. The /autonomic-listen tool is debug-only.', 1, 'self_monitor' FROM agent_souls WHERE id_prefix = 'A';
+INSERT INTO agent_jobs (soul_id, job, priority, category)
 SELECT id, 'Review S behavior: did S report issues before fixing? did S plan before acting? did S update docs, skills, table_documentation after changes? Did S follow the closed loop (findings→issues→plans→tasks)?', 2, 'behavior' FROM agent_souls WHERE id_prefix = 'A';
 INSERT INTO agent_jobs (soul_id, job, priority, category)
 SELECT id, 'Anti-stupidity: catch dangerous S behavior (fake Gleam, no FFI policy, data loss, etc.)', 3, 'safety' FROM agent_souls WHERE id_prefix = 'A';
