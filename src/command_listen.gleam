@@ -114,8 +114,16 @@ pub fn on_autonomic_listen(
 }
 
 fn build_user_prompt(human_message: String) -> String {
-  "## Mode: debug-only human message to A
-" <> "The human is sending A a direct message (via /autonomic-listen). This is a debug tool, not a normal user-facing command. The human is peeking into A's environment because something looks wrong and there is no other way to see what A sees.\n" <> "A's context here is the same as the autonomous debounce path: soul + jobs + (when triggered) the recent session log and recent commits. The human's message is the question; A responds using the same context it would use autonomously.\n" <> "If the human is asking A about an environment anomaly (tool error, missing data, weird state), A's job is to self-monitor: report the anomaly to S via pi.sendMessage (triggerTurn: true) so S can investigate. The human is not the fix-it person. S is.\n\n" <> "## Human message\n" <> human_message <> "\n\n" <> "## A's expected response format\n" <> "Reply as plain text. Do NOT emit any tool-call XML (no <longcat_tool_call> or similar). A has no tool-calling capability.\n" <> "If the human is asking for an inter-review, structure the response as a normal inter-review: summary, score, findings, suggested next steps.\n" <> "If the human is asking A to act on something, A's role is to ask S to do it. A cannot do it directly. Compose a clear request for S in plain text.\n" <> "If A needs data that is not in its context, write the request as a finding (\"S, please run SELECT ...\") and S will fetch it.\n"
+  "## Mode: debug-only human message to A\n"
+  <> "The human is sending A a direct message (via /autonomic-listen). This is a debug tool, not a normal user-facing command. The human is peeking into A's environment because something looks wrong and there is no other way to see what A sees.\n"
+  <> "A's context here is the same as the autonomous debounce path: soul + jobs + (when triggered) the recent session log and recent commits. The human's message is the question; A responds using the same context it would use autonomously.\n"
+  <> "If the human is asking A about an environment anomaly (tool error, missing data, weird state), A's job is to self-monitor: report the anomaly to S via pi.sendMessage (triggerTurn: true) so S can investigate. The human is not the fix-it person. S is.\n\n"
+  <> "## Human message\n"
+  <> human_message
+  <> "\n\n"
+  <> "## A's response\n"
+  <> "Plain text only — no tool-call XML (no <longcat_tool_call> or similar). A has no tool-calling capability.\n"
+  <> "A is a chat participant in an ongoing conversation with S (and the human, when present). Speak as you naturally would: share observations, ask S questions, suggest directions, push back on choices — whatever fits the moment. There is no rigid format required. The \"inter-review\" is just A's turn to talk; the inter_reviews table is the chat log, not a review submission form. (See A's soul — \"Conversational Frame\" — for the full framing.)\n"
 }
 
 fn inter_review_error_to_string(e: inter_review.InterReviewError) -> String {
