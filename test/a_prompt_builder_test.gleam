@@ -138,12 +138,48 @@ pub fn build_user_prompt_includes_recent_conversation_test() {
   should.be_true(string.contains(text, "User: hello"))
 }
 
-pub fn build_user_prompt_truncates_long_entries_test() {
+pub fn build_user_prompt_does_not_truncate_long_entries_test() {
   let long_entries = string.repeat("x", 5000)
   let text = a_prompt_builder.build_user_prompt("{}", long_entries, "/cwd", "state", "")
-  should.be_true(string.contains(text, "...[truncated]"))
-  // Original was 5000 chars; truncated output must be shorter
-  should.be_true(string.length(text) < string.length(long_entries))
+  // No truncation marker should appear.
+  should.be_false(string.contains(text, "...[truncated]"))
+  // The full 5000-char entries must be present (head, not just tail).
+  should.be_true(string.length(text) >= string.length(long_entries))
+  // The head content (positions 0-99) must be present verbatim, not sliced off.
+  should.be_true(string.contains(text, string.slice(long_entries, 0, 100)))
+}
+
+pub fn build_user_prompt_does_not_truncate_very_long_entries_test() {
+  // Simulate a long S session log: 50_000 chars, bigger than the old 4000 cap by 12x.
+  let huge_entries = string.repeat("a", 50_000)
+  let text = a_prompt_builder.build_user_prompt("{}", huge_entries, "/cwd", "state", "")
+  should.be_false(string.contains(text, "...[truncated]"))
+  should.be_true(string.length(text) >= string.length(huge_entries))
+  // Spot-check the very end: the most recent entries must be present.
+  let tail_len = 200
+  let head = string.drop_end(huge_entries, string.length(huge_entries) - tail_len)
+  should.be_true(string.contains(text, head))
+}
+
+pub fn build_user_prompt_does_not_truncate_short_entries_test() {
+  // Short input should be unchanged either way.
+  let text = a_prompt_builder.build_user_prompt("{}", "User: hi\nAssistant: yo", "/cwd", "state", "")
+  should.be_false(string.contains(text, "...[truncated]"))
+  should.be_true(string.contains(text, "User: hi"))
+  should.be_true(string.contains(text, "Assistant: yo"))
+}
+
+pub fn build_user_prompt_does_not_truncate_giant_commit_info_test() {
+  // Commit info has no internal truncation either (it comes from get_recent_commits).
+  // We assert the user_prompt does not apply any length cap of its own.
+  let many_commits = string.repeat("abc1234 commit message line\n", 500)
+  let text = a_prompt_builder.build_user_prompt("{}", "entries", "/cwd", "state", many_commits)
+  // The commit section marker must be present.
+  should.be_true(string.contains(text, "Recent Commits"))
+  // The first commit's hash must be present (no head-only slice from the user_prompt).
+  should.be_true(string.contains(text, "abc1234"))
+  // The last commit's hash must be present (no tail-only slice from the user_prompt).
+  should.be_true(string.contains(text, "abc1234 commit message line"))
 }
 
 // --- build_user_prompt: commit info ---

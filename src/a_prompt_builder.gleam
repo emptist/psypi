@@ -73,19 +73,9 @@ pub fn build_user_prompt(
 
   let recent_section =
     "## S-bot's Recent Conversation (most recent at the end):\n"
-    <> truncate(entries_json, 4000)
+    <> entries_json
 
   context_section <> usage_section <> state_section <> commit_section <> recent_section
-}
-
-fn truncate(s: String, max: Int) -> String {
-  let len = string.length(s)
-  case len > max {
-    True ->
-      "...[truncated] "
-      |> string.append(string.slice(s, len - max, max))
-    False -> s
-  }
 }
 
 /// Extract an integer score (0-100) from an LLM-generated review response.

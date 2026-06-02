@@ -214,11 +214,7 @@ fn get_recent_commits(since_timestamp: String) -> String {
     }
   }
   case pi_extension.exec_sync(cmd) {
-    Ok(out) ->
-      case string.length(out) > 4000 {
-        True -> string.slice(out, 0, 4000)
-        False -> out
-      }
+    Ok(out) -> out
     Error(_) -> ""
   }
 }

@@ -88,7 +88,7 @@ fn read_active_tasks() -> promise.Promise(Result(String, String)) {
         "SELECT id::text, title, status, priority, is_stuck "
         <> "FROM tasks WHERE status NOT IN ('COMPLETED','FAILED','FAKE_COMPLETE') "
         <> "AND project_url = $1 "
-        <> "ORDER BY is_stuck DESC, priority DESC, updated_at ASC LIMIT 10"
+        <> "ORDER BY is_stuck DESC, priority DESC, updated_at ASC LIMIT 200"
       promise.map(db.query(conn, sql, [dynamic.string(project_url)]), fn(query_result) {
         case query_result {
           Error(e) -> Error(db_error_to_string(e))
@@ -115,7 +115,7 @@ fn read_open_issues() -> promise.Promise(Result(String, String)) {
         "SELECT id::text, title, severity "
         <> "FROM issues WHERE status NOT IN ('resolved','closed') "
         <> "AND project_url = $1 "
-        <> "ORDER BY created_at DESC LIMIT 10"
+        <> "ORDER BY created_at DESC LIMIT 200"
       promise.map(db.query(conn, sql, [dynamic.string(project_url)]), fn(query_result) {
         case query_result {
           Error(e) -> Error(db_error_to_string(e))
