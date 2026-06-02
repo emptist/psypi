@@ -255,6 +255,8 @@ These are fundamentally different types of quality control:
   S plans & does → A checks (inter-review) → S acts → S plans & does → A checks → ...
   ```
 
+  > The "inter-review" is A's *turn to speak* in the PDCA cycle, not a formal review submission. A is a chat participant; the `inter_reviews` table is a chat log. See [Conversational Frame](./docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md#conversational-frame-added-2026-06-02-after-user-feedback) for the full framing (锵锵三人行 / 圆桌派 analogy).
+
 - **System-review** = **End-of-line QC** (delayed, comprehensive). A thorough examination of the **entire system** across all dimensions — codebase architecture, database schema integrity, type coverage, documentation completeness, code duplication patterns, missing Gleam types, stale data, and accumulated technical debt. Like an annual audit that looks at the whole factory, not just one unit. Broad in scope but infrequent and deep. This is **S's job** (or an external AI invited by the user), NOT A's job. A is an added mechanism, not Pi's native component — complex tasks like system-review should be done by S. A can prompt S to do a system-review when A judges it is needed. Results go to `system_reviews` + `review_findings` tables.
 
 | Aspect | Inter-Review | System-Review |
