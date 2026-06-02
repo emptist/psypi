@@ -30,7 +30,12 @@ fn id_decoder() -> decode.Decoder(String) {
 
 /// Save a completed inter-review result.
 /// A-bot calls Monitor to review code, then files the result here.
+///
+/// `requester_id` is the agent identity string (e.g. "A-agentbot"). The DB
+/// column is NOT NULL, so the caller MUST provide a value. This is the
+/// fix for RC-1 (2026-06-02).
 pub fn save(
+  requester_id: String,
   summary: String,
   score: Int,
   findings: String,
@@ -40,8 +45,8 @@ pub fn save(
   db.with_connection(
     fn(conn) {
       let sql = "
-        INSERT INTO inter_reviews (project_url, status, summary, overall_score, findings, suggestions, completed_at)
-        VALUES ($1, 'completed', $2, $3, $4::jsonb, $5::jsonb, NOW())
+        INSERT INTO inter_reviews (project_url, status, summary, overall_score, findings, suggestions, requester_id, completed_at)
+        VALUES ($1, 'completed', $2, $3, $4::jsonb, $5::jsonb, $6, NOW())
         RETURNING id
       "
       let params = [
@@ -50,6 +55,7 @@ pub fn save(
         dynamic.int(score),
         dynamic.string(findings),
         dynamic.string(suggestions),
+        dynamic.string(requester_id),
       ]
       promise.map(db.query(conn, sql, params), fn(result) {
         case result {

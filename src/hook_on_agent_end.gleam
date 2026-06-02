@@ -112,10 +112,12 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                         int.to_string(now_ms()),
                                       )
                                       let _ = ctx_notify(ctx, "[A-agentbot] Saving inter-review to database...", "status")
+                                      let score = a_prompt_builder.parse_review_score(response)
                                       promise.await(
                                         inter_review.save(
+                                          "A-agentbot",
                                           response,
-                                          0,
+                                          score,
                                           "[]",
                                           "[]",
                                         ),
@@ -136,13 +138,27 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                                 "followUp",
                                               )
                                             }
-                                            Error(_) -> {
+                                            Error(save_err) -> {
+                                              let save_err_str = inter_review_error_to_string(save_err)
+                                              let _ = ctx_notify(
+                                                ctx,
+                                                "[A-agentbot] <ERROR> inter-review save failed: " <> save_err_str,
+                                                "error",
+                                              )
+                                              let tagged = case string.starts_with(response, "[A]") || string.starts_with(response, "[A-agentbot]") {
+                                                True -> response
+                                                False -> "[A-agentbot] " <> response
+                                              }
+                                              let msg_for_s = "[SAVE FAILED] A's inter-review could not be persisted to the database ("
+                                                <> save_err_str
+                                                <> "). S, please consider saving this manually via psypi-inter-reviews.\n\n"
+                                                <> tagged
                                               pi_send_message(
                                                 pi,
                                                 "autonomic-wakeup",
-                                                response,
+                                                msg_for_s,
                                                 "persistent",
-                                                False,
+                                                True,
                                                 "followUp",
                                               )
                                             }
@@ -204,5 +220,13 @@ fn get_recent_commits(since_timestamp: String) -> String {
         False -> out
       }
     Error(_) -> ""
+  }
+}
+
+fn inter_review_error_to_string(e: inter_review.InterReviewError) -> String {
+  case e {
+    inter_review.ConnectionError(msg) -> "DB connection: " <> msg
+    inter_review.QueryError(msg) -> "DB query: " <> msg
+    inter_review.DecodeError(msg) -> "DB decode: " <> msg
   }
 }

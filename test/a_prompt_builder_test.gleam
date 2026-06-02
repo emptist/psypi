@@ -170,3 +170,61 @@ pub fn build_user_prompt_empty_commit_info_omits_commits_section_test() {
   )
   should.be_false(string.contains(text, "Recent Commits"))
 }
+
+// --- parse_review_score ---
+
+pub fn parse_score_explicit_score_test() {
+  should.equal(a_prompt_builder.parse_review_score("Summary here.\n\nScore: 75\n\nFindings..."), 75)
+}
+
+pub fn parse_score_overall_score_test() {
+  should.equal(
+    a_prompt_builder.parse_review_score("Inter-review of commit abc.\n\nOverall Score: 42\n\nFindings..."),
+    42,
+  )
+}
+
+pub fn parse_score_case_insensitive_test() {
+  should.equal(
+    a_prompt_builder.parse_review_score("Reply text.\n\nscore: 60\n"),
+    60,
+  )
+}
+
+pub fn parse_score_no_score_returns_default_50_test() {
+  should.equal(
+    a_prompt_builder.parse_review_score("Just a review with no score line at all."),
+    50,
+  )
+}
+
+pub fn parse_score_clamps_negative_to_zero_test() {
+  should.equal(a_prompt_builder.parse_review_score("Score: -10\n"), 0)
+}
+
+pub fn parse_score_clamps_above_100_test() {
+  should.equal(a_prompt_builder.parse_review_score("Score: 9999\n"), 100)
+}
+
+pub fn parse_score_handles_rating_label_test() {
+  should.equal(
+    a_prompt_builder.parse_review_score("Rating: 88\n\nLooks good."),
+    88,
+  )
+}
+
+pub fn parse_score_handles_realistic_llm_response_test() {
+  let response = "
+## Inter-Review Summary
+The code change is well-structured but has a minor bug.
+
+## Findings
+1. [medium] Some issue
+2. [low] Another issue
+
+## Score: 65
+## Next steps
+- Fix the bug
+"
+  should.equal(a_prompt_builder.parse_review_score(response), 65)
+}

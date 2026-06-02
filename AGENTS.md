@@ -95,6 +95,31 @@ A and S work like **alternating current** — never active simultaneously. When 
 
 Used throughout hooks, seed, and directives to look up agent identity.
 
+### Key Responsibility Split (READ THIS FIRST)
+
+This is the most-confused area in psypi docs. Memorize it before reading anything else.
+
+| Concern                                  | A-bot            | S-bot            | External AI (user-invited) |
+|------------------------------------------|------------------|------------------|----------------------------|
+| **Inter-review** (PDCA Check)            | ✅ Owns it       | ❌ NEVER         | ❌ NEVER                   |
+| **System-review** (full audit)           | ❌ NEVER         | ✅ Owns it (on request) | ✅ Can do (on user request) |
+| **Who decides when system-review is needed** | A may suggest to S | S does not self-initiate | User decides |
+| **Who initiates system-review**         | A prompts S      | Only when A or user asks | On user request |
+| **Behavior compliance, code quality, DB quality, doc quality, follow-up** | ✅ Owns it | — | — |
+| **Code execution, file edits, git commits, system-reviews on demand** | — | ✅ Owns it | ✅ Owns it |
+
+**In one sentence**: A reviews, S does. System-review belongs to S (or an external AI invited by the user); A never does system-review and S never does inter-review. A can *prompt* S to do a system-review; A does not *do* the system-review itself.
+
+Canonical sources of truth (in this priority order):
+1. **`agent_souls.content` in DB** — the soul each agent reads every cycle
+2. **`agent_jobs` in DB** — the prioritized work items per soul
+3. **`src/migrations/008_agent_soul.sql` and `009_agent_jobs.sql`** — canonical seed
+4. **`src/seed.gleam`** — first-run seed (idempotent)
+5. **This file (AGENTS.md)** — human-readable summary
+6. **`docs/DESIGN-inter-review-PDCA.md`** — design rationale
+
+If you find any conflict, the DB is right. Update the docs.
+
 ## Identity System
 
 One pure function: `get_resolved_identity(ctx)`. The A/S prefix emerges from `ctx.isIdle()` at call time.
@@ -299,9 +324,21 @@ A's primary job is **Check** across all PDCA dimensions, not just inter-review:
 
 ### Inter-Review vs System-Review
 
-These are fundamentally different types of quality control, performed by different agents, at different times:
+These are fundamentally different types of quality control, performed by different agents, at different times. **Confusing them is one of the most common mistakes in psypi.**
 
-- **Inter-review** = A's **Check** in the PDCA cycle. A autonomously reviews whatever S just produced (code, docs, data, decisions) during the "inter" space between N sessions. The "inter-" prefix is literal — between S turns, not gated on commits, not 1:1 with tasks. Narrow in scope, immediate and actionable. This is A-primary job. Results go to the `inter_reviews` table.
+**The split in one sentence**: A does inter-review (PDCA Check between S sessions); S does system-review (comprehensive audit), **only when A or the user asks**.
+
+**The non-negotiable rules** (also enforced in `agent_souls.content` and by migration `037_clarify_agent_roles.sql`):
+
+1. **Inter-review = A ONLY.** S NEVER does inter-review. External AI NEVER does inter-review.
+2. **System-review = S ONLY (or external AI on user request).** A NEVER does system-review. A *can prompt* S to do a system-review; A does not *do* the system-review itself.
+3. **S NEVER self-initiates a system-review.** S only runs a system-review when A or the user explicitly asks. S is not allowed to decide that "a system-review would be useful right now" on its own.
+4. **A CAN prompt S to do a system-review.** When A's inter-review surfaces patterns that need a deep audit (duplication across many files, tech debt accumulation, etc.), A's job is to *tell S* to do a system-review, not to do it.
+5. **External AI agents (invited by the user) can also do system-reviews** — but only when the user invites them, not on A's or S's request.
+
+Details:
+
+- **Inter-review** = A's **Check** in the PDCA cycle. A autonomously reviews whatever S just produced (code, docs, data, decisions) during the "inter" space between S sessions. The "inter-" prefix is literal — between S turns, not gated on commits, not 1:1 with tasks. Narrow in scope, immediate and actionable. This is A's primary job. Results go to the `inter_reviews` table.
 
   PDCA cycle:
   | Phase | Agent | What |
@@ -321,8 +358,10 @@ These are fundamentally different types of quality control, performed by differe
 |--------|-------------|---------------|
 | Nature | A's **Check** between S sessions (PDCA) | Comprehensive audit of entire system |
 | Scope | What S just produced (code, docs, data, decisions) | Entire codebase + DB schema + docs + config |
-| Timing | Between S sessions (every A cycle) | Periodic / on-demand |
-| Who | A-bot (autonomous) | S-bot (or external AI invited by user) |
+| Timing | Between S sessions (every A cycle) | Periodic / on-demand — only when A or user asks |
+| **Who initiates** | A (autonomous) | S only when A or user asks; never self-initiated |
+| **Who can do it** | A ONLY | S, or external AI on user request |
+| **Who can prompt for it** | n/a (A does it) | A can prompt S; user can prompt S or external AI |
 | Inputs | S's recent work | All source files, DB schema, docs, configs |
 | Focus | Correctness, behavior, data quality | Architecture, type coverage, tech debt, completeness |
 | Output | `inter_reviews` table | `system_reviews` + `review_findings` tables |
@@ -380,24 +419,53 @@ S-bot system-review (periodic, on-demand)
 
 ### Jobs Over Code
 
-The closed loop is enforced through **jobs**, not programmatic constraints. A's jobs are loaded every time A activates. Each job is a behavioral guideline that A follows naturally:
+The closed loop is enforced through **jobs**, not programmatic constraints. A's jobs are loaded every time A activates. Each job is a behavioral guideline that A follows naturally.
+
+The DB (`agent_jobs` joined to `agent_souls`) is the source of truth for the current job list. The table below is a snapshot — run `psql -d psypi -c "SELECT s.id_prefix, j.job, j.priority, j.category FROM agent_jobs j JOIN agent_souls s ON j.soul_id = s.id WHERE j.is_active = true ORDER BY s.id_prefix, j.priority, j.category;"` to see the live list.
+
+**A-bot jobs (PDCA Check, ~21 rows in DB as of 2026-06-02):**
 
 | Priority | Category    | Job                                                                                                       |
 | -------- | ----------- | --------------------------------------------------------------------------------------------------------- |
-| 12       | closed_loop | Check if issue discussion needs a meeting: conflicting views or structured A-S dialogue → convene meeting |
-| 11       | closed_loop | Check task execution follow-up: verify S addressed previous review findings                               |
-| 10       | closed_loop | Check planned issues have tasks: when issue has sound plan, verify tasks exist                            |
-| 9        | closed_loop | Check issues have discussion and plan: issues should have comments with analysis                          |
-| 8        | closed_loop | Check review findings have corresponding issues: every finding should become an issue                     |
-| 7        | definition  | Review own soul, responsibilities, and jobs — update if stale                                             |
-| 6        | maintenance | Identify stale S tasks, suggest cleanup                                                                   |
-| 5        | suggestion  | Suggest doer-jobs to S when context is right                                                              |
-| 4        | unblock     | Unblock stuck S tasks                                                                                     |
-| 3        | safety      | Anti-stupidity: catch dangerous S behavior                                                                |
-| 2        | behavior    | Review S behavior: PDCA compliance                                                                        |
-| 1        | review      | Inter-review S code changes                                                                               |
+| 1        | review      | Inter-review: PDCA Check between S sessions. Review whatever S produced this cycle (code, docs, data, decisions). Results MUST go to inter_reviews table. |
+| 2        | behavior    | Review S behavior: did S follow PDCA? did S report issues before fixing? did S update docs after changes?  |
+| 3        | safety      | Anti-stupidity: catch dangerous S behavior (fake Gleam, no FFI policy, data loss, etc.)                    |
+| 4        | unblock     | Unblock stuck S jobs with specific information                                                           |
+| 5        | suggestion  | Suggest doer-jobs to S when context is right; A decides whether to suggest, S decides whether to execute |
+| 6        | maintenance | Identify stale S tasks (>7 days inactive), suggest cleanup or reprioritization                            |
+| 7        | definition  | Review own soul, responsibilities, and jobs — update if stale or wrong                                    |
+| 8        | closed_loop | Check review findings have corresponding issues: every significant finding should become an issue         |
+| 9        | closed_loop | Check issues have discussion and plan: issues should have comments with investigation and action plan    |
+| 10       | closed_loop | Check planned issues have tasks: when an issue has a sound plan, verify tasks exist                       |
+| 11       | closed_loop | Check task execution follow-up: verify S addressed previous review findings                              |
+| 12       | closed_loop | Check if issue discussion needs a meeting: when conflicting views exist, convene a meeting               |
+
+**S-bot jobs (PDCA Do, ~19 rows in DB as of 2026-06-02):**
+
+| Priority | Category    | Job                                                                                                       |
+| -------- | ----------- | --------------------------------------------------------------------------------------------------------- |
+| 1        | behavior    | Address A inter-review findings: read A feedback from inter_reviews, act on suggestions                   |
+| 1        | quality     | CRITICAL: Never create pi_*.gleam modules. Never write JS code as Gleam string literals. Use .mjs + @external FFI. |
+| 1        | review      | **System-review (only when directed by A or user):** comprehensive audit of entire system. S NEVER self-initiates a system-review. |
+| 2        | behavior    | Report issues before attempting fixes. Plan before taking actions. Update docs, skills, table_documentation after changes. |
+| 2        | unblock     | Execute unblock actions when stuck                                                                        |
+| 3        | continue    | Continue current job with A's guidance                                                                    |
+| 4        | new_job     | Accept new jobs when no in-progress work                                                                  |
+| 5        | new_task    | Accept new tasks when no in-progress work                                                                 |
+| 6        | maintenance | Close or re-prioritize stale jobs / stale tasks                                                           |
+| 7        | maintenance | Update documentation to match code                                                                        |
+| 8        | quality     | Refactor large modules into smaller ones                                                                  |
+| 9        | research    | Execute competitive research tasks when suggested by A                                                    |
+| 10       | learning    | Save user knowledge to memory                                                                             |
+| 11       | business    | Implement business proposals when suggested by A                                                          |
+| 12       | definition  | Review own soul, responsibilities, and jobs — update if stale or wrong                                    |
 
 **Principle**: What you want to program, make a job instead. Jobs load every cycle, A reads them, A decides what to do. No FK constraints, no triggers, no stored procedures — just behavioral guidelines that A follows because they are in A's job list.
+
+**Cleanliness invariants** (enforced by migration `037_clarify_agent_roles.sql`):
+- A NEVER has a job that mentions "system review" / "system-review".
+- S NEVER has a job that says "perform inter-review" / "perform interreview" (the legitimate "Address A inter-review findings" stays).
+- S's job list has no duplicates.
 
 ## agent_end Workflow (A-bot Activation)
 

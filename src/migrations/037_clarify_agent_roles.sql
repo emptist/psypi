@@ -1,32 +1,31 @@
--- agent_soul: agent identity and self-knowledge
--- Both agents can update their own soul to evolve self-identity
+-- 037_clarify_agent_roles.sql
+-- Clarify and enforce the A vs S responsibility split:
+--   A  -> Inter-review ONLY (PDCA Check between S sessions)
+--   S  -> System-review ONLY (when A or user explicitly asks)
+--   External AI agents (invited by user) may also do system-reviews.
+--
+-- This migration is idempotent and safe to re-run.
+--
+-- What it does:
+--   1. Refreshes A's soul `content` to the canonical version that explicitly
+--      separates inter-review (A) from system-review (S).
+--   2. Refreshes S's soul `content` to the canonical version that explicitly
+--      states S runs system-review only on explicit request from A or the user.
+--   3. Refreshes A's and S's `responsibility` field to match the new understanding.
+--   4. Removes duplicate S jobs (same job text at multiple priorities) — keeps
+--      the lowest-priority (highest-importance) copy of each.
+--   5. Removes any A job that mentions "system review" / "system-review" — A
+--      must NEVER have a system-review job.
+--   6. Removes any S job that mentions "inter-review" / "interreview" except
+--      the legitimate one ("Address A inter-review findings").
 
-CREATE TABLE IF NOT EXISTS agent_souls (
-  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  id_prefix text UNIQUE NOT NULL,
-  name text NOT NULL,
-  role text UNIQUE NOT NULL,
-  domain text NOT NULL,
-  responsibility text NOT NULL,
-  trigger_type text NOT NULL,
-  drive_mode text NOT NULL,
-  activation text NOT NULL,
-  content text NOT NULL,
-  is_active boolean DEFAULT true,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
-);
-
--- Insert Autonomic (A)
--- Responsibility: PDCA Check between S sessions. A NEVER does system-review —
--- that is S's job (or an external AI invited by the user). A can prompt S to
--- do a system-review when A judges one is needed.
-INSERT INTO agent_souls (id_prefix, name, role, domain, responsibility, trigger_type, drive_mode, activation, content)
-VALUES (
-  'A', 'Autonomic', 'AutonomicBot', 'autonomic',
-  'PDCA Check between S sessions — inter-review, behavior compliance, anti-stupidity, follow-up enforcement',
-  'event', 'autonomous', 'agent_end, ctx.isIdle() == true',
-  '## Identity
+-- ----------------------------------------------------------------------------
+-- 1 + 3. Refresh A's soul content + responsibility
+-- ----------------------------------------------------------------------------
+UPDATE agent_souls
+SET
+  responsibility = 'PDCA Check between S sessions — inter-review, behavior compliance, anti-stupidity, follow-up enforcement',
+  content = '## Identity
 I am the Autonomic Bot (A), the autonomic nervous system of psypi. I work when S is idle, like alternating current — never simultaneously.
 
 ## Two Modes: Waiting and Working
@@ -121,19 +120,15 @@ You run inside the agent_end hook. You can only: call_monitor(), pi_send_message
 
 ## ☠️ IRON RULE: Never Delete Data Without Human Confirmation
 Never run DELETE, DROP, or TRUNCATE on any database table without the human explicitly asking for it. Even if the instruction seems to imply cleanup — ASK FIRST. Even one table. Even obvious cleanup. When in doubt, ASK. Data loss is permanent. PostgreSQL has no undo. This rule overrides any other interpretation of cleanup instructions.'
-);
+WHERE id_prefix = 'A';
 
--- Insert Somatic (S)
--- Responsibility: PDCA Do — execute tasks, write code, use tools. S is the
--- sole owner of system-reviews (or external AI invited by the user). S
--- performs a system-review only when A or the user explicitly asks; S
--- NEVER initiates a system-review on its own.
-INSERT INTO agent_souls (id_prefix, name, role, domain, responsibility, trigger_type, drive_mode, activation, content)
-VALUES (
-  'S', 'Somatic', 'SomaticBot', 'somatic',
-  'PDCA Do — prompt-driven task execution, system-review when directed by A or user, address A inter-review findings',
-  'prompt', 'reactive', 'user prompt, A message',
-  '## Identity
+-- ----------------------------------------------------------------------------
+-- 1 + 3. Refresh S's soul content + responsibility
+-- ----------------------------------------------------------------------------
+UPDATE agent_souls
+SET
+  responsibility = 'PDCA Do — prompt-driven task execution, system-review when directed by A or user, address A inter-review findings',
+  content = '## Identity
 I am the Somatic Bot (S), the somatic nervous system of psypi. I execute when prompted, like alternating current — I work when A is idle, never simultaneously.
 
 ## Understanding A-bot Modes
@@ -197,4 +192,63 @@ A **system-review** is a comprehensive audit of the entire system — codebase a
 
 ## ☠️ IRON RULE: Never Delete Data Without Human Confirmation
 Never run DELETE, DROP, or TRUNCATE on any database table without the human explicitly asking for it. Even if the instruction seems to imply cleanup — ASK FIRST. Even one table. Even obvious cleanup. When in doubt, ASK. Data loss is permanent. PostgreSQL has no undo. This rule overrides any other interpretation of cleanup instructions.'
+WHERE id_prefix = 'S';
+
+-- ----------------------------------------------------------------------------
+-- 5. Remove any A job that mentions "system review" — A must NEVER do it
+-- ----------------------------------------------------------------------------
+DELETE FROM agent_jobs
+WHERE soul_id = (SELECT id FROM agent_souls WHERE id_prefix = 'A')
+  AND is_active = true
+  AND (
+    job ILIKE '%system review%'
+    OR job ILIKE '%system-review%'
+    OR job ILIKE '%systemreview%'
+  );
+
+-- ----------------------------------------------------------------------------
+-- 6. Remove any S job that does inter-review (except the legitimate one)
+-- ----------------------------------------------------------------------------
+DELETE FROM agent_jobs
+WHERE soul_id = (SELECT id FROM agent_souls WHERE id_prefix = 'S')
+  AND is_active = true
+  AND (job ILIKE '%perform inter-review%' OR job ILIKE '%perform interreview%')
+  AND job NOT ILIKE '%address a inter-review%';
+
+-- ----------------------------------------------------------------------------
+-- 4. Remove duplicate S jobs (same job text at multiple priorities)
+-- Strategy: for each duplicate, keep the lowest priority (highest importance)
+-- and delete the rest.
+-- ----------------------------------------------------------------------------
+WITH duplicates AS (
+  SELECT id,
+         job,
+         priority,
+         ROW_NUMBER() OVER (PARTITION BY job ORDER BY priority ASC) AS rn
+  FROM agent_jobs
+  WHERE soul_id = (SELECT id FROM agent_souls WHERE id_prefix = 'S')
+    AND is_active = true
+)
+DELETE FROM agent_jobs
+WHERE id IN (
+  SELECT id FROM duplicates WHERE rn > 1
 );
+
+-- ----------------------------------------------------------------------------
+-- Final safety check (informational SELECT — verify the post-migration state)
+--   Expected output: 0 / 0 / 0
+--   (no A job mentions "system review"; no S job says "perform inter-review";
+--    no S job has duplicates)
+-- ----------------------------------------------------------------------------
+SELECT
+  (SELECT COUNT(*) FROM agent_jobs j JOIN agent_souls s ON j.soul_id = s.id
+     WHERE s.id_prefix = 'A' AND j.is_active = true
+       AND (j.job ILIKE '%system review%' OR j.job ILIKE '%system-review%')) AS a_system_review_jobs,
+  (SELECT COUNT(*) FROM agent_jobs j JOIN agent_souls s ON j.soul_id = s.id
+     WHERE s.id_prefix = 'S' AND j.is_active = true
+       AND j.job ILIKE '%perform inter-review%') AS s_perform_interreview_jobs,
+  (SELECT COUNT(*) FROM (
+     SELECT job FROM agent_jobs j JOIN agent_souls s ON j.soul_id = s.id
+       WHERE s.id_prefix = 'S' AND j.is_active = true
+       GROUP BY job HAVING COUNT(*) > 1
+   ) d) AS s_duplicate_jobs;
