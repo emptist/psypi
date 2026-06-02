@@ -76,7 +76,11 @@ pub fn build_user_prompt(
   }
 
   let recent_section =
-    "## S-bot's Recent Conversation (most recent at the end):\n"
+    "## S-bot's Conversation (most recent at the end):\n"
+    <> "Scope note: this is the full session log — same as what S can see. "
+    <> "Focus your inter-review on the most recent activity (the latest cycle). "
+    <> "Anything older is context for deviation detection only, not review material. "
+    <> "Do not re-list findings from prior inter-reviews; carry-over is a short 'STILL OPEN' or 'no new findings' note.\n\n"
     <> entries_json
 
   context_section <> usage_section <> state_section <> commit_section <> recent_section
