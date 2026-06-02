@@ -257,7 +257,7 @@ After each fix, run a real S session and verify the corresponding Finding is gon
 ## References
 
 - `docs/DEEP-ANALYSIS-A-BOT-NOT-WORKING-2026-06-02.md` — the previous analysis whose fixes are being verified here
-- `docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md` — A's architecture (no tools, text-only LLM)
+- `docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md` — A's architecture (no tools, text-only LLM). See § [Conversational Frame](./DESIGN-A-BOT-NO-TOOLS-2026-06-02.md#conversational-frame-added-2026-06-02-after-user-feedback) for the framing refined after this analysis.
 - `docs/A-bot-thinking.md` — pre-fix conversation log
 - `docs/conversation-log-after-0f4d6ef.md` — post-fix conversation log
 - `src/hook_on_agent_end.gleam` — A's hook callback
