@@ -138,7 +138,7 @@ pub fn build_user_prompt_empty_project_state_omits_section_test() {
 
 // --- build_user_prompt: recent conversation ---
 
-pub fn build_user_prompt_includes_recent_conversation_test() {
+pub fn build_user_prompt_includes_conversation_section_test() {
   let text = a_prompt_builder.build_user_prompt(
     "{}",
     "User: hello\nAssistant: hi",
@@ -146,7 +146,12 @@ pub fn build_user_prompt_includes_recent_conversation_test() {
     "No tasks",
     "",
   )
-  should.be_true(string.contains(text, "Recent Conversation"))
+  // New header: section was renamed from "Recent Conversation" to
+  // "Conversation" (commit 473e05b) to make clear A sees the full
+  // session log, not a slice. The scope note is the new mechanism
+  // for telling A where to focus the inter-review.
+  should.be_true(string.contains(text, "S-bot's Conversation"))
+  should.be_true(string.contains(text, "Scope note"))
   should.be_true(string.contains(text, "User: hello"))
 }
 
