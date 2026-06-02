@@ -85,6 +85,8 @@ The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is 
 | `review_labels`       | Labels/tags for review findings                                                    |
 | `inter_reviews`       | A-bot's PDCA **Check** — inter-review of S's work between S sessions (code, docs, data, decisions). Not gated on commits. |
 
+> The "inter-review" is A's *turn to speak* in the PDCA conversation, not a formal review submission. A is a chat participant, not a process artifact generator. See [`docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md` § Conversational Frame](./docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md#conversational-frame-added-2026-06-02-after-user-feedback) for the framing, and [`docs/A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md`](./docs/A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md) for the rationale (锵锵三人行 / 圆桌派 analogy).
+
 ### `id_prefix`
 
 Field in `agent_souls` table (`text UNIQUE NOT NULL`):
