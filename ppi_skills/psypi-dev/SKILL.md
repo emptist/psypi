@@ -35,6 +35,8 @@ They **never run at the same time**. Each one's output becomes the other's input
 - A autonomously composes polite reminders for S based on events and context
 - A communicates with S via `sendMessage()` — NOT via database directives
 
+> The "polite reminders" and the inter-review output are A's *turns to speak* in the PDCA conversation, not formal review documents. The `inter_reviews` table is a chat log. See [Conversational Frame](../../docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md#conversational-frame-added-2026-06-02-after-user-feedback) for the framing.
+
 ### S-agentbot (Somatic)
 - Prompt-driven task executor
 - Runs through Pi agent loop
