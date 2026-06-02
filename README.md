@@ -246,8 +246,10 @@ These are fundamentally different types of quality control:
   |-------|-------|------|
   | **Plan** | S (or A suggests) | Decide what to do next |
   | **Do** | S | Write code, commit, use tools |
-  | **Check** | A | Inter-review between S sessions |
+  | **Check** | A (primary) | Inter-review between S sessions — A is the doctor examining the patient |
   | **Act** | S | Address A's findings, improve |
+
+  *Doctor-patient analogy: S can self-check (like a patient monitoring own health), but Check is A's professional responsibility.*
 
   ```
   S plans & does → A checks (inter-review) → S acts → S plans & does → A checks → ...
