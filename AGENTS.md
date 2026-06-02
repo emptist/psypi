@@ -463,7 +463,7 @@ The DB (`agent_jobs` joined to `agent_souls`) is the source of truth for the cur
 | 11       | closed_loop | Check task execution follow-up: verify S addressed previous review findings                              |
 | 12       | closed_loop | Check if issue discussion needs a meeting: when conflicting views exist, convene a meeting               |
 
-**S-bot jobs (PDCA Do, ~19 rows in DB as of 2026-06-02):**
+**S-bot jobs (PDA with self-C, ~19 rows in DB as of 2026-06-02):**
 
 | Priority | Category    | Job                                                                                                       |
 | -------- | ----------- | --------------------------------------------------------------------------------------------------------- |

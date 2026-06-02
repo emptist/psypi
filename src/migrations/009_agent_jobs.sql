@@ -1,5 +1,5 @@
 -- agent_jobs: prioritized work items for each agent soul
--- A reviews (PDCA Check), S executes (PDCA Do). Both can add new jobs.
+-- A reviews (PDCA Check), S executes (PDA with self-C). Both can add new jobs.
 -- Joined with agent_soul via soul_id
 -- NOTE: called 'agent_jobs' not 'agent_tasks' to avoid confusion with the user-facing 'tasks' table
 --
@@ -51,7 +51,7 @@ SELECT id, 'Check task execution follow-up: verify S addressed previous review f
 INSERT INTO agent_jobs (soul_id, job, priority, category)
 SELECT id, 'Check if issue discussion needs a meeting: when an issue has conflicting views or needs structured A-S dialogue, convene a meeting via psypi-meeting-add. Meetings produce consensus that feeds back into the issue plan', 12, 'closed_loop' FROM agent_souls WHERE id_prefix = 'A';
 
--- Somatic jobs (S does PDCA Do)
+-- Somatic jobs (S does PDA with self-C)
 -- System-review is S's exclusive responsibility, ONLY when A or the user asks.
 INSERT INTO agent_jobs (soul_id, job, priority, category)
 SELECT id, 'Address A inter-review findings: read A feedback from inter_reviews, act on suggestions, improve code quality', 1, 'behavior' FROM agent_souls WHERE id_prefix = 'S';
