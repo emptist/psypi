@@ -96,6 +96,16 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                         fn(monitor_result) {
                           case monitor_result {
                             Ok(response) -> {
+                              let #(response, ids_stripped) = strip_hallucinated_ids(response)
+                              case ids_stripped {
+                                True ->
+                                  ctx_notify(
+                                    ctx,
+                                    "[A-agentbot] Stripped hallucinated ID string(s) from response before save",
+                                    "info",
+                                  )
+                                False -> Nil
+                              }
                               case ctx_is_idle(ctx) {
                                 True -> {
                                   let _ = ctx_notify(ctx, "[A-agentbot] Updating session time...", "status")
@@ -214,5 +224,52 @@ fn inter_review_error_to_string(e: inter_review.InterReviewError) -> String {
     inter_review.ConnectionError(msg) -> "DB connection: " <> msg
     inter_review.QueryError(msg) -> "DB query: " <> msg
     inter_review.DecodeError(msg) -> "DB decode: " <> msg
+  }
+}
+
+/// Strip hallucinated ID patterns from A's response.
+///
+/// A may imitate the `[inter-review id: <uuid>]` or `[review id: <uuid>]`
+/// pattern that it saw in the preloaded session log (where a prior
+/// review's hook-appended ID lives). The hook owns ID assignment, so
+/// any such pattern in A's response is stripped before save. The
+/// canonical ID is appended by the hook after the cleaned response is
+/// saved.
+///
+/// Returns the cleaned response and a boolean indicating whether any
+/// pattern was stripped. If a pattern is found but has no closing
+/// `]` (malformed), the original string is returned untouched.
+fn strip_hallucinated_ids(response: String) -> #(String, Bool) {
+  let patterns = ["[inter-review id:", "[review id:"]
+  strip_hallucinated_ids_loop(response, patterns, False)
+}
+
+fn strip_hallucinated_ids_loop(
+  s: String,
+  patterns: List(String),
+  stripped: Bool,
+) -> #(String, Bool) {
+  case patterns {
+    [] -> #(s, stripped)
+    [pat, ..rest] -> {
+      case string.split_once(s, pat) {
+        Error(_) -> strip_hallucinated_ids_loop(s, rest, stripped)
+        Ok(parts) -> {
+          // Found the pattern. Look for the closing `]` after it.
+          case string.split_once(parts.1, "]") {
+            Error(_) ->
+              // Malformed (no closing `]`). Leave the response alone
+              // for this pattern; try the next one.
+              strip_hallucinated_ids_loop(s, rest, stripped)
+            Ok(rest_parts) -> {
+              let cleaned = parts.0 <> rest_parts.1
+              // Re-scan from the start of the pattern list on the
+              // cleaned string in case multiple occurrences exist.
+              strip_hallucinated_ids_loop(cleaned, patterns, True)
+            }
+          }
+        }
+      }
+    }
   }
 }
