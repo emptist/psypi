@@ -124,6 +124,8 @@ The old architecture had hardcoded JS strings in Gleam files. The typed pipeline
 
 The LLM needs to know who it is. The ID tells the LLM: "You are A-tools_ai-openrouter-owl-alpha" — the Autonomic Agentbot. The LLM can then compose a contextually appropriate message.
 
+> **Note (2026-06-02)**: A's "contextually appropriate message" is not a formal review document. It is A's *turn to speak* in the PDCA conversation with S. The 锵锵三人行 / 圆桌派 analogy: A is the host, S is the work-guest, the human is the second guest. The `inter_reviews` table is a chat log, not a review form. See [Conversational Frame](./DESIGN-A-BOT-NO-TOOLS-2026-06-02.md#conversational-frame-added-2026-06-02-after-user-feedback) for the framing and [`A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md`](./A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md) for the rationale.
+
 ## File Structure
 
 ```
