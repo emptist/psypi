@@ -229,9 +229,30 @@ Pi runtime (tools, hooks, commands)
 | `"(function(){ ... })()"` JS IIFE | Gleam FFI + Gleam string ops  |
 | Hand-editing `extension.js`       | Edit Gleam source, regenerate |
 
-## A-Bot Communication Rule
+## A-Bot Communication Rules
 
-**A must report tool results back to S.** When A calls tools during its Check phase and gets unexpected results (empty, errors, mismatches with Monitor reports), A must use `pi.sendMessage()` to report those findings. Never silently absorb tool results. If something looks wrong, treat it like a bug and report it — S has no other way to know what A discovered.
+**`pi.sendMessage()` — the complete picture:**
+
+A uses `pi.sendMessage()` to deliver messages to S. The `options` parameter controls *how* the message is delivered:
+
+| Option | Effect | Use case |
+|--------|--------|----------|
+| `triggerTurn: true` | Triggers a new S turn | Wake-up — S must process A's review findings |
+| `triggerTurn: false, deliverAs: "followUp"` | Queues into current/next streaming turn, no separate S turn | Errors — S sees the message when streaming, without wasting a full S turn |
+| `deliverAs: "nextTurn"` | Appends to next turn's input | Deferred messages |
+| No options | Silent append to session | Logging only |
+
+**Critical rule: Errors MUST use `sendMessage()` (never `ctx.ui.notify()`)**
+
+- `ctx.ui.notify()` → visible in TUI only, **S cannot see it**. If A uses notify for errors, S has no idea something went wrong.
+- `pi.sendMessage()` → delivered to S's session, **S reads it and can act on it**. This is the ONLY way A can communicate with S.
+
+**So the full A→S communication pattern is:**
+
+- **A's thinking/progress** → `ctx.ui.notify()` — visible in TUI only, does NOT trigger S (human watches, S ignores)
+- **A's errors** → `pi.sendMessage({customType: 'autonomic-error', content: msg}, {triggerTurn: false, deliverAs: 'followUp'})` — S sees the error without wasting a full turn
+- **A's wake-up** → `pi.sendMessage({customType: 'autonomic-wakeup', content: msg}, {triggerTurn: true})` — triggers a new S turn so S can act on review findings
+- **A MUST report tool results back to S** — When A calls tools during its Check phase and gets unexpected results (empty, errors, mismatches with Monitor reports), A must use `pi.sendMessage()` to report those findings. Never silently absorb tool results. If something looks wrong, treat it like a bug and report it.
 
 ## A-Bot Event Flow
 
