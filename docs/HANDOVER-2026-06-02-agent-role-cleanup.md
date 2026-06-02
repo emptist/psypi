@@ -136,3 +136,10 @@ No new issues created. The cleanup itself was a doc/DB-only fix. If anyone finds
 **The DB is the source of truth. Docs follow, not lead.** When a question comes up about who does what, the answer is in `agent_souls.content` and `agent_jobs` first. AGENTS.md is a human-readable cache; treat it like one.
 
 **S NEVER self-initiates a system-review.** If you find code or text that implies otherwise, it is a bug — file an issue and fix it the way this handover did: refresh the soul content, fix the migrations, fix the seed, fix the docs, in that order.
+
+## Related (2026-06-02 follow-on)
+
+After this handover, the *framing* of A's inter-review output was refined: it is A's *turn to speak* in the PDCA conversation with S, not a formal review submission. The 锵锵三人行 / 圆桌派 analogy (A is the host, S is the work-guest) captures the shape. This refines the role-cleanup split in this handover — the *who-does-what* mechanics above are unchanged; only the *shape of A's output* is relaxed. See:
+
+- [`docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md` § Conversational Frame](./DESIGN-A-BOT-NO-TOOLS-2026-06-02.md#conversational-frame-added-2026-06-02-after-user-feedback) — the rule
+- [`docs/A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md`](./A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md) — the rationale
