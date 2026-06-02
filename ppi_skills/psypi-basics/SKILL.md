@@ -87,6 +87,8 @@ The orchestrator (`a_orchestrator.gleam`) does NOT force steps. It:
 
   Inter-review is not "review FOR commits" — A reviews whatever S just produced.
 
+  > The "inter-review" is A's *turn to speak* in this PDCA cycle, not a formal review submission. A is a chat participant; the `inter_reviews` table is a chat log. See [Conversational Frame](../../docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md#conversational-frame-added-2026-06-02-after-user-feedback) for the full framing.
+
 ## Common Pi Tools
 
 ### Tasks
