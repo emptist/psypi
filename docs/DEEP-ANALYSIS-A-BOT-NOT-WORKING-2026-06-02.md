@@ -380,7 +380,7 @@ Putting it all together:
 
 1. User asks something → S answers → S ends its turn → `agent_end` event fires
 2. After 3 minutes of no further S activity → A's debounce timer fires
-3. `hook_on_agent_end` runs → reads soul, jobs, project state → calls Monitor LLM via `call_monitor`
+3. `hook_on_agent_end` runs → reads soul, jobs, S's recent session log, S's recent commits (NO project state — A is inter-review scoped, not whole-project scoped) → calls Monitor LLM via `call_monitor`
 4. Monitor LLM produces a coherent response
 5. A attempts to save the response to `inter_reviews` via `inter_review.save(response, 0, "[]", "[]")`
 6. **The INSERT fails** — for the reasons in RC-1, RC-2, RC-3

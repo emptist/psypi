@@ -20,7 +20,9 @@ A and S are **conceptually the same agent** (one consciousness, one soul schema,
 | Output to S | `pi.send_message(..., triggerTurn: true)` | N/A (S is the speaker) |
 | Identity | `requester_id = "A-agentbot"` | `requester_id = "S-psypi-..."` |
 
-**A reads its data from the prompt**, not from tools. A's soul/jobs/project-state/tasks/issues are preloaded by Gleam code into the user_prompt before the LLM is called. A's response is plain text that is then **filed to `inter_reviews` and forwarded to S** for action.
+**A reads its data from the prompt**, not from tools. A's soul, jobs, and S's recent session (entries + commits) are preloaded by Gleam code into the user_prompt before the LLM is called. A's response is plain text that is then **filed to `inter_reviews` and forwarded to S** for action.
+
+> **Scope note (added 2026-06-02 after user feedback):** A is inter-S-session Check only. A's preloaded context deliberately excludes the project state (active tasks, open issues). Those are S's scope, not A's. If A needs to reference a specific task or issue in a finding, A writes the request ("S, please look up task abc-123") and S runs the query. A is a reviewer, not a secretary. The `/autonomic-listen` direct human path still loads project state because that path is conversational and the human may ask anything.
 
 ---
 
@@ -54,9 +56,9 @@ The Gleam hook `hook_on_agent_end.on_agent_end` (and `command_listen.on_autonomi
 
 1. **Soul content** from `agent_souls` where `id_prefix = 'A'`
 2. **A's jobs** from `agent_jobs` (joined to A's soul, ordered by priority)
-3. **Project state** (active tasks + open issues) from `tasks` and `issues` tables
-4. (Hook path only) **Recent commits** via `git log` in a Gleam `exec_sync` call
-5. (Hook path only) **Session entries** (S's recent work) from `ctx.getEntriesJson()`
+3. (Hook path only) **Recent commits** via `git log` in a Gleam `exec_sync` call
+4. (Hook path only) **Session entries** (S's recent work) from `ctx.getEntriesJson()`
+5. (Direct human `/autonomic-listen` path only) **Project state** (active tasks + open issues) from `tasks` and `issues` tables — NOT loaded in the autonomous inter-review path, see scope note above.
 
 All five go into the `user_prompt` as pre-formatted text. A reads them as plain text.
 
