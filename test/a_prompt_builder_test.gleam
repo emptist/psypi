@@ -124,6 +124,18 @@ pub fn build_user_prompt_includes_project_state_test() {
   should.be_true(string.contains(text, "Project State"))
 }
 
+pub fn build_user_prompt_empty_project_state_omits_section_test() {
+  // When project_state is empty (e.g., autonomous inter-review path that
+  // doesn't need to know about the whole project), the section header
+  // must be omitted entirely, not just rendered with an empty body.
+  let text = a_prompt_builder.build_user_prompt("{}", "entries...", "/cwd", "", "abc commit")
+  should.be_false(string.contains(text, "Project State"))
+  should.be_false(string.contains(text, "Project State (from database)"))
+  // Other sections still appear
+  should.be_true(string.contains(text, "Recent Commits"))
+  should.be_true(string.contains(text, "Working directory"))
+}
+
 // --- build_user_prompt: recent conversation ---
 
 pub fn build_user_prompt_includes_recent_conversation_test() {

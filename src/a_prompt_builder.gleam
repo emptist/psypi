@@ -60,9 +60,13 @@ pub fn build_user_prompt(
     True -> "Context usage: " <> usage_json <> "\n"
     False -> ""
   }
-  let state_section =
-    "## Project State (from database):\n"
-    <> project_state <> "\n\n"
+  let state_section = case project_state {
+    "" -> ""
+    _ ->
+      "## Project State (from database):\n"
+      <> project_state
+      <> "\n\n"
+  }
 
   let commit_section = case commit_info == "" {
     True -> ""
