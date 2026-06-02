@@ -164,3 +164,37 @@ The fix is to make the architecture match the design intent: **A is a reviewer, 
 - [HANDOVER-2026-06-02-agent-role-cleanup.md](./HANDOVER-2026-06-02-agent-role-cleanup.md) — inter-review vs system-review split
 - [REVIEW-A-BOT-DEBOUNCE.md](./REVIEW-A-BOT-DEBOUNCE.md) — debounce timer mechanics
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — overall system architecture
+
+---
+
+## Conversational Frame (added 2026-06-02 after user feedback)
+
+The table-of-aspects above makes A and S look like two columns in a process diagram — A produces an artifact, S consumes it. That framing was useful for explaining the *mechanics* of who-does-what, but it over-formalized the *shape* of the interaction. The real shape is conversational, not process-pipeline.
+
+### The 锵锵三人行 / 圆桌派 analogy
+
+A is the **host** (窦文涛 in 锵锵三人行, the round-table moderator in 圆桌派). The host does not argue the cases himself; the host draws the cases out of the guests. A's job is to keep the conversation moving, ask the awkward question, and surface what S has not yet explained. S is the **work-guest**: brings the substance, does the tool work, answers A's questions. The optional human is the **second guest** in 锵锵三人行, or one of the round-table participants in 圆桌派 — present, can intervene, but the show runs without them.
+
+### What this means for A's output
+
+A's "inter-review" is **A's turn to speak** in the PDCA cycle. It is not a formal review submission. The `inter_reviews` table is a chat log, not a review form. There is no rigid format A must follow:
+
+- A is free to ask S questions directly in the same message as observations. S answers in the next turn; A's next turn is informed by S's answer.
+- A can suggest directions, push back on choices, share doubts, or just listen-and-acknowledge. Whatever fits the moment.
+- A is not required to include a "summary, score, findings, suggested next steps" structure. The score is flavor (`parse_review_score` defaults to 50 if absent), not the point.
+
+### What is still required
+
+**Schema correctness is not form.** A still must not emit `[inter-review id: <uuid>]` or any other ID format in its response — the hook owns ID assignment and strips any such pattern as defense in depth. A still must not emit tool-call XML (`<longcat_tool_call>` etc.) — the runtime drops those. Those are correctness rules, not format prescriptions; the conversational relaxation does not relax them.
+
+### Where this lives in the soul
+
+A's soul has a "## Conversational Frame" section (added in migration 043 on 2026-06-02) that encodes this understanding. The section is idempotent: re-runs of the migration detect the heading and skip the append. The soul should be read *together* with this design doc — the design doc is the rationale, the soul is the rule A actually follows.
+
+### Where this lives in the prompt
+
+The `/autonomic-listen` user_prompt (in `command_listen.gleam`) used to tell A to "structure the response as a normal inter-review: summary, score, findings, suggested next steps". That prescription was removed on 2026-06-02 — it encoded the over-formalization this section pushes back against. The prompt now says: speak as you naturally would, no rigid format, the inter_reviews table is the chat log, see A's soul for the full framing.
+
+### The 圆桌派 extension
+
+The 锵锵三人行 frame is 1 host + 2 guests. The 圆桌派 frame is the same host at a wider table. psypi today is the 3-person show: A, S, optional human. Adding a third agent (a B-bot, or a tool specialist) turns it into a round table. The mechanics don't change — A still moderates, the others still bring substance — only the table gets wider.
