@@ -94,8 +94,9 @@ waiting for A to talk.
 ## ⭐ Key insight #2: append-only, not update-in-place (CRITICAL, NEW at end-of-session)
 
 **The schema design issue is a pseudo-problem. The real problem is
-improper use. The right pattern is: add new records — when you save,
-you create a new record. Don't modify records.**
+improper use. The right pattern is: add a new record, save the old
+record, and the save operation itself IS a new modification record —
+never UPDATE in place.**
 
 This was the user's second major insight of the session, and it
 **changes the design direction** that issue 045 implied. Read this
@@ -113,12 +114,16 @@ paraphrase.
 > This is the trigger: data loss in the only source of truth is
 > unacceptable.
 
-> "我意识到数据库的表设计这个问题是一个伪问题，真实问题是你使用不当。应该是加入新记录，保存就记录，你变成修改记录"
+> "我意识到数据库的表设计这个问题是一个伪问题，真实问题是你使用不当。应该是加入新记录，保存旧记录，你变成修改记录"
 >
-> — the user, articulating the append-only insight. The "你变成
-> 修改记录" phrasing is slightly ambiguous in Chinese; the meaning
-> the user confirmed in follow-up is "the save operation IS the
-> new modification record" — i.e., INSERT, never UPDATE.
+> — the user, articulating the append-only insight. (Originally
+> transcribed with a pinyin typo "保存就记录"; the user corrected
+> it to "保存旧记录" in a follow-up message. The corrected
+> phrasing is unambiguous: "add a new record, save the old record,
+> you [the writer] become a [creator of] modification records".)
+> The full meaning: every save = INSERT a new row that records
+> the change, and PRESERVE the previous row. The save operation
+> itself IS the new modification record. Never UPDATE in place.
 
 > "首先不要再考虑在当前会话完成什么东西。必须交班。"
 >
