@@ -255,9 +255,9 @@ pub fn stats(
   db.with_connection(fn(conn) {
     let sql = "
       SELECT
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
-        COUNT(*) FILTER (WHERE priority >= 2) as high_priority_count
+        COUNT(*)::int as total,
+        COUNT(*)::int as sent_count,
+        COUNT(*) FILTER (WHERE priority IN ('high', 'critical'))::int as high_priority_count
       FROM project_communications
       WHERE from_ai = $1 AND message_type = 'broadcast'
     "
