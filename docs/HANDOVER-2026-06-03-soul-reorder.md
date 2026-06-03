@@ -9,6 +9,73 @@ that motivated the workflow: long-text fields should be normalized to
 child rows. The AGENTS.md job tables were re-synced with the live DB
 (A=24, S=20). This handover memo is the 6th commit.
 
+## ⭐ Key insight (read this first, even before the rest of this doc)
+
+**The most valuable thing from this session is NOT the soul reorder or
+the long-text issue. It is the realization that the A/S loop is a
+conversation, not a process pipeline.** This reframing was the
+intellectual center of the whole session's work.
+
+### What "Conversational Frame" means (one-paragraph version)
+
+A is a **chat participant** in an ongoing dialogue with S, not a
+reviewer filling in a form. The "inter-review" is just A's **turn to
+speak** in the PDCA cycle. The `inter_reviews` table is a chat log,
+not a review submission. Schema correctness (no fake IDs, no fake
+UUIDs, the hook owns ID assignment) is still required — that is
+**correctness, not format**. There is no rigid "summary / score /
+findings / next steps" structure A must follow. A is free to ask S
+questions in the same message as observations; the back-and-forth is
+the loop, not a handoff document.
+
+### The 锵锵三人行 / 圆桌派 analogy
+
+- **A** = 窦文涛 (the host / round-table moderator). Does not argue
+  the cases himself; draws the cases out of the guests. A's job is to
+  keep the conversation moving, ask the awkward question, surface
+  what S has not yet explained.
+- **S** = the work-guest. Brings the substance, does the tool work,
+  answers A's questions.
+- **The optional human** = the second guest. Can intervene, but the
+  show runs without them. ("The human is not in the loop" is the
+  default posture; see the `self_monitor` jobs in A's job list.)
+
+A doesn't "hand off" to S — A *uses* S, the way 窦文涛 uses his guests.
+The PDCA cycle is the **rhythm** of the conversation, not its
+substance. S is not waiting for a formal review submission; S is
+waiting for A to talk.
+
+### Where this lives in the codebase
+
+| Layer                         | Location                                                            | Status                                               |
+| ----------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------- |
+| A's soul                      | `agent_souls` table, **§9 "Conversational Frame"**                  | ✅ active, reordered in this session (commit b518bd4) |
+| Design rationale              | `docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md` § "Conversational Frame" | ✅ finalized                                          |
+| Plan/findings that led to it  | `docs/A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md`                | ✅ filed                                              |
+| Follow-up findings (post-fix) | `docs/A-BOT-POST-FIX-FINDINGS-2026-06-02.md`                        | ⚠️ 4 new behaviors flagged; de-duplication still open |
+| Prompt builder                | `src/command_listen.gleam` `build_user_prompt`                      | ✅ "no rigid format" language applied                 |
+
+### Why this matters for the next session
+
+1. **Don't re-litigate.** If a future reviewer (or future-A in a
+   future session) suggests re-adding "summary / score / findings /
+   next steps" format prescriptions, push back with the analogy. The
+   user is on record that the dialog-first framing is the correct one.
+2. **When you write code that touches A's output, the rule is
+   schema-correct, not format-rigid.** Examples: the hook's
+   hallucinated-ID strip is a correctness rule, not a format rule.
+   `parse_review_score` defaults to 50 if absent — score is flavor,
+   not the point.
+3. **The `inter_reviews` table is a chat log, not a review form.** If
+   someone proposes to add `findings_json` or `next_steps_required`
+   columns, ask first whether the proposed constraint is for
+   *correctness* or for *form*. Only correctness constraints belong
+   in the schema.
+4. **If a behavior looks "off" in A's reviews, the most likely cause
+   is re-reviewing the same content** (see Finding 1 in the post-fix
+   doc), not A reverting to the formal-reviewer framing. Don't fix
+   the framing; fix the scope.
+
 ## What happened (6 commits, in order)
 
 ```
@@ -99,17 +166,19 @@ in priority order.
 
 ## Files to know
 
-| Path                                                         | Why it matters                               |
-| ------------------------------------------------------------ | -------------------------------------------- |
-| `src/migrations/044_a_soul_reorder_conversational_frame.sql` | The reorder — A's soul definition lives here |
-| `src/migrations/045_issue_table_design_long_text.sql`        | Issue record (the principle)                 |
-| `src/seed.gleam`                                             | First-run seed (must match DB)               |
-| `src/migrations/008_agent_soul.sql`                          | Canonical seed (must match DB)               |
-| `src/migrations/009_agent_jobs.sql`                          | Canonical seed for A/S job list              |
-| `src/migrations/037_clarify_agent_roles.sql`                 | Enforces "S never does system-review" etc.   |
-| `AGENTS.md`                                                  | Read first when starting a new session       |
-| `docs/A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md`         | The thinking behind the Conversational Frame |
-| `docs/HANDOVER-2026-06-03-soul-reorder.md`                   | This file (you are here)                     |
+| Path                                                         | Why it matters                                                  |
+| ------------------------------------------------------------ | --------------------------------------------------------------- |
+| `src/migrations/044_a_soul_reorder_conversational_frame.sql` | The reorder — A's soul definition lives here                    |
+| `src/migrations/045_issue_table_design_long_text.sql`        | Issue record (the principle)                                    |
+| `src/seed.gleam`                                             | First-run seed (must match DB)                                  |
+| `src/migrations/008_agent_soul.sql`                          | Canonical seed (must match DB)                                  |
+| `src/migrations/009_agent_jobs.sql`                          | Canonical seed for A/S job list                                 |
+| `src/migrations/037_clarify_agent_roles.sql`                 | Enforces "S never does system-review" etc.                      |
+| `AGENTS.md`                                                  | Read first when starting a new session                          |
+| `docs/A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md`         | The thinking behind the Conversational Frame                    |
+| `docs/A-BOT-POST-FIX-FINDINGS-2026-06-02.md`                 | 4 new behaviors after the 0f4d6ef fix; de-dup still open        |
+| `docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md`                   | Design rationale for text-only A + the § "Conversational Frame" |
+| `docs/HANDOVER-2026-06-03-soul-reorder.md`                   | This file (you are here)                                        |
 
 ## Workflow that worked (for future soul edits)
 
@@ -183,9 +252,17 @@ psql -d psypi -c "SELECT s.id_prefix, COUNT(*) FROM agent_jobs j JOIN agent_soul
 gleam test   # should be 98 passed
 ```
 
-Then read this doc and pick a follow-up. **Recommended first action**:
-follow-up #1 (5-min migration to deactivate the superseded self_monitor).
-It's the smallest, has a clear scope, and unblocks the AGENTS.md drift note.
+**Read order for the next session:**
+1. **First:** The "Key insight" section above (the 锵锵三人行 analogy is
+   the most important thing to internalize before touching A's code)
+2. **Then:** AGENTS.md (the canonical project guide)
+3. **Then:** `docs/A-BOT-POST-FIX-FINDINGS-2026-06-02.md` (the 4 open
+   post-fix behaviors, especially Finding 1 about de-dup)
+4. **Then:** Run the 4 verification queries above
+5. **Then:** Pick a follow-up. **Recommended first action**: follow-up
+   #1 (5-min migration to deactivate the superseded self_monitor).
+   It's the smallest, has a clear scope, and unblocks the AGENTS.md
+   drift note.
 
 ## Lessons from this session
 
