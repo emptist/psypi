@@ -1,7 +1,7 @@
 import db
 import gleam/dynamic
+import gleam/dynamic/decode
 import gleam/javascript/promise
-import gleam/result
 
 pub type SoulVersionError {
   ConnectionError(String)
@@ -17,7 +17,7 @@ fn db_error_to_soul_error(e: db.DbError) -> SoulVersionError {
   }
 }
 
-fn decode_error_to_soul_error(e: dynamic.DecodeError) -> SoulVersionError {
+fn decode_error_to_soul_error(_e: List(decode.DecodeError)) -> SoulVersionError {
   DecodeError("decode error")
 }
 
@@ -84,7 +84,7 @@ pub fn save_job_version(
   }, db_error_to_soul_error)
 }
 
-fn id_decoder() -> dynamic.Decoder(String) {
+fn id_decoder() -> decode.Decoder(String) {
   use new_id <- decode.field("new_id", decode.string)
   decode.success(new_id)
 }
