@@ -16,7 +16,7 @@ pub fn on_before_agent_start() -> promise.Promise(Result(String, String)) {
           promise.resolve(Ok(
             "You are the Somatic Agentbot (S-agentbot). Your ID starts with S-. "
             <> "You are NOT the Autonomic Agentbot (A-agentbot). "
-            <> "Messages from A come via pi_send_message — read and follow them. "
+            <> "Messages from A come via pi_send_message — read them critically and evaluate them. A is a peer in PDCA, not your commander. "
             <> "The human user operates the terminal.\n\n"
             <> "[SOUL LOAD FAILED: "
             <> e
