@@ -61,17 +61,20 @@ ALTER TABLE agent_jobs
   ADD COLUMN IF NOT EXISTS job_key text;
 
 -- 2. Drop the old full unique constraints, create partial unique indexes.
+--    Partial unique indexes use is_archived = false (not is_active = true)
+--    because is_archived is the primary gate: archived rows are dead to the app.
+--    The constraint only needs to apply among alive (non-archived) rows.
 ALTER TABLE agent_souls DROP CONSTRAINT IF EXISTS agent_soul_id_prefix_key;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_souls_active_id_prefix
-  ON agent_souls (id_prefix) WHERE is_active = true;
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_agent_souls_active_id_prefix
+  ON agent_souls (id_prefix) WHERE is_archived = false;
 
 ALTER TABLE agent_souls DROP CONSTRAINT IF EXISTS agent_soul_role_key;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_souls_active_role
-  ON agent_souls (role) WHERE is_active = true;
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_agent_souls_active_role
+  ON agent_souls (role) WHERE is_archived = false;
 
 ALTER TABLE agent_jobs DROP CONSTRAINT IF EXISTS uq_agent_jobs_soul_job_priority_category;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_jobs_active_soul_job_key
-  ON agent_jobs (soul_id, job_key) WHERE is_active = true;
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_agent_jobs_active_soul_job_key
+  ON agent_jobs (soul_id, job_key) WHERE is_archived = false;
 
 -- 3. Backfill job_key for all 44 active rows (fixed UUID keying, idempotent).
 -- A's 24 active jobs
@@ -214,14 +217,14 @@ $$ LANGUAGE plpgsql;
 
 ## 6. Read-path Compatibility
 
-**No changes required** in:
+**Changes required** — all read paths must add `AND is_archived = false`:
 
-- `src/a_db_reader.gleam` (`SELECT content FROM agent_souls WHERE id_prefix = 'A' AND is_active = true`)
-- `src/s_db_reader.gleam` (`SELECT j.job, j.priority, j.category FROM agent_jobs j JOIN agent_souls s ON j.soul_id = s.id WHERE s.id_prefix = 'S' AND j.is_active = true ORDER BY j.priority ASC`)
+- `src/a_db_reader.gleam` — `WHERE id_prefix = 'A' AND is_active = true AND is_archived = false`
+- `src/s_db_reader.gleam` — `WHERE s.id_prefix = 'S' AND j.is_active = true AND j.is_archived = false`
+- `src/agent_identity.gleam` — same addition in `fetch_jobs_by_prefix`
 
-Both already filter on `is_active = true`, and the partial unique index
-guarantees exactly one such row per `id_prefix` / `(soul_id, job_key)`.
-**Same SQL, same result semantics, no application code change for readers.**
+The partial unique index on `is_archived = false` guarantees exactly one
+non-archived row per `id_prefix` / `(soul_id, job_key)` among alive rows.
 
 ## 7. Gleam Wrapper
 
@@ -266,30 +269,34 @@ existing pattern in `inter_review.gleam`.
 This keeps history honest, makes the design mistake visible to future
 agents, and prevents accidental re-runs.
 
-The seed (`008_agent_soul.sql`, `009_agent_jobs.sql`) does **not** need
-to change — it uses `INSERT … WHERE NOT EXISTS` for the initial rows,
-which is correct append-only.
+The seed `008_agent_soul.sql` does **not** need to change — it uses
+`INSERT … WHERE NOT EXISTS` for the initial rows, which is correct.
+`009_agent_jobs.sql` **must** be updated to include the `job_key` column
+with proper values, so that fresh installs are compatible with the
+NOT NULL constraint added by migration 046.
 
 ## 9. AGENTS.md Addition
 
-Add a section: **Two-Flag Pattern for `agent_souls` / `agent_jobs`**
+Add a section: **Append-Only Pattern for `agent_souls` / `agent_jobs`**
 
 ```
-Both tables now use two independent flags.
-
-- is_active (default true)
-  Marks the row as the current version of the entity.
-  Enforced by partial unique indexes:
-    - one active (A, S) soul per id_prefix
-    - one active job per (soul_id, job_key)
-  Database-managed. Do NOT set this manually.
+Both tables now use is_archived as the primary gate:
 
 - is_archived (default false)
-  Marks the row as hidden from app queries.
-  App-managed. Set to true only when explicitly retiring a row
-  from operational use while keeping it for history.
+  If true, the row is dead to the application. Historical only. Who cares.
+  If false, the row is alive — the application cares about it.
+  App-managed. Set to true only when explicitly retiring a row.
 
-Read path: WHERE is_active = true AND is_archived = false
+- is_active (default true)
+  Existing field. Use as-is. No need to reinterpret its meaning.
+  Among non-archived rows, is_active picks the current version.
+
+Partial unique indexes enforce uniqueness among alive (non-archived) rows:
+  - one non-archived soul per id_prefix
+  - one non-archived soul per role
+  - one non-archived job per (soul_id, job_key)
+
+Read path: WHERE is_archived = false AND is_active = true
 Write path: ALWAYS go through save_soul_version() / save_job_version()
   defined in migration 046. NEVER use UPDATE SET content = ...
   or UPDATE SET job = ... on these tables.
@@ -318,6 +325,7 @@ Test artifacts: `/tmp/test_append_only_design.sql`,
 
 ## 11. Risks / Open Questions
 
+0. **Fresh install failure**: The backfill is keyed by hardcoded UUIDs from the live DB. On a fresh install, `009_agent_jobs.sql` generates different UUIDs, so the backfill produces no matches. The subsequent `SET NOT NULL` step then fails because rows still have NULL `job_key`. **Fix**: update `009_agent_jobs.sql` to include `job_key` values (step 1 of implementation order).
 1. **Race with future `gleam run migrate`**: the migration runner
    re-executes all migrations every time. The 046 backfill is keyed by
    stable UUIDs (no-op on re-run). The function definitions use
@@ -338,11 +346,18 @@ Test artifacts: `/tmp/test_append_only_design.sql`,
 
 ## 12. Implementation Order (when approved)
 
-1. Create `src/migrations/046_append_only_active_archived.sql` (full DDL above).
-2. Run `gleam run migrate` against a scratch DB to verify (use the test files' rollback pattern).
-3. Create `src/soul_version_writer.gleam`.
-4. Add the deprecation comments to the top of 038, 040, 041, 042, 043, 044.
-5. Add the "Two-Flag Pattern" section to `AGENTS.md`.
-6. (Optional) Add a Gleam test file in `test/` that exercises
-   `save_soul_version` against the scratch DB. There is currently no
-   `test/` directory — creating it is a separate decision.
+1. Update `src/migrations/009_agent_jobs.sql` to include `job_key` column and values.
+2. Create `src/migrations/046_append_only_active_archived.sql` (full DDL above, with `CREATE INDEX CONCURRENTLY` and `WHERE is_archived = false`).
+3. **User runs `gleam run migrate` from terminal** (Pi stays running — never kill Pi from inside).
+4. Verify migration:
+   ```sql
+   psql -d psypi -c "SELECT COUNT(*) FROM agent_jobs WHERE job_key IS NULL;"  -- expect 0
+   psql -d psypi -c "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'agent_jobs';"  -- verify partial index
+   ```
+5. Create `src/soul_version_writer.gleam`.
+6. Update Gleam readers: `a_db_reader.gleam`, `s_db_reader.gleam`, `agent_identity.gleam` — add `AND is_archived = false`.
+7. Update `table_documentation` with new columns.
+8. Add deprecation comments to 038, 040, 041, 042, 043, 044.
+9. Add the "Append-Only Pattern" section to `AGENTS.md`.
+10. Update AGENTS.md: remove/update "Known doc/DB drift" note (self_monitor deactivation fixed by 046).
+11. (Optional) Add Gleam test file for `soul_version_writer.gleam`.
