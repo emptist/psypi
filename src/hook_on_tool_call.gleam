@@ -17,7 +17,7 @@ pub fn on_tool_call(
   tool_name: String,
   file_path: String,
   ctx: a,
-  pi: a,
+  _pi: a,
 ) -> promise.Promise(Result(Nil, String)) {
   let _ = psypi_config.set("idle_since", "0")
   case tool_name == "edit" {
