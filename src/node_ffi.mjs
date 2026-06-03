@@ -46,8 +46,13 @@ export function get_env(name) {
   return process.env[name] || '';
 }
 
-export function get_database_url() {
-  return process.env['DATABASE_URL'] || '';
+export function get_database_name() {
+  return process.env['PSYPI_DATABASE_NAME'] || 'psypi';
+}
+
+export function get_database_port() {
+  const port = process.env['POSTGRESQL_PORT'];
+  return port ? parseInt(port, 10) : 5432;
 }
 
 // Ensure directory exists

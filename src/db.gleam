@@ -13,18 +13,15 @@ pub type DbError {
 }
 
 pub fn connect() -> promise.Promise(Result(Connection, DbError)) {
-  let database_url = get_database_url()
-  let config = case database_url {
-    "" ->
-      node_pg.create_config(
-        Some("postgres"),
-        None,
-        Some("localhost"),
-        Some(5432),
-        Some("psypi"),
-      )
-    url -> node_pg.connection_string_config(url)
-  }
+  let db_name = get_database_name()
+  let port = get_database_port()
+  let config = node_pg.create_config(
+    Some("postgres"),
+    None,
+    Some("localhost"),
+    Some(port),
+    Some(db_name),
+  )
 
   let client = node_pg.new_client(config)
 
@@ -77,5 +74,8 @@ pub fn with_connection(
   })
 }
 
-@external(javascript, "./node_ffi.mjs", "get_database_url")
-fn get_database_url() -> String
+@external(javascript, "./node_ffi.mjs", "get_database_name")
+fn get_database_name() -> String
+
+@external(javascript, "./node_ffi.mjs", "get_database_port")
+fn get_database_port() -> Int
