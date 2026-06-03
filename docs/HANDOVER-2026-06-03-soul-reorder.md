@@ -9,6 +9,21 @@ that motivated the workflow: long-text fields should be normalized to
 child rows. The AGENTS.md job tables were re-synced with the live DB
 (A=24, S=20). This handover memo is the 6th commit.
 
+**The session ended with two open strategic questions, not implementation
+tasks.** Both are below as "Key insight" sections:
+
+1. **The A/S loop is a conversation, not a process** (the
+   "Conversational Frame" reframing — `inter_reviews` is a chat log).
+2. **The DB tables should be append-only, not update-in-place**
+   (the user's late-session realization — `inter_reviews` already does
+   this; `agent_souls` and `agent_jobs` don't, and that's a real data
+   loss risk; 3 options to choose from are in the next session's
+   decision queue).
+
+**The user has explicitly said: do NOT try to finish anything in the
+next session. Open both questions as discussions, present options,
+let the user choose.**
+
 ## ⭐ Key insight (read this first, even before the rest of this doc)
 
 **The most valuable thing from this session is NOT the soul reorder or
@@ -75,6 +90,128 @@ waiting for A to talk.
    is re-reviewing the same content** (see Finding 1 in the post-fix
    doc), not A reverting to the formal-reviewer framing. Don't fix
    the framing; fix the scope.
+
+## ⭐ Key insight #2: append-only, not update-in-place (CRITICAL, NEW at end-of-session)
+
+**The schema design issue is a pseudo-problem. The real problem is
+improper use. The right pattern is: add new records — when you save,
+you create a new record. Don't modify records.**
+
+This was the user's second major insight of the session, and it
+**changes the design direction** that issue 045 implied. Read this
+section before doing anything with `agent_souls` or `agent_jobs`.
+
+### The 3-table pattern audit
+
+We already have proof that the right pattern works in psypi:
+
+| Table           | Current pattern          | Is append-only? | What it means for history        |
+| --------------- | ------------------------ | --------------- | -------------------------------- |
+| `inter_reviews` | INSERT only, 25 rows     | ✅ yes           | Every A review is a new row      |
+| `agent_souls`   | UPDATE in place, 2 rows  | ❌ no            | Old content lost on every save   |
+| `agent_jobs`    | UPDATE in place, 44 rows | ❌ no            | Old job description lost on edit |
+
+`inter_reviews` is the canonical example: 25 rows, one per review,
+no `is_active` flag, no UPDATE. The "current" review is determined by
+`MAX(requested_at)` (or by `id`). It naturally has full history for
+free — that is the "chat log, not review form" property the
+Conversational Frame insight relies on.
+
+`agent_souls` and `agent_jobs` violate this. The `is_active` flag was
+designed for "multiple rows, one active" semantics, but the actual
+usage is "one row, UPDATE in place" — the flag is a lie.
+
+### What the right pattern looks like for `agent_souls`
+
+- Keep `is_active` (the flag itself is fine — it's a "current pointer")
+- Keep UNIQUE on `id_prefix` but **change the constraint to partial**:
+  only one row per `id_prefix` may have `is_active = true` (use a
+  partial unique index instead of a plain UNIQUE on `id_prefix`)
+- "Save a new soul" = single transaction:
+  1. `INSERT INTO agent_souls (..., is_active=true) RETURNING id`
+  2. `UPDATE agent_souls SET is_active = false WHERE id_prefix = X AND id != new_id AND is_active = true`
+- The old rows stay in the table forever. History is a free
+  byproduct of correct usage.
+- A reader query `WHERE id_prefix='A' AND is_active=true` keeps
+  working — no read-path changes.
+
+### Chain reaction: what else changes
+
+1. **Existing migrations 044, 045 are wrong** in light of this
+   insight. They used `UPDATE ... SET content = ...`, which destroyed
+   the previous content. The "previous content" we lost: the soul as
+   it was at `updated_at = 2026-05-30 11:05:32.378119+08` (A's
+   pre-reorder state). We have no snapshot of it. Going forward, the
+   append-only rule prevents this kind of loss.
+2. **`agent_jobs` has the same problem.** Each of the 24+20 job
+   descriptions is a one-time `INSERT` and then never updated (in
+   practice). But the schema permits UPDATE, and any future code path
+   that does `UPDATE agent_jobs SET job='...' WHERE id=...` loses
+   history. Same fix applies.
+3. **Seed files (`seed.gleam`, `008_agent_soul.sql`) need to encode
+   history, not just the current state.** The first fresh install of
+   psypi after this change should replay ALL historical versions, not
+   just the latest. The latest becomes `is_active = true`; the older
+   ones are `is_active = false` history rows.
+4. **Issue 045's normalization direction (long-text → child rows)
+   becomes partially moot.** If `agent_souls.content` is append-only
+   and each "save" is a new row, you can still edit a "section" by
+   INSERTing a new full soul — not as cheap as editing one row in
+   `agent_soul_sections`, but the history is free. The child-row
+   design is still nicer for editing, but it's not a data-loss fix
+   anymore — the append-only rule is.
+5. **Gleam code paths that write to `agent_souls` need to be
+   audited.** Find every `UPDATE agent_souls ...` and wrap it in a
+   transaction that INSERTs a new row first. This is a real code
+   change, not a schema-only change. Likely 2-5 sites in
+   `src/pi_extension_*.gleam` and `src/migrate*.gleam`.
+
+### What to do next — 3 options
+
+The user has not yet picked one. Present these to them in the new
+session:
+
+- **Option A: Implement now.** Migration 046 = (a) drop UNIQUE
+  constraint on `id_prefix`, replace with partial unique index on
+  `(id_prefix) WHERE is_active = true`; (b) snapshot current A and S
+  as `is_active = false` history rows (so we don't lose the
+  pre-044 / pre-045 state retroactively); (c) create a
+  `save_soul_version(content, change_reason)` SQL function as the
+  one blessed writer. Then change 044, 045 to use it. Then audit
+  Gleam code paths. **Estimated: 2-3 hours, multi-commit.**
+- **Option B: Document-only invariant.** Add a section to AGENTS.md
+  saying "soul changes must INSERT, not UPDATE" and let the
+  convention catch on. **Cheap but unreliable** — relies on humans
+  (and AIs) reading the doc. Catches zero of the existing wrong
+  code paths.
+- **Option C: A-S meeting first.** psypi-meeting-add topic:
+  "Should `agent_souls` and `agent_jobs` go append-only? What is the
+  impact on migrations 044, 045, the seed files, the Gleam write
+  paths, and issue 045?" Let A and S discuss scope before
+  committing to A or B. **Recommended — large surface, many
+  decisions, the user historically prefers alignment over speed.**
+
+### Why this matters for the next session
+
+1. **Don't repeat the mistake.** Any future soul/job change done with
+   `UPDATE ... SET ...` continues to destroy history. Even if Option
+   C is chosen and no migration lands this week, every soul/job
+   write from this point on should mentally be "INSERT a new version,
+   deactivate the old one" — even if the SQL is still `UPDATE`. Treat
+   it as a discipline, not just a schema choice.
+2. **Issue 045 is now in tension with this insight.** 045 said
+   "normalize long-text fields to child rows". That is still a
+   reasonable ergonomic improvement, but the data-loss argument is
+   weakened. If the next session is told "do issue 045", pause and
+   re-confirm with the user — does the user still want the
+   normalization, or is append-only enough?
+3. **The de-dup problem (Finding 1 in A-BOT-POST-FIX-FINDINGS) is
+   separate.** Re-reviewing the same content is a *prompt/context*
+   problem, not a *schema* problem. Append-only doesn't fix it.
+4. **The 3-table pattern audit is the new "design review checklist"
+   for any future psypi table.** Before creating a new mutable table,
+   ask: "Could this be append-only with a `is_active` pointer?" If
+   yes, do it that way. The `inter_reviews` table is the model.
 
 ## What happened (6 commits, in order)
 
@@ -209,12 +346,24 @@ reproducibility check.
 
 ## What's next (open follow-ups, in priority order)
 
-1. **Deactivate superseded A self_monitor job** ⭐ SMALLEST, DO FIRST:
+**🚨 Highest priority — discuss with user FIRST before any work:**
+
+0. **The append-only decision (Key insight #2).** This is the
+   elephant in the room. Three options on the table (A: implement
+   now / B: docs only / C: A-S meeting). **The user's most recent
+   message in this session was: "首先不要再考虑在当前会话完成什么东西。
+   必须交班。"** — i.e., do NOT try to finish this in the next
+   session either. Open it as a discussion, present the 3 options,
+   let the user choose. This is a "do not act, ask first" item.
+
+1. **Deactivate superseded A self_monitor job** (small follow-up,
+   safe to do independently of the above):
    `d9d45795-2c85-461c-9861-9498c355ef20` ("Do NOT wait for the human")
    was superseded by `450a12db-787d-4685-9c31-973fbdf1e990` ("The human
-   is not in the loop"). Migration 046 should `UPDATE agent_jobs SET
-   is_active = false WHERE id = 'd9d45795-...'`. After that, AGENTS.md
-   "Known doc/DB drift" note can be removed. Estimated: 5 min.
+   is not in the loop"). Migration 046 (or 047 if append-only lands
+   first) should `UPDATE agent_jobs SET is_active = false WHERE id =
+   'd9d45795-...'`. After that, AGENTS.md "Known doc/DB drift" note
+   can be removed. Estimated: 5 min.
 
 2. **conversation-log cleanup**: Add `docs/conversation-log-*.md` to
    `.gitignore` so they don't show as untracked. Or move to
@@ -224,8 +373,9 @@ reproducibility check.
    Refactor `agent_souls.content` into
    `agent_soul_sections (id, soul_id, ordering, heading, body)` so
    reordering a section is one `UPDATE` instead of a full content
-   replace. NOT started. Larger planning effort — possibly needs a
-   meeting (psypi-meeting-add) to A-S align scope.
+   replace. **PAUSE and re-confirm with the user** — see Key insight
+   #2 above. The data-loss motivation is weakened once append-only
+   is adopted; only the ergonomics argument remains.
 
 4. **AGENTS.md job table update**: ✅ DONE in commit 62cc862. The job
    table is now in sync with the live DB (A=24, S=20). The
@@ -253,16 +403,19 @@ gleam test   # should be 98 passed
 ```
 
 **Read order for the next session:**
-1. **First:** The "Key insight" section above (the 锵锵三人行 analogy is
-   the most important thing to internalize before touching A's code)
-2. **Then:** AGENTS.md (the canonical project guide)
-3. **Then:** `docs/A-BOT-POST-FIX-FINDINGS-2026-06-02.md` (the 4 open
+1. **First:** "Key insight" (Conversational Frame) — the 锵锵三人行
+   analogy is the most important thing to internalize before touching
+   A's code
+2. **Then:** "Key insight #2" (append-only) — the new design
+   direction; the next session is a *discussion* session, not an
+   implementation session
+3. **Then:** AGENTS.md (the canonical project guide)
+4. **Then:** `docs/A-BOT-POST-FIX-FINDINGS-2026-06-02.md` (the 4 open
    post-fix behaviors, especially Finding 1 about de-dup)
-4. **Then:** Run the 4 verification queries above
-5. **Then:** Pick a follow-up. **Recommended first action**: follow-up
-   #1 (5-min migration to deactivate the superseded self_monitor).
-   It's the smallest, has a clear scope, and unblocks the AGENTS.md
-   drift note.
+5. **Then:** Run the 4 verification queries above
+6. **Then:** Open the append-only discussion with the user. Present
+   Options A / B / C from the "Key insight #2" section. Let the user
+   pick. **Do not start implementation before the user has chosen.**
 
 ## Lessons from this session
 
@@ -277,3 +430,33 @@ gleam test   # should be 98 passed
    on every job change, not just on schema changes.
 5. **A single tool call (sql/grep/Read) beats a long debate**: When
    the user asks "is the table up to date", query the DB and diff.
+6. **The schema was right; the usage was wrong.** When something feels
+   broken about a DB design, first audit *how* the table is used
+   (UPDATE vs INSERT pattern) before changing the schema. `inter_reviews`
+   is the model; `agent_souls` and `agent_jobs` should learn from it.
+7. **The user's late-session corrections are higher-signal than
+   mid-session work.** The append-only insight at the end of the
+   session changes the design direction. If a future session finds
+   the user's "just wrap it up" tone at the end of THIS session, it
+   should treat that as a flag that the next session must slow down
+   and discuss, not race to implement.
+
+## Meta — how this session was conducted
+
+This session covered a lot of ground: a real reordering of the soul,
+a fresh principle documented in issue 045, a doc sync, a handover
+doc, and a key design insight at the end. The user explicitly
+**pushed back twice** on the agent's framing:
+
+- First, the agent proposed a DB trigger for history preservation.
+  The user said: that's not the problem; the problem is using UPDATE
+  when you should be INSERTing. **Append-only is the answer; the
+  trigger is a workaround.**
+- Second, the user said: stop trying to complete things in the
+  current session; just write a good handover. The next session
+  is the place for the append-only discussion.
+
+The right behavior in the next session is: **ask the user to pick
+between Option A / B / C on the append-only decision, and let them
+choose before any work begins.** Do not assume Option C (meeting) is
+the answer just because the agent recommends it.
