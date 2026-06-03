@@ -11,6 +11,30 @@ Multi-dimensional code review with quality gates. Every change gets reviewed bef
 
 **The approval standard:** Approve a change when it definitely improves overall code health, even if it isn't perfect. Perfect code doesn't exist — the goal is continuous improvement. Don't block a change because it isn't exactly how you would have written it. If it improves the codebase and follows the project's conventions, approve it.
 
+## Psypi Project Rules — Read Before Every Review
+
+These are non-negotiable rules for the psypi codebase. Violations are **Critical** findings.
+
+1. **Never create `pi_*.gleam` modules.** All JS interop lives in `.mjs` files with `@external`. Violating this rule causes 99% of all bugs.
+2. **Never write JS code as Gleam string literals.** Use `.mjs` files with `@external` FFI.
+3. **Never DELETE, DROP, or TRUNCATE without explicit human confirmation.** PostgreSQL has no undo. Data loss is permanent.
+4. **Always use `psypi-commit`** — never raw `git commit`. The agent ID tag tracks who did what.
+5. **All DB access goes through `db.gleam` `with_connection()`.** Raw SQL strings outside this layer are a red flag.
+6. **`project_id`** is resolved from git remote via `simplifile` — never from DB lookup, env var, or hardcoded UUID.
+
+## Gleam-Specific Checks
+
+Gleam is not TypeScript. Watch for these:
+
+- **All `case` expressions must be exhaustive.** Adding a new variant to a custom type should flag every incomplete `case` at compile time. If a `case` uses a wildcard `_` catch-all on a custom type, flag it — it defeats Gleam's superpower.
+- **`@external` FFI in `.mjs` files only.** JS interop should never appear as string literals in `.gleam` files.
+- **`use` expressions** for callback chaining — idiomatic Gleam. Deep callbacks instead of `use` are a readability concern.
+- **Pipe operator `|>`** — prefer pipes over nested function calls.
+- **Module imports use `/` not `.`** — `import generator/tool_call`, not `import generator.tool_call`. Dots are for record field access.
+- **Module size: keep under 100 lines.** Large files cause edit tool failures. One module, one responsibility.
+- **Gleam uses `Result` types, not exceptions.** Look for `use` over manual `case` on `Result` values.
+- **Every used function requires an import.** `list.map` needs `import gleam/list` — verify imports exist.
+
 ## When to Use
 
 - Before merging any PR or change
@@ -45,6 +69,7 @@ Can another engineer (or agent) understand this code without the author explaini
 - **Are abstractions earning their complexity?** (Don't generalize until the third use case)
 - Would comments help clarify non-obvious intent? (But don't comment obvious code.)
 - Are there dead code artifacts: no-op variables (`_unused`), backwards-compat shims, or `// removed` comments?
+- **Thin hooks, thick LLM.** Hooks in `extension.js` should only record events and do auto-backup. No blocking logic, no regex-based tool filtering. Intelligence lives in the LLM, not in JavaScript.
 
 ### 3. Architecture
 
@@ -204,6 +229,35 @@ our project conventions. The spec says [X]. The change should [Y].
 Flag any issues as Critical, Important, or Suggestion.
 ```
 
+### Psypi A↔S Review Model
+
+In psypi, the review model is **alternating current** — A-bot and S-bot never work simultaneously:
+
+```
+S-bot executes (Plan, Do, Act)
+    │
+    ▼
+S goes idle → A-bot wakes (Check)
+    │
+    ▼
+A reviews S's completed work → saves findings to inter_reviews table
+    │
+    ▼
+A sends results back to S via pi_send_message
+    │
+    ▼
+S addresses A's findings in the next cycle
+```
+
+Key distinctions:
+- **A's Check happens between S sessions** — not before implementation starts
+- **A reviews completed work output** (code, commits, DB changes, docs) — not plans
+- **A is not the implementation gatekeeper** — the human directs S, A checks the result
+- **S can and should self-check** but inter-review is A's professional responsibility
+- Findings go to `inter_reviews` table, not PR comments
+- A does NOT perform system-reviews — only S does (on human request)
+- External AI agents invited by the user can also perform system-reviews
+
 ## Dead Code Hygiene
 
 After any refactoring or implementation change, check for orphaned code:
@@ -216,20 +270,21 @@ Don't leave dead code lying around — it confuses future readers and agents. Bu
 
 ```
 DEAD CODE IDENTIFIED:
-- formatLegacyDate() in src/utils/date.ts — replaced by formatDate()
-- OldTaskCard component in src/components/ — replaced by TaskCard
-- LEGACY_API_URL constant in src/config.ts — no remaining references
+- parse_legacy_context() in src/hook_on_agent_end.gleam — replaced by parse_context()
+- OldMeetingCard component in src/components/ — replaced by MeetingCard
+- LEGACY_DEBOUNCE_MS constant in src/psypi_config.gleam — no remaining references
 → Safe to remove these?
 ```
 
 ## Review Speed
 
-Slow reviews block entire teams. The cost of context-switching to review is less than the waiting cost imposed on others.
+Slow reviews block progress. In psypi's autonomous A↔S workflow:
 
-- **Respond within one business day** — this is the maximum, not the target
-- **Ideal cadence:** Respond shortly after a review request arrives, unless deep in focused coding. A typical change should complete multiple review rounds in a single day
-- **Prioritize fast individual responses** over quick final approval. Quick feedback reduces frustration even if multiple rounds are needed
-- **Large changes:** Ask the author to split them rather than reviewing one massive changeset
+- **Review happens automatically** between S sessions — no waiting for a human reviewer
+- **A should review promptly** when S goes idle — the debounce timer (default 300s) already provides a natural delay
+- **Fast individual responses matter more than quick final approval.** Quick feedback reduces frustration even if multiple rounds are needed.
+- **Large changes:** Ask the author to split them rather than reviewing one massive changeset.
+- For PR-based workflows (external contributors): respond within one business day maximum.
 
 ## Handling Disagreements
 
@@ -312,8 +367,9 @@ Part of code review is dependency review:
 ```
 ## See Also
 
-- For detailed security review guidance, see `references/security-checklist.md`
-- For performance review checks, see `references/performance-checklist.md`
+- For detailed security review guidance, see the `security-and-hardening` skill in `ppi_skills/security-and-hardening/`
+- For Gleam-specific patterns and anti-patterns, see the `gleam-language` skill in `ppi_skills/gleam-language/`
+- For psypi workflow rules (issue/task gates, commit workflow), see `RULES.md` in the project root
 
 ## Common Rationalizations
 
@@ -335,6 +391,11 @@ Part of code review is dependency review:
 - No regression tests with bug fix PRs
 - Review comments without severity labels — makes it unclear what's required vs optional
 - Accepting "I'll fix it later" — it never happens
+- **`pi_*.gleam` modules** — JS interop should be in `.mjs` files, never in Gleam modules
+- **JS string literals in `.gleam` files** — use `@external` with `.mjs` files instead
+- **Raw `git commit`** — all commits must go through `psypi-commit` for agent ID tracking
+- **DELETE/DROP/TRUNCATE without human confirmation** — iron rule, no exceptions
+- **A positioning itself as plan approver** — A's role is Check (inter-review of completed work), not gatekeeping implementation start
 
 ## Verification
 
