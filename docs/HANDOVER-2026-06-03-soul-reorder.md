@@ -101,6 +101,30 @@ This was the user's second major insight of the session, and it
 **changes the design direction** that issue 045 implied. Read this
 section before doing anything with `agent_souls` or `agent_jobs`.
 
+### Direct user quotes (verbatim — do not paraphrase further)
+
+These are the user's exact words from this session. Preserved
+verbatim so the next session does not have to recover intent from
+paraphrase.
+
+> "如果数据库是唯一资料来源，而里面的资料没有历史记录，那就太可怕了"
+>
+> — the user, just before articulating the append-only insight.
+> This is the trigger: data loss in the only source of truth is
+> unacceptable.
+
+> "我意识到数据库的表设计这个问题是一个伪问题，真实问题是你使用不当。应该是加入新记录，保存就记录，你变成修改记录"
+>
+> — the user, articulating the append-only insight. The "你变成
+> 修改记录" phrasing is slightly ambiguous in Chinese; the meaning
+> the user confirmed in follow-up is "the save operation IS the
+> new modification record" — i.e., INSERT, never UPDATE.
+
+> "首先不要再考虑在当前会话完成什么东西。必须交班。"
+>
+> — the user, end of session. The directive: write the handover,
+> do not implement.
+
 ### The 3-table pattern audit
 
 We already have proof that the right pattern works in psypi:
