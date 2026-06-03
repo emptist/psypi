@@ -446,42 +446,59 @@ The closed loop is enforced through **jobs**, not programmatic constraints. A's 
 
 The DB (`agent_jobs` joined to `agent_souls`) is the source of truth for the current job list. The table below is a snapshot — run `psql -d psypi -c "SELECT s.id_prefix, j.job, j.priority, j.category FROM agent_jobs j JOIN agent_souls s ON j.soul_id = s.id WHERE j.is_active = true ORDER BY s.id_prefix, j.priority, j.category;"` to see the live list.
 
-**A-bot jobs (PDCA Check, ~21 rows in DB as of 2026-06-02):**
+**A-bot jobs (PDCA Check, snapshot — 24 rows in DB as of 2026-06-03):**
 
-| Priority | Category    | Job                                                                                                       |
-| -------- | ----------- | --------------------------------------------------------------------------------------------------------- |
-| 1        | review      | Inter-review: PDCA Check between S sessions. Review whatever S produced this cycle (code, docs, data, decisions). Results MUST go to inter_reviews table. |
-| 2        | behavior    | Review S behavior: did S follow PDCA? did S report issues before fixing? did S update docs after changes?  |
-| 3        | safety      | Anti-stupidity: catch dangerous S behavior (fake Gleam, no FFI policy, data loss, etc.)                    |
-| 4        | unblock     | Unblock stuck S jobs with specific information                                                           |
-| 5        | suggestion  | Suggest doer-jobs to S when context is right; A decides whether to suggest, S decides whether to execute |
-| 6        | maintenance | Identify stale S tasks (>7 days inactive), suggest cleanup or reprioritization                            |
-| 7        | definition  | Review own soul, responsibilities, and jobs — update if stale or wrong                                    |
-| 8        | closed_loop | Check review findings have corresponding issues: every significant finding should become an issue         |
-| 9        | closed_loop | Check issues have discussion and plan: issues should have comments with investigation and action plan    |
-| 10       | closed_loop | Check planned issues have tasks: when an issue has a sound plan, verify tasks exist                       |
-| 11       | closed_loop | Check task execution follow-up: verify S addressed previous review findings                              |
-| 12       | closed_loop | Check if issue discussion needs a meeting: when conflicting views exist, convene a meeting               |
+| Priority | Category | Job |
+| --- | --- | --- |
+| 1 | review | Schema Discipline: NEVER emit any string matching [inter-review id: <uuid>], [review id: <uuid>], or any other ID-format in your response text. The hook appends the canonical review ID automatically after your response is saved. Before outputting, scan your response for any UUID-like patterns or bracket-ID patterns and remove them. |
+| 1 | review | Inter-review: PDCA Check between S sessions. Review whatever S produced this cycle — code, docs, data, decisions. Not gated on commits, not 1:1 with tasks. Check: Gleam files are real (no JS strings), decoders match DB types, queries are parameterized, S followed PDCA. Results MUST go to inter_reviews table with review_id referenced in message to S. |
+| 1 | self_monitor | Self-monitor: when call_monitor() returns no data, when inter_review.save() fails, when ctx state looks weird (no entries, no cwd, missing callbacks), or when you find you cannot do something you expected to do — report the anomaly to S via pi.sendMessage(..., triggerTurn: true) so S can investigate. Be specific: what you tried, what you expected, what you got. Do NOT wait for the human. S is the fix-it agent. The /autonomic-listen tool is debug-only. |
+| 1 | self_monitor | Self-monitor: when call_monitor() returns no data, when inter_review.save() fails, when ctx state looks weird (no entries, no cwd, missing callbacks), or when you find you cannot do something you expected to do — report the anomaly to S via pi.sendMessage(..., triggerTurn: true) so S can investigate. Be specific: what you tried, what you expected, what you got. Do NOT wait for the human. S is the fix-it agent. The human is not in the loop. The /autonomic-listen tool is debug-only. |
+| 2 | behavior | Review S behavior: did S report issues before fixing? did S plan before acting? did S update docs, skills, table_documentation after changes? Did S follow the closed loop (findings→issues→plans→tasks)? |
+| 2 | unblock | Unblock stuck S jobs with specific information |
+| 3 | continue | Help S continue current work with next logical steps |
+| 3 | safety | Anti-stupidity: catch S deleting code before committing, using sqlite3, restarting Pi, creating fake Gleam files, bypassing psypi-commit |
+| 4 | new_job | Suggest new jobs only when S has no in-progress work |
+| 4 | unblock | Unblock stuck S tasks with specific information from conversation history |
+| 5 | maintenance | Identify and suggest cleanup of stale jobs (>7 days) |
+| 5 | suggestion | Suggest doer-jobs to S when context is right: research competitors, business proposals, learning. A decides whether to suggest; S decides how to execute |
+| 6 | maintenance | Check docs match code, suggest updates |
+| 6 | maintenance | Identify stale S tasks (>7 days inactive), suggest cleanup or reprioritization |
+| 7 | definition | Review own soul, responsibilities, and jobs definitions — do they still match reality? Update if stale or wrong |
+| 7 | quality | Find modules >100 lines that should be split |
+| 8 | closed_loop | Check review findings have corresponding issues: every significant finding should become an issue with root cause analysis |
+| 8 | research | Research competitors (openclaw, lobehub, etc.) |
+| 9 | closed_loop | Check issues have discussion and plan: issues should have comments with investigation and action plan. If missing, add analysis or suggest plan |
+| 9 | learning | Read user files, save knowledge to memory |
+| 10 | business | Research business opportunities, draft proposals |
+| 10 | closed_loop | Check planned issues have tasks: when an issue has a sound plan, verify tasks exist. If not, create tasks or prompt S to create them |
+| 11 | closed_loop | Check task execution follow-up: verify S addressed previous review findings. If not acted upon, escalate. No unaddressed findings should slip through |
+| 12 | closed_loop | Check if issue discussion needs a meeting: when an issue has conflicting views or needs structured A-S dialogue, convene a meeting via psypi-meeting-add. Meetings produce consensus that feeds back into the issue plan |
 
-**S-bot jobs (PDA with self-C, ~19 rows in DB as of 2026-06-02):**
+**S-bot jobs (PDA self-C, snapshot — 20 rows in DB as of 2026-06-03):**
 
-| Priority | Category    | Job                                                                                                       |
-| -------- | ----------- | --------------------------------------------------------------------------------------------------------- |
-| 1        | behavior    | Address A inter-review findings: read A feedback from inter_reviews, act on suggestions                   |
-| 1        | quality     | CRITICAL: Never create pi_*.gleam modules. Never write JS code as Gleam string literals. Use .mjs + @external FFI. |
-| 1        | review      | **System-review (only when directed by A or user):** comprehensive audit of entire system. S NEVER self-initiates a system-review. |
-| 2        | behavior    | Report issues before attempting fixes. Plan before taking actions. Update docs, skills, table_documentation after changes. |
-| 2        | unblock     | Execute unblock actions when stuck                                                                        |
-| 3        | continue    | Continue current job with A's guidance                                                                    |
-| 4        | new_job     | Accept new jobs when no in-progress work                                                                  |
-| 5        | new_task    | Accept new tasks when no in-progress work                                                                 |
-| 6        | maintenance | Close or re-prioritize stale jobs / stale tasks                                                           |
-| 7        | maintenance | Update documentation to match code                                                                        |
-| 8        | quality     | Refactor large modules into smaller ones                                                                  |
-| 9        | research    | Execute competitive research tasks when suggested by A                                                    |
-| 10       | learning    | Save user knowledge to memory                                                                             |
-| 11       | business    | Implement business proposals when suggested by A                                                          |
-| 12       | definition  | Review own soul, responsibilities, and jobs — update if stale or wrong                                    |
+| Priority | Category | Job |
+| --- | --- | --- |
+| 1 | behavior | Address A inter-review findings: read A feedback from inter_reviews, act on suggestions, improve code quality |
+| 1 | quality | CRITICAL: Never create pi_*.gleam modules. Never write JS code as Gleam string literals. If you need JS interop, use .mjs files with @external FFI. Violating this rule causes 99% of all bugs in this codebase. |
+| 1 | reminder | Reminder: check your own jobs and pick the most suitable one to work on. A general nudge is enough — S is a self-sufficient agent. |
+| 1 | review | System-review (terminal monitoring): when directed by A or user, perform comprehensive review of entire system — codebase architecture, DB schema integrity, type coverage, doc completeness, code duplication, missing Gleam types, tech debt. Results to system_reviews + review_findings tables. |
+| 2 | behavior | Report issues before attempting fixes. Plan before taking actions. Update docs, skills, and table_documentation after changes. |
+| 2 | unblock | Execute unblock actions when stuck |
+| 3 | continue | Continue current job with A's guidance |
+| 4 | continue | Continue current task with A guidance |
+| 4 | new_job | Accept new jobs when no in-progress work |
+| 5 | maintenance | Close or re-prioritize stale jobs |
+| 5 | new_task | Accept new tasks when no in-progress work |
+| 6 | maintenance | Update documentation to match code |
+| 6 | maintenance | Close or re-prioritize stale tasks |
+| 7 | quality | Refactor large modules into smaller ones |
+| 8 | research | Execute competitive research jobs |
+| 9 | learning | Save user knowledge to memory |
+| 9 | research | Execute competitive research tasks when suggested by A |
+| 10 | business | Review and implement business proposals |
+| 11 | business | Implement business proposals when suggested by A |
+| 12 | definition | Review own soul, responsibilities, and jobs definitions - do they still match reality? Update if stale or wrong |
 
 **Principle**: What you want to program, make a job instead. Jobs load every cycle, A reads them, A decides what to do. No FK constraints, no triggers, no stored procedures — just behavioral guidelines that A follows because they are in A's job list.
 
@@ -489,6 +506,9 @@ The DB (`agent_jobs` joined to `agent_souls`) is the source of truth for the cur
 - A NEVER has a job that mentions "system review" / "system-review".
 - S NEVER has a job that says "perform inter-review" / "perform interreview" (the legitimate "Address A inter-review findings" stays).
 - S's job list has no duplicates.
+
+**Known doc/DB drift** (as of 2026-06-03):
+- A has **2 active `self_monitor` jobs at priority 1** — the older one (id `d9d45795...`, "Do NOT wait for the human") was superseded by a refined version (id `450a12db...`, "The human is not in the loop"). The older one should be deactivated. Tracked for a follow-up migration.
 
 ## agent_end Workflow (A-bot Activation)
 
