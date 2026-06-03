@@ -62,7 +62,7 @@ pub fn check_system_health() -> promise.Promise(
         "
       SELECT 
         (SELECT COUNT(*)::INT FROM tasks WHERE status = 'FAILED') as failed_tasks,
-        (SELECT COUNT(*)::INT FROM issues WHERE status = 'open') as open_issues,
+        (SELECT COUNT(*)::INT FROM issues WHERE COALESCE(NULLIF(status, ''), CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'open' END) = 'open') as open_issues,
         (SELECT COUNT(*)::INT FROM activity_log WHERE timestamp > NOW() - INTERVAL '1 hour') as activities_1h
     "
       promise.map(db.query(conn, sql, []), fn(result) {
@@ -212,8 +212,8 @@ pub fn get_alerts() -> promise.Promise(Result(AlertMetrics, MonitorError)) {
         "
       SELECT 
         (SELECT COUNT(*)::INT FROM tasks WHERE status = 'FAILED') as failed_tasks,
-        (SELECT COUNT(*)::INT FROM issues WHERE status = 'open') as open_issues,
-        (SELECT COUNT(*)::INT FROM issues WHERE severity = 'critical' AND status = 'open') as critical_issues
+        (SELECT COUNT(*)::INT FROM issues WHERE COALESCE(NULLIF(status, ''), CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'open' END) = 'open') as open_issues,
+        (SELECT COUNT(*)::INT FROM issues WHERE severity = 'critical' AND COALESCE(NULLIF(status, ''), CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'open' END) = 'open') as critical_issues
     "
       promise.map(db.query(conn, sql, []), fn(result) {
         case result {
@@ -344,7 +344,7 @@ pub fn get_work_suggestions() -> promise.Promise(
         SELECT 'open_issues' as suggestion_type, 
                'Review and resolve ' || COUNT(*)::TEXT || ' open issues' as description,
                CASE WHEN severity = 'critical' THEN 1 ELSE 2 END as priority
-        FROM issues WHERE status = 'open'
+        FROM issues WHERE COALESCE(NULLIF(status, ''), CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'open' END) = 'open'
         GROUP BY severity
         UNION ALL
         SELECT 'stale_tasks' as suggestion_type,
@@ -500,7 +500,7 @@ pub fn analyze_and_act() -> promise.Promise(Result(MonitorAction, MonitorError))
         -- Critical open issues
         SELECT 'critical_issues' as action,
                COUNT(*)::TEXT || ' critical issues need resolution' as details
-        FROM issues WHERE status = 'open' AND severity = 'critical'
+        FROM issues WHERE COALESCE(NULLIF(status, ''), CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'open' END) = 'open' AND severity = 'critical'
         UNION ALL
         -- Stale pending tasks (>7 days)
         SELECT 'stale_tasks' as action,
@@ -511,7 +511,7 @@ pub fn analyze_and_act() -> promise.Promise(Result(MonitorAction, MonitorError))
         SELECT 'healthy' as action,
                'System is healthy' as details
         WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE status = 'FAILED')
-          AND NOT EXISTS (SELECT 1 FROM issues WHERE status = 'open' AND severity = 'critical')
+          AND NOT EXISTS (SELECT 1 FROM issues WHERE COALESCE(NULLIF(status, ''), CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'open' END) = 'open' AND severity = 'critical')
       ) sub
       ORDER BY CASE action 
         WHEN 'failed_tasks' THEN 1 

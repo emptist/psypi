@@ -25,7 +25,11 @@ fn issue_decoder() -> decode.Decoder(Issue) {
   use title <- decode.field("title", decode.string)
   use description <- decode.field("description", decode.optional(decode.string))
   use severity_str <- decode.field("severity", decode.string)
-  use status_str <- decode.field("status", decode.string)
+  use status_str <- decode.field("status", decode.optional(decode.string))
+  let status_str = case status_str {
+    Some(s) -> s
+    None -> "open"
+  }
   use issue_type_str <- decode.field("issue_type", decode.string)
   use created_at <- decode.field("created_at", decode.string)
   use resolved_at <- decode.field("resolved_at", decode.optional(decode.string))
@@ -160,7 +164,7 @@ fn sql_with_filters(
   limit: Int,
   offset: Int,
 ) -> #(String, List(dynamic.Dynamic)) {
-  let base_sql = "SELECT id, title, description, severity, status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues"
+  let base_sql = "SELECT id, title, description, severity, COALESCE(NULLIF(status, ''), CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'open' END) as status, issue_type, created_at::text, resolved_at::text, created_by, discovered_by, environment, git_branch, git_hash, reported_by, source FROM issues"
   let #(where_clause, where_params) = build_where(status, severity, issue_type, project_url)
   let param_count = list.length(where_params)
   let limit_idx = param_count + 1
@@ -180,7 +184,7 @@ fn build_where(
   let #(conditions, params) = case status {
     Some(s) -> {
       let idx = list.length(params) + 1
-      #(["status = $" <> string.inspect(idx), ..conditions], [dynamic.string(s), ..params])
+      #(["COALESCE(NULLIF(status, ''), CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'open' END) = $" <> string.inspect(idx), ..conditions], [dynamic.string(s), ..params])
     }
     None -> #(conditions, params)
   }
