@@ -87,6 +87,22 @@ The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is 
 
 > The "inter-review" is A's *turn to speak* in the PDCA conversation, not a formal review submission. A is a chat participant, not a process artifact generator. See [`docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md` § Conversational Frame](./docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md#conversational-frame-added-2026-06-02-after-user-feedback) for the framing, and [`docs/A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md`](./docs/A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md) for the rationale (锵锵三人行 / 圆桌派 analogy).
 
+### Append-Only Pattern for `agent_souls` / `agent_jobs`
+
+Both tables now use an append-only pattern. Never UPDATE in place — always INSERT a new row.
+
+**Two flags:**
+- `is_active` (default true) — marks the current version. Only one row per `id_prefix` / `(soul_id, job_key)` may be active. Enforced by partial unique indexes: `WHERE is_active = true`.
+- `is_archived` (default false) — visibility flag. If true, the row is hidden from app queries but preserved for history. App-managed.
+
+**Read path:** `WHERE is_active = true AND is_archived = false`
+
+**Write path:** ALWAYS use `save_soul_version()` / `save_job_version()` SQL functions (defined in migration 046). These atomically deactivate the old row and insert the new one. NEVER use `UPDATE agent_souls SET content = ...` or `UPDATE agent_jobs SET job = ...`.
+
+**Gleam wrapper:** `src/soul_version_writer.gleam` provides `save_soul_version()` and `save_job_version()`.
+
+**Deprecation note:** Migrations 038, 040, 041, 042, 043, 044 use the old UPDATE-in-place pattern. They are kept for historical accuracy but should NOT be followed as examples.
+
 ### `id_prefix`
 
 Field in `agent_souls` table (`text UNIQUE NOT NULL`):
@@ -507,8 +523,8 @@ The DB (`agent_jobs` joined to `agent_souls`) is the source of truth for the cur
 - S NEVER has a job that says "perform inter-review" / "perform interreview" (the legitimate "Address A inter-review findings" stays).
 - S's job list has no duplicates.
 
-**Known doc/DB drift** (as of 2026-06-03):
-- A has **2 active `self_monitor` jobs at priority 1** — the older one (id `d9d45795...`, "Do NOT wait for the human") was superseded by a refined version (id `450a12db...`, "The human is not in the loop"). The older one should be deactivated. Tracked for a follow-up migration.
+**Known doc/DB drift** — RESOLVED by migration 046 (2026-06-04):
+- A's older self_monitor (`d9d45795...`, "Do NOT wait for the human") was superseded by `450a12db...` ("The human is not in the loop"). Migration 046 deactivated the older one. No more drift.
 
 ## agent_end Workflow (A-bot Activation)
 

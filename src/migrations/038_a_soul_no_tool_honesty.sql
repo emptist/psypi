@@ -1,4 +1,9 @@
 -- 038_a_soul_no_tool_honesty.sql
+-- DEPRECATED PATTERN: This migration uses UPDATE-in-place on agent_souls.
+-- Superseded by migration 046 (append-only) and the save_soul_version() function.
+-- See docs/HANDOVER-2026-06-03-soul-reorder.md for context.
+-- DO NOT follow this pattern in new migrations.
+--
 -- Fix A-bot's soul to stop lying about tool access.
 --
 -- Background (2026-06-02): A and S are conceptually the same agent — they share

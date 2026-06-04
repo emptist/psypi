@@ -1,3 +1,7 @@
+-- DEPRECATED PATTERN: This migration uses UPDATE-in-place on agent_souls.
+-- Superseded by migration 046 (append-only) and the save_soul_version() function.
+-- DO NOT follow this pattern in new migrations.
+--
 -- Migration 044: Reorder A's soul — move "Conversational Frame" from § 20
 -- to § 9 (right after "Communication"), and rename heading to include the
 -- "added 2026-06-02" suffix to match the other recent additions.

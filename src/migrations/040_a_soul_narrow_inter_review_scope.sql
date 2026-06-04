@@ -1,3 +1,7 @@
+-- DEPRECATED PATTERN: This migration uses UPDATE-in-place on agent_souls.
+-- Superseded by migration 046 (append-only) and the save_soul_version() function.
+-- DO NOT follow this pattern in new migrations.
+--
 -- Migration 040: Narrow A's scope to inter-review only — drop the lie about
 -- preloaded tasks/issues. A is a reviewer, not a secretary. A reviews S's
 -- just-ended session, not the whole project.

@@ -1,3 +1,7 @@
+-- DEPRECATED PATTERN: This migration uses UPDATE-in-place on agent_souls.
+-- Superseded by migration 046 (append-only) and the save_soul_version() function.
+-- DO NOT follow this pattern in new migrations.
+--
 -- Migration 043: Add "Conversational Frame" section to A's soul.
 -- Idempotent: section heading guard via position(...).
 --

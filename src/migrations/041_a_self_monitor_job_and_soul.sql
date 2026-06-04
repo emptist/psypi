@@ -1,3 +1,8 @@
+-- DEPRECATED PATTERN: This migration uses UPDATE-in-place on agent_souls
+-- and INSERT with ON CONFLICT on agent_jobs. Superseded by migration 046
+-- (append-only) and the save_soul_version() / save_job_version() functions.
+-- DO NOT follow this pattern in new migrations.
+--
 -- Migration 041: Add A's self-monitor job + soul workflow.
 --
 -- Why this change
