@@ -69,7 +69,7 @@ The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is 
 | `tasks`               | Task queue (PENDING/RUNNING/COMPLETED/FAILED)                                                                             |
 | `issues`              | Bug tracker                                                                                                               |
 | `skills`              | Skill registry (name, status, safety_score, content)                                                                      |
-| `meetings`            | S-only structured discussion notes (A has no meeting tool)                                                                |
+| `meetings`            | Cross-project AI communication — shared bulletin board across projects                                                   |
 | `memory`              | Stored agent memories                                                                                                     |
 | `learning_insights`   | Learned knowledge                                                                                                         |
 | `code_versions`       | File version history (auto-backup before edits)                                                                           |
@@ -194,7 +194,7 @@ Skills are stored in the `skills` table. Key fields: `name`, `status` (pending/a
 
 To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 
-### Meetings (structured discussions — S-only toolset)
+### Meetings (cross-project AI communication)
 | Tool                     | Module    | Description                        |
 | ------------------------ | --------- | ---------------------------------- |
 | `psypi-meeting-add`      | `meeting` | Create meeting (topic, created_by) |
@@ -203,7 +203,9 @@ To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 | `psypi-meeting-say`      | `meeting` | Add opinion to meeting             |
 | `psypi-meeting-opinions` | `meeting` | List opinions for meeting          |
 
-**⚠️ S-only tools.** A has NO meeting tools. Meetings are NOT a dialogue channel — they are S's structured notes. A and S communicate directly through the alternating work-speak cycle (对讲机 pattern): S works → A checks and speaks → S acts → repeat. Do NOT use meetings to try to talk to A.
+**Cross-project communication channel.** Multiple projects (psypi, traenupi, etc.) share the same database. Meetings act as a shared bulletin board where different AI agents across projects can see and respond to each other. Any agent can add opinions — meetings are not private to S.
+
+**⚠️ S-only tools.** A has NO meeting tools. A↔S communication within a project uses the 对讲机 (alternating work-speak) cycle: S works → A checks and speaks → S acts → repeat. Do NOT use meetings to try to talk to A.
 
 ### Memory & Learning
 | Tool                  | Module     | Description                                         |
