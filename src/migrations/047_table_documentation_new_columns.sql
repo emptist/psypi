@@ -1,0 +1,17 @@
+-- Migration 047: Update table_documentation for append-only columns
+--
+-- NOTE: This migration's original form assumed a column_name column that
+-- doesn't exist in the actual table_documentation schema. The table uses
+-- key_columns (JSONB) to document columns. The key_columns and notes fields
+-- for agent_souls and agent_jobs were already updated in commit 3417e16
+-- ("docs: update table_documentation, AGENTS.md, deprecation comments").
+--
+-- This file is kept as a record but is intentionally a no-op.
+-- The documentation is already in place.
+
+-- Verification query (run manually):
+-- SELECT table_name, key_columns, notes
+-- FROM table_documentation
+-- WHERE table_name IN ('agent_souls', 'agent_jobs');
+--
+-- Expected: key_columns should include is_archived and job_key entries.

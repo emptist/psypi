@@ -17,6 +17,30 @@
 -- Idempotent: all DDL uses IF NOT EXISTS / IF EXISTS.
 -- Backfill is keyed by stable UUID from live DB.
 -- Safe to run online (Pi stays running) — tables are small (2 + 44 rows).
+--
+-- ONLINE-SAFE MIGRATION NOTES:
+--   - This migration modifies agent_souls and agent_jobs, the core identity
+--     tables that A and S read every cycle.
+--   - For FRESH INSTALLS: safe to run before starting Pi. Tables are empty.
+--   - For UPGRADES (Pi running): DROP CONSTRAINT requires ACCESS EXCLUSIVE
+--     lock (brief block on reads/writes). CREATE INDEX CONCURRENTLY is NOT
+--     used here because the tables are tiny (2 + 44 rows) and the lock
+--     duration is < 1 second. If tables grow large, replace CREATE INDEX
+--     with CREATE INDEX CONCURRENTLY.
+--   - NEVER kill Pi from inside the extension. Run migrations from terminal:
+--       gleam run migrate
+--   - Verification after migration:
+--       SELECT COUNT(*) FROM agent_jobs WHERE job_key IS NULL;  -- expect 0
+--       SELECT conname FROM pg_constraint WHERE conrelid = 'agent_jobs'::regclass;
+--
+-- DUPLICATE JOB_KEY EDGE CASE:
+--   The partial unique index uq_agent_jobs_active_soul_job_key enforces
+--   uniqueness per (soul_id, job_key) WHERE is_active = true. Nothing prevents
+--   two different job texts from being assigned the same job_key. If a caller
+--   accidentally reuses a job_key for a different job, the index blocks the
+--   insert with a confusing 'duplicate key' error. The Gleam wrapper
+--   (soul_version_writer.gleam) controls all writes and should validate
+--   job_key uniqueness before inserting.
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 1. Add columns
