@@ -25,6 +25,7 @@ cannot diff, audit, or roll back. There is no git for these tables.
 |---|---|
 | `is_active` = "current version pointer" | One active row per `id_prefix` (souls) or `(soul_id, job_key)` (jobs). Partial unique index enforces it. |
 | `is_archived` = "visibility flag, app-managed" | Defaults to `false`. Set to `true` to hide from app queries without losing the row. Independent from `is_active`. |
+| **Partial unique indexes** | Use `WHERE is_active = true` (not `WHERE is_archived = false`). The save functions deactivate old rows (is_active=false) but do NOT archive them. The index must enforce uniqueness only among active rows. |
 | `job_key` (new) = "stable business identifier for a job across versions" | Slug per job (e.g. `self_monitor.anomaly_reporting_v2`). The key that survives between versions. |
 | Atomicity | One SQL function per write; function body runs in implicit savepoint, so the UPDATE-then-INSERT is atomic. |
 | Idempotency of the migration itself | All DDL uses `IF NOT EXISTS` / `DROP … IF EXISTS`. All backfill is a fixed `UPDATE … WHERE id = '…'` keyed by stable UUID. |
@@ -291,10 +292,11 @@ Both tables now use is_archived as the primary gate:
   Existing field. Use as-is. No need to reinterpret its meaning.
   Among non-archived rows, is_active picks the current version.
 
-Partial unique indexes enforce uniqueness among alive (non-archived) rows:
-  - one non-archived soul per id_prefix
-  - one non-archived soul per role
-  - one non-archived job per (soul_id, job_key)
+Partial unique indexes enforce uniqueness among active rows:
+  - one active soul per id_prefix
+  - one active soul per role
+  - one active job per (soul_id, job_key)
+  Index condition: WHERE is_active = true (NOT WHERE is_archived = false)
 
 Read path: WHERE is_archived = false AND is_active = true
 Write path: ALWAYS go through save_soul_version() / save_job_version()
