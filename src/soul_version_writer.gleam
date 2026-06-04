@@ -1,4 +1,5 @@
 import db
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/string

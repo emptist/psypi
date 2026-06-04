@@ -19,18 +19,57 @@ fn db_error_to_migrate_error(e: db.DbError) -> MigrateError {
   }
 }
 
-/// Split SQL file into individual statements by semicolon+newline.
-/// Skip empty lines and comment-only lines.
+/// Split SQL file into individual statements.
+/// Handles PostgreSQL dollar-quoted strings ($$...$$) that may contain
+/// semicolons without being statement boundaries.
 fn split_statements(sql: String) -> List(String) {
-  sql
-  |> string.split(";\n")
-  |> list.map(fn(s) { string.trim(s) })
-  |> list.filter(fn(s) {
-    case s {
-      "" -> False
-      _ -> True
+  do_split(sql, False, "", [])
+}
+
+fn do_split(
+  sql: String,
+  in_dollar: Bool,
+  current: String,
+  acc: List(String),
+) -> List(String) {
+  case string.length(sql) {
+    0 -> {
+      let stmt = string.trim(current)
+      case stmt {
+        "" -> list.reverse(acc)
+        _ -> list.reverse([stmt, ..acc])
+      }
     }
-  })
+    _ -> {
+      let rest = string.drop_left(sql, 1)
+      let char = string.slice(sql, 0, 1)
+      case in_dollar {
+        True -> {
+          case string.starts_with(sql, "$$") {
+            True -> do_split(string.drop_left(rest, 1), False, current <> "$$", acc)
+            False -> do_split(rest, True, current <> char, acc)
+          }
+        }
+        False -> {
+          case string.starts_with(sql, "$$") {
+            True -> do_split(string.drop_left(rest, 1), True, current <> "$$", acc)
+            False -> {
+              case char {
+                ";" -> {
+                  let stmt = string.trim(current)
+                  case stmt {
+                    "" -> do_split(rest, False, "", acc)
+                    _ -> do_split(rest, False, "", [stmt, ..acc])
+                  }
+                }
+                _ -> do_split(rest, False, current <> char, acc)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 /// Remove SQL comments (-- ...) from a statement to avoid sending bare comments to pg
