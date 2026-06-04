@@ -1,7 +1,7 @@
 import db
-import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
+import gleam/string
 
 pub type SoulVersionError {
   ConnectionError(String)
@@ -17,8 +17,8 @@ fn db_error_to_soul_error(e: db.DbError) -> SoulVersionError {
   }
 }
 
-fn decode_error_to_soul_error(_e: List(decode.DecodeError)) -> SoulVersionError {
-  DecodeError("decode error")
+fn decode_error_to_soul_error(e: List(decode.DecodeError)) -> SoulVersionError {
+  DecodeError("decode: " <> string.inspect(e))
 }
 
 /// Save a new version of an agent soul. Deactivates the old version
