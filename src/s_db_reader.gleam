@@ -1,9 +1,9 @@
 import db
+import db_utils
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
 import gleam/javascript/promise
-import gleam/list
 import gleam/result
 import gleam/string
 
@@ -78,12 +78,7 @@ fn decode_rows(
   rows: List(dynamic.Dynamic),
   decoder: decode.Decoder(a),
 ) -> Result(List(a), String) {
-  rows
-  |> list.map(fn(row) {
-    decode.run(row, decoder)
-    |> result.map_error(fn(e) { "decode: " <> string.inspect(e) })
-  })
-  |> result.all
+  db_utils.decode_rows(rows, decoder, fn(e) { e })
 }
 
 fn s_job_row_decoder() -> decode.Decoder(String) {

@@ -1,8 +1,9 @@
+import db
+import db_utils
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/option.{type Option, None, Some}
-import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
 import project.{project_url}
 
@@ -171,20 +172,7 @@ fn decode_rows(
   rows: List(Dynamic),
   decoder: decode.Decoder(a),
 ) -> Result(List(a), BroadcastError) {
-  case rows {
-    [] -> Ok([])
-    [row, ..rest] -> {
-      case decode.run(row, decoder) {
-        Error(_) -> Error(DecodeError("Failed to decode row"))
-        Ok(value) -> {
-          case decode_rows(rest, decoder) {
-            Error(e) -> Error(e)
-            Ok(rest_values) -> Ok([value, ..rest_values])
-          }
-        }
-      }
-    }
-  }
+  db_utils.decode_rows(rows, decoder, fn(e) { DecodeError(e) })
 }
 
 pub fn list(

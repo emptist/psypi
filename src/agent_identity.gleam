@@ -95,7 +95,7 @@ fn fetch_soul_by_prefix(
   prefix: String,
 ) -> promise.Promise(Result(#(String, String, String, String, String, String, String), IdentityError)) {
   db.with_connection(fn(conn) {
-    let sql = "SELECT id, name, domain, responsibility, trigger_type, drive_mode, activation FROM agent_souls WHERE id_prefix = $1 AND is_active = true LIMIT 1"
+    let sql = "SELECT id, name, domain, responsibility, trigger_type, drive_mode, activation FROM agent_souls WHERE id_prefix = $1 AND is_active = true AND is_archived = false LIMIT 1"
     let params = [dynamic.string(prefix)]
     promise.map(db.query(conn, sql, params), fn(query_result) {
       case query_result {

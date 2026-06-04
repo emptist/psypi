@@ -1,4 +1,5 @@
 import db
+import db_utils
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
@@ -6,19 +7,6 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import pi_tool_call.{type PiToolCall, PiToolCall, raw_json}
-
-fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
-  case results {
-    [] -> Ok([])
-    [Ok(v), ..rest] -> {
-      case decode_all_results(rest) {
-        Error(e) -> Error(e)
-        Ok(vs) -> Ok([v, ..vs])
-      }
-    }
-    [Error(e), .._] -> Error(e)
-  }
-}
 
 pub type EventHook {
   EventHook(
@@ -100,7 +88,7 @@ pub fn list_all_hooks() -> promise.Promise(Result(List(EventHook), db.DbError)) 
           Ok(query_result) -> {
             let decoded = query_result.rows
               |> list.map(fn(row) { decode.run(row, event_hook_decoder()) })
-            case decode_all_results(decoded) {
+            case db_utils.decode_all_results(decoded) {
               Error(_) -> Error(db.QueryError("Failed to decode event hook row"))
               Ok(hooks) -> Ok(hooks)
             }
@@ -135,7 +123,7 @@ pub fn list_active_hooks() -> promise.Promise(
           Ok(query_result) -> {
             let decoded = query_result.rows
               |> list.map(fn(row) { decode.run(row, event_hook_decoder()) })
-            case decode_all_results(decoded) {
+            case db_utils.decode_all_results(decoded) {
               Error(_) -> Error(db.QueryError("Failed to decode event hook row"))
               Ok(hooks) -> Ok(hooks)
             }

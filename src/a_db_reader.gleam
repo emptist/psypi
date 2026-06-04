@@ -1,9 +1,9 @@
 import db
+import db_utils
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/int
 import gleam/javascript/promise
-import gleam/list
 import gleam/result
 import gleam/string
 
@@ -18,12 +18,7 @@ pub fn decode_rows(
   rows: List(Dynamic),
   decoder: decode.Decoder(a),
 ) -> Result(List(a), String) {
-  rows
-  |> list.map(fn(row) {
-    decode.run(row, decoder)
-    |> result.map_error(fn(e) { "decode: " <> string.inspect(e) })
-  })
-  |> result.all
+  db_utils.decode_rows(rows, decoder, fn(e) { e })
 }
 
 pub fn read_soul_from_db() -> promise.Promise(Result(String, String)) {

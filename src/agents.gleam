@@ -1,8 +1,9 @@
+import db
+import db_utils
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
-import db
 import pi_tool_call.{type PiToolCall, PiToolCall, template}
 
 pub type Agent {
@@ -16,19 +17,6 @@ pub type Agent {
 pub type AgentError {
   ConnectionError(String)
   QueryError(String)
-}
-
-fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
-  case results {
-    [] -> Ok([])
-    [Ok(v), ..rest] -> {
-      case decode_all_results(rest) {
-        Error(e) -> Error(e)
-        Ok(vs) -> Ok([v, ..vs])
-      }
-    }
-    [Error(e), .._] -> Error(e)
-  }
 }
 
 fn db_error_to_agent_error(e: db.DbError) -> AgentError {
@@ -62,7 +50,7 @@ pub fn list() -> promise.Promise(Result(List(Agent), AgentError)) {
         Ok(result) -> {
           let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, agent_decoder()) })
-          case decode_all_results(decoded) {
+          case db_utils.decode_all_results(decoded) {
             Error(_) -> Error(QueryError("Failed to decode agent row"))
             Ok(agents) -> Ok(agents)
           }

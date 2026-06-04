@@ -1,4 +1,5 @@
 import db
+import db_utils
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
@@ -77,19 +78,6 @@ pub fn task_decoder() -> decode.Decoder(Task) {
   }
 }
 
-fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
-  case results {
-    [] -> Ok([])
-    [Ok(v), ..rest] -> {
-      case decode_all_results(rest) {
-        Error(e) -> Error(e)
-        Ok(vs) -> Ok([v, ..vs])
-      }
-    }
-    [Error(e), .._] -> Error(e)
-  }
-}
-
 pub fn id_decoder() -> decode.Decoder(String) {
   use id <- decode.field("id", decode.string)
   decode.success(id)
@@ -151,7 +139,7 @@ pub fn list(status: Option(String)) -> promise.Promise(Result(List(Task), TaskEr
         Ok(result) -> {
           let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, task_decoder()) })
-          case decode_all_results(decoded) {
+          case db_utils.decode_all_results(decoded) {
             Error(_) -> Error(DecodeError("Failed to decode task row"))
             Ok(tasks) -> Ok(tasks)
           }

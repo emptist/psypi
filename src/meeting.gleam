@@ -1,9 +1,10 @@
+import db
+import db_utils
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template}
 
 pub type MeetingStatus {
@@ -92,19 +93,6 @@ fn opinion_decoder() -> decode.Decoder(Opinion) {
   ))
 }
 
-fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
-  case results {
-    [] -> Ok([])
-    [Ok(v), ..rest] -> {
-      case decode_all_results(rest) {
-        Error(e) -> Error(e)
-        Ok(vs) -> Ok([v, ..vs])
-      }
-    }
-    [Error(e), .._] -> Error(e)
-  }
-}
-
 fn id_decoder() -> decode.Decoder(String) {
   use id <- decode.field("id", decode.string)
   decode.success(id)
@@ -186,7 +174,7 @@ pub fn list(
         Ok(result) -> {
           let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, meeting_decoder()) })
-          case decode_all_results(decoded) {
+          case db_utils.decode_all_results(decoded) {
             Error(_) -> Error(DecodeError("Failed to decode meeting row"))
             Ok(meetings) -> Ok(meetings)
           }
@@ -284,7 +272,7 @@ pub fn list_opinions(
         Ok(result) -> {
           let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, opinion_decoder()) })
-          case decode_all_results(decoded) {
+          case db_utils.decode_all_results(decoded) {
             Error(_) -> Error(DecodeError("Failed to decode opinion row"))
             Ok(opinions) -> Ok(opinions)
           }

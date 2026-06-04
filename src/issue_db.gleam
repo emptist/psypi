@@ -1,6 +1,7 @@
 // issue_db.gleam — Issue database queries
 
 import db
+import db_utils
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
@@ -71,19 +72,6 @@ fn count_decoder() -> decode.Decoder(Int) {
   decode.success(cnt)
 }
 
-fn decode_all_results(results: List(Result(a, b))) -> Result(List(a), b) {
-  case results {
-    [] -> Ok([])
-    [Ok(v), ..rest] -> {
-      case decode_all_results(rest) {
-        Error(e) -> Error(e)
-        Ok(vs) -> Ok([v, ..vs])
-      }
-    }
-    [Error(e), .._] -> Error(e)
-  }
-}
-
 pub fn add(
   title: String,
   description: String,
@@ -146,7 +134,7 @@ pub fn list(
         Ok(result) -> {
           let decoded = result.rows
             |> list.map(fn(row) { decode.run(row, issue_decoder()) })
-          case decode_all_results(decoded) {
+          case db_utils.decode_all_results(decoded) {
             Error(_) -> Error(DecodeError("Failed to decode issue row"))
             Ok(issues) -> Ok(issues)
           }
