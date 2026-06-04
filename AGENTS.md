@@ -69,7 +69,7 @@ The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is 
 | `tasks`               | Task queue (PENDING/RUNNING/COMPLETED/FAILED)                                                                             |
 | `issues`              | Bug tracker                                                                                                               |
 | `skills`              | Skill registry (name, status, safety_score, content)                                                                      |
-| `meetings`            | A↔S structured discussions                                                                                                |
+| `meetings`            | S-only structured discussion notes (A has no meeting tool)                                                                |
 | `memory`              | Stored agent memories                                                                                                     |
 | `learning_insights`   | Learned knowledge                                                                                                         |
 | `code_versions`       | File version history (auto-backup before edits)                                                                           |
@@ -194,7 +194,7 @@ Skills are stored in the `skills` table. Key fields: `name`, `status` (pending/a
 
 To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 
-### Meetings (A↔S discussions)
+### Meetings (structured discussions — S-only toolset)
 | Tool                     | Module    | Description                        |
 | ------------------------ | --------- | ---------------------------------- |
 | `psypi-meeting-add`      | `meeting` | Create meeting (topic, created_by) |
@@ -202,6 +202,8 @@ To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 | `psypi-meeting-get`      | `meeting` | Get meeting by ID                  |
 | `psypi-meeting-say`      | `meeting` | Add opinion to meeting             |
 | `psypi-meeting-opinions` | `meeting` | List opinions for meeting          |
+
+**⚠️ S-only tools.** A has NO meeting tools. Meetings are NOT a dialogue channel — they are S's structured notes. A and S communicate directly through the alternating work-speak cycle (对讲机 pattern): S works → A checks and speaks → S acts → repeat. Do NOT use meetings to try to talk to A.
 
 ### Memory & Learning
 | Tool                  | Module     | Description                                         |
@@ -443,8 +445,6 @@ A-bot inter-review (PDCA Check between S sessions)
   → findings saved to inter_reviews table
   → significant findings also become issues
     → issue comments: root cause analysis, solution discussion, action plan
-      → if conflicting views or needs structured dialogue: convene a meeting (psypi-meeting-add)
-        → meeting produces consensus → feeds back into issue plan
       → when plan is sound: tasks created from the issue
         → task execution (S does the work)
           → next A cycle: inter-review checks S's work + follow-up on prior findings
@@ -493,7 +493,7 @@ The DB (`agent_jobs` joined to `agent_souls`) is the source of truth for the cur
 | 10       | business     | Research business opportunities, draft proposals                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | 10       | closed_loop  | Check planned issues have tasks: when an issue has a sound plan, verify tasks exist. If not, create tasks or prompt S to create them                                                                                                                                                                                                                                                                                                                                                                  |
 | 11       | closed_loop  | Check task execution follow-up: verify S addressed previous review findings. If not acted upon, escalate. No unaddressed findings should slip through                                                                                                                                                                                                                                                                                                                                                 |
-| 12       | closed_loop  | Check if issue discussion needs a meeting: when an issue has conflicting views or needs structured A-S dialogue, convene a meeting via psypi-meeting-add. Meetings produce consensus that feeds back into the issue plan                                                                                                                                                                                                                                                                              |
+| 12       | closed_loop  | Check if issue discussion needs ongoing dialogue: when an issue has conflicting views or needs structured back-and-forth, note it in inter-review. S decides whether to convene a meeting (S-only tool). A does not suggest meetings — A only checks and reports findings.                                                                                                                                                              |
 
 **S-bot jobs (PDA self-C, snapshot — 20 rows in DB as of 2026-06-03):**
 
