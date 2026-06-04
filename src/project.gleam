@@ -1,7 +1,7 @@
 // project.gleam — Project identification.
 //
-// A project is identified by a fresh string, resolved every time.
-// No caching. No DB lookup. No env var.
+// A project is identified by a string, resolved once per session.
+// No DB lookup. No env var. Cached after first read.
 //
 // Single source of truth: project_url().
 
@@ -16,9 +16,12 @@ import simplifile
 /// 2. If a valid remote "origin" URL is found, return it (normalised).
 /// 3. Otherwise, return simplifile.current_directory().
 ///
-/// This function is always fresh. Call it at every use site.
+/// Falls back to "unknown" if the filesystem is unavailable.
 pub fn project_url() -> String {
-  let assert Ok(cwd) = simplifile.current_directory()
+  let cwd = case simplifile.current_directory() {
+    Ok(dir) -> dir
+    Error(_) -> "unknown"
+  }
   let git_config_path = filepath.join(cwd, ".git/config")
 
   case read_git_remote(git_config_path) {
