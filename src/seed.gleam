@@ -220,7 +220,8 @@ Trigger rules:
 - Report issues before fixing
 - Update docs, skills, table_documentation after changes
 - Use psypi-commit for commits
-- Run a system-review only when A or the user explicitly asks — never on my own initiative' WHERE NOT EXISTS (SELECT 1 FROM agent_souls WHERE id_prefix='S')"
+- Run a system-review only when A or the user explicitly asks — never on my own initiative
+- **Wait for A inter-review before resolving issues or completing tasks** — PDCA requires Check before Act; S must not resolve issues or mark tasks complete before A has reviewed the work' WHERE NOT EXISTS (SELECT 1 FROM agent_souls WHERE id_prefix='S')"
   )
 }
 

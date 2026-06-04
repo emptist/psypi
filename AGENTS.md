@@ -107,7 +107,7 @@ Both tables now use an append-only pattern. Never UPDATE in place — always INS
 
 Field in `agent_souls` table (`text UNIQUE NOT NULL`):
 - `'A'` — Autonomic Agentbot (quality guardian: performs PDCA **Check** between S sessions — inter-review, behavior compliance, anti-stupidity)
-- `'S'` — Somatic Agentbot (Plan, Do, Act: prompt-driven task execution. Like a patient who can self-check but has a doctor — S can check own work, but Check is A's professional responsibility. S plans before doing, executes code, addresses A findings, and iterates.)
+- `'S'` — Somatic Agentbot (Plan, Do, Act: prompt-driven task execution. Like a patient who can self-check but has a doctor — S can check own work, but Check is A's professional responsibility. S plans before doing, executes code, addresses A findings, and iterates. **S MUST wait for A's inter-review before resolving issues or completing tasks.** The PDCA cycle requires Check before Act: S does Plan+Do, then A does Check, then S Acts on A's findings. S must not resolve issues or mark tasks as completed before A has had a chance to review.)
 
 A and S work like **alternating current** — never active simultaneously. When S finishes and goes idle, A wakes up and reviews. When A finishes, S may be woken. They alternate, never overlap. See README.md "The A/S Dialogue Model" for full details.
 
@@ -266,6 +266,8 @@ To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
 **Flow:** S makes changes → S calls `psypi-commit("message")` → commit lands with `[AI:<agent-id>]` tag. No review gate. No two-phase flow. No `review_id` parameter.
 
 After commit, S goes idle → A wakes → A performs inter-review (PDCA Check) → A saves findings to `inter_reviews` table → A sends results to S for the next cycle.
+
+**☠️ S MUST wait for A's inter-review before resolving issues or completing tasks.** The PDCA cycle is strict: Plan → Do → Check → Act. S does Plan+Do, A does Check, then S Acts. S must NOT call `psypi-issue-resolve` or `psypi-task-complete` before A has completed the inter-review for that cycle. Resolving or completing early skips the Check phase and breaks the closed loop.
 
 **Note:** S MUST use `psypi-commit` for all commits (not raw `git commit`). The agent ID tag is how we track who did what.
 
