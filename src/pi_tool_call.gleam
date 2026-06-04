@@ -316,6 +316,18 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
     PiSystemPromptHook(event_name:, module:, fn_name:, args:, on_error:) -> {
       let import_ln = hook_import_line(module, fn_name)
       let call = hook_call_expr(module, fn_name, args)
+      // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
+      // This `ctx.ui.notify(..., 'error')` is generated into extension.js
+      // and runs for every PiSystemPromptHook failure. It violates the
+      // Error reporting rule — ctx.ui.notify is for status only, not
+      // Errors. Errors must go through pi.sendMessage with
+      // customType="autonomic-error", triggerTurn=false, deliverAs="followUp".
+      //
+      // The hook has a `pi` reference available (see the arrow function
+      // `pi.on('...', async (event, ctx) => { ... })` — the surrounding
+      // extension.js scope has it), so pi.sendMessage IS reachable here.
+      // This must be migrated when the hook-error pipeline is refactored.
+      // DO NOT add new hooks that rely on this NotifyError path.
       let error_catch = case on_error {
         NotifyError ->
           "      ctx.ui.notify('Hook "
@@ -330,6 +342,11 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      const result = await " <> call <> ";",
         "      const r = unwrapGleamResult(result);",
         "      if (r.ok) { return { systemPrompt: r.value }; }",
+        // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
+        // Same as the error_catch above — `ctx.ui.notify(..., 'error')`
+        // swallows the Error. A hook failed result must surface as
+        // pi.sendMessage(customType="autonomic-error", ...). See the
+        // block-comment on error_catch for the migration plan.
         "      else { ctx.ui.notify('Hook "
           <> event_name
           <> " failed: ' + r.error, 'error'); }",
@@ -365,6 +382,14 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         None -> ""
       }
       let success_js = success_action_to_js(on_success)
+      // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
+      // Same pattern as the PiSystemPromptHook branch above. The
+      // generated `ctx.ui.notify(..., 'error')` swallows the Error.
+      // PiEventHook failure paths must route through
+      // pi.sendMessage(customType="autonomic-error", triggerTurn=false,
+      // deliverAs="followUp"). The `pi` reference is in scope inside
+      // the generated `pi.on('...', async (event, ctx) => { ... })`
+      // block, so the migration is mechanical. See ADR-pi-send-message-abuse.md.
       let error_catch = case on_error {
         NotifyError ->
           "      ctx.ui.notify('Hook "
@@ -380,6 +405,9 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      const result = await " <> call <> ";",
         "      const r = unwrapGleamResult(result);",
         "      if (r.ok) { " <> success_js <> " }",
+        // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
+        // Same as the error_catch above. A hook failed result must
+        // surface as pi.sendMessage(customType="autonomic-error", ...).
         "      else { ctx.ui.notify('Hook "
           <> event_name
           <> " failed: ' + r.error, 'error'); }",
@@ -412,6 +440,14 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let hook_import_ln = hook_import_line(module, fn_name)
       let call = hook_call_expr(module, fn_name, args)
       let success_js = success_action_to_js(on_success)
+      // ⚠️ ERROR REPORTING BUG (generated JS, debounced hook inner catch) ⚠️
+      // This is the catch inside the setTimeout(...) callback that fires
+      // when the debounce timer elapses. The `pi` reference is in
+      // scope, so the proper Error path is pi.sendMessage with
+      // customType="autonomic-error", triggerTurn=false,
+      // deliverAs="followUp". DO NOT just swap to triggerTurn=true —
+      // that would re-introduce the "panic on any error" wake-S
+      // behaviour the user has explicitly banned.
       let error_catch = case on_error {
         NotifyError ->
           "        ctx.ui.notify('Hook "
@@ -434,6 +470,11 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
             "  // Cancel debounce timer on: " <> ev,
             "  pi.on('" <> ev <> "', async (_event, _ctx) => {",
             mark_worked,
+            // ✅ OK: this ctx.ui.notify is a STATUS message, not an Error.
+            // It tells the human that the timer was cancelled. The toast
+            // is appropriate because there is no Error — the cancellation
+            // is expected behaviour. (If S was making progress, A's wait
+            // is correctly aborted; that's not an error condition.)
             "    if (_debounceTimerId) { clearTimeout(_debounceTimerId); _debounceTimerId = null; _ctx.ui.notify('[A-agentbot] Waiting cancelled — "
               <> cancel_msg
               <> "', 'status'); }",
@@ -459,6 +500,10 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      if (_debounceMs == null) {",
         "        const debounceResult = await " <> debounce_call <> ";",
         "        const dr = unwrapGleamResult(debounceResult);",
+        // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
+        // Failure to read the debounce config (e.g. DB unavailable) is
+        // an Error — must use pi.sendMessage(customType="autonomic-error",
+        // triggerTurn=false, deliverAs="followUp").
         "        if (!dr.ok) { ctx.ui.notify('Hook "
           <> event_name
           <> " <ERROR> debounce config: ' + dr.error, 'error'); return; }",
@@ -472,6 +517,13 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "          const result = await " <> call <> ";",
         "          const r = unwrapGleamResult(result);",
         "          if (r.ok) { " <> success_js <> " }",
+        // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
+        // Failure of the actual A-bot call (e.g. read_soul_from_db,
+        // call_monitor) is an Error — must use pi.sendMessage
+        // (customType="autonomic-error", triggerTurn=false,
+        // deliverAs="followUp"). This is the most critical site because
+        // hook_on_agent_end.on_agent_end fails silently otherwise —
+        // S never sees that A broke.
         "          else { ctx.ui.notify('Hook "
           <> event_name
           <> " failed: ' + r.error, 'error'); }",
@@ -480,8 +532,15 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         error_catch,
         "        }",
         "      }, _debounceMs);",
+        // ✅ OK: status message, not an Error. Tells the human A is
+        // waiting for S to become idle. This is exactly the kind of
+        // transient status message ctx.ui.notify is meant for.
         "      if (!_wasWaiting) { ctx.ui.notify('[A-agentbot] Waiting for S to become idle...', 'status'); }",
         "    } catch(e) {",
+        // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
+        // Outer catch around the debounce setup itself. Same rule —
+        // must route through pi.sendMessage(customType="autonomic-error",
+        // triggerTurn=false, deliverAs="followUp").
         "      ctx.ui.notify('Hook "
           <> event_name
           <> " debounce error: ' + (e.message || String(e)), 'error');",

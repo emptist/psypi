@@ -52,6 +52,29 @@ pub fn on_autonomic_listen(
       ctx_notify(ctx, "[AUTONOMIC] A loading soul + jobs...", "status")
       promise.await(a_db_reader.read_soul_from_db(), fn(soul_result) {
         case soul_result {
+          // ⚠️ ERROR REPORTING BUG ⚠️
+          // This branch reports an Error via ctx.ui.notify (notify_type
+          // "error") — which is FORBIDDEN. ctx.ui.notify is not an
+          // Error path; the toast is transient, invisible to S, and
+          // not persisted to the conversation log.
+          //
+          // The proper fix is:
+          //   1. Plumb `pi` into this branch (it's already in scope one
+          //      level up, just pass it down)
+          //   2. Replace this ctx_notify with:
+          //        pi_send_message(
+          //          pi, "autonomic-error",
+          //          "[A-agentbot] <ERROR> read_soul_from_db: " <> e,
+          //          "persistent", False, "followUp"
+          //        )
+          //   3. Keep the ctx_notify ONLY for the human-facing status
+          //      toast (or drop it — the pi_send_message is enough).
+          //
+          // Currently this Error is silently dropped from the
+          // conversation log. The user has explicitly called out
+          // "ctx.ui.notify 处理差错 Error 会破坏 Errror reporting
+          // system" (2026-06-04). Do not add new error paths here
+          // until this is fixed.
           Error(e) -> {
             ctx_notify(
               ctx,
@@ -63,6 +86,15 @@ pub fn on_autonomic_listen(
           Ok(soul_content) ->
             promise.await(a_db_reader.read_a_jobs_from_db(), fn(jobs_result) {
               case jobs_result {
+                // ⚠️ ERROR REPORTING BUG ⚠️
+                // Same as the read_soul_from_db branch above — this is
+                // an Error path that uses ctx.ui.notify. Must be
+                // migrated to pi_send_message(customType="autonomic-error",
+                // triggerTurn=False, deliverAs="followUp") once `pi`
+                // is plumbed into this callback. See the block comment
+                // on the read_soul_from_db branch for the full
+                // rationale and the user's "do not break the Error
+                // reporting system" invariant.
                 Error(e) -> {
                   ctx_notify(
                     ctx,
@@ -93,6 +125,18 @@ pub fn on_autonomic_listen(
                       case result {
                         Ok(response) ->
                           finish_autonomic_listen(response, ctx, pi)
+                        // ⚠️ ERROR REPORTING BUG ⚠️
+                        // call_monitor failing is an Error — must be
+                        // reported via pi_sendMessage(customType=
+                        // "autonomic-error", triggerTurn=False,
+                        // deliverAs="followUp"). ctx.ui.notify swallows
+                        // it. The fix mirrors the read_soul_from_db and
+                        // read_a_jobs_from_db branches above: plumb
+                        // `pi` in, then replace the ctx_notify. The
+                        // `pi` variable is already in the closure
+                        // scope (it's an argument to
+                        // finish_autonomic_listen), so this migration
+                        // is local.
                         Error(e) -> {
                           ctx_notify(
                             ctx,

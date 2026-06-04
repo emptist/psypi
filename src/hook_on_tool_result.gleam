@@ -31,6 +31,19 @@ pub fn on_tool_result(
         True -> string.slice(error_msg, 0, 200)
         False -> error_msg
       }
+      // ✅ CORRECT: Error reporting via pi_send_message. This is the
+      // textbook Error site — a tool returned an error payload, A
+      // observed it, and must surface it to the conversation log so
+      // S can act on it next time it is legitimately woken.
+      //   customType  = "autonomic-error"
+      //   triggerTurn = False  ← do NOT wake S on a single tool error
+      //   deliverAs   = "followUp"
+      // Waking S on every tool error would be the "panic on any
+      // error" pattern the user has explicitly banned. A's job here
+      // is to record, not to interrupt.
+      // Note the "[from A-agentbot:]" prefix — the JSON customType
+      // "autonomic-error" already identifies the channel, but the
+      // human-readable prefix makes it clear who is reporting.
       pi_send_message(
         pi,
         "autonomic-error",

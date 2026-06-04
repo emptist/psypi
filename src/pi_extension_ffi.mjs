@@ -2,11 +2,45 @@
 //
 // These functions are called by the compiled Gleam code.
 // They wrap ctx.ui.notify and ctx.ui.setStatus with proper string handling.
+//
+// ⚠️ ERROR REPORTING RULE (do not break) ⚠️
+// ============================================================
+// ctx.ui.notify (i.e. the ctx_notify wrapper below) is ONLY for
+// A's *internal thinking* and *transient status messages*. It shows
+// a transient toast in the TUI but the message is NOT persisted, is
+// NOT seen by S, and disappears the moment the user types.
+//
+// For ANY Error, use pi.sendMessage(...) with customType="autonomic-error"
+// and triggerTurn=false, deliverAs="followUp" instead. That is the only
+// way an Error reaches the conversation log so S (or a human reading
+// the transcript) can react to it.
+//
+// Using ctx.ui.notify for an Error will break the Error reporting
+// system — the Error is silently swallowed, never persisted, never
+// sent to S, and can never be triaged. The user has explicitly called
+// this out as a non-negotiable invariant (2026-06-04).
+// ============================================================
 
 import { readFileSync } from 'fs';
 import { Ok, Error } from './gleam.mjs';
 import { completeSimple, getModel } from '@earendil-works/pi-ai';
 
+// ctx_notify — wrapper around ctx.ui.notify
+//
+// ⚠️ This function MUST NOT be used for Errors. ⚠️
+//
+// Acceptable callers (A's internal thinking / transient status):
+//   - "[AUTONOMIC] A loading soul + jobs..."          (status)
+//   - "[A-agentbot] Reading soul from database..."    (status)
+//   - "[A-agentbot] Cancelled due to user activity"   (status)
+//
+// Forbidden callers (Error reporting — must use pi.sendMessage):
+//   - Any "<ERROR> ..." string                          → use pi.sendMessage
+//   - notify_type="error"                               → use pi.sendMessage
+//
+// If a Gleam call site passes notify_type="error" or includes the
+// substring "<ERROR>", that is a BUG — the call must be rewritten
+// to use pi_extension.pi_send_message with customType="autonomic-error".
 export function ctx_notify(ctx, message, type) {
   ctx.ui.notify(String(message), String(type));
 }
@@ -35,6 +69,16 @@ export function ctx_get_context_usage_json(ctx) {
 
 export function ctx_get_cwd(ctx) {
   if (!ctx.cwd) {
+    // ⚠️ BUG: This is an Error path and ctx.ui.notify is FORBIDDEN here.
+    // It is acceptable for now ONLY because this branch is reached during
+    // an FFI call from Gleam, and we have no `pi` handle in this scope to
+    // call pi.sendMessage. The message will be invisible to S, but at
+    // least A's user sees something in the TUI.
+    //
+    // The proper fix is to make ctx_get_cwd return a Result type at the
+    // Gleam boundary and let the caller (hook_on_agent_end / on_tool_call)
+    // decide between pi_send_message (error) and a graceful fallback. Do
+    // NOT refactor this without also wiring pi through the call site.
     ctx.ui.notify('[AUTONOMIC] <ERROR> ctx_get_cwd: ctx.cwd is missing', 'error');
     return '';
   }
@@ -53,6 +97,34 @@ export function ctx_get_thinking_level(ctx) {
   return ctx.model?.thinkingLevel || '';
 }
 
+// pi_send_message — wrapper around pi.sendMessage
+//
+// This is the ONLY sanctioned path for Error reporting in psypi.
+//
+// Usage matrix (matches the "Error reporting system" rule, 2026-06-04):
+//
+//   Inform an Error (do NOT wake S, do NOT start a new turn):
+//     customType = "autonomic-error"
+//     triggerTurn = false
+//     deliverAs = "followUp"
+//   → Error appears in S's next turn as a follow-up message, not a new
+//     S turn. Error is preserved in the conversation log.
+//
+//   Wake S after A finished its work (review saved, or save failed and
+//   A is stuck):
+//     customType = "autonomic-wakeup"
+//     triggerTurn = true
+//     deliverAs = "followUp"
+//   → S starts a new turn and reacts to A's review. This is the ONLY
+//     case where triggerTurn=true is legitimate. Never use it as a
+//     "panic on any error" — that would re-introduce the degenerate
+//     dialogue the user explicitly forbade.
+//
+//   Queue for S's next turn (no immediate wake):
+//     customType = "autonomic-wakeup"
+//     triggerTurn = false
+//     deliverAs = "nextTurn"
+//   → Reserved for future use; not currently used in psypi.
 export function pi_send_message(pi, customType, content, display, triggerTurn, deliverAs) {
   const options = { triggerTurn: triggerTurn === true || triggerTurn === "true" };
   if (deliverAs === "nextTurn" || deliverAs === "followUp") {

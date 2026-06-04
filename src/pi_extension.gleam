@@ -8,9 +8,39 @@
 //   - Generated JS wrappers call them instead of ad-hoc string concatenation
 //   - Gleam type system ensures proper usage at the Gleam level
 //   - At the JS level, they are simple wrappers around ctx.ui.*
+//
+// ⚠️ ERROR REPORTING RULE (do not break) ⚠️
+// ============================================================
+// ctx.ui.notify (i.e. ctx_notify below) is for A's *internal thinking*
+// and *transient status messages* only. It must NEVER be used to
+// report an Error — the toast is not persisted, not seen by S, and
+// vanishes as soon as the user types.
+//
+// For Errors, use pi_send_message(...) below with:
+//   custom_type = "autonomic-error"
+//   trigger_turn = False
+//   deliver_as = "followUp"
+// That is the only path that lands the Error in the conversation log
+// where S (or a human reading the transcript) can react to it.
+//
+// The "trigger_turn = True" branch is reserved for the *post-work*
+// wake-up case (A finished a review save, or A is stuck on a save
+// failure) — never use it to "panic on any error".
+// (See ADR-pi-send-message-abuse.md, 2026-06-04.)
+// ============================================================
 
 import gleam/javascript/promise
 
+// ctx_notify — wrapper around ctx.ui.notify
+//
+// ⚠️ FOR STATUS MESSAGES ONLY — DO NOT USE FOR ERRORS. ⚠️
+//
+// If you find yourself wanting to call this with a string starting
+// with "<ERROR>" or with notify_type = "error", STOP. That is the
+// Error reporting system. Use pi_send_message with
+// custom_type = "autonomic-error", trigger_turn = False,
+// deliver_as = "followUp" instead. See the file header above and
+// ADR-pi-send-message-abuse.md for the full rationale.
 @external(javascript, "./pi_extension_ffi.mjs", "ctx_notify")
 pub fn ctx_notify(ctx: a, message: String, notify_type: String) -> Nil
 

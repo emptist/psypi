@@ -33,6 +33,16 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
   let cwd = ctx_get_cwd(ctx)
   case a_context_utils.parse_context_window(usage_json) {
     Error(e) -> {
+      // ✅ CORRECT: Error reporting via pi.sendMessage, not ctx.ui.notify.
+      //   customType = "autonomic-error"      → dedicated error channel
+      //   triggerTurn = False                 → do NOT wake S on a single error
+      //   deliverAs  = "followUp"             → S will see this in its next
+      //                                          turn (when something else
+      //                                          legitimately wakes S)
+      // S will only react if/when one of the legitimate wake-S conditions
+      // is met (A's review was saved, A is stuck on save failure, etc).
+      // Waking S on every error is exactly the "panic on any error"
+      // behaviour the user has explicitly banned.
       let msg =
         "[A-agentbot] <ERROR> parse_context_window: "
         <> e
@@ -45,6 +55,9 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
       let _ = ctx_notify(ctx, "[A-agentbot] Reading soul from database...", "status")
       promise.await(a_db_reader.read_soul_from_db(), fn(soul_result) {
         case soul_result {
+          // ✅ CORRECT: Error reporting via pi_send_message. See the
+          // first error_catch above for the full rationale on the
+          // (customType, triggerTurn, deliverAs) tuple.
           Error(e) -> {
             let msg =
               "[A-agentbot] <ERROR> read_soul_from_db: "
@@ -56,6 +69,12 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
             let _ = ctx_notify(ctx, "[A-agentbot] Reading A jobs from database...", "status")
             promise.await(a_db_reader.read_a_jobs_from_db(), fn(jobs_result) {
               case jobs_result {
+                // ✅ CORRECT: Error reporting via pi_send_message. Same
+                // (customType="autonomic-error", triggerTurn=False,
+                // deliverAs="followUp") contract. A reading the jobs
+                // table is a precondition for A to do any work; if it
+                // fails, the conversation log must know, but S must not
+                // be woken just to be told "A can't see its own jobs".
                 Error(e) -> {
                   let msg =
                     "[A-agentbot] <ERROR> read_a_jobs_from_db: "
@@ -131,6 +150,23 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                             False -> "[A-agentbot] " <> response
                                           }
                                           let msg_with_id = tagged <> "\n\n[inter-review id: " <> review_id <> "]"
+                                          // ✅ CORRECT: This is a legitimate
+                                          // "wake S after A finished its
+                                          // work" call (A's review is saved
+                                          // with an ID, A is done, S should
+                                          // pick it up and act). Per the
+                                          // Error reporting system rule:
+                                          //   customType  = "autonomic-wakeup"
+                                          //   triggerTurn = True  ← only allowed
+                                          //                              when A has
+                                          //                              finished
+                                          //                              work or is
+                                          //                              stuck
+                                          //   deliverAs   = "followUp"
+                                          // DO NOT copy this triggerTurn=True
+                                          // pattern into an Error path — that
+                                          // is the "panic on any error"
+                                          // behaviour the user has banned.
                                           pi_send_message(
                                             pi,
                                             "autonomic-wakeup",
@@ -141,6 +177,21 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                           )
                                         }
                                         Error(save_err) -> {
+                                          // ⚠️ Mixed case: the local toast
+                                          // below uses ctx_notify with the
+                                          // string "<ERROR> ...", which
+                                          // violates the Error reporting
+                                          // rule (ctx.ui.notify is not an
+                                          // Error path). It is acceptable
+                                          // here ONLY because the
+                                          // conversation log message that
+                                          // follows (msg_for_s) carries
+                                          // the real Error to S via
+                                          // pi_send_message — the local
+                                          // toast is just a heads-up for
+                                          // the human. Migration target:
+                                          // drop the ctx_notify and rely
+                                          // on the wake-up message alone.
                                           let save_err_str = inter_review_error_to_string(save_err)
                                           let _ = ctx_notify(
                                             ctx,
@@ -155,6 +206,17 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                                             <> save_err_str
                                             <> "). S, please consider saving this manually via psypi-inter-reviews.\n\n"
                                             <> tagged
+                                          // ✅ CORRECT: This is the second
+                                          // legitimate triggerTurn=True
+                                          // case — A's work is BLOCKED
+                                          // (could not persist the
+                                          // review) and A is stuck. The
+                                          // user has explicitly approved
+                                          // waking S in this scenario so
+                                          // S can decide whether to save
+                                          // the review manually. Same
+                                          // (customType, deliverAs) tuple
+                                          // as the success branch above.
                                           pi_send_message(
                                             pi,
                                             "autonomic-wakeup",
@@ -176,6 +238,14 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                               }
                             }
                             Error(e) -> {
+                              // ✅ CORRECT: Error reporting via pi_send_message.
+                              // Same (customType="autonomic-error",
+                              // triggerTurn=False, deliverAs="followUp")
+                              // contract as the other error sites in this
+                              // file. The local ctx_notify below is a
+                              // status toast for the human, NOT the
+                              // Error reporting channel — the real Error
+                              // goes through pi_send_message.
                               let _ = ctx_notify(ctx, "[A-agentbot] Monitor error occurred", "status")
                               pi_send_message(
                                 pi,
