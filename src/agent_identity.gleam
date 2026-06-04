@@ -127,7 +127,7 @@ fn fetch_jobs_by_prefix(prefix: String) -> promise.Promise(Result(List(String), 
       "SELECT j.job, j.priority, j.category "
       <> "FROM agent_jobs j "
       <> "JOIN agent_souls s ON j.soul_id = s.id "
-      <> "WHERE s.id_prefix = $1 AND j.is_active = true "
+      <> "WHERE s.id_prefix = $1 AND j.is_active = true AND j.is_archived = false "
       <> "ORDER BY j.priority ASC"
     let params = [dynamic.string(prefix)]
     promise.map(db.query(conn, sql, params), fn(query_result) {

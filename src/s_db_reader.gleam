@@ -18,7 +18,7 @@ pub fn read_s_soul_from_db() -> promise.Promise(Result(String, String)) {
   db.with_connection(
     fn(conn) {
       let sql =
-        "SELECT content FROM agent_souls WHERE id_prefix = 'S' AND is_active = true"
+        "SELECT content FROM agent_souls WHERE id_prefix = 'S' AND is_active = true AND is_archived = false"
       promise.map(db.query(conn, sql, []), fn(query_result) {
         case query_result {
           Error(e) -> Error(db_error_to_string(e))
@@ -54,7 +54,7 @@ pub fn read_s_jobs_from_db() -> promise.Promise(Result(String, String)) {
         "SELECT j.job, j.priority, j.category "
         <> "FROM agent_jobs j "
         <> "JOIN agent_souls s ON j.soul_id = s.id "
-        <> "WHERE s.id_prefix = 'S' AND j.is_active = true "
+        <> "WHERE s.id_prefix = 'S' AND j.is_active = true AND j.is_archived = false "
         <> "ORDER BY j.priority ASC"
       promise.map(db.query(conn, sql, []), fn(query_result) {
         case query_result {
