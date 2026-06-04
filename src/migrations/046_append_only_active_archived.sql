@@ -31,28 +31,28 @@ ALTER TABLE agent_jobs
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 2. Drop old full unique constraints, create partial unique indexes
---    on (column) WHERE is_archived = false.
---    CREATE INDEX CONCURRENTLY is not allowed inside a transaction
---    block, but simple_migrate runs each statement in its own
---    implicit transaction. For safety we use regular CREATE INDEX
---    since these tables are tiny (2 rows, 44 rows).
+--    on (column) WHERE is_active = true.
+--    is_active is the "current version pointer" — only one row per
+--    id_prefix / role / (soul_id, job_key) may be active at a time.
+--    is_archived rows are historical and excluded from the index.
 -- ═══════════════════════════════════════════════════════════════════
 
 ALTER TABLE agent_souls DROP CONSTRAINT IF EXISTS agent_soul_id_prefix_key;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_souls_active_id_prefix
-  ON agent_souls (id_prefix) WHERE is_archived = false;
+  ON agent_souls (id_prefix) WHERE is_active = true;
 
 ALTER TABLE agent_souls DROP CONSTRAINT IF EXISTS agent_soul_role_key;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_souls_active_role
-  ON agent_souls (role) WHERE is_archived = false;
+  ON agent_souls (role) WHERE is_active = true;
 
 ALTER TABLE agent_jobs DROP CONSTRAINT IF EXISTS uq_agent_jobs_soul_job_priority_category;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_jobs_active_soul_job_key
-  ON agent_jobs (soul_id, job_key) WHERE is_archived = false;
+  ON agent_jobs (soul_id, job_key) WHERE is_active = true;
 
 -- ═══════════════════════════════════════════════════════════════════
--- 3. Backfill job_key for active rows that don't have one yet.
---    Keyed by stable UUID from live DB. Idempotent (WHERE job_key IS NULL).
+-- 3. Backfill job_key for active rows on the live DB.
+--    Keyed by stable UUID. Idempotent (WHERE job_key IS NULL).
+--    Fresh installs get job_key from 009 seed INSERTs.
 -- ═══════════════════════════════════════════════════════════════════
 
 -- A's active jobs (24 rows in live DB, + 1 deactivated self_monitor)
@@ -146,37 +146,6 @@ UPDATE agent_jobs SET job_key = 'business.implement_business_proposals'
   WHERE id = '9df468d8-ab7a-46a3-b2a0-a37f15938272' AND job_key IS NULL;
 UPDATE agent_jobs SET job_key = 'definition.soul_review'
   WHERE id = '7e0cbf65-c0c6-43b4-99cc-8ec72f8689a3' AND job_key IS NULL;
-
--- Catch any remaining active rows that got job_key from seed or prior migration
--- (idempotent: only fills NULLs)
-UPDATE agent_jobs SET job_key = 'review.schema_discipline'
-  WHERE id IN (
-    SELECT j.id FROM agent_jobs j
-    JOIN agent_souls s ON j.soul_id = s.id
-    WHERE s.id_prefix = 'A' AND j.category = 'review' AND j.job_key IS NULL
-    LIMIT 1
-  );
-UPDATE agent_jobs SET job_key = 'self_monitor.anomaly_reporting_v1'
-  WHERE id IN (
-    SELECT j.id FROM agent_jobs j
-    JOIN agent_souls s ON j.soul_id = s.id
-    WHERE s.id_prefix = 'A' AND j.category = 'self_monitor' AND j.job_key IS NULL
-    LIMIT 1
-  );
-UPDATE agent_jobs SET job_key = 'behavior.s_behavior_review'
-  WHERE id IN (
-    SELECT j.id FROM agent_jobs j
-    JOIN agent_souls s ON j.soul_id = s.id
-    WHERE s.id_prefix = 'A' AND j.category = 'behavior' AND j.job_key IS NULL
-    LIMIT 1
-  );
-UPDATE agent_jobs SET job_key = 'safety.anti_stupidity'
-  WHERE id IN (
-    SELECT j.id FROM agent_jobs j
-    JOIN agent_souls s ON j.soul_id = s.id
-    WHERE s.id_prefix = 'A' AND j.category = 'safety' AND j.job_key IS NULL
-    LIMIT 1
-  );
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 4. Deactivate the older self_monitor (d9d45795) in favour of v2

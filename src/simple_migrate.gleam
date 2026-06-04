@@ -6,6 +6,10 @@ import gleam/string
 import db
 import simplifile
 
+fn int_to_string(x: Int) -> String {
+  int.to_string(x)
+}
+
 pub type MigrateError {
   ConnectionError(String)
   QueryError(String)
@@ -20,17 +24,22 @@ fn db_error_to_migrate_error(e: db.DbError) -> MigrateError {
 }
 
 /// Split SQL file into individual statements.
-/// Handles PostgreSQL dollar-quoted strings ($$...$$) that may contain
-/// semicolons without being statement boundaries.
+/// Split SQL into statements, respecting dollar-quoted strings ($$...$$)
+/// and single-quoted strings (''...'') that may contain semicolons.
 fn split_statements(sql: String) -> List(String) {
-  do_split(sql, False, "", [])
+  do_split(sql, False, False, "", [], 0)
 }
 
+/// in_dollar: inside $$...$$ block
+/// in_quote: inside '...' block (SQL single-quoted string)
+/// pos: current position (for debug output)
 fn do_split(
   sql: String,
   in_dollar: Bool,
+  in_quote: Bool,
   current: String,
   acc: List(String),
+  pos: Int,
 ) -> List(String) {
   case string.length(sql) {
     0 -> {
@@ -41,28 +50,53 @@ fn do_split(
       }
     }
     _ -> {
-      let rest = string.drop_left(sql, 1)
+      let rest = string.drop_start(sql, 1)
       let char = string.slice(sql, 0, 1)
       case in_dollar {
         True -> {
           case string.starts_with(sql, "$$") {
-            True -> do_split(string.drop_left(rest, 1), False, current <> "$$", acc)
-            False -> do_split(rest, True, current <> char, acc)
+            True -> do_split(string.drop_start(rest, 1), False, False, current <> "$$", acc, pos + 2)
+            False -> do_split(rest, True, False, current <> char, acc, pos + 1)
           }
         }
         False -> {
-          case string.starts_with(sql, "$$") {
-            True -> do_split(string.drop_left(rest, 1), True, current <> "$$", acc)
-            False -> {
+          case in_quote {
+            True -> {
               case char {
-                ";" -> {
-                  let stmt = string.trim(current)
-                  case stmt {
-                    "" -> do_split(rest, False, "", acc)
-                    _ -> do_split(rest, False, "", [stmt, ..acc])
+                "'" -> {
+                  case string.starts_with(rest, "'") {
+                    True -> {
+                      io.println("  [TRACE] pos " <> int_to_string(pos) <> ": in_quote=True, saw '' (escaped), staying in quote")
+                      do_split(string.drop_start(rest, 1), False, True, current <> "''", acc, pos + 2)
+                    }
+                    False -> {
+                      io.println("  [TRACE] pos " <> int_to_string(pos) <> ": in_quote=True, saw ' (end), exiting quote")
+                      do_split(rest, False, False, current <> "'", acc, pos + 1)
+                    }
                   }
                 }
-                _ -> do_split(rest, False, current <> char, acc)
+                _ -> do_split(rest, False, True, current <> char, acc, pos + 1)
+              }
+            }
+            False -> {
+              case string.starts_with(sql, "$$") {
+                True -> do_split(string.drop_start(rest, 1), True, False, current <> "$$", acc, pos + 2)
+                False -> {
+                  case char {
+                    "'" -> {
+                      io.println("  [TRACE] pos " <> int_to_string(pos) <> ": in_quote=False, saw ' (start), entering quote")
+                      do_split(rest, False, True, current <> "'", acc, pos + 1)
+                    }
+                    ";" -> {
+                      let stmt = string.trim(current)
+                      case stmt {
+                        "" -> do_split(rest, False, False, "", acc, pos + 1)
+                        _ -> do_split(rest, False, False, "", [stmt, ..acc], pos + 1)
+                      }
+                    }
+                    _ -> do_split(rest, False, False, current <> char, acc, pos + 1)
+                  }
+                }
               }
             }
           }
@@ -104,6 +138,15 @@ pub fn run_sql(sql: String) -> promise.Promise(Result(Nil, MigrateError)) {
     |> split_statements
     |> list.map(strip_comment_line)
     |> list.filter(fn(s) { s != "" })
+  io.println("  [DEBUG] Split into " <> int_to_string(list.length(statements)) <> " statements")
+  list.index_fold(statements, 0, fn(acc, stmt, i) {
+    let preview = case string.length(stmt) > 80 {
+      True -> string.slice(stmt, 0, 80) <> "..."
+      False -> stmt
+    }
+    io.println("  [DEBUG] stmt " <> int_to_string(i + 1) <> ": " <> preview)
+    acc
+  })
   run_statements(statements)
 }
 
