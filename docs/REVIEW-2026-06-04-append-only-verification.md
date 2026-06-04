@@ -32,7 +32,7 @@ by reverting S's `111c1f5` commit and putting `job_key` back in 009's INSERTs
 
 | Commit | Author | What | Quality | Notes |
 |--------|--------|------|---------|-------|
-| `014bad3` | S | 009: added `job_key`+`is_archived` to CREATE TABLE; added `job_key` to all 27 INSERTs | OK | This was the right initial direction |
+| `014bad3` | S | 009: added `job_key`+`is_archived` to CREATE TABLE; added `job_key` to all 28 INSERTs (13 A + 15 S) | OK | This was the right initial direction |
 | `fd29273` | S | 046 created (259 lines): columns, partial indexes, backfill, deactivation, `save_*_version()` functions | **🔴 Has B.1** | First-call failure |
 | `070b100` | S | `soul_version_writer.gleam` (90 lines) | ✅ OK | Type-safe, follows `inter_review` pattern |
 | `111c1f5` | S | Removed `job_key` from 009 INSERTs | **🟡 Wrong call (B.3)** | Caused B.2 |
@@ -161,12 +161,12 @@ A's seed has 8 distinct categories. Only 4 are covered by the catch-up:
 - ✅ `safety`
 - ❌ `unblock`, `suggestion`, `maintenance`, `definition`, `closed_loop` (5 categories)
 
-S's seed has 14 distinct categories. **0 are covered by the catch-up.**
+S's seed has 12 distinct categories. **0 are covered by the catch-up.**
 
 ### 4.3 Verified evidence
 
-`/tmp/verify_b2_v2.sql` — simulates fresh install with 13 A jobs + 14 S jobs
-(27 fresh rows):
+`/tmp/verify_b2_v2.sql` — simulates fresh install with 13 A jobs + 15 S jobs
+(28 fresh rows):
 
 After hardcoded-UUID backfill (no-ops on fresh install) and 4 catch-up statements:
 
@@ -300,10 +300,10 @@ These are on the to-do list and not yet in the committed work:
 | Update AGENTS.md: remove "Known doc/DB drift" note | Review §7 Addition 10 | Low |
 | Add "Append-Only Pattern" section to AGENTS.md | Plan §9 | Low |
 | Add deprecation comments to 038, 040, 041, 042, 043, 044 | Plan §8 | Low |
-| **B.1 fix: change partial unique indexes to `WHERE is_active = true`** | **This review** | **🔴 Critical** |
-| **B.2 fix: revert 111c1f5, put `job_key` back in 009 INSERTs** | **This review** | **🔴 Critical (fresh install)** |
-| **B.4 fix: update plan to reflect the new index condition** | **This review** | **🟡 Medium** |
-| **B.6 fix: remove the catch-up from 046 once B.3 is fixed** | **This review** | **🟡 Cleanup** |
+| **B.1 fix: change partial unique indexes to `WHERE is_active = true`** | **This review** | ✅ **DONE in a0d75fd** |
+| **B.2 fix: revert 111c1f5, put `job_key` back in 009 INSERTs** | **This review** | ✅ **DONE in a0d75fd** |
+| **B.4 fix: update plan to reflect the new index condition** | **This review** | 🟡 Pending |
+| **B.6 fix: remove the catch-up from 046 once B.3 is fixed** | **This review** | ✅ **DONE in a0d75fd** |
 
 ---
 
@@ -338,13 +338,14 @@ These are on the to-do list and not yet in the committed work:
 
 ## 8. Recommended implementation order (when implementation resumes)
 
-Given the verified state, this is the safe order:
+**Status as of S's commit `a0d75fd` (2026-06-04):** items 1, 2, 3 are DONE.
+Remaining work begins at item 4.
 
-1. **Fix 046**: change the three partial unique indexes from
-   `WHERE is_archived = false` to `WHERE is_active = true`. (B.1)
-2. **Revert 111c1f5**: put `job_key` back in 009's INSERTs with the same
-   slugs. (B.3 / B.2)
-3. **Remove the catch-up from 046** (optional cleanup, B.6).
+1. ✅ **Fix 046**: change the three partial unique indexes from
+   `WHERE is_archived = false` to `WHERE is_active = true`. (B.1) — **DONE in a0d75fd**
+2. ✅ **Revert 111c1f5**: put `job_key` back in 009's INSERTs with the same
+   slugs. (B.3 / B.2) — **DONE in a0d75fd**
+3. ✅ **Remove the catch-up from 046** (optional cleanup, B.6). — **DONE in a0d75fd**
 4. **Update the plan** to reflect the new index condition in three places. (B.4)
 5. **User runs `gleam run migrate`** from terminal.
 6. **Verify**: `psql -d psypi -c "SELECT COUNT(*) FROM agent_jobs WHERE job_key IS NULL;"` → 0
@@ -395,15 +396,107 @@ plus the revert of 111c1f5 for B.3) but they are not optional.
 |-----------|--------|-------|
 | Plan core design | ⭐⭐⭐⭐⭐ | Sound. Append-only with two flags is the right call. |
 | Plan details & risks | ⭐⭐⭐ | Identified the fresh-install risk but the catch-up mitigation is incomplete |
-| 046 as committed | ⭐⭐ | **Will reject every save on first try.** Must be fixed before running. |
-| 046 + 009 + simple_migrate combined | ⭐⭐ | **Will fail on fresh install.** Backfill + ON CONFLICT pattern doesn't close the gap. |
+| 046 as committed (pre-a0d75fd) | ⭐⭐ | **Rejected every save on first try.** Fixed in a0d75fd. |
+| 046 as committed (post-a0d75fd) | ⭐⭐⭐⭐⭐ | Uses `WHERE is_active = true` correctly. Re-verified with `/tmp/verify_actual_046.sql` (commit a0d75fd code): first save succeeds, second succeeds, final state 1 active + 2 historical. |
+| 046 + 009 + simple_migrate combined (pre-a0d75fd) | ⭐⭐ | Failed on fresh install. Fixed in a0d75fd. |
+| 046 + 009 + simple_migrate combined (post-a0d75fd) | ⭐⭐⭐⭐⭐ | All three pieces compose correctly. 009 has `job_key` in all 28 INSERTs. 046 backfill is safety net only. |
 | S's work on the migration runner | ⭐⭐⭐⭐⭐ | `4359fa2` was a non-obvious and necessary catch |
 | S's `soul_version_writer.gleam` | ⭐⭐⭐⭐⭐ | Type-safe, follows existing patterns |
+| S's `a0d75fd` fix commit | ⭐⭐⭐⭐⭐ | All three findings (B.1, B.2, B.6) addressed in one coherent commit. Also fixed `decode_error_to_soul_error`. The commit message even cites this review by name. |
 | S's review | ⭐⭐⭐ | Identified many correct issues but missed B.1 (the most critical) and the implication of 111c1f5 |
 | A's inter-review | ⭐⭐⭐ | Caught `agent_identity.gleam` and AGENTS.md drift, but did not catch B.1 |
 
-**Adjusted overall score: 2.5/5.** The plan is good. The Gleam wrapper is
-excellent. The migration runner fix is excellent. But the core migration
-(`046`) as committed has a critical bug that prevents it from working, and
-the 009 changes were rolled back incorrectly (111c1f5), creating a fresh-install
-bug. The fixes are small and verified.
+**Adjusted overall score (post-a0d75fd): 4.5/5.** The plan is good. The Gleam
+wrapper is excellent. The migration runner fix is excellent. The append-only
+migration is now correct. Remaining work is mechanical: update the plan doc
+(B.4), wire the Gleam readers' `is_archived` filter, update
+`table_documentation`, and add deprecation comments. None of these are
+design-level risks.
+
+---
+
+## 12. Post-review update — 2026-06-04, after S's commit `a0d75fd`
+
+**Author of this section:** External AI (re-verification after S's fix)
+**New commit under review:** `a0d75fd` "fix: correct partial unique indexes
+and restore job_key in 009" (HEAD on `table-redesign`)
+
+### 12.1 What changed in a0d75fd
+
+| File | Change | Resolves |
+|------|--------|----------|
+| `src/migrations/046_append_only_active_archived.sql` | 3 partial unique indexes: `WHERE is_archived = false` → `WHERE is_active = true` | **B.1** |
+| `src/migrations/009_agent_jobs.sql` | Restored `job_key` column in all 28 INSERTs (reverts `111c1f5`) | **B.2 / B.3** |
+| `src/migrations/046_append_only_active_archived.sql` | Removed the 4 catch-up UPDATE statements | **B.6** |
+| `src/soul_version_writer.gleam` | `decode_error_to_soul_error` now uses `string.inspect(e)` instead of a hardcoded string | Bonus (separate issue) |
+| `AGENTS.md`, `docs/REVIEW-2026-06-03-append-only-souls-jobs.md`, this file | Various doc updates | — |
+
+### 12.2 Re-verification of the now-committed 046 code
+
+I ran `/tmp/verify_actual_046.sql` using 046's code AS COMMITTED IN `a0d75fd`
+(verbatim — `WHERE is_active = true`, no catch-up). Output:
+
+```
+─── Now attempt save_soul_version with 046 AS-IS index conditions ───
+NOTICE:  ✓ First save_soul_version SUCCEEDED with 046 as-is
+
+─── State after first save ───
+                  id                  | id_prefix | is_active | is_archived
+--------------------------------------+-----------+-----------+-------------
+ bc956b52-bcc7-4308-aa7e-92477007a2b1 | A         | f         | f
+ e4aa66e8-318e-4c81-81f8-91651ed92d81 | A         | t         | f
+
+─── Now attempt a SECOND save (should also work) ───
+NOTICE:  ✓ Second save_soul_version SUCCEEDED
+
+─── Final state ───
+ total | active | not_archived
+-------+--------+--------------
+     3 |      1 |            3
+```
+
+**Conclusion:** B.1 is RESOLVED. The append-only pattern works as designed on
+the now-committed 046.
+
+### 12.3 Items still pending (post-a0d75fd)
+
+| Item | Source | Severity |
+|------|--------|----------|
+| Add `AND is_archived = false` to `a_db_reader.gleam` reads | Review §3 Issue 1 | Medium |
+| Add `AND is_archived = false` to `s_db_reader.gleam` reads | Review §3 Issue 1 | Medium |
+| Add `AND is_archived = false` to `agent_identity.gleam`'s `fetch_jobs_by_prefix` | Review §7 Addition 11 | Medium |
+| Update `table_documentation` with `is_archived` and `job_key` columns | Review §3 Issue 7 | Low-Medium |
+| Update AGENTS.md: remove "Known doc/DB drift" note | Review §7 Addition 10 | Low |
+| Add deprecation comments to 038, 040, 041, 042, 043, 044 | Plan §8 | Low |
+| Update plan doc to reflect the new index condition (B.4) | This review | Low (now cosmetic) |
+
+The "Append-Only Pattern" section was already added to AGENTS.md by S in
+`a0d75fd` (confirmed by reading the file: lines 627+ in `AGENTS.md`). So that
+item is also effectively done.
+
+### 12.4 What this section does NOT verify
+
+I did not:
+- Run `gleam run migrate` to apply 046 to the live DB
+- Verify that existing live-DB rows are unchanged by 046 (the migration drops
+  constraints and adds indexes; the data should be untouched, but I did not
+  run it)
+- Check the `simple_migrate.gleam` change beyond reading the diff
+- Check the `soul_version_writer.gleam` error-handling change in a test
+
+These are all S's responsibility per the no-conflict instruction.
+
+### 12.5 Final review summary (post-a0d75fd)
+
+**Original findings (B.1, B.2, B.6) — RESOLVED.**
+**New findings from the post-fix review — none.**
+**Remaining work — mechanical doc/code updates, not design risks.**
+
+The append-only pattern as designed is now correctly implemented in the
+schema. The Gleam wrapper is correct. The migration runner is correct. The
+remaining items are the same plumbing that would be needed for any schema
+change: doc updates, reader filters, table documentation, and deprecation
+comments.
+
+The next agent (or the same one when implementation resumes) can pick up at
+step 4 of the implementation order in §8.

@@ -66,11 +66,11 @@ fn do_split(
                 "'" -> {
                   case string.starts_with(rest, "'") {
                     True -> {
-                      io.println("  [TRACE] pos " <> int_to_string(pos) <> ": in_quote=True, saw '' (escaped), staying in quote")
+                      io.println("  [TRACE] pos " <> int_to_string(pos) <> ": in_quote=True, saw '' (escaped), staying in quote, rest[0]=" <> string.slice(rest, 0, 1))
                       do_split(string.drop_start(rest, 1), False, True, current <> "''", acc, pos + 2)
                     }
                     False -> {
-                      io.println("  [TRACE] pos " <> int_to_string(pos) <> ": in_quote=True, saw ' (end), exiting quote")
+                      io.println("  [TRACE] pos " <> int_to_string(pos) <> ": in_quote=True, saw ' (end), exiting quote, rest=" <> string.slice(rest, 0, 5))
                       do_split(rest, False, False, current <> "'", acc, pos + 1)
                     }
                   }
