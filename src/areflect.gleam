@@ -133,6 +133,7 @@ fn fetch_recent_issues(
       let sql = "
         SELECT id, title, status, severity
         FROM issues
+        WHERE project_url = $1
         ORDER BY 
           CASE severity 
             WHEN 'critical' THEN 1 
@@ -142,9 +143,9 @@ fn fetch_recent_issues(
             ELSE 5 
           END,
           created_at DESC
-        LIMIT $1
+        LIMIT $2
       "
-      let params = [dynamic.int(count)]
+      let params = [dynamic.string(project_url()), dynamic.int(count)]
       promise.map(db.query(conn, sql, params), fn(query_result) {
         case query_result {
           Ok(result) -> {
@@ -181,17 +182,17 @@ fn save_learnings(
 fn save_learning(
   conn: db.Connection,
   content: String,
-  _agent_id: String,
+  agent_id: String,
 ) -> promise.Promise(Result(Nil, ReflectionError)) {
   let sql = "
-    INSERT INTO learning_insights (insight_type, title, content, confidence)
-    VALUES ('pattern', $1, $2, 0.8)
+    INSERT INTO learning_insights (insight_type, title, content, confidence, agent_id)
+    VALUES ('pattern', $1, $2, 0.8, $3)
   "
   let title = case string.split(content, "\n") {
     [first, ..] -> string.slice(first, 0, 100)
     _ -> string.slice(content, 0, 100)
   }
-  let params = [dynamic.string(title), dynamic.string(content)]
+  let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id)]
 
   promise.map(db.query(conn, sql, params), fn(query_result) {
     case query_result {
