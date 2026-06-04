@@ -269,6 +269,8 @@ After commit, S goes idle → A wakes → A performs inter-review (PDCA Check) �
 
 **☠️ S MUST wait for A's inter-review before resolving issues or completing tasks.** The PDCA cycle is strict: Plan → Do → Check → Act. S does Plan+Do, A does Check, then S Acts. S must NOT call `psypi-issue-resolve` or `psypi-task-complete` before A has completed the inter-review for that cycle. Resolving or completing early skips the Check phase and breaks the closed loop.
 
+**What waiting looks like in practice:** After S commits work and goes idle, A's inter-review arrives as a message in S's Pi session (via `pi.sendMessage` with `customType: 'autonomic-wakeup'`). That message is the signal — S reads A's findings, evaluates them critically, and only then resolves issues or completes tasks. If A's inter-review does not arrive within a reasonable time (debounce period + margin), S holds and does NOT resolve/complete unilaterally. Note: this depends on the debounce hook working reliably — if the infrastructure is broken, S should flag it rather than bypassing the wait.
+
 **Note:** S MUST use `psypi-commit` for all commits (not raw `git commit`). The agent ID tag is how we track who did what.
 
 **⚠️ NEVER restart psypi by yourself.** Never run `pkill`, `node bin/ppi.mjs`, `npx`, or any Pi restart commands. That is A-bot's job or the human's job. S-bot dies when Pi restarts — that is normal. Do not try to resurrect yourself.
