@@ -6,18 +6,26 @@
 // Single source of truth: project_url().
 
 import filepath
-import gleam/option.{type Option}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import simplifile
 
-/// Resolve the current project identifier as a string.
-///
-/// 1. Read .git/config from the real OS working directory.
-/// 2. If a valid remote "origin" URL is found, return it (normalised).
-/// 3. Otherwise, return simplifile.current_directory().
-///
-/// Falls back to "unknown" if the filesystem is unavailable.
+/// Cached project URL. Read once, reused for the lifetime of the process.
+/// The project URL doesn't change during a session.
+/// Use get_project_url() to access the cached value.
 pub fn project_url() -> String {
+  case get_project_url() {
+    Some(url) -> url
+    None -> {
+      let url = resolve_project_url()
+      set_project_url(url)
+      url
+    }
+  }
+}
+
+/// Resolve the project URL from disk (no caching).
+fn resolve_project_url() -> String {
   let cwd = case simplifile.current_directory() {
     Ok(dir) -> dir
     Error(_) -> "unknown"
@@ -29,6 +37,12 @@ pub fn project_url() -> String {
     Error(_) -> cwd
   }
 }
+
+@external(javascript, "./project_ffi.mjs", "get_project_url")
+fn get_project_url() -> Option(String)
+
+@external(javascript, "./project_ffi.mjs", "set_project_url")
+fn set_project_url(url: String) -> Nil
 
 fn read_git_remote(config_path: String) -> Result(String, Nil) {
   case simplifile.read(config_path) {
