@@ -10,6 +10,16 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import pi_tool_call.{type PiToolCall, PiToolCall, lit, raw_json}
+import simplifile
+
+/// Get the current working directory from the OS.
+/// NEVER use ctx.cwd — it is captured at session start and never updates.
+fn current_cwd() -> String {
+  case simplifile.current_directory() {
+    Ok(dir) -> dir
+    Error(_) -> ""
+  }
+}
 
 pub type EnrichedIdentity {
   EnrichedIdentity(
@@ -48,11 +58,11 @@ fn check_git_exists(cwd: String) -> Bool
 
 pub fn compute_id(
   is_idle: Bool,
-  cwd: String,
   source: String,
   model: String,
   thinking_level: String,
 ) -> String {
+  let cwd = current_cwd()
   let project = resolve_project(cwd)
   let global = case check_git_exists(cwd) {
     True -> False
@@ -155,8 +165,10 @@ fn fetch_jobs_by_prefix(prefix: String) -> promise.Promise(Result(List(String), 
 pub fn get_enriched_identity(
   ctx: IdentityContext,
 ) -> promise.Promise(Result(EnrichedIdentity, IdentityError)) {
-  let project = resolve_project(ctx.cwd)
-  let global = case check_git_exists(ctx.cwd) {
+  // Read current directory from OS — NOT from ctx.cwd
+  let cwd = current_cwd()
+  let project = resolve_project(cwd)
+  let global = case check_git_exists(cwd) {
     True -> False
     False -> True
   }
@@ -168,7 +180,7 @@ pub fn get_enriched_identity(
     model: ctx.model,
     thinking_level: ctx.thinking_level,
     global: global,
-    cwd: ctx.cwd,
+    cwd: cwd,
   )
 
   let prefix = case ctx.is_idle {
@@ -223,8 +235,7 @@ pub fn my_id_tool() -> PiToolCall {
       lit(
         "({ is_idle: ctx.isIdle(), source: (ctx.model?.provider || ''), "
         <> "model: (ctx.model?.id || ''), "
-        <> "thinking_level: (ctx.model?.thinkingLevel || ''), "
-        <> "cwd: (ctx.cwd || '') })",
+        <> "thinking_level: (ctx.model?.thinkingLevel || '') })",
       ),
     ],
     result_format: raw_json(),

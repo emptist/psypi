@@ -6,10 +6,11 @@ import gleam/javascript/promise
 import gleam/string
 import inter_review
 import pi_extension.{
-  call_monitor, ctx_get_context_usage_json, ctx_get_cwd,
+  call_monitor, ctx_get_context_usage_json,
   ctx_get_entries_json, ctx_is_idle, ctx_notify, now_ms, pi_send_message,
 }
 import psypi_config
+import simplifile
 import system_prompt_types
 
 pub fn on_agent_end(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
@@ -30,7 +31,11 @@ fn ctx_has_pending_messages(ctx: a) -> Bool {
 fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
   let entries_json = ctx_get_entries_json(ctx)
   let usage_json = ctx_get_context_usage_json(ctx)
-  let cwd = ctx_get_cwd(ctx)
+  // Read fresh cwd from OS — NOT from ctx.cwd (which is stale from session start)
+  let cwd = case simplifile.current_directory() {
+    Ok(dir) -> dir
+    Error(_) -> ""
+  }
   case a_context_utils.parse_context_window(usage_json) {
     Error(e) -> {
       // ✅ CORRECT: Error reporting via pi.sendMessage, not ctx.ui.notify.

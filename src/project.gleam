@@ -1,31 +1,44 @@
 // project.gleam — Project identification.
 //
-// A project is identified by a string, resolved once per session.
-// No DB lookup. No env var. Cached after first read.
+// A project is identified by a string, resolved from the current directory
+// every time. No caching — the directory can change at any time.
 //
 // Single source of truth: project_url().
+//
+// ☠️ CRITICAL: NEVER CACHE project_url()
+// ─────────────────────────────────────────────────────────────────────
+// The working directory can change at any time during a session (e.g. AI
+// runs `cd /other/dir`). If you cache this value, you will silently use
+// the wrong project_url for all subsequent DB operations (tasks, issues,
+// reviews, etc.) — data goes to the wrong project and you won't know.
+//
+// This mistake has been made and documented. Do NOT reintroduce caching.
+// Every call to project_url() MUST read simplifile.current_directory()
+// fresh from the OS. The cost of a syscall is negligible compared to
+// the cost of silent data corruption.
+//
+// Previous (WRONG) pattern — DO NOT REINTRODUCE:
+//   let _cached = // module-level variable
+//   pub fn project_url() -> String {
+//     case get_cached() { Some(url) -> url, None -> resolve_and_cache() }
+//   }
+//
+// Current (CORRECT) pattern:
+//   pub fn project_url() -> String {
+//     let cwd = simplifile.current_directory()  // always fresh
+//     ...
+//   }
+// ─────────────────────────────────────────────────────────────────────
 
 import filepath
-import gleam/option.{type Option, None, Some}
+import gleam/option.{type Option}
 import gleam/string
 import simplifile
 
-/// Cached project URL. Read once, reused for the lifetime of the process.
-/// The project URL doesn't change during a session.
-/// Use get_project_url() to access the cached value.
+/// Resolve the project URL from disk on every call.
+/// Reads the current directory, checks for .git/config, returns git remote
+/// or the raw cwd path.
 pub fn project_url() -> String {
-  case get_project_url() {
-    Some(url) -> url
-    None -> {
-      let url = resolve_project_url()
-      set_project_url(url)
-      url
-    }
-  }
-}
-
-/// Resolve the project URL from disk (no caching).
-fn resolve_project_url() -> String {
   let cwd = case simplifile.current_directory() {
     Ok(dir) -> dir
     Error(_) -> "unknown"
@@ -37,12 +50,6 @@ fn resolve_project_url() -> String {
     Error(_) -> cwd
   }
 }
-
-@external(javascript, "./project_ffi.mjs", "get_project_url")
-fn get_project_url() -> Option(String)
-
-@external(javascript, "./project_ffi.mjs", "set_project_url")
-fn set_project_url(url: String) -> Nil
 
 fn read_git_remote(config_path: String) -> Result(String, Nil) {
   case simplifile.read(config_path) {
