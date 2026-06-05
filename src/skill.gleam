@@ -138,13 +138,14 @@ pub fn list(
       Some(_) -> "
         SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content::text, reference_list::text
         FROM skills
-        WHERE status = $1
+        WHERE status = $1 AND is_active = true AND is_archived = false
         ORDER BY name ASC
         LIMIT 100
       "
       None -> "
         SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content::text, reference_list::text
         FROM skills
+        WHERE is_active = true AND is_archived = false
         ORDER BY name ASC
         LIMIT 100
       "
@@ -185,7 +186,7 @@ pub fn get(
     let sql = "
       SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content::text, reference_list::text
       FROM skills
-      WHERE name = $1
+      WHERE name = $1 AND is_active = true AND is_archived = false
     "
     let params = [dynamic.string(name)]
 
@@ -215,7 +216,7 @@ pub fn search(
     let sql = "
       SELECT id, name, description, source, status, safety_score, version, author, created_at::text, content::text, reference_list::text
       FROM skills
-      WHERE name ILIKE $1 OR description ILIKE $1
+      WHERE (name ILIKE $1 OR description ILIKE $1) AND is_active = true AND is_archived = false
       ORDER BY name ASC
       LIMIT 50
     "
