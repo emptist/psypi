@@ -167,39 +167,40 @@ fn build_where(
   issue_type: Option(String),
   project_url: Option(String),
 ) -> #(String, List(dynamic.Dynamic)) {
-  let conditions = []
-  let params = []
-  let #(conditions, params) = case status {
-    Some(s) -> {
-      let idx = list.length(params) + 1
-      #(["COALESCE(NULLIF(status, ''), CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'open' END) = $" <> string.inspect(idx), ..conditions], [dynamic.string(s), ..params])
-    }
-    None -> #(conditions, params)
+  // Build conditions and params in matching order.
+  // Each filter is added as {condition, param} and flattened at the end.
+  let filters = []
+  let filters = case status {
+    Some(s) -> [#("COALESCE(NULLIF(status, ''), CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'open' END) = $", dynamic.string(s)), ..filters]
+    None -> filters
   }
-  let #(conditions, params) = case severity {
-    Some(s) -> {
-      let idx = list.length(params) + 1
-      #(["severity = $" <> string.inspect(idx), ..conditions], [dynamic.string(s), ..params])
-    }
-    None -> #(conditions, params)
+  let filters = case severity {
+    Some(s) -> [#("severity = $", dynamic.string(s)), ..filters]
+    None -> filters
   }
-  let #(conditions, params) = case issue_type {
-    Some(t) -> {
-      let idx = list.length(params) + 1
-      #(["issue_type = $" <> string.inspect(idx), ..conditions], [dynamic.string(t), ..params])
-    }
-    None -> #(conditions, params)
+  let filters = case issue_type {
+    Some(t) -> [#("issue_type = $", dynamic.string(t)), ..filters]
+    None -> filters
   }
-  let #(conditions, params) = case project_url {
-    None -> #(conditions, params)
-    Some(p) -> {
-      let idx = list.length(params) + 1
-      #(["project_url = $" <> string.inspect(idx), ..conditions], [dynamic.string(p), ..params])
-    }
+  let filters = case project_url {
+    Some(p) -> [#("project_url = $", dynamic.string(p)), ..filters]
+    None -> filters
   }
-  case conditions {
+
+  case filters {
     [] -> #("", [])
-    _ -> #(" WHERE " <> string.join(list.reverse(conditions), " AND "), params)
+    _ -> {
+      // Reverse to get correct order (we've been prepending).
+      let filters = list.reverse(filters)
+      // Assign 1-based indices.
+      let #(conditions, params) = list.index_fold(filters, #([], []), fn(acc, filter, idx) {
+        let #(conds, params) = acc
+        let #(cond_template, param) = filter
+        let idx_str = string.inspect(idx + 1)
+        #([cond_template <> idx_str, ..conds], [param, ..params])
+      })
+      #(" WHERE " <> string.join(conditions, " AND "), list.reverse(params))
+    }
   }
 }
 
