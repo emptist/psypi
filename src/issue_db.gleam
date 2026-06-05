@@ -235,10 +235,10 @@ pub fn count(
             [row, ..] -> {
               case decode.run(row, count_decoder()) {
                 Ok(n) -> Ok(n)
-                Error(_) -> Ok(0)
+                Error(_) -> Error(DecodeError("Failed to decode count"))
               }
             }
-            _ -> Ok(0)
+            _ -> Error(NotFound("No count returned"))
           }
         }
       }

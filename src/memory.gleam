@@ -4,7 +4,8 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import db
-import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
+import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, raw_json}
+import project.{project_url}
 
 pub type Memory {
   Memory(
@@ -64,10 +65,11 @@ pub fn save(
   importance: Int,
   agent_id: String,
 ) -> promise.Promise(Result(String, MemoryError)) {
+  let project_url = project_url()
   db.with_connection(fn(conn) {
     let sql = "
-      INSERT INTO memory (content, tags, source, importance, agent_id)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO memory (content, tags, source, importance, agent_id, project_url)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING id
     "
     let params = [
@@ -76,6 +78,7 @@ pub fn save(
       dynamic.string(source),
       dynamic.int(importance),
       dynamic.string(agent_id),
+      dynamic.string(project_url),
     ]
 
     promise.map(db.query(conn, sql, params), fn(query_result) {
@@ -149,6 +152,6 @@ pub fn memory_search_tool() -> PiToolCall {
       from_param("params.query || ''"),
       from_param("parseInt(params.limit || '10')"),
     ],
-    result_format: template("Found {count} memories"),
+    result_format: raw_json(),
   )
 }

@@ -234,6 +234,25 @@ export function unwrapGleamResult(result) {
   return { ok: true, value: result };
 }
 
+const knownGleamTypes = new Set([
+  'Task', 'Issue', 'Meeting', 'Skill', 'Opinion', 'Broadcast',
+  'Learning', 'Memory', 'AgentIdentity', 'Directive', 'InterReview',
+  'CodeVersion', 'ActivityLog', 'Config', 'Stats', 'Project',
+  'HealthMetrics', 'AlertMetrics', 'MonitorError', 'MonitorAction',
+  'MonitorSuggestion', 'ModelStats', 'SafetyResult',
+  'ReviewResult', 'ReviewFinding',
+  'MemoryError', 'ReflectionError', 'IssueSummary',
+  'ReflectionResult', 'SkillError',
+  'SkillSource', 'SkillStatus', 'InterReviewError',
+  'TaskStatus', 'IssueStatus', 'IssueType', 'IssueSeverity',
+  'MeetingStatus', 'BroadcastStatus', 'FindingSeverity',
+  'HookStatus', 'ResponseStatus', 'ReviewerType',
+]);
+
+function isKnownGleamType(name) {
+  return knownGleamTypes.has(name);
+}
+
 export function gleamValueToJson(val) {
   if (val === null || val === undefined) return val;
   if (typeof val !== 'object') return val;
@@ -249,17 +268,9 @@ export function gleamValueToJson(val) {
   }
   // Gleam compiled JS uses short class names (e.g. 'Task', 'Issue', 'Meeting')
   // NOT factory names like 'Task$Task'. Handle both for forward compatibility.
-  const isGleamCustomType = name.includes('$') || [
-    'Task', 'Issue', 'Meeting', 'Skill', 'Opinion', 'Broadcast',
-    'Learning', 'Memory', 'AgentIdentity', 'Directive', 'InterReview',
-    'CodeVersion', 'ActivityLog', 'Config', 'Stats', 'Project',
-    'HealthMetrics', 'AlertMetrics', 'MonitorError', 'MonitorAction',
-    'MonitorSuggestion', 'ModelStats', 'SafetyResult',
-    'ReviewResult', 'ReviewFinding',
-    'MemoryError', 'ReflectionError', 'IssueSummary',
-    'ReflectionResult', 'SkillError',
-    'SkillSource', 'SkillStatus', 'InterReviewError',
-  ].includes(name);
+  // Any object with a Gleam constructor name (contains '$') or a recognized
+  // short name is treated as a custom type record.
+  const isGleamCustomType = name.includes('$') || isKnownGleamType(name);
   if (isGleamCustomType) {
     return Object.fromEntries(Object.entries(val).map(([k, v]) => [k, gleamValueToJson(v)]));
   }

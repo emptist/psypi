@@ -184,15 +184,16 @@ fn save_learning(
   content: String,
   agent_id: String,
 ) -> promise.Promise(Result(Nil, ReflectionError)) {
+  let project_url = project_url()
   let sql = "
-    INSERT INTO learning_insights (insight_type, title, content, confidence, agent_id)
-    VALUES ('pattern', $1, $2, 0.8, $3)
+    INSERT INTO learning_insights (insight_type, title, content, confidence, agent_id, project_url)
+    VALUES ('pattern', $1, $2, 0.8, $3, $4)
   "
   let title = case string.split(content, "\n") {
     [first, ..] -> string.slice(first, 0, 100)
     _ -> string.slice(content, 0, 100)
   }
-  let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id)]
+  let params = [dynamic.string(title), dynamic.string(content), dynamic.string(agent_id), dynamic.string(project_url)]
 
   promise.map(db.query(conn, sql, params), fn(query_result) {
     case query_result {

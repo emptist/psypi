@@ -4,6 +4,7 @@ import gleam/list
 import gleam/string
 import db
 import pi_tool_call.{type PiToolCall, PiToolCall, string_param, number_param, from_param, template}
+import project.{project_url}
 
 pub type LearningError {
   ConnectionError(String)
@@ -24,15 +25,17 @@ fn save_learning(
   importance: Int,
   agent_id: String,
 ) -> promise.Promise(Result(Nil, LearningError)) {
+  let project_url = project_url()
   let sql = "
-    INSERT INTO memory (content, tags, source, importance, agent_id)
-    VALUES ($1, $2, 'learn', $3, $4)
+    INSERT INTO memory (content, tags, source, importance, agent_id, project_url)
+    VALUES ($1, $2, 'learn', $3, $4, $5)
   "
   let params = [
     dynamic.string(content),
     dynamic.string(tags),
     dynamic.int(importance),
     dynamic.string(agent_id),
+    dynamic.string(project_url),
   ]
 
   promise.map(db.query(conn, sql, params), fn(query_result) {
