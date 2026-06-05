@@ -508,6 +508,20 @@ fn my_decoder() -> decode.Decoder(MyType) {
 
 ## 8. Common Pitfalls
 
+### ❌ Using psql to Modify Data Directly
+
+```sql
+-- WRONG: Bypasses append-only pattern, breaks version history
+psql -d psypi -c "INSERT INTO agent_jobs (soul_id, job_key, job, ...) VALUES (...)"
+psql -d psypi -c "UPDATE agent_jobs SET job = 'new text' WHERE id = '...'"
+psql -d psypi -c "DELETE FROM agent_jobs WHERE id = '...'"
+
+-- CORRECT: Create a migration file and use save_*_version() functions
+-- See Section 6 for the migration template
+```
+
+**This has happened before and caused significant damage.** S-bot manually edited `agent_jobs` via `psql`, breaking the append-only pattern and creating duplicate active rows. Always use migrations and `save_*_version()` functions.
+
 ### ❌ Wrong Index Condition
 
 ```sql
@@ -564,13 +578,13 @@ SELECT key, COUNT(*) FROM foo WHERE is_active = true GROUP BY key HAVING COUNT(*
 
 ## Appendix: Migration Numbering
 
-Current highest: `047`
+Current highest: `049`
 
-Next migration: `048_append_only_skills.sql`
+Next migration: `050_*.sql`
 
 When creating a new migration:
-1. Use the next number: `048`
-2. Use descriptive filename: `048_append_only_skills.sql`
+1. Use the next number: `050`
+2. Use descriptive filename: `050_*.sql`
 3. Follow the template in Section 6
 4. Run `make migrate` to apply
 5. Verify with the queries in Section 6

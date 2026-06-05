@@ -585,16 +585,18 @@ Hand-written JS files (only these 4):
 
 0. **☠️ NEVER delete data without explicit human confirmation** — No DELETE, DROP, or TRUNCATE on the database without the human explicitly asking for it. Even if the instruction seems to imply cleanup, ASK FIRST. Even one table. Even if it looks like obvious cleanup. When in doubt, ask. Data loss is permanent. PostgreSQL does not have an undo button.
 
-1. **Always run `pwd` first** — Before searching for files or exploring the project, run `pwd` to know your current working directory. Never assume the project root path. The project may be at a different location than expected (e.g., `/Users/jk/gits/hub/tools_ai/psypi`, not `/Users/jk/gits/hub/psypi`). Use `pwd` + `find` to locate files, never hardcoded paths.
+1. **☠️ NEVER use `psql` to modify database tables directly** — All database changes MUST go through migrations (`src/migrations/*.sql`) and Gleam code. Using `psql` to INSERT, UPDATE, or DELETE data bypasses the append-only pattern, breaks version history, and can corrupt the database. This has happened before and caused significant damage. If you need to change data, create a migration file and use `save_*_version()` functions.
 
-2. **Use Pi tools, not shell commands** — `/psypi-task-add`, not `psql` or CLI
-3. **Use `psypi-commit`** for commits (not `git commit`) — commits immediately with agent ID tag. Inter-review happens after, during A's autonomous time.
-4. **Read files first** — `read` then `edit` with exact match
-5. **Never spawn Pi from Pi tools** — infinite loop crash
-6. **Gleam types** — Enums are source of truth. Validate at boundary via `string_to_*()` → `Result`, never pass raw strings to SQL
-7. **Clean build** — Always `gleam clean && gleam build` before building
-8. **pnpm** — Not npm
-9. **☠️ NO FAKE GLEAM** — Never create `pi_*.gleam` modules. Never write JS code as Gleam string literals. Use `.mjs` + `@external` FFI instead. This is the #1 source of bugs.
+2. **Always run `pwd` first** — Before searching for files or exploring the project, run `pwd` to know your current working directory. Never assume the project root path. The project may be at a different location than expected (e.g., `/Users/jk/gits/hub/tools_ai/psypi`, not `/Users/jk/gits/hub/psypi`). Use `pwd` + `find` to locate files, never hardcoded paths.
+
+3. **Use Pi tools, not shell commands** — `/psypi-task-add`, not `psql` or CLI
+4. **Use `psypi-commit`** for commits (not `git commit`) — commits immediately with agent ID tag. Inter-review happens after, during A's autonomous time.
+5. **Read files first** — `read` then `edit` with exact match
+6. **Never spawn Pi from Pi tools** — infinite loop crash
+7. **Gleam types** — Enums are source of truth. Validate at boundary via `string_to_*()` → `Result`, never pass raw strings to SQL
+8. **Clean build** — Always `gleam clean && gleam build` before building
+9. **pnpm** — Not npm
+10. **☠️ NO FAKE GLEAM** — Never create `pi_*.gleam` modules. Never write JS code as Gleam string literals. Use `.mjs` + `@external` FFI instead. This is the #1 source of bugs.
 
 ## ⚠️ GOLDEN RULE: No Hand-Written JS in Gleam Code
 
