@@ -10,8 +10,10 @@ bin/
 *.ez
 erl_crash.dump
 
-# Node/npm (not used but may exist)
+# Node/npm (pure Gleam now, using gleam add)
 node_modules/
+pnpm-lock.yaml
+package.json
 
 # IDE
 .vscode/
