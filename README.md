@@ -1,6 +1,6 @@
 # psypi
 
-Pi TUI extension with dual AI agents (A-bot and S-bot) for autonomous code quality. Built in Gleam, compiled to JavaScript, backed by PostgreSQL.
+Pi TUI extension with dual AI agents (A-bot and S-bot) for autonomous code quality. Built in Gleam, compiled to JavaScript, backed by PostgreSQL. [MIT License](LICENSE)
 
 **A-bot** (Autonomic) reviews S-bot's work between sessions — quality guardian, PDCA's Check phase. **S-bot** (Somatic) executes tasks, writes code, uses tools — PDCA's Plan/Do/Act. They alternate like alternating current, never active simultaneously.
 
