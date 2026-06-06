@@ -3,8 +3,9 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/string
+import gleam/option.{Some}
 import db
-import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, raw_json}
+import pi_tool_call.{type PiToolCall, PiToolCall, string_param, param, int_param, raw_json}
 import project.{project_url}
 
 pub type Memory {
@@ -149,8 +150,8 @@ pub fn memory_search_tool() -> PiToolCall {
     module: "memory",
     fn_name: "search",
     args: [
-      from_param("params.query || ''"),
-      from_param("parseInt(params.limit || '10')"),
+      param("query", Some("")),
+      int_param("limit", 10),
     ],
     result_format: raw_json(),
   )

@@ -11,6 +11,7 @@
 //   2. execute returns { content: [{ type: "text", text: "..." }] }
 //   3. Import the Gleam-compiled .mjs module
 
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -29,9 +30,48 @@ pub type PiParam {
   PiParam(name: String, param_type: String, required: Bool)
 }
 
-pub type FnArg {
-  JsLiteral(String)
-  FromParam(String)
+// OLD FnArg — removed after migration to FnArgument
+
+// -------------------------------------------------------------------
+// FnArgument + ParamSrc (replace old FnArg + JsLiteral + FromParam)
+// -------------------------------------------------------------------
+
+/// Structured parameter source — describes WHERE to get a value.
+/// extension.js reads these at runtime to extract values from Pi callbacks.
+pub type ParamSrc {
+  /// params.name ?? default (e.g. params.title ?? "")
+  ParamField(name: String, default: Option(String))
+  /// params?.name ?? null (for optional filter params)
+  OptionalParamField(name: String)
+  /// parseInt(params?.name ?? String(default)) (for integer params from string input)
+  IntParamField(name: String, default: Int)
+  /// event?.name ?? default (for hook event properties)
+  EventField(name: String, default: Option(String))
+  /// JSON.stringify(event?.name ?? '') (for complex event data)
+  EventJsonField(name: String)
+  /// event?.input?.path || event?.input?.filePath || '' (for file edit hooks)
+  EventFilePath
+  /// ctx.name (e.g. ctx.model for session_start hook)
+  CtxField(name: String)
+  /// args || '' (for command handlers where params = args string)
+  ArgsField
+}
+
+/// Structured function argument — replaces JsLiteral + FromParam(String).
+/// Each variant describes WHAT to pass, not HOW (that's extension.js's job).
+pub type FnArgument {
+  /// Extract value from Pi callback params/event/ctx
+  FromParam(ParamSrc)
+  /// Pass the Pi ctx object directly
+  Ctx
+  /// Pass the Pi pi object directly
+  Pi
+  /// String constant (e.g. "psypi", "", "cli")
+  StringConst(String)
+  /// Integer constant (e.g. 5, 10)
+  IntConst(Int)
+  /// Null constant
+  NullConst
 }
 
 pub type PiToolCall {
@@ -41,7 +81,7 @@ pub type PiToolCall {
     params: List(PiParam),
     module: String,
     fn_name: String,
-    args: List(FnArg),
+    args: List(FnArgument),
     result_format: ResultFormat,
   )
 }
@@ -61,7 +101,7 @@ pub type PiEventHook {
     event_name: String,
     module: String,
     fn_name: String,
-    args: List(FnArg),
+    args: List(FnArgument),
     guard: Option(String),
     on_success: HookSuccessAction,
     on_error: HookErrorAction,
@@ -70,7 +110,7 @@ pub type PiEventHook {
     event_name: String,
     module: String,
     fn_name: String,
-    args: List(FnArg),
+    args: List(FnArgument),
     debounce_ms_module: String,
     debounce_ms_fn: String,
     cancel_on: List(String),
@@ -82,7 +122,7 @@ pub type PiEventHook {
     event_name: String,
     module: String,
     fn_name: String,
-    args: List(FnArg),
+    args: List(FnArgument),
     on_error: HookErrorAction,
   )
 }
@@ -93,7 +133,7 @@ pub type PiCommandReg {
     description: String,
     module: String,
     fn_name: String,
-    args: List(FnArg),
+    args: List(FnArgument),
     result_format: ResultFormat,
   )
 }
@@ -132,15 +172,59 @@ pub fn number_param(name: String) -> PiParam {
 }
 
 // -------------------------------------------------------------------
-// FnArg helpers
+// FnArgument + ParamSrc constructors
 // -------------------------------------------------------------------
 
-pub fn lit(arg: String) -> FnArg {
-  JsLiteral(arg)
+pub fn param(name: String, default: Option(String)) -> FnArgument {
+  FromParam(ParamField(name:, default:))
 }
 
-pub fn from_param(expr: String) -> FnArg {
-  FromParam(expr)
+pub fn opt_param(name: String) -> FnArgument {
+  FromParam(OptionalParamField(name:))
+}
+
+pub fn int_param(name: String, default: Int) -> FnArgument {
+  FromParam(IntParamField(name:, default:))
+}
+
+pub fn event_field(name: String, default: Option(String)) -> FnArgument {
+  FromParam(EventField(name:, default:))
+}
+
+pub fn event_json_field(name: String) -> FnArgument {
+  FromParam(EventJsonField(name:))
+}
+
+pub fn event_file_path() -> FnArgument {
+  FromParam(EventFilePath)
+}
+
+pub fn ctx_field(name: String) -> FnArgument {
+  FromParam(CtxField(name:))
+}
+
+pub fn args_field() -> FnArgument {
+  FromParam(ArgsField)
+}
+
+pub fn ctx() -> FnArgument {
+  Ctx
+}
+
+pub fn pi() -> FnArgument {
+  Pi
+}
+
+pub fn str(value: String) -> FnArgument {
+  StringConst(value)
+}
+
+pub fn int_val(value: Int) -> FnArgument {
+  IntConst(value)
+}
+
+pub fn null_val() -> FnArgument {
+  NullConst
 }
 
 // -------------------------------------------------------------------
@@ -195,15 +279,49 @@ pub fn params_to_js(params: List(PiParam)) -> String {
   }
 }
 
-pub fn args_to_js(args: List(FnArg)) -> String {
+pub fn args_to_js(args: List(FnArgument)) -> String {
   args
-  |> list.map(fn(a) {
-    case a {
-      JsLiteral(v) -> v
-      FromParam(e) -> e
-    }
-  })
+  |> list.map(fn(a) { fn_argument_to_js(a) })
   |> string.join(", ")
+}
+
+fn fn_argument_to_js(fa: FnArgument) -> String {
+  case fa {
+    FromParam(ps) -> param_src_to_js(ps)
+    Ctx -> "ctx"
+    Pi -> "pi"
+    StringConst(v) -> "\"" <> v <> "\""
+    IntConst(v) -> int.to_string(v)
+    NullConst -> "null"
+  }
+}
+
+fn param_src_to_js(ps: ParamSrc) -> String {
+  case ps {
+    ParamField(name, default) -> {
+      let default_js = case default {
+        Some(d) -> "\"" <> d <> "\""
+        None -> "\"\""
+      }
+      "params." <> name <> " ?? " <> default_js
+    }
+    OptionalParamField(name) -> "params?." <> name <> " ?? null"
+    IntParamField(name, default) ->
+      "parseInt(params?." <> name <> " ?? '" <> int.to_string(default) <> "')"
+    EventField(name, default) -> {
+      let default_js = case default {
+        Some(d) -> "\"" <> d <> "\""
+        None -> "''"
+      }
+      "event?." <> name <> " ?? " <> default_js
+    }
+    EventJsonField(name) ->
+      "JSON.stringify(event?." <> name <> " ?? '')"
+    EventFilePath ->
+      "event?.input?.path || event?.input?.filePath || ''"
+    CtxField(name) -> "ctx." <> name
+    ArgsField -> "args || ''"
+  }
 }
 
 pub fn result_to_js(format: ResultFormat) -> String {
@@ -280,6 +398,19 @@ fn success_action_to_js(action: HookSuccessAction) -> String {
   }
 }
 
+/// Generate JS that reports an error via pi.sendMessage (not ctx.ui.notify).
+///
+/// Per the Error reporting rule: errors must go through
+/// pi.sendMessage(customType="autonomic-error", triggerTurn=false,
+/// deliverAs="followUp"). ctx.ui.notify is for transient status only.
+fn hook_error_to_js(event_name: String, error_expr: String) -> String {
+  "pi.sendMessage({ customType: 'autonomic-error', content: 'Hook "
+  <> event_name
+  <> " error: ' + "
+  <> error_expr
+  <> ", display: true }, { triggerTurn: false, deliverAs: 'followUp' });"
+}
+
 pub fn hook_import_line(module: String, fn_name: String) -> String {
   let base = "./build/dev/javascript/psypi"
   let alias = module <> "_" <> fn_name
@@ -297,16 +428,11 @@ pub fn hook_import_line(module: String, fn_name: String) -> String {
 pub fn hook_call_expr(
   module: String,
   fn_name: String,
-  args: List(FnArg),
+  args: List(FnArgument),
 ) -> String {
   let args_js =
     args
-    |> list.map(fn(a) {
-      case a {
-        JsLiteral(v) -> v
-        FromParam(e) -> e
-      }
-    })
+    |> list.map(fn(a) { fn_argument_to_js(a) })
     |> string.join(", ")
   module <> "_" <> fn_name <> "(" <> args_js <> ")"
 }
@@ -316,24 +442,11 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
     PiSystemPromptHook(event_name:, module:, fn_name:, args:, on_error:) -> {
       let import_ln = hook_import_line(module, fn_name)
       let call = hook_call_expr(module, fn_name, args)
-      // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
-      // This `ctx.ui.notify(..., 'error')` is generated into extension.js
-      // and runs for every PiSystemPromptHook failure. It violates the
-      // Error reporting rule — ctx.ui.notify is for status only, not
-      // Errors. Errors must go through pi.sendMessage with
-      // customType="autonomic-error", triggerTurn=false, deliverAs="followUp".
-      //
-      // The hook has a `pi` reference available (see the arrow function
-      // `pi.on('...', async (event, ctx) => { ... })` — the surrounding
-      // extension.js scope has it), so pi.sendMessage IS reachable here.
-      // This must be migrated when the hook-error pipeline is refactored.
-      // DO NOT add new hooks that rely on this NotifyError path.
       let error_catch = case on_error {
         NotifyError ->
-          "      ctx.ui.notify('Hook "
-          <> event_name
-          <> " error: ' + (e.message || String(e)), 'error');\n"
+          hook_error_to_js(event_name, "(e.message || String(e))") <> "\n"
       }
+      let failed_result_js = hook_error_to_js(event_name, "r.error") <> "\n"
       [
         "  // Event hook (system prompt): " <> event_name,
         "  pi.on('" <> event_name <> "', async (event, ctx) => {",
@@ -342,14 +455,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      const result = await " <> call <> ";",
         "      const r = unwrapGleamResult(result);",
         "      if (r.ok) { return { systemPrompt: r.value }; }",
-        // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
-        // Same as the error_catch above — `ctx.ui.notify(..., 'error')`
-        // swallows the Error. A hook failed result must surface as
-        // pi.sendMessage(customType="autonomic-error", ...). See the
-        // block-comment on error_catch for the migration plan.
-        "      else { ctx.ui.notify('Hook "
-          <> event_name
-          <> " failed: ' + r.error, 'error'); }",
+        "      else { " <> failed_result_js <> " }",
         "      await event_hooks_record_trigger('" <> event_name <> "');",
         "    } catch(e) {",
         error_catch,
@@ -382,20 +488,11 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         None -> ""
       }
       let success_js = success_action_to_js(on_success)
-      // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
-      // Same pattern as the PiSystemPromptHook branch above. The
-      // generated `ctx.ui.notify(..., 'error')` swallows the Error.
-      // PiEventHook failure paths must route through
-      // pi.sendMessage(customType="autonomic-error", triggerTurn=false,
-      // deliverAs="followUp"). The `pi` reference is in scope inside
-      // the generated `pi.on('...', async (event, ctx) => { ... })`
-      // block, so the migration is mechanical. See ADR-pi-send-message-abuse.md.
       let error_catch = case on_error {
         NotifyError ->
-          "      ctx.ui.notify('Hook "
-          <> event_name
-          <> " error: ' + (e.message || String(e)), 'error');\n"
+          hook_error_to_js(event_name, "(e.message || String(e))") <> "\n"
       }
+      let failed_result_js = hook_error_to_js(event_name, "r.error") <> "\n"
       [
         "  // Event hook: " <> event_name,
         "  pi.on('" <> event_name <> "', async (event, ctx) => {",
@@ -405,12 +502,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      const result = await " <> call <> ";",
         "      const r = unwrapGleamResult(result);",
         "      if (r.ok) { " <> success_js <> " }",
-        // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
-        // Same as the error_catch above. A hook failed result must
-        // surface as pi.sendMessage(customType="autonomic-error", ...).
-        "      else { ctx.ui.notify('Hook "
-          <> event_name
-          <> " failed: ' + r.error, 'error'); }",
+        "      else { " <> failed_result_js <> " }",
         "      await event_hooks_record_trigger('" <> event_name <> "');",
         guard_suffix,
         "    } catch(e) {",
@@ -440,20 +532,19 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let hook_import_ln = hook_import_line(module, fn_name)
       let call = hook_call_expr(module, fn_name, args)
       let success_js = success_action_to_js(on_success)
-      // ⚠️ ERROR REPORTING BUG (generated JS, debounced hook inner catch) ⚠️
-      // This is the catch inside the setTimeout(...) callback that fires
-      // when the debounce timer elapses. The `pi` reference is in
-      // scope, so the proper Error path is pi.sendMessage with
-      // customType="autonomic-error", triggerTurn=false,
-      // deliverAs="followUp". DO NOT just swap to triggerTurn=true —
-      // that would re-introduce the "panic on any error" wake-S
-      // behaviour the user has explicitly banned.
       let error_catch = case on_error {
         NotifyError ->
-          "        ctx.ui.notify('Hook "
-          <> event_name
-          <> " error: ' + (e.message || String(e)), 'error');\n"
+          hook_error_to_js(event_name, "(e.message || String(e))") <> "\n"
       }
+      let failed_result_js = hook_error_to_js(event_name, "r.error") <> "\n"
+      let debounce_config_error_js =
+        hook_error_to_js(event_name, "'debounce config: ' + dr.error") <> "\n"
+      let outer_catch_js =
+        hook_error_to_js(
+          event_name,
+          "'debounce setup: ' + (e.message || String(e))",
+        )
+        <> "\n"
       let cancel_js =
         cancel_on
         |> list.map(fn(ev) {
@@ -470,11 +561,6 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
             "  // Cancel debounce timer on: " <> ev,
             "  pi.on('" <> ev <> "', async (_event, _ctx) => {",
             mark_worked,
-            // ✅ OK: this ctx.ui.notify is a STATUS message, not an Error.
-            // It tells the human that the timer was cancelled. The toast
-            // is appropriate because there is no Error — the cancellation
-            // is expected behaviour. (If S was making progress, A's wait
-            // is correctly aborted; that's not an error condition.)
             "    if (_debounceTimerId) { clearTimeout(_debounceTimerId); _debounceTimerId = null; _ctx.ui.notify('[A-agentbot] Waiting cancelled — "
               <> cancel_msg
               <> "', 'status'); }",
@@ -500,13 +586,7 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "      if (_debounceMs == null) {",
         "        const debounceResult = await " <> debounce_call <> ";",
         "        const dr = unwrapGleamResult(debounceResult);",
-        // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
-        // Failure to read the debounce config (e.g. DB unavailable) is
-        // an Error — must use pi.sendMessage(customType="autonomic-error",
-        // triggerTurn=false, deliverAs="followUp").
-        "        if (!dr.ok) { ctx.ui.notify('Hook "
-          <> event_name
-          <> " <ERROR> debounce config: ' + dr.error, 'error'); return; }",
+        "        if (!dr.ok) { " <> debounce_config_error_js <> "  return; }",
         "        _debounceMs = dr.value;",
         "      }",
         "      _debounceTimerId = setTimeout(async () => {",
@@ -517,33 +597,15 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
         "          const result = await " <> call <> ";",
         "          const r = unwrapGleamResult(result);",
         "          if (r.ok) { " <> success_js <> " }",
-        // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
-        // Failure of the actual A-bot call (e.g. read_soul_from_db,
-        // call_monitor) is an Error — must use pi.sendMessage
-        // (customType="autonomic-error", triggerTurn=false,
-        // deliverAs="followUp"). This is the most critical site because
-        // hook_on_agent_end.on_agent_end fails silently otherwise —
-        // S never sees that A broke.
-        "          else { ctx.ui.notify('Hook "
-          <> event_name
-          <> " failed: ' + r.error, 'error'); }",
+        "          else { " <> failed_result_js <> " }",
         "          await event_hooks_record_trigger('" <> event_name <> "');",
         "        } catch(e) {",
         error_catch,
         "        }",
         "      }, _debounceMs);",
-        // ✅ OK: status message, not an Error. Tells the human A is
-        // waiting for S to become idle. This is exactly the kind of
-        // transient status message ctx.ui.notify is meant for.
         "      if (!_wasWaiting) { ctx.ui.notify('[A-agentbot] Waiting for S to become idle...', 'status'); }",
         "    } catch(e) {",
-        // ⚠️ ERROR REPORTING BUG (generated JS) ⚠️
-        // Outer catch around the debounce setup itself. Same rule —
-        // must route through pi.sendMessage(customType="autonomic-error",
-        // triggerTurn=false, deliverAs="followUp").
-        "      ctx.ui.notify('Hook "
-          <> event_name
-          <> " debounce error: ' + (e.message || String(e)), 'error');",
+        outer_catch_js,
         "    }",
         "  });",
         "",
@@ -623,7 +685,7 @@ pub fn system_prompt_hook(
   event_name: String,
   module: String,
   fn_name: String,
-  args: List(FnArg),
+  args: List(FnArgument),
   on_error: HookErrorAction,
 ) -> PiEventHook {
   PiSystemPromptHook(event_name:, module:, fn_name:, args:, on_error:)
@@ -633,7 +695,7 @@ pub fn event_hook(
   event_name: String,
   module: String,
   fn_name: String,
-  args: List(FnArg),
+  args: List(FnArgument),
   guard: Option(String),
   on_success: HookSuccessAction,
   on_error: HookErrorAction,
@@ -653,7 +715,7 @@ pub fn debounced_hook(
   event_name: String,
   module: String,
   fn_name: String,
-  args: List(FnArg),
+  args: List(FnArgument),
   debounce_ms_module: String,
   debounce_ms_fn: String,
   cancel_on: List(String),
@@ -684,7 +746,7 @@ pub fn command(
   description: String,
   module: String,
   fn_name: String,
-  args: List(FnArg),
+  args: List(FnArgument),
   result_format: ResultFormat,
 ) -> PiCommandReg {
   PiCommandReg(name:, description:, module:, fn_name:, args:, result_format:)

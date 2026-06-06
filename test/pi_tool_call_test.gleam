@@ -2,10 +2,12 @@ import gleeunit
 import gleeunit/should
 import pi_tool_call.{
   PiToolCall, Accent, Error as ThemeError, args_to_js, command, command_to_js,
-  debounced_hook, event_hook, event_hook_to_js, from_param, hook_call_expr,
-  hook_import_line, lit, message_renderer, message_renderer_to_js, number_param,
+  debounced_hook, event_hook, event_hook_to_js, hook_call_expr,
+  hook_import_line, message_renderer, message_renderer_to_js, number_param,
   opt_string_param, params_to_js, raw_json, result_to_js, string_param,
   system_prompt_hook, template, to_import_line, to_js_text, Warning,
+  param, ctx, pi, str, int_val, null_val, args_field, event_field,
+  event_json_field, event_file_path, ctx_field, opt_param, int_param,
 }
 import gleam/option.{None, Some}
 import gleam/string
@@ -65,19 +67,22 @@ pub fn args_to_js_empty_test() {
   args_to_js([]) |> should.equal("")
 }
 
-pub fn args_to_js_literals_test() {
-  args_to_js([lit("42"), lit("'hello'")])
-  |> should.equal("42, 'hello'")
+pub fn args_to_js_fn_argument_test() {
+  // StringConst and IntConst
+  args_to_js([str("hello"), int_val(42)])
+  |> should.equal("\"hello\", 42")
 }
 
-pub fn args_to_js_from_param_test() {
-  args_to_js([from_param("params.query")])
-  |> should.equal("params.query")
+pub fn args_to_js_param_test() {
+  // ParamField generates params.name ?? "default"
+  args_to_js([param("query", Some(""))])
+  |> should.equal("params.query ?? \"\"")
 }
 
 pub fn args_to_js_mixed_test() {
-  args_to_js([lit("ctx"), from_param("params.path")])
-  |> should.equal("ctx, params.path")
+  // Ctx + ParamField
+  args_to_js([ctx(), param("path", Some(""))])
+  |> should.equal("ctx, params.path ?? \"\"")
 }
 
 pub fn result_to_js_raw_json_test() {
@@ -97,7 +102,7 @@ pub fn to_js_text_basic_test() {
     params: [string_param("path")],
     module: "tool_read_file",
     fn_name: "execute",
-    args: [from_param("params.path")],
+    args: [param("path", Some(""))],
     result_format: raw_json(),
   )
   let js = to_js_text(tool)
@@ -106,7 +111,7 @@ pub fn to_js_text_basic_test() {
   should.be_true(string.contains(js, "description: \"Read a file\""))
   should.be_true(string.contains(js, "async execute"))
   should.be_true(string.contains(js, "unwrapGleamResult"))
-  should.be_true(string.contains(js, "tool_read_file_execute(params.path)"))
+  should.be_true(string.contains(js, "tool_read_file_execute(params.path ?? \"\")"))
 }
 
 pub fn to_js_text_no_params_test() {
@@ -150,8 +155,8 @@ pub fn hook_call_expr_test() {
 }
 
 pub fn hook_call_expr_with_args_test() {
-  hook_call_expr("mod", "fn", [lit("42"), from_param("event")])
-  |> should.equal("mod_fn(42, event)")
+  hook_call_expr("mod", "fn", [int_val(42), event_field("data", None)])
+  |> should.equal("mod_fn(42, event?.data ?? '')")
 }
 
 pub fn event_hook_to_js_basic_test() {
@@ -236,7 +241,6 @@ pub fn debounced_hook_timer_dedup_test() {
     pi_tool_call.NotifyError,
   )
   let js = event_hook_to_js(hook)
-  // Timer dedup: clearTimeout before starting new timer
   should.be_true(string.contains(js, "clearTimeout"))
   should.be_true(string.contains(js, "_debounceTimerId"))
 }
@@ -255,7 +259,6 @@ pub fn debounced_hook_debounce_caching_test() {
     pi_tool_call.NotifyError,
   )
   let js = event_hook_to_js(hook)
-  // DebounceMs should be cached at module level (read once)
   should.be_true(string.contains(js, "_debounceMs"))
   should.be_true(string.contains(js, "_debounceMs == null"))
 }
@@ -266,14 +269,14 @@ pub fn command_to_js_test() {
     "Compact conversation",
     "cmd_compact",
     "run",
-    [from_param("args")],
+    [args_field()],
     raw_json(),
   )
   let js = command_to_js(cmd)
   should.be_true(string.contains(js, "pi.registerCommand"))
   should.be_true(string.contains(js, "\"compact\""))
   should.be_true(string.contains(js, "Compact conversation"))
-  should.be_true(string.contains(js, "cmd_compact_run(args)"))
+  should.be_true(string.contains(js, "cmd_compact_run(args || '')"))
 }
 
 pub fn command_to_js_template_result_test() {
@@ -360,4 +363,56 @@ pub fn message_renderer_no_details_test() {
   let js = message_renderer_to_js(renderer)
   should.be_true(string.contains(js, "pi.registerMessageRenderer('simple-msg'"))
   should.be_false(string.contains(js, "message.details"))
+}
+
+// FnArgument-specific tests
+
+pub fn param_src_to_js_param_field_test() {
+  args_to_js([param("title", Some("default"))])
+  |> should.equal("params.title ?? \"default\"")
+}
+
+pub fn param_src_to_js_optional_param_test() {
+  args_to_js([opt_param("status")])
+  |> should.equal("params?.status ?? null")
+}
+
+pub fn param_src_to_js_int_param_test() {
+  args_to_js([int_param("limit", 10)])
+  |> should.equal("parseInt(params?.limit ?? '10')")
+}
+
+pub fn param_src_to_js_event_field_test() {
+  args_to_js([event_field("toolName", None)])
+  |> should.equal("event?.toolName ?? ''")
+}
+
+pub fn param_src_to_js_event_json_field_test() {
+  args_to_js([event_json_field("result")])
+  |> should.equal("JSON.stringify(event?.result ?? '')")
+}
+
+pub fn param_src_to_js_event_file_path_test() {
+  args_to_js([event_file_path()])
+  |> should.equal("event?.input?.path || event?.input?.filePath || ''")
+}
+
+pub fn param_src_to_js_ctx_field_test() {
+  args_to_js([ctx_field("model")])
+  |> should.equal("ctx.model")
+}
+
+pub fn param_src_to_js_args_field_test() {
+  args_to_js([args_field()])
+  |> should.equal("args || ''")
+}
+
+pub fn fn_argument_ctx_pi_test() {
+  args_to_js([ctx(), pi()])
+  |> should.equal("ctx, pi")
+}
+
+pub fn fn_argument_null_test() {
+  args_to_js([null_val()])
+  |> should.equal("null")
 }

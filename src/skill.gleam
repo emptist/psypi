@@ -4,7 +4,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import db
-import pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template}
+import pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, opt_param, param, template}
 
 pub type SkillSource {
   Clawhub
@@ -318,7 +318,7 @@ pub fn skill_list_tool() -> PiToolCall {
     params: [opt_string_param("status")],
     module: "skill",
     fn_name: "list",
-    args: [from_param("params?.status || null")],
+    args: [opt_param("status")],
     result_format: template("Skills: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
@@ -331,7 +331,7 @@ pub fn skill_get_tool() -> PiToolCall {
     params: [string_param("id")],
     module: "skill",
     fn_name: "get",
-    args: [from_param("params.id || \"\"")],
+    args: [param("id", Some(""))],
     result_format: template("Skill: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
@@ -344,7 +344,7 @@ pub fn skill_search_tool() -> PiToolCall {
     params: [string_param("query")],
     module: "skill",
     fn_name: "search",
-    args: [from_param("params.query || \"\"")],
+    args: [param("query", Some(""))],
     result_format: template("Search results: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }

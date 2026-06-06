@@ -3,7 +3,8 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/string
 import db
-import pi_tool_call.{type PiToolCall, PiToolCall, string_param, number_param, from_param, template}
+import pi_tool_call.{type PiToolCall, PiToolCall, string_param, number_param, param, int_param, str, template}
+import gleam/option.{Some}
 import project.{project_url}
 
 pub type LearningError {
@@ -99,10 +100,10 @@ pub fn learn_save_tool() -> PiToolCall {
     module: "learning",
     fn_name: "save",
     args: [
-      from_param("params.content || \"\""),
-      from_param("params.tags || ''"),
-      from_param("(params.importance || 5)"),
-      from_param("'psypi'"),
+      param("content", Some("")),
+      param("tags", Some("")),
+      int_param("importance", 5),
+      str("psypi"),
     ],
     result_format: template("Learning saved"),
   )

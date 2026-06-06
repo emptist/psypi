@@ -37,7 +37,8 @@ import pi_tool_call.{
   type PiCommandReg, type PiEventHook, type PiMessageRenderer, type PiToolCall,
   Accent, Error as ThemeError, NotifyError, PiParam, PiToolCall, SilentSuccess,
   Warning, command_to_js, debounced_hook, event_hook, event_hook_to_js,
-  from_param, lit, message_renderer, message_renderer_to_js, raw_json,
+  param, event_field, event_json_field, event_file_path, ctx, pi, ctx_field,
+  message_renderer, message_renderer_to_js, raw_json,
   system_prompt_hook, to_import_line, to_js_text,
 }
 import skill.{skill_get_tool, skill_list_tool, skill_search_tool}
@@ -114,12 +115,10 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       "hook_on_tool_call",
       "on_tool_call",
       [
-        from_param("event.toolName || ''"),
-        from_param(
-          "event.input ? (event.input.path || event.input.filePath || '') : ''",
-        ),
-        lit("ctx"),
-        lit("pi"),
+        event_field("toolName", None),
+        event_file_path(),
+        ctx(),
+        pi(),
       ],
       None,
       SilentSuccess,
@@ -129,7 +128,7 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       "session_start",
       "monitor",
       "record_current_model",
-      [from_param("ctx.model")],
+      [ctx_field("model")],
       Some("ctx.model"),
       SilentSuccess,
       NotifyError,
@@ -138,7 +137,7 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       "model_select",
       "monitor",
       "record_current_model",
-      [from_param("event.model")],
+      [event_field("model", None)],
       Some("event.model"),
       SilentSuccess,
       NotifyError,
@@ -163,7 +162,7 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       "agent_end",
       "hook_on_agent_end",
       "on_agent_end",
-      [lit("ctx"), lit("pi")],
+      [ctx(), pi()],
       "psypi_config",
       "get_debounce_ms",
       ["agent_start", "input"],
@@ -176,9 +175,9 @@ pub fn all_event_hooks() -> List(PiEventHook) {
       "hook_on_tool_result",
       "on_tool_result",
       [
-        from_param("JSON.stringify(event.result || '')"),
-        from_param("event.toolName || ''"),
-        lit("pi"),
+        event_json_field("result"),
+        event_field("toolName", None),
+        pi(),
       ],
       None,
       SilentSuccess,
@@ -300,7 +299,7 @@ fn consult_tool() -> PiToolCall {
     ],
     module: "tool_consult",
     fn_name: "on_consult",
-    args: [from_param("params.question || ''"), lit("ctx")],
+    args: [param("question", Some("")), ctx()],
     result_format: raw_json(),
   )
 }
@@ -315,9 +314,9 @@ fn commit_tool() -> PiToolCall {
     module: "tool_commit",
     fn_name: "on_commit",
     args: [
-      from_param("params.message || ''"),
-      lit("ctx"),
-      lit("pi"),
+      param("message", Some("")),
+      ctx(),
+      pi(),
     ],
     result_format: raw_json(),
   )

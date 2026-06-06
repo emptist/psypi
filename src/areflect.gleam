@@ -4,9 +4,10 @@ import gleam/int
 import gleam/javascript/promise
 import gleam/list
 import gleam/result
+import gleam/option.{Some}
 import gleam/string
 import db
-import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
+import pi_tool_call.{type PiToolCall, PiToolCall, string_param, param, str, template}
 import project.{project_url}
 
 pub type ReflectionError {
@@ -294,8 +295,8 @@ pub fn areflect_tool() -> PiToolCall {
     module: "areflect",
     fn_name: "areflect",
     args: [
-      from_param("params.text || \"\""),
-      from_param("'psypi'"),
+      param("text", Some("")),
+      str("psypi"),
     ],
     result_format: template("Reflection: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )

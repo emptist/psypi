@@ -1,5 +1,7 @@
+import gleam/option.{Some}
 import pi_tool_call.{
-  type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template,
+  type PiToolCall, PiToolCall, int_param, opt_param, opt_string_param, param,
+  string_param, template,
 }
 
 pub fn review_create_tool() -> PiToolCall {
@@ -16,12 +18,12 @@ pub fn review_create_tool() -> PiToolCall {
     module: "system_review_db",
     fn_name: "create_review",
     args: [
-      from_param("params.review_type || \"system\""),
-      from_param("params.title || \"\""),
-      from_param("params.description || \"\""),
-      from_param("params.methodology || \"mixed\""),
-      from_param("params.scope || \"full\""),
-      from_param("params.reviewer_id || \"psypi\""),
+      param("review_type", Some("system")),
+      param("title", Some("")),
+      param("description", Some("")),
+      param("methodology", Some("mixed")),
+      param("scope", Some("full")),
+      param("reviewer_id", Some("psypi")),
     ],
     result_format: template("Review created: ${r.value}"),
   )
@@ -34,8 +36,10 @@ pub fn review_get_tool() -> PiToolCall {
     params: [string_param("id")],
     module: "system_review_db",
     fn_name: "get_review",
-    args: [from_param("params.id || \"\"")],
-    result_format: template("Review: ${JSON.stringify(gleamValueToJson(r.value))}"),
+    args: [param("id", Some(""))],
+    result_format: template(
+      "Review: ${JSON.stringify(gleamValueToJson(r.value))}",
+    ),
   )
 }
 
@@ -50,12 +54,14 @@ pub fn review_list_tool() -> PiToolCall {
     module: "system_review_db",
     fn_name: "list_reviews",
     args: [
-      from_param("params?.status || null"),
-      from_param("params?.review_type || null"),
-      from_param("parseInt(params?.limit || '20')"),
-      from_param("parseInt(params?.offset || '0')"),
+      opt_param("status"),
+      opt_param("review_type"),
+      int_param("limit", 20),
+      int_param("offset", 0),
     ],
-    result_format: template("Reviews: ${JSON.stringify(gleamValueToJson(r.value))}"),
+    result_format: template(
+      "Reviews: ${JSON.stringify(gleamValueToJson(r.value))}",
+    ),
   )
 }
 
@@ -77,15 +83,15 @@ pub fn finding_add_tool() -> PiToolCall {
     module: "system_review_db",
     fn_name: "add_finding",
     args: [
-      from_param("params.review_id || \"\""),
-      from_param("parseInt(params.finding_number || '1')"),
-      from_param("params.severity || \"medium\""),
-      from_param("params.category || \"general\""),
-      from_param("params.module || \"\""),
-      from_param("params.title || \"\""),
-      from_param("params.description || \"\""),
-      from_param("params.evidence || \"\""),
-      from_param("params.impact || \"\""),
+      param("review_id", Some("")),
+      int_param("finding_number", 1),
+      param("severity", Some("medium")),
+      param("category", Some("general")),
+      param("module", Some("")),
+      param("title", Some("")),
+      param("description", Some("")),
+      param("evidence", Some("")),
+      param("impact", Some("")),
     ],
     result_format: template("Finding added: ${r.value}"),
   )
@@ -103,13 +109,15 @@ pub fn finding_list_tool() -> PiToolCall {
     module: "system_review_db",
     fn_name: "list_findings",
     args: [
-      from_param("params.review_id || \"\""),
-      from_param("params?.severity || null"),
-      from_param("params?.status || null"),
-      from_param("parseInt(params?.limit || '200')"),
-      from_param("parseInt(params?.offset || '0')"),
+      param("review_id", Some("")),
+      opt_param("severity"),
+      opt_param("status"),
+      int_param("limit", 200),
+      int_param("offset", 0),
     ],
-    result_format: template("Findings: ${JSON.stringify(gleamValueToJson(r.value))}"),
+    result_format: template(
+      "Findings: ${JSON.stringify(gleamValueToJson(r.value))}",
+    ),
   )
 }
 
@@ -125,9 +133,9 @@ pub fn finding_count_tool() -> PiToolCall {
     module: "system_review_db",
     fn_name: "count_findings",
     args: [
-      from_param("params.review_id || \"\""),
-      from_param("params?.severity || null"),
-      from_param("params?.status || null"),
+      param("review_id", Some("")),
+      opt_param("severity"),
+      opt_param("status"),
     ],
     result_format: template("Count: ${r.value}"),
   )
@@ -144,8 +152,8 @@ pub fn finding_update_status_tool() -> PiToolCall {
     module: "system_review_db",
     fn_name: "update_finding_status",
     args: [
-      from_param("params.id || \"\""),
-      from_param("params.status || \"open\""),
+      param("id", Some("")),
+      param("status", Some("open")),
     ],
     result_format: template("Finding updated: ${r.value}"),
   )
@@ -158,7 +166,7 @@ pub fn review_complete_tool() -> PiToolCall {
     params: [string_param("id")],
     module: "system_review_db",
     fn_name: "complete_review",
-    args: [from_param("params.id || \"\"")],
+    args: [param("id", Some(""))],
     result_format: template("Review completed: ${r.value}"),
   )
 }
@@ -170,7 +178,9 @@ pub fn review_severity_breakdown_tool() -> PiToolCall {
     params: [string_param("review_id")],
     module: "system_review_db",
     fn_name: "severity_breakdown",
-    args: [from_param("params.review_id || \"\"")],
-    result_format: template("Severity breakdown: ${JSON.stringify(gleamValueToJson(r.value))}"),
+    args: [param("review_id", Some(""))],
+    result_format: template(
+      "Severity breakdown: ${JSON.stringify(gleamValueToJson(r.value))}",
+    ),
   )
 }

@@ -1,7 +1,8 @@
 // issue_tools.gleam — Issue Pi tool registrations
 
+import gleam/option.{Some}
 import pi_tool_call.{
-  type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template,
+  type PiToolCall, PiToolCall, string_param, opt_string_param, param, opt_param, int_param, template,
 }
 
 pub fn issue_add_tool() -> PiToolCall {
@@ -17,11 +18,11 @@ pub fn issue_add_tool() -> PiToolCall {
     module: "issue_db",
     fn_name: "add",
     args: [
-      from_param("params.title || \"\""),
-      from_param("params.description || \"\""),
-      from_param("params.severity || \"medium\""),
-      from_param("params.issue_type || \"bug\""),
-      from_param("params.created_by || \"psypi\""),
+      param("title", Some("")),
+      param("description", Some("")),
+      param("severity", Some("medium")),
+      param("issue_type", Some("bug")),
+      param("created_by", Some("psypi")),
     ],
     result_format: template("Issue added: ${r.value}"),
   )
@@ -40,12 +41,12 @@ pub fn issue_list_tool() -> PiToolCall {
     module: "issue_db",
     fn_name: "list",
     args: [
-      from_param("params?.status || null"),
-      from_param("params?.severity || null"),
-      from_param("params?.issue_type || null"),
-      from_param("params?.project_id || null"),
-      from_param("parseInt(params?.limit || '50')"),
-      from_param("parseInt(params?.offset || '0')"),
+      opt_param("status"),
+      opt_param("severity"),
+      opt_param("issue_type"),
+      opt_param("project_id"),
+      int_param("limit", 50),
+      int_param("offset", 0),
     ],
     result_format: template("Issues: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
@@ -64,10 +65,10 @@ pub fn issue_count_tool() -> PiToolCall {
     module: "issue_db",
     fn_name: "count",
     args: [
-      from_param("params?.status || null"),
-      from_param("params?.severity || null"),
-      from_param("params?.issue_type || null"),
-      from_param("params?.project_id || null"),
+      opt_param("status"),
+      opt_param("severity"),
+      opt_param("issue_type"),
+      opt_param("project_id"),
     ],
     result_format: template("Count: ${r.value}"),
   )
@@ -80,7 +81,7 @@ pub fn issue_get_tool() -> PiToolCall {
     params: [string_param("id")],
     module: "issue_db",
     fn_name: "get",
-    args: [from_param("params.id || \"\"")],
+    args: [param("id", Some(""))],
     result_format: template("Issue: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
@@ -96,8 +97,8 @@ pub fn issue_resolve_tool() -> PiToolCall {
     module: "issue_db",
     fn_name: "resolve",
     args: [
-      from_param("params.id || \"\""),
-      from_param("params.resolution || \"resolved\""),
+      param("id", Some("")),
+      param("resolution", Some("resolved")),
     ],
     result_format: template("Issue resolved: ${r.value}"),
   )

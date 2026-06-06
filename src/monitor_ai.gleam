@@ -7,7 +7,7 @@ import gleam/list
 import gleam/string
 import pi_tool_call.{
   type PiCommandReg, type PiToolCall, PiToolCall, command, raw_json,
-  template, from_param, lit,
+  template, args_field, ctx, pi,
 }
 import project.{project_url}
 
@@ -454,7 +454,7 @@ pub fn autonomic_listen_command() -> PiCommandReg {
     "Talk to Monitor AI directly - human and Monitor exchange in chat",
     "command_listen",
     "on_autonomic_listen",
-    [from_param("args || ''"), lit("ctx"), lit("pi")],
+    [args_field(), ctx(), pi()],
     raw_json(),
   )
 }
@@ -465,7 +465,7 @@ pub fn autonomic_reload_command() -> PiCommandReg {
     "Reload Pi extensions - used after Monitor modifies its own Gleam code",
     "command_reload",
     "on_autonomic_reload",
-    [lit("ctx")],
+    [ctx()],
     raw_json(),
   )
 }

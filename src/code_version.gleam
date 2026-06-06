@@ -1,8 +1,9 @@
+import gleam/option.{Some}
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import db.{type DbError, type Connection, with_connection}
-import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, from_param, string_param}
+import pi_tool_call.{type PiToolCall, PiToolCall, raw_json, param, int_param, string_param}
 
 // Save a file version to database
 // Returns: Ok(version_id) or Error(DbError)
@@ -146,11 +147,11 @@ pub fn doc_save_tool() -> PiToolCall {
     module: "code_version",
     fn_name: "save_version",
     args: [
-      from_param("params.file_path || \"\""),
-      from_param("params.content || \"\""),
-      from_param("params.saved_by || \"unknown\""),
-      from_param("params.commit_hash || \"\""),
-      from_param("params.reason || \"manual save\""),
+      param("file_path", Some("")),
+      param("content", Some("")),
+      param("saved_by", Some("unknown")),
+      param("commit_hash", Some("")),
+      param("reason", Some("manual save")),
     ],
     result_format: raw_json(),
   )
@@ -165,8 +166,8 @@ pub fn doc_list_tool() -> PiToolCall {
     module: "code_version",
     fn_name: "get_versions",
     args: [
-      from_param("params.file_path || \"\""),
-      from_param("parseInt(params.limit || '10')"),
+      param("file_path", Some("")),
+      int_param("limit", 10),
     ],
     result_format: raw_json(),
   )

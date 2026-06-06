@@ -6,8 +6,8 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import pi_tool_call.{
-  type PiToolCall, PiToolCall, raw_json, template, lit, from_param, string_param,
-  opt_string_param,
+  type PiToolCall, PiToolCall, raw_json, template, string_param,
+  opt_string_param, param, opt_param, str, int_val,
 }
 import project.{project_url}
 
@@ -241,10 +241,10 @@ pub fn task_add_tool() -> PiToolCall {
     module: "task",
     fn_name: "add",
     args: [
-      from_param("params.title || \"\""),
-      lit("\"\""),
-      lit("5"),
-      lit("\"cli\""),
+      param("title", Some("")),
+      str(""),
+      int_val(5),
+      str("cli"),
     ],
     result_format: template("Task: ${r.value}"),
   )
@@ -258,7 +258,7 @@ pub fn task_list_tool() -> PiToolCall {
     module: "task",
     fn_name: "list",
     args: [
-      from_param("params?.status || null"),
+      opt_param("status"),
     ],
     result_format: raw_json(),
   )
@@ -272,7 +272,7 @@ pub fn task_complete_tool() -> PiToolCall {
     module: "task",
     fn_name: "complete",
     args: [
-      from_param("params.task_id || \"\""),
+      param("task_id", Some("")),
     ],
     result_format: template("Task completed: ${r.value}"),
   )

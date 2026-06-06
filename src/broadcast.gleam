@@ -4,7 +4,7 @@ import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/option.{type Option, None, Some}
-import pi_tool_call.{type PiToolCall, PiToolCall, string_param, from_param, template}
+import pi_tool_call.{type PiToolCall, PiToolCall, string_param, param, str, null_val, int_param, template}
 import project.{project_url}
 
 pub type BroadcastPriority {
@@ -283,9 +283,9 @@ pub fn broadcast_send_tool() -> PiToolCall {
     module: "broadcast",
     fn_name: "send",
     args: [
-      from_param("'psypi'"),
-      from_param("params.message || \"\""),
-      from_param("params.priority || 'normal'"),
+      str("psypi"),
+      param("message", Some("")),
+      param("priority", Some("normal")),
     ],
     result_format: template("Broadcast sent: ${r.value}"),
   )
@@ -300,8 +300,8 @@ pub fn broadcast_list_tool() -> PiToolCall {
     module: "broadcast",
     fn_name: "list",
     args: [
-      from_param("null"),
-      from_param("parseInt(params.limit || '10')"),
+      null_val(),
+      int_param("limit", 10),
     ],
     result_format: template("Broadcasts: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )

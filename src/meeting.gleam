@@ -5,7 +5,7 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, from_param, template}
+import pi_tool_call.{type PiToolCall, PiToolCall, string_param, opt_string_param, param, opt_param, null_val, template}
 
 pub type MeetingStatus {
   Active
@@ -326,7 +326,7 @@ pub fn meeting_list_tool() -> PiToolCall {
     params: [opt_string_param("status")],
     module: "meeting",
     fn_name: "list",
-    args: [from_param("params?.status || null")],
+    args: [opt_param("status")],
     result_format: template("Meetings: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
@@ -339,7 +339,7 @@ pub fn meeting_get_tool() -> PiToolCall {
     params: [string_param("id")],
     module: "meeting",
     fn_name: "get",
-    args: [from_param("params.id || \"\"")],
+    args: [param("id", Some(""))],
     result_format: template("Meeting: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
@@ -352,7 +352,7 @@ pub fn meeting_opinions_tool() -> PiToolCall {
     params: [string_param("meeting_id")],
     module: "meeting",
     fn_name: "list_opinions",
-    args: [from_param("params.meeting_id || \"\"")],
+    args: [param("meeting_id", Some(""))],
     result_format: template("Opinions: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
@@ -365,7 +365,7 @@ pub fn meeting_create_tool() -> PiToolCall {
     params: [string_param("topic"), opt_string_param("created_by")],
     module: "meeting",
     fn_name: "create",
-    args: [from_param("params.topic || \"\""), from_param("params.created_by || \"psypi\"")],
+    args: [param("topic", Some("")), param("created_by", Some("psypi"))],
     result_format: template("Meeting created: ${JSON.stringify(gleamValueToJson(r.value))}"),
   )
 }
@@ -379,11 +379,11 @@ pub fn meeting_say_tool() -> PiToolCall {
     module: "meeting",
     fn_name: "add_opinion",
     args: [
-      from_param("params.meeting_id || \"\""),
-      from_param("params.author || \"psypi\""),
-      from_param("params.message || \"\""),
-      from_param("null"),
-      from_param("null"),
+      param("meeting_id", Some("")),
+      param("author", Some("psypi")),
+      param("message", Some("")),
+      null_val(),
+      null_val(),
     ],
     result_format: template("Opinion added: ${r.value}"),
   )
