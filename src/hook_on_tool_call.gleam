@@ -1,8 +1,9 @@
 import gleam/javascript/promise
 import gleam/string
 import gleam/list
+import simplifile
 import code_version
-import pi_extension.{pi_send_message, read_file_sync, set_status}
+import pi_extension.{pi_send_message, set_status}
 import psypi_config
 
 fn extract_filename(path: String) -> String {
@@ -26,22 +27,9 @@ pub fn on_tool_call(
       case file_path == "" {
         True -> promise.resolve(Ok(Nil))
         False -> {
-          case read_file_sync(file_path) {
-            // ✅ CORRECT: Error reporting via pi_send_message. The auto-
-            // backup read failure is an Error that must be persisted to
-            // the conversation log; the local set_status below is a
-            // status-line update for the TUI footer, NOT the Error
-            // reporting channel.
-            //   customType  = "autonomic-error"
-            //   triggerTurn = False  ← do NOT wake S on a tool call error;
-            //                          S will react when next legitimately
-            //                          woken (e.g. on next A review, next
-            //                          human input).
-            //   deliverAs   = "followUp"
-            // Waking S on a single file-read error would be the "panic
-            // on any error" pattern the user has explicitly banned.
+          case simplifile.read(file_path) {
             Error(e) -> {
-              let msg = "[FAIL] read: " <> e <> " | path: " <> file_path <> " | tool: " <> tool_name <> " | note: file exists on disk but FFI returned error — possible stale pi_extension_ffi.mjs in Node cache. Restart Pi TUI."
+              let msg = "[FAIL] read: " <> simplifile.describe_error(e) <> " | path: " <> file_path <> " | tool: " <> tool_name
               set_status(ctx, "psypi-autobackup", msg)
               pi_send_message(pi, "autonomic-error", "[A-agentbot] Auto-backup read failed: " <> msg, "persistent", False, "followUp")
               promise.resolve(Error(msg))

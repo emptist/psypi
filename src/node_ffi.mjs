@@ -55,18 +55,6 @@ export function get_database_port() {
   return port ? parseInt(port, 10) : 5432;
 }
 
-// Ensure directory exists
-export function ensure_dir(path) {
-  const fs = require('fs');
-  fs.mkdirSync(path, { recursive: true });
-}
-
-// Write text file
-export function write_text_file(path, content) {
-  const fs = require('fs');
-  fs.writeFileSync(path, content, 'utf8');
-}
-
 // Current time in milliseconds
 export function now_ms() {
   return new Ok(Date.now());

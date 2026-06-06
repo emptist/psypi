@@ -21,7 +21,6 @@
 // this out as a non-negotiable invariant (2026-06-04).
 // ============================================================
 
-import { readFileSync } from 'fs';
 import { Ok, Error } from './gleam.mjs';
 import { completeSimple, getModel } from '@earendil-works/pi-ai';
 
@@ -192,18 +191,6 @@ export async function call_monitor(ctx, userPrompt, systemPrompt) {
     return new Ok(text);
   } catch (e) {
     return new Error(e.message || 'callMonitor failed');
-  }
-}
-
-export function read_file_sync(path) {
-  try {
-    if (path === undefined || path === null) return new Error('path is ' + String(path));
-    if (path === '') return new Error('path is empty string');
-    const content = readFileSync(String(path), 'utf-8');
-    return new Ok(content);
-  } catch (e) {
-    const msg = (e && e.message) ? String(e.message) : 'Read failed (no error message)';
-    return new Error(msg);
   }
 }
 

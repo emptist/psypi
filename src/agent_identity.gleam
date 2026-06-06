@@ -1,5 +1,5 @@
 import agent_identity_types.{
-  type IdentityContext, type IdentityError, IdentityContext, ConnectionError,
+  type IdentityError, IdentityContext, ConnectionError,
   QueryError, NotFound, semantic_id,
 }
 import db
@@ -9,7 +9,24 @@ import gleam/int
 import gleam/javascript/promise
 import gleam/list
 import gleam/string
-import pi_tool_call.{type PiToolCall, PiToolCall, lit, raw_json}
+import pi_tool_call.{
+  type PiToolCall, PiToolCall, raw_json, ctx as ctx_arg,
+}
+
+// Local FFI declarations for ctx accessor functions.
+// These are in agent_identity_ffi.mjs (NOT pi_extension_ffi.mjs)
+// to avoid pulling in @earendil-works/pi-ai at module load time.
+@external(javascript, "./agent_identity_ffi.mjs", "ctx_is_idle")
+fn ctx_is_idle(ctx: a) -> Bool
+
+@external(javascript, "./agent_identity_ffi.mjs", "ctx_get_source")
+fn ctx_get_source(ctx: a) -> String
+
+@external(javascript, "./agent_identity_ffi.mjs", "ctx_get_model_id")
+fn ctx_get_model_id(ctx: a) -> String
+
+@external(javascript, "./agent_identity_ffi.mjs", "ctx_get_thinking_level")
+fn ctx_get_thinking_level(ctx: a) -> String
 import simplifile
 
 /// Get the current working directory from the OS.
@@ -53,8 +70,12 @@ fn resolve_project(cwd: String) -> String {
   }
 }
 
-@external(javascript, "./agent_identity_ffi.mjs", "check_git_exists")
-fn check_git_exists(cwd: String) -> Bool
+fn check_git_exists(cwd: String) -> Bool {
+  case simplifile.is_directory(cwd <> "/.git") {
+    Ok(True) -> True
+    _ -> False
+  }
+}
 
 pub fn compute_id(
   is_idle: Bool,
@@ -162,9 +183,18 @@ fn fetch_jobs_by_prefix(prefix: String) -> promise.Promise(Result(List(String), 
   }, db_error_to_identity_error)
 }
 
+/// Get enriched identity from Pi ctx object.
+/// Uses FFI functions to extract ctx properties (is_idle, source, model, etc.)
+/// instead of constructing a JS object literal via JsLiteral.
 pub fn get_enriched_identity(
-  ctx: IdentityContext,
+  ctx: a,
 ) -> promise.Promise(Result(EnrichedIdentity, IdentityError)) {
+  // Extract ctx properties via FFI
+  let is_idle = ctx_is_idle(ctx)
+  let source = ctx_get_source(ctx)
+  let model = ctx_get_model_id(ctx)
+  let thinking_level = ctx_get_thinking_level(ctx)
+
   // Read current directory from OS — NOT from ctx.cwd
   let cwd = current_cwd()
   let project = resolve_project(cwd)
@@ -174,16 +204,16 @@ pub fn get_enriched_identity(
   }
 
   let resolved_ctx = IdentityContext(
-    is_idle: ctx.is_idle,
+    is_idle: is_idle,
     project: project,
-    source: ctx.source,
-    model: ctx.model,
-    thinking_level: ctx.thinking_level,
+    source: source,
+    model: model,
+    thinking_level: thinking_level,
     global: global,
     cwd: cwd,
   )
 
-  let prefix = case ctx.is_idle {
+  let prefix = case is_idle {
     True -> "A"
     False -> "S"
   }
@@ -209,9 +239,9 @@ pub fn get_enriched_identity(
                   drive_mode: drive_mode,
                   activation: activation,
                   project: project,
-                  model: ctx.model,
-                  source: ctx.source,
-                  thinking_level: ctx.thinking_level,
+                  model: model,
+                  source: source,
+                  thinking_level: thinking_level,
                   jobs: jobs,
                 )))
             }
@@ -231,13 +261,7 @@ pub fn my_id_tool() -> PiToolCall {
     params: [],
     module: "agent_identity",
     fn_name: "get_enriched_identity",
-    args: [
-      lit(
-        "({ is_idle: ctx.isIdle(), source: (ctx.model?.provider || ''), "
-        <> "model: (ctx.model?.id || ''), "
-        <> "thinking_level: (ctx.model?.thinkingLevel || '') })",
-      ),
-    ],
+    args: [ctx_arg()],
     result_format: raw_json(),
   )
 }
