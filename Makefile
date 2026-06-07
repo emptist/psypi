@@ -1,4 +1,4 @@
-.PHONY: setup build migrate seed start minimal clean help
+.PHONY: setup build migrate seed start minimal clean test help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -24,3 +24,6 @@ minimal: ## Start Pi in minimal mode (no session/skills)
 
 clean: ## Clean build artifacts
 	rm -rf build/ extension.js
+
+test: ## Run tests
+	gleam test

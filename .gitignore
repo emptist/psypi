@@ -27,9 +27,18 @@ pnpm-workspace.yaml
 .tmp/
 .trae/
 ppitest*.mjs
+fix_agent_end.py
+extension_test.js
 
-# Pending deletion review
-to_be_deleted/
+# Session artifacts (keep in docs/ if needed)
+CURRENT-STATE.md
+REFACTOR-NOTES.md
+HANDOVER.md
+migration-plan.txt
+SESSION-SUMMARY-*.md
+
+# Planning (internal, not for public repo)
+.planning/
 
 # Skills (managed globally at ~/.agents/skills/, project copy in .pi/project-skills/)
 .pi/skills/
@@ -37,7 +46,6 @@ to_be_deleted/
 # OS
 .DS_Store
 
-# GitHub
-.github/
+# Generated JS (extension.js is regenerated at runtime)
 *.js
 *.db

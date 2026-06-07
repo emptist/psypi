@@ -12,7 +12,7 @@ licences = ["MIT"]
 # Fill out these fields if you intend to generate HTML documentation or publish
 # your project to the Hex package manager.
 #
-# repository = { type = "github", user = "", repo = "" }
+repository = { type = "github", user = "emptist", repo = "psypi" }
 # links = [{ title = "Website", href = "" }]
 #
 # For a full reference of all the available options, you can have a look at
