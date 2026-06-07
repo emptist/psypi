@@ -4,6 +4,7 @@ import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/int
 import gleam/javascript/promise
+import gleam/option
 import gleam/result
 import gleam/string
 
@@ -115,4 +116,82 @@ pub fn get_last_a_session_at() -> promise.Promise(Result(String, String)) {
 fn config_value_decoder() -> decode.Decoder(String) {
   use value <- decode.field("value", decode.string)
   decode.success(value)
+}
+
+/// Read key concepts that A-bot MUST understand to do its Check work correctly.
+/// Only database semantics (is_archived, is_active) — these are field-level
+/// meanings that A must not get wrong when reviewing S's code.
+/// Other concepts A can ask S about via turn-based dialogue.
+pub fn read_key_concepts_for_a() -> promise.Promise(Result(String, String)) {
+  db.with_connection(
+    fn(conn) {
+      let sql =
+        "SELECT concept_key, term, definition, context, examples, anti_patterns, related_concepts "
+        <> "FROM key_concept_definitions "
+        <> "WHERE category = 'database' AND is_active = true AND is_archived = false "
+        <> "ORDER BY concept_key"
+      promise.map(db.query(conn, sql, []), fn(query_result) {
+        case query_result {
+          Error(e) -> Error(db_error_to_string(e))
+          Ok(result) ->
+            case result.rows {
+              [] -> Ok("")
+              rows ->
+                rows
+                |> decode_rows(concept_row_decoder())
+                |> result.map(format_concepts)
+            }
+        }
+      })
+    },
+    db_error_to_string,
+  )
+}
+
+fn concept_row_decoder() -> decode.Decoder(String) {
+  use concept_key <- decode.field("concept_key", decode.string)
+  use term <- decode.field("term", decode.string)
+  use definition <- decode.field("definition", decode.string)
+  use context <- decode.field("context", decode.optional(decode.string))
+  use examples <- decode.field("examples", decode.optional(decode.string))
+  use anti_patterns <- decode.field(
+    "anti_patterns",
+    decode.optional(decode.string),
+  )
+  use related <- decode.field(
+    "related_concepts",
+    decode.optional(decode.list(decode.string)),
+  )
+  let ctx = option.unwrap(context, "")
+  let ex = option.unwrap(examples, "")
+  let anti = option.unwrap(anti_patterns, "")
+  let rel = case related {
+    option.Some(r) -> string.join(r, ", ")
+    option.None -> ""
+  }
+  let parts = [
+    "### " <> term <> " (" <> concept_key <> ")",
+    definition,
+    case ctx {
+      "" -> ""
+      _ -> "**When/where**: " <> ctx
+    },
+    case ex {
+      "" -> ""
+      _ -> "**Correct usage**: " <> ex
+    },
+    case anti {
+      "" -> ""
+      _ -> "**Common mistakes**: " <> anti
+    },
+    case rel {
+      "" -> ""
+      _ -> "**Related**: " <> rel
+    },
+  ]
+  decode.success(string.join(parts, "\n"))
+}
+
+fn format_concepts(lines: List(String)) -> String {
+  string.join(lines, "\n\n")
 }

@@ -10,11 +10,13 @@ const default_review_score: Int = 50
 pub fn build_system_prompt(
   soul_content: String,
   a_jobs: String,
+  key_concepts: String,
   context_window: Int,
 ) -> PromptComposition {
   let budget = context_window / 4
   new_composition(budget)
   |> add_soul_content(soul_content)
+  |> add_key_concepts(key_concepts)
   |> add_a_jobs(a_jobs)
 }
 
@@ -39,6 +41,26 @@ fn add_a_jobs(
         comp,
         directive_component(
           "## Your Jobs (from database, ordered by priority):\n" <> jobs,
+          High,
+        ),
+      )
+  }
+}
+
+fn add_key_concepts(
+  comp: PromptComposition,
+  concepts: String,
+) -> PromptComposition {
+  case concepts == "" {
+    True -> comp
+    False ->
+      add_component(
+        comp,
+        directive_component(
+          "## Key Concepts You MUST Understand Correctly:\n"
+          <> "These are field-level semantics you rely on when checking S's work. "
+          <> "Getting these wrong means wrong reviews.\n\n"
+          <> concepts,
           High,
         ),
       )

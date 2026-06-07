@@ -98,171 +98,131 @@ fn run_a_bot(ctx: a, pi: b) -> promise.Promise(Result(Nil, String)) {
                       }
                       let _ = ctx_notify(ctx, "[A-agentbot] Getting recent commits...", "status")
                       let commit_info = get_recent_commits(last_session)
-                      let _ = ctx_notify(ctx, "[A-agentbot] Building system prompt...", "status")
-                      let system_prompt =
-                        system_prompt_types.compose(a_prompt_builder.build_system_prompt(
-                          soul_content,
-                          a_jobs,
-                          context_window,
-                        ))
-                      let _ = ctx_notify(ctx, "[A-agentbot] Building user prompt...", "status")
-                      let user_prompt =
-                        a_prompt_builder.build_user_prompt(
-                          usage_json,
-                          entries_json,
-                          cwd,
-                          "",
-                          commit_info,
-                        )
-                      let _ = ctx_notify(ctx, "[A-agentbot] Calling monitor...", "status")
+                      let _ = ctx_notify(ctx, "[A-agentbot] Reading key concepts...", "status")
                       promise.await(
-                        call_monitor(ctx, user_prompt, system_prompt),
-                        fn(monitor_result) {
-                          case monitor_result {
-                            Ok(response) -> {
-                              let #(response, ids_stripped) = strip_hallucinated_ids(response)
-                              case ids_stripped {
-                                True ->
-                                  ctx_notify(
-                                    ctx,
-                                    "[A-agentbot] Stripped hallucinated ID string(s) from response before save",
-                                    "info",
-                                  )
-                                False -> Nil
-                              }
-                              case ctx_is_idle(ctx) {
-                                True -> {
-                                  let _ = ctx_notify(ctx, "[A-agentbot] Updating session time...", "status")
-                                  let _ = psypi_config.set(
-                                    "last_a_session_at",
-                                    int.to_string(now_ms()),
-                                  )
-                                  let _ = ctx_notify(ctx, "[A-agentbot] Saving inter-review to database...", "status")
-                                  let score = a_prompt_builder.parse_review_score(response)
-                                  promise.await(
-                                    inter_review.save(
-                                      "A-agentbot",
-                                      response,
-                                      score,
-                                      "[]",
-                                      "[]",
-                                    ),
-                                    fn(save_result) {
-                                      case save_result {
-                                        Ok(review_id) -> {
-                                          let tagged = case string.starts_with(response, "[A]") || string.starts_with(response, "[A-agentbot]") {
-                                            True -> response
-                                            False -> "[A-agentbot] " <> response
+                        a_db_reader.read_key_concepts_for_a(),
+                        fn(concepts_result) {
+                          let key_concepts = case concepts_result {
+                            Ok(c) -> c
+                            Error(_) -> ""
+                          }
+                          let _ = ctx_notify(ctx, "[A-agentbot] Building system prompt...", "status")
+                          let system_prompt =
+                            system_prompt_types.compose(a_prompt_builder.build_system_prompt(
+                              soul_content,
+                              a_jobs,
+                              key_concepts,
+                              context_window,
+                            ))
+                          let _ = ctx_notify(ctx, "[A-agentbot] Building user prompt...", "status")
+                          let user_prompt =
+                            a_prompt_builder.build_user_prompt(
+                              usage_json,
+                              entries_json,
+                              cwd,
+                              "",
+                              commit_info,
+                            )
+                          let _ = ctx_notify(ctx, "[A-agentbot] Calling monitor...", "status")
+                          promise.await(
+                            call_monitor(ctx, user_prompt, system_prompt),
+                            fn(monitor_result) {
+                              case monitor_result {
+                                Ok(response) -> {
+                                  let #(response, ids_stripped) = strip_hallucinated_ids(response)
+                                  case ids_stripped {
+                                    True ->
+                                      ctx_notify(
+                                        ctx,
+                                        "[A-agentbot] Stripped hallucinated ID string(s) from response before save",
+                                        "info",
+                                      )
+                                    False -> Nil
+                                  }
+                                  case ctx_is_idle(ctx) {
+                                    True -> {
+                                      let _ = ctx_notify(ctx, "[A-agentbot] Updating session time...", "status")
+                                      let _ = psypi_config.set(
+                                        "last_a_session_at",
+                                        int.to_string(now_ms()),
+                                      )
+                                      let _ = ctx_notify(ctx, "[A-agentbot] Saving inter-review to database...", "status")
+                                      let score = a_prompt_builder.parse_review_score(response)
+                                      promise.await(
+                                        inter_review.save(
+                                          "A-agentbot",
+                                          response,
+                                          score,
+                                          "[]",
+                                          "[]",
+                                        ),
+                                        fn(save_result) {
+                                          case save_result {
+                                            Ok(review_id) -> {
+                                              let tagged = case string.starts_with(response, "[A]") || string.starts_with(response, "[A-agentbot]") {
+                                                True -> response
+                                                False -> "[A-agentbot] " <> response
+                                              }
+                                              let msg_with_id = tagged <> "\n\n[inter-review id: " <> review_id <> "]"
+                                              pi_send_message(
+                                                pi,
+                                                "autonomic-wakeup",
+                                                msg_with_id,
+                                                "persistent",
+                                                True,
+                                                "followUp",
+                                              )
+                                            }
+                                            Error(save_err) -> {
+                                              let save_err_str = inter_review_error_to_string(save_err)
+                                              let _ = ctx_notify(
+                                                ctx,
+                                                "[A-agentbot] <ERROR> inter-review save failed: " <> save_err_str,
+                                                "error",
+                                              )
+                                              let tagged = case string.starts_with(response, "[A]") || string.starts_with(response, "[A-agentbot]") {
+                                                True -> response
+                                                False -> "[A-agentbot] " <> response
+                                              }
+                                              let msg_for_s = "[SAVE FAILED] A's inter-review could not be persisted to the database ("
+                                                <> save_err_str
+                                                <> "). S, please consider saving this manually via psypi-inter-reviews.\n\n"
+                                                <> tagged
+                                              pi_send_message(
+                                                pi,
+                                                "autonomic-wakeup",
+                                                msg_for_s,
+                                                "persistent",
+                                                True,
+                                                "followUp",
+                                              )
+                                            }
                                           }
-                                          let msg_with_id = tagged <> "\n\n[inter-review id: " <> review_id <> "]"
-                                          // ✅ CORRECT: This is a legitimate
-                                          // "wake S after A finished its
-                                          // work" call (A's review is saved
-                                          // with an ID, A is done, S should
-                                          // pick it up and act). Per the
-                                          // Error reporting system rule:
-                                          //   customType  = "autonomic-wakeup"
-                                          //   triggerTurn = True  ← only allowed
-                                          //                              when A has
-                                          //                              finished
-                                          //                              work or is
-                                          //                              stuck
-                                          //   deliverAs   = "followUp"
-                                          // DO NOT copy this triggerTurn=True
-                                          // pattern into an Error path — that
-                                          // is the "panic on any error"
-                                          // behaviour the user has banned.
-                                          pi_send_message(
-                                            pi,
-                                            "autonomic-wakeup",
-                                            msg_with_id,
-                                            "persistent",
-                                            True,
-                                            "followUp",
-                                          )
-                                        }
-                                        Error(save_err) -> {
-                                          // ⚠️ Mixed case: the local toast
-                                          // below uses ctx_notify with the
-                                          // string "<ERROR> ...", which
-                                          // violates the Error reporting
-                                          // rule (ctx.ui.notify is not an
-                                          // Error path). It is acceptable
-                                          // here ONLY because the
-                                          // conversation log message that
-                                          // follows (msg_for_s) carries
-                                          // the real Error to S via
-                                          // pi_send_message — the local
-                                          // toast is just a heads-up for
-                                          // the human. Migration target:
-                                          // drop the ctx_notify and rely
-                                          // on the wake-up message alone.
-                                          let save_err_str = inter_review_error_to_string(save_err)
-                                          let _ = ctx_notify(
-                                            ctx,
-                                            "[A-agentbot] <ERROR> inter-review save failed: " <> save_err_str,
-                                            "error",
-                                          )
-                                          let tagged = case string.starts_with(response, "[A]") || string.starts_with(response, "[A-agentbot]") {
-                                            True -> response
-                                            False -> "[A-agentbot] " <> response
-                                          }
-                                          let msg_for_s = "[SAVE FAILED] A's inter-review could not be persisted to the database ("
-                                            <> save_err_str
-                                            <> "). S, please consider saving this manually via psypi-inter-reviews.\n\n"
-                                            <> tagged
-                                          // ✅ CORRECT: This is the second
-                                          // legitimate triggerTurn=True
-                                          // case — A's work is BLOCKED
-                                          // (could not persist the
-                                          // review) and A is stuck. The
-                                          // user has explicitly approved
-                                          // waking S in this scenario so
-                                          // S can decide whether to save
-                                          // the review manually. Same
-                                          // (customType, deliverAs) tuple
-                                          // as the success branch above.
-                                          pi_send_message(
-                                            pi,
-                                            "autonomic-wakeup",
-                                            msg_for_s,
-                                            "persistent",
-                                            True,
-                                            "followUp",
-                                          )
-                                        }
-                                      }
+                                          promise.resolve(Ok(Nil))
+                                        },
+                                      )
+                                    }
+                                    False -> {
+                                      let _ = ctx_notify(ctx, "[A-agentbot] Cancelled due to user activity", "status")
                                       promise.resolve(Ok(Nil))
-                                    },
-                                  )
+                                    }
+                                  }
                                 }
-                                False -> {
-                                  let _ = ctx_notify(ctx, "[A-agentbot] Cancelled due to user activity", "status")
+                                Error(e) -> {
+                                  let _ = ctx_notify(ctx, "[A-agentbot] Monitor error occurred", "status")
+                                  pi_send_message(
+                                    pi,
+                                    "autonomic-error",
+                                    "[A-agentbot] <ERROR> call_monitor: " <> e,
+                                    "persistent",
+                                    False,
+                                    "followUp",
+                                  )
                                   promise.resolve(Ok(Nil))
                                 }
                               }
-                            }
-                            Error(e) -> {
-                              // ✅ CORRECT: Error reporting via pi_send_message.
-                              // Same (customType="autonomic-error",
-                              // triggerTurn=False, deliverAs="followUp")
-                              // contract as the other error sites in this
-                              // file. The local ctx_notify below is a
-                              // status toast for the human, NOT the
-                              // Error reporting channel — the real Error
-                              // goes through pi_send_message.
-                              let _ = ctx_notify(ctx, "[A-agentbot] Monitor error occurred", "status")
-                              pi_send_message(
-                                pi,
-                                "autonomic-error",
-                                "[A-agentbot] <ERROR> call_monitor: " <> e,
-                                "persistent",
-                                False,
-                                "followUp",
-                              )
-                              promise.resolve(Ok(Nil))
-                            }
-                          }
+                            },
+                          )
                         },
                       )
                     },

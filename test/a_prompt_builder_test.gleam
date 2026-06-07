@@ -11,20 +11,20 @@ pub fn main() {
 // --- build_system_prompt: soul content ---
 
 pub fn build_system_prompt_includes_soul_test() {
-  let comp = a_prompt_builder.build_system_prompt("You are A-bot.", "", 128000)
+  let comp = a_prompt_builder.build_system_prompt("You are A-bot.", "", "", 128000)
   let text = compose(comp)
   should.be_true(string.contains(text, "You are A-bot."))
 }
 
 pub fn build_system_prompt_empty_soul_omits_soul_section_test() {
-  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
+  let comp = a_prompt_builder.build_system_prompt("", "", "", 128000)
   let text = compose(comp)
   should.be_false(string.contains(text, "--- soul"))
 }
 
 pub fn build_system_prompt_soul_appears_in_output_test() {
   let comp =
-    a_prompt_builder.build_system_prompt("Review code carefully", "", 128000)
+    a_prompt_builder.build_system_prompt("Review code carefully", "", "", 128000)
   let text = compose(comp)
   should.be_true(string.contains(text, "Review code carefully"))
 }
@@ -35,6 +35,7 @@ pub fn build_system_prompt_includes_jobs_test() {
   let comp = a_prompt_builder.build_system_prompt(
     "",
     "1. [review] Inter-review S code changes\n2. [unblock] Unblock stuck S jobs",
+    "",
     128000,
   )
   let text = compose(comp)
@@ -44,13 +45,13 @@ pub fn build_system_prompt_includes_jobs_test() {
 }
 
 pub fn build_system_prompt_no_jobs_omits_jobs_section_test() {
-  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
+  let comp = a_prompt_builder.build_system_prompt("", "", "", 128000)
   let text = compose(comp)
   should.be_false(string.contains(text, "Your Jobs"))
 }
 
 pub fn build_system_prompt_placeholder_jobs_omits_jobs_section_test() {
-  let comp = a_prompt_builder.build_system_prompt("", "  (no active jobs)", 128000)
+  let comp = a_prompt_builder.build_system_prompt("", "  (no active jobs)", "", 128000)
   let text = compose(comp)
   should.be_false(string.contains(text, "Your Jobs"))
 }
@@ -58,7 +59,7 @@ pub fn build_system_prompt_placeholder_jobs_omits_jobs_section_test() {
 // --- build_system_prompt: budget ---
 
 pub fn build_system_prompt_budget_is_quarter_of_context_window_test() {
-  let comp = a_prompt_builder.build_system_prompt("", "", 128000)
+  let comp = a_prompt_builder.build_system_prompt("", "", "", 128000)
   comp.budget.total_tokens |> should.equal(32000)
 }
 

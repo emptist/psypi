@@ -84,33 +84,45 @@ pub fn on_autonomic_listen(
                       "[AUTONOMIC] A thinking about human message...",
                       "status",
                     )
-                  let system_prompt =
-                    system_prompt_types.compose(
-                      a_prompt_builder.build_system_prompt(
-                        soul_content,
-                        a_jobs,
-                        default_context_window,
-                      ),
-                    )
-                  let user_prompt = build_user_prompt(args)
                   promise.await(
-                    call_monitor(ctx, user_prompt, system_prompt),
-                    fn(result) {
-                      case result {
-                        Ok(response) ->
-                          finish_autonomic_listen(response, ctx, pi)
-                        Error(e) -> {
-                          pi_send_message(
-                            pi,
-                            "autonomic-error",
-                            "[A-agentbot] <ERROR> call_monitor: " <> e,
-                            "persistent",
-                            False,
-                            "followUp",
-                          )
-                          promise.resolve(Error("A failed to process: " <> e))
-                        }
+                    a_db_reader.read_key_concepts_for_a(),
+                    fn(concepts_result) {
+                      let key_concepts = case concepts_result {
+                        Ok(c) -> c
+                        Error(_) -> ""
                       }
+                      let system_prompt =
+                        system_prompt_types.compose(
+                          a_prompt_builder.build_system_prompt(
+                            soul_content,
+                            a_jobs,
+                            key_concepts,
+                            default_context_window,
+                          ),
+                        )
+                      let user_prompt = build_user_prompt(args)
+                      promise.await(
+                        call_monitor(ctx, user_prompt, system_prompt),
+                        fn(result) {
+                          case result {
+                            Ok(response) ->
+                              finish_autonomic_listen(response, ctx, pi)
+                            Error(e) -> {
+                              pi_send_message(
+                                pi,
+                                "autonomic-error",
+                                "[A-agentbot] <ERROR> call_monitor: " <> e,
+                                "persistent",
+                                False,
+                                "followUp",
+                              )
+                              promise.resolve(
+                                Error("A failed to process: " <> e),
+                              )
+                            }
+                          }
+                        },
+                      )
                     },
                   )
                 }
