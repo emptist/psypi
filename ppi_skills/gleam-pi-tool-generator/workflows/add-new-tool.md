@@ -2,6 +2,7 @@
 
 ## Required Reading
 - `references/pi-toolcall-type.md` — PiToolCall type and helpers
+- `references/fn-argument.md` — FnArgument + ParamSrc structured types
 - `references/architecture.md` — Generator flow
 
 ## Process
@@ -21,7 +22,10 @@ pub fn my_function(param1: String, param2: Int) -> promise.Promise(Result(SomeTy
 In the same module, add a public function that returns a `PiToolCall`:
 
 ```gleam
-import psypi_cli/pi_tool_call.{PiToolCall, raw_json, template, lit, from_param, string_param, opt_string_param}
+import pi_tool_call.{
+  PiToolCall, raw_json, template, string_param, opt_string_param,
+  param, opt_param, int_param, str, int_val, null_val,
+}
 
 pub fn my_tool() -> PiToolCall {
   PiToolCall(
@@ -31,8 +35,10 @@ pub fn my_tool() -> PiToolCall {
     module: "my_module",
     fn_name: "my_function",
     args: [
-      from_param("params.param1"),
-      from_param("params?.param2 || 0"),
+      param("param1", Some("")),     // required param with default
+      opt_param("param2"),            // optional param (nullable)
+      int_param("limit", 50),         // integer param with default
+      str("psypi"),                   // hardcoded string constant
     ],
     result_format: raw_json(),
   )
@@ -43,25 +49,25 @@ pub fn my_tool() -> PiToolCall {
 - `module` = filename without `.gleam` extension
 - `fn_name` = public function name in that module
 - `args` order must match the function's parameter order
-- Use `lit()` for hardcoded values, `from_param()` for tool params
-- String literals need escaped quotes: `lit("\"value\"")`
+- Use `param()` for required params, `opt_param()` for optional params
+- Use `str()` for string constants, `int_val()` for integer constants
+- Use `int_param()` for integer params from tool input
+- **NEVER use `lit()` or `from_param()`** — these functions no longer exist
+- **NEVER use `custom_js()`** — use `raw_json()` or `template()` instead
 
 ### Step 3: Import in Generator
 
 In `extension_generator.gleam`:
 
 ```gleam
-import psypi_cli/my_module.{my_tool}
+import my_module.{my_tool}
 ```
 
 Add to `all_tools()`:
 ```gleam
 pub fn all_tools() -> List(PiToolCall) {
   [
-    my_id_tool(),
-    partner_id_tool(),
-    task_add_tool(),
-    task_list_tool(),
+    // ... existing tools
     my_tool(),  // ← new
   ]
 }
@@ -70,20 +76,19 @@ pub fn all_tools() -> List(PiToolCall) {
 ### Step 4: Build and Generate
 
 ```bash
-cd gleam/psypi_core
-gleam build
-gleam run -m psypi_cli/extension_generator
+gleam clean && gleam build
 ```
 
 ### Step 5: Verify
 
-Check `extension.js`:
-- New tool's `pi.registerTool({...})` block present
+Run `./bin/ppi.mjs` and check:
+- New tool's `pi.registerTool({...})` block present in generated extension.js
 - Import statement for the module present
 - No duplicate imports
 
 ## Success Criteria
-- [ ] `gleam build` succeeds (type-safe)
-- [ ] `gleam run -m psypi_cli/extension_generator` writes `extension.js`
-- [ ] New tool appears in `extension.js`
+- [ ] `gleam clean && gleam build` succeeds (type-safe)
+- [ ] `./bin/ppi.mjs` starts without error
+- [ ] New tool appears in Pi
 - [ ] No hand-editing of `extension.js`
+- [ ] No `lit()`, `from_param()`, or `custom_js()` used

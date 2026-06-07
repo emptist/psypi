@@ -5,12 +5,12 @@
 ```gleam
 pub type PiToolCall {
   PiToolCall(
-    name: String,           // Pi tool name, e.g. "psypi-my-id"
-    description: String,     // Shown to the LLM
-    params: List(PiParam),   // Pi tool parameters
-    module: String,          // Gleam module name (without .gleam), e.g. "agent_identity"
-    fn_name: String,         // Function name in that module, e.g. "get_resolved_identity"
-    args: List(FnArg),       // Arguments passed to the function
+    name: String,              // Pi tool name, e.g. "psypi-my-id"
+    description: String,       // Shown to the LLM
+    params: List(PiParam),     // Pi tool parameters
+    module: String,            // Gleam module name (without .gleam), e.g. "agent_identity"
+    fn_name: String,           // Function name in that module, e.g. "get_resolved_identity"
+    args: List(FnArgument),    // Arguments passed to the function
     result_format: ResultFormat,  // How to format the tool result
   )
 }
@@ -31,66 +31,82 @@ opt_string_param("status")         // optional:       { "status": { type: "strin
 number_param("count")              // required number: { "count": { type: "number" } }
 ```
 
-Generated JS TypeBox schema:
-- Required: `{ "name": { type: "string" } }`
-- Optional: `{ "name": { type: "string", optional: true } }`
+## FnArgument — Function Arguments
 
-## FnArg — Function Arguments
+See `references/fn-argument.md` for full details.
 
 ```gleam
-pub type FnArg {
-  JsLiteral(String)    // Literal JS expression, e.g. "false", "\"psypi\"", "_sessionId"
-  FromParam(String)    // Read from tool params, e.g. "params.title || \"\""
+pub type FnArgument {
+  FromParam(ParamSrc)    // Extract from Pi callback params/event/ctx
+  Ctx                    // Pass Pi ctx object
+  Pi                     // Pass Pi pi object
+  StringConst(String)    // String constant
+  IntConst(Int)          // Integer constant
+  NullConst              // null
 }
 ```
 
-Helpers:
+Constructor quick reference:
 ```gleam
-lit("false")                        // → false
-lit("_sessionId")                   // → _sessionId (closure variable)
-lit("\"psypi\"")                    // → "psypi"
-from_param("params.title || \"\"")  // → params.title || ""
-from_param("params?.status || null") // → params?.status || null
+param("title", Some(""))       // params.title ?? ""
+opt_param("status")            // params?.status ?? null
+int_param("limit", 50)         // parseInt(params?.limit ?? "50")
+event_field("toolName", None)  // event?.toolName ?? null
+event_json_field("result")     // JSON.stringify(event?.result ?? '')
+event_file_path()              // event?.input?.path || event?.input?.filePath || ''
+ctx_field("model")             // ctx.model
+args_field()                   // args || ''
+ctx()                          // ctx
+pi()                           // pi
+str("psypi")                   // "psypi"
+int_val(5)                     // 5
+null_val()                     // null
 ```
 
 ## ResultFormat — Output Formatting
 
 ```gleam
 pub type ResultFormat {
-  RawJson           // JSON.stringify(r.value)
-  Template(String)  // Template string, e.g. "Task: ${r.value}"
-  CustomJs(String)  // Custom JS expression
+  RawJson              // JSON.stringify(gleamValueToJson(r.value))
+  Template(String)     // Template string, e.g. `Task: ${r.value}`
 }
 ```
 
 Helpers:
 ```gleam
-raw_json()              // JSON.stringify(r.value)
-template("Task: ${r.id}")  // `Task: ${r.id}`
-custom_js("r.value.map(t => t.title).join(', ')")  // arbitrary JS
+raw_json()                  // JSON.stringify(gleamValueToJson(r.value))
+template("Task: ${r.id}")   // `Task: ${r.id}`
 ```
+
+Note: `CustomJs(String)` has been **DELETED**. There is no escape hatch for arbitrary JS.
 
 ## Example: Complete Tool Definition
 
-In `agent_identity.gleam`:
+In `task.gleam`:
 ```gleam
-pub fn my_id_tool() -> PiToolCall {
+import pi_tool_call.{
+  PiToolCall, string_param, opt_string_param, param, opt_param, int_param,
+  str, int_val, null_val, raw_json, template,
+}
+
+pub fn task_add_tool() -> PiToolCall {
   PiToolCall(
-    name: "psypi-my-id",
-    description: "Get current agent ID",
-    params: [],
-    module: "agent_identity",
-    fn_name: "get_resolved_identity",
-    args: [
-      lit("false"),           // permanent = false
-      lit("_sessionId"),      // from session_start hook
-      lit("\"psypi\""),       // project
-      lit("\"\""),            // git_hash
-      lit("\"\""),            // machine_fingerprint
-      lit("\"psypi\""),       // source
-      lit("\"\""),            // model
+    name: "psypi-task-add",
+    description: "Add a new task",
+    params: [
+      string_param("title"),
+      opt_string_param("description"),
+      opt_string_param("priority"),
     ],
-    result_format: raw_json(),
+    module: "task",
+    fn_name: "add",
+    args: [
+      param("title", Some("")),
+      param("description", Some("")),
+      int_param("priority", 5),
+      str("psypi"),
+    ],
+    result_format: template("Task added: ${r.value}"),
   )
 }
 ```
@@ -98,16 +114,22 @@ pub fn my_id_tool() -> PiToolCall {
 This generates:
 ```javascript
 pi.registerTool({
-  name: "psypi-my-id",
-  description: "Get current agent ID",
-  parameters: {},
-  async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+  name: "psypi-task-add",
+  description: "Add a new task",
+  parameters: { ... },
+  async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
     try {
-      const result = await get_resolved_identity(false, _sessionId, "psypi", "", "", "psypi", "");
+      const result = await task_add(
+        params.title ?? "", parseInt(params?.priority ?? "5"), "psypi"
+      );
       const r = unwrapGleamResult(result);
-      return r.ok ? { content: [{ type: "text", text: JSON.stringify(r.value) }] }
-                 : { content: [{ type: "text", text: `Error: ${r.error}` }] };
-    } catch(e) { return { content: [{ type: "text", text: `Error: ${e.message}` }] }; }
+      return r.ok
+        ? { content: [{ type: "text", text: `Task added: ${r.value}` }] }
+        : { content: [{ type: "text", text: `Error: ${r.error}` }] };
+    } catch(e) {
+      ctx.ui.notify('Tool psypi-task-add error: ' + e.message, 'error');
+      return { content: [{ type: "text", text: `Error: ${e.message}` }] };
+    }
   }
 });
 ```
@@ -117,6 +139,6 @@ pi.registerTool({
 1. **Module name** = the `.gleam` filename without extension (e.g., `agent_identity` for `agent_identity.gleam`)
 2. **fn_name** = the public function name in that module
 3. **args order** must match the Gleam function's parameter order
-4. **Use `lit()`** for hardcoded values, **`from_param()`** for values from tool params
-5. **Session ID** — always use `lit("_sessionId")`, the generator creates the `session_start` hook
-6. **String literals** need escaped quotes: `lit("\"psypi\"")` produces `"psypi"` in JS
+4. **Use structured constructors** (`param()`, `str()`, `int_val()`) — NOT raw JS strings
+5. **No `lit()` or `from_param()`** — these functions no longer exist
+6. **No `custom_js()`** — use `raw_json()` or `template()` instead

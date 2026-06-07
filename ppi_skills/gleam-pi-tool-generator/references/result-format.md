@@ -6,24 +6,25 @@
 pub type ResultFormat {
   RawJson
   Template(String)
-  CustomJs(String)
 }
 ```
+
+Note: `CustomJs(String)` has been **DELETED**. There is no escape hatch for arbitrary JS expressions.
 
 ## Variants
 
 ### RawJson
-Returns `JSON.stringify(r.value)` — the result as JSON.
+Returns `JSON.stringify(gleamValueToJson(r.value))` — the result as JSON.
 
 ```gleam
 result_format: raw_json()
-// Generates: JSON.stringify(r.value)
+// Generates: JSON.stringify(gleamValueToJson(r.value))
 ```
 
 Use when: the Gleam function returns a complex type (record, list) that should be serialized.
 
 ### Template(String)
-Returns a template string with `${r.value}` interpolation.
+Returns a template string with `${...}` interpolation.
 
 ```gleam
 result_format: template("Task: ${r.value}")
@@ -32,22 +33,11 @@ result_format: template("Task: ${r.value}")
 
 Use when: the result is a simple string/number and you want a human-readable message.
 
-### CustomJs(String)
-Returns an arbitrary JS expression that produces the text.
-
-```gleam
-result_format: custom_js("r.value.map(t => t.title).join(', ')")
-// Generates: r.value.map(t => t.title).join(', ')
-```
-
-Use when: you need to transform the result in JS before displaying.
-
 ## Helpers
 
 ```gleam
-raw_json()              // RawJson
-template("Task: ${r.id}")  // Template("Task: ${r.id}")
-custom_js("r.value.join(', ')")  // CustomJs("r.value.join(', ')")
+raw_json()                      // RawJson
+template("Task: ${r.id}")       // Template("Task: ${r.id}")
 ```
 
 ## Examples
@@ -57,11 +47,18 @@ custom_js("r.value.join(', ')")  // CustomJs("r.value.join(', ')")
 result_format: raw_json()
 
 // Task add — returns an ID string, show friendly message
-result_format: template("Task: ${r.value}")
+result_format: template("Task added: ${r.value}")
 
 // Task list — returns a list of records, serialize as JSON
 result_format: raw_json()
 
-// Custom — format a list of titles
-result_format: custom_js("r.value.map(t => t.title).join('\\n')")
+// Finding add — returns a confirmation string
+result_format: template("Finding added: ${r.value}")
 ```
+
+## DELETED (Do NOT Reintroduce)
+
+| Old | Why deleted |
+|-----|-------------|
+| `CustomJs(String)` | Allowed arbitrary JS expressions as result formatting |
+| `custom_js("r.value.map(t => t.title).join(', ')")` | Use `raw_json()` or `template()` instead |
