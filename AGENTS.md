@@ -59,13 +59,16 @@ Default `psql` connects to the OS user database (e.g. `jk`), which has different
 
 ### Append-Only Pattern
 
-`agent_souls` and `agent_jobs` use append-only. Never UPDATE in place — always INSERT via `save_soul_version()` / `save_job_version()` (migration 046). Two flags:
-- `is_active` (default true) — marks current version. Partial unique index: `WHERE is_active = true`
-- `is_archived` (default false) — visibility flag. App-managed.
+`agent_souls` and `agent_jobs` use append-only. Never UPDATE in place — always INSERT via `save_soul_version()` / `save_job_version()`. Two flags with distinct semantics:
+
+- `is_archived` (default false) — **primary gate**. `true` = historical, never read by application. `false` = alive.
+- `is_active` (default true) — **business flag**. Whether the row is enabled. NOT touched by versioning functions. If a row is un-archived later, is_active retains its original value.
 
 Read path: `WHERE is_active = true AND is_archived = false`
+Partial unique indexes: `WHERE is_active = true AND is_archived = false` (not just `is_active`)
 
 **NEVER** use `UPDATE agent_souls SET content = ...` — use `save_soul_version()`.
+**NEVER** let versioning functions change `is_active` — only `is_archived`.
 
 ## Identity System
 
@@ -280,6 +283,6 @@ Built DB table + tools + hook injection for A→S communication, when `sendMessa
 
 ### Append-Only for `agent_souls` / `agent_jobs`
 
-Direct UPDATE destroyed history. Append-only preserves full evolution. Use `save_soul_version()` / `save_job_version()`. Partial unique indexes MUST use `WHERE is_active = true` (not `WHERE is_archived = false` — that was Bug B.1).
+Direct UPDATE destroyed history. Append-only preserves full evolution. Use `save_soul_version()` / `save_job_version()`. Versioning functions ONLY set `is_archived = true` on old rows — they never touch `is_active`. Partial unique indexes use `WHERE is_active = true AND is_archived = false`.
 
 Apply append-only when: table holds evolving config/identity, you need change history, read-heavy. Do NOT apply when: write-once log (already append-only), transactional status transitions (UPDATE is correct).

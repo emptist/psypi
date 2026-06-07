@@ -99,9 +99,11 @@ node bin/ppi.mjs                 # start Pi with psypi loaded
 
 | Document | Description |
 |----------|-------------|
-| [AGENTS.md](AGENTS.md) | Quick guide for AI agents — project structure, tools, DB, identity |
+| [AGENTS.md](AGENTS.md) | Quick guide for AI agents — project structure, tools, DB, identity, append-only pattern |
 | [Zero Hand-Written JS](docs/ZERO-HANDWRITTEN-JS.md) | How to run a Node.js project without writing any JS — type-driven code generation with Gleam |
 | [REFACTOR-NOTES.md](REFACTOR-NOTES.md) | Refactoring history and migration records |
 | [CURRENT-STATE.md](CURRENT-STATE.md) | Current project state and recent changes |
 | [HANDOVER.md](HANDOVER.md) | Session handover notes |
 | [docs/](docs/) | Design docs, system reviews, ADRs |
+
+**Key design patterns:** Append-only versioning (`is_archived` = primary gate, `is_active` = business flag — see [AGENTS.md](AGENTS.md#append-only-pattern)). Turn-based A/S dialogue (A asks S for data, S provides evidence, A evaluates).
