@@ -37,3 +37,77 @@ Split into small, focused modules (< 100 lines each):
 1. Restart psypi and test all tools
 2. If tools work, continue splitting remaining large files
 3. Target: all Gleam files < 100 lines
+
+---
+
+## FnArgument Migration & Documentation Cleanup — 2026-06-07
+
+### What Was Done
+
+#### 1. Code Comment Cleanup
+
+Removed stale references to deleted types from source code:
+
+| File | Change |
+|------|--------|
+| `src/pi_tool_call.gleam` | Removed "OLD FnArg" and "replace old FnArg + JsLiteral + FromParam" comments |
+| `src/pi_tool_call.gleam` | Removed "replaces JsLiteral + FromParam(String)" from FnArgument doc comment |
+| `src/agent_identity.gleam` | Removed "via JsLiteral" from doc comment |
+| `AGENTS.md` | Replaced `lit()`, `from_param()` with `param()`, `opt_param()`, `str()`, `int_val()` |
+
+#### 2. Skill Documentation Rewrite (ppi_skills/gleam-pi-tool-generator/)
+
+Rewrote all reference and workflow docs to use new structured types:
+
+| File | Action |
+|------|--------|
+| `references/fn-arg.md` | **Deleted** — replaced by fn-argument.md |
+| `references/fn-argument.md` | **New** — FnArgument + ParamSrc structured types |
+| `references/hook-guard.md` | **New** — HookGuard type reference |
+| `references/result-format.md` | **Rewritten** — RawJson + Template only, CustomJs deleted |
+| `references/pi-toolcall-type.md` | **Rewritten** — complete PiToolCall reference |
+| `references/pi-eventhook-type.md` | **Rewritten** — PiEventHook + PiDebouncedHook |
+| `references/type-mapping.md` | **Rewritten** — Gleam types → compiled JS classes |
+| `references/architecture.md` | **Rewritten** — generator architecture, zero-JS principle |
+| `workflows/add-new-tool.md` | **Rewritten** — uses structured constructors only |
+| `workflows/modify-tool.md` | **Rewritten** — no lit/from_param/custom_js |
+| `workflows/add-event-hook.md` | **Rewritten** — HookGuard instead of Option(String) |
+| `workflows/debug-generation.md` | **Rewritten** — common problems table updated |
+
+#### 3. Zero-Handwritten-JS Skill Updated
+
+Added "Lessons Learned" section to `.trae/skills/zero-handwritten-js/SKILL.md`:
+- The journey from FnArg/JsLiteral to structured types
+- Key insights: type-driven > string templating, delete escape hatches aggressively
+- Three-layer model (FFI / Generator / Business Logic)
+- What to do when you need a new JS pattern
+
+#### 4. Standalone Documentation Created
+
+| File | Action |
+|------|--------|
+| `docs/ZERO-HANDWRITTEN-JS.md` | **New** — standalone experience summary for external readers, linked from README |
+
+Content: three-layer architecture, ParamSrc/FnArgument/HookGuard/ResultFormat mapping tables, complete tool definition example, deleted types reference, lessons learned, new JS pattern workflow, verification checklist.
+
+#### 5. README Updated
+
+Added `Documentation` section at the end with links to: AGENTS.md, ZERO-HANDWRITTEN-JS.md, REFACTOR-NOTES.md, CURRENT-STATE.md, HANDOVER.md, docs/.
+
+#### 6. AGENTS.md Condensed
+
+801 lines → 286 lines (64% reduction). Removed:
+- Duplicate PDCA tables (appeared 3 times)
+- Full A-bot/S-bot job list snapshots (DB is source of truth)
+- Reference Materials directory listing (not agent-relevant)
+- Verbose inter-review vs system-review comparison table
+- Detailed `save_soul_version()` SQL function body
+
+Retained all critical info: Quick Start, Architecture, Database, Identity, A/S Model, 44 tools, Commit Workflow, Critical Rules, Lessons Learned.
+
+### Verification
+
+- `gleam clean && gleam build` — success
+- `gleam test` — 109 passed, 0 failures
+- No `lit()`, `from_param()`, `JsLiteral`, `CustomJs` in `.gleam` source code
+- Remaining references in docs/ are historical review records (not modified)

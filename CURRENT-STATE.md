@@ -1,31 +1,69 @@
-# Current State — 2026-05-14
+# Current State — 2026-06-06
 
 ## What Works
-- ✅ `psypi-somatic-id` — returns S- identity
-- ✅ `psypi-autonomic-id` — returns A- identity
-- ✅ `write` tool — can write files
-- ✅ `bash` — can execute commands
-- ✅ Build and regeneration — success
+- ✅ 44 Pi tools registered and functional
+- ✅ 7 event hooks (including debounced agent_end)
+- ✅ 2 commands (autonomic-listen, autonomic-reload)
+- ✅ 2 message renderers (autonomic-wakeup, autonomic-error)
+- ✅ A/S dual-agent model with debounce timer
+- ✅ Build and regeneration — `gleam build` + `gleam test` (109 tests)
+- ✅ ppi.mjs runs Pi with generated extension.js
+- ✅ ppitest.mjs for testing outside Pi runtime
 
-## What Needs Testing
-- ⏳ `psypi-consult-autonomic` — S-agentbot asks A-agentbot for advice (was ERROR, now fixed with better error handling)
-- ⏳ `psypi-direct-agentbot` — A-agentbot sets directives for S-agentbot
-- ⏳ `agent_end` hook — A-agentbot wakes up S-agentbot when issues found
+## FnArgument Migration — COMPLETED (2026-06-06)
 
-## Key Changes Made
-1. Split extension_generator.gleam into small modules (< 40 lines each)
-2. Removed dangerous pattern matching from hooks
-3. Removed crashing identity/activity calls from hooks
-4. Added [Autonomic] prefix to A-agentbot messages
-5. agent_end hook: checks health, wakes up S-agentbot if issues found and no active directives
-6. Renamed tools: psypi-consult-autonomic, psypi-direct-agentbot
+Replaced all hand-written JS strings in tool/hook/command definitions with structured Gleam types.
+
+### New Types
+- **ParamSrc** — describes WHERE to get a value (ParamField, OptionalParamField, IntParamField, EventField, EventJsonField, EventFilePath, CtxField, ArgsField)
+- **FnArgument** — describes WHAT to pass (FromParam(ParamSrc), Ctx, Pi, StringConst, IntConst, NullConst)
+- **HookGuard** — describes WHEN a hook executes (CtxFieldExists, EventFieldExists, NoGuard)
+
+### Deleted (old types/functions)
+- `FnArg` type (JsLiteral, FromParamLegacy variants)
+- `JsLiteral` — arbitrary JS expression strings
+- `FromParam(String)` — arbitrary JS access expressions
+- `CustomJs(String)` in ResultFormat — arbitrary JS result expressions
+- `custom_js()` function
+- `lit()`, `from_param()`, `new_arg()` bridge functions
+
+### Files Modified
+- `pi_tool_call.gleam` — core types and JS generation
+- `extension_generator.gleam` — registries using new constructors
+- `task.gleam`, `skill.gleam`, `memory.gleam`, `learning.gleam`
+- `areflect.gleam`, `broadcast.gleam`, `meeting.gleam`
+- `monitor_ai.gleam`, `agent_identity.gleam`
+- `system_review_tools.gleam`, `issue_tools.gleam`, `code_version.gleam`
+- `test/pi_tool_call_test.gleam`
+
+### Key Design Decisions
+- `??` (nullish coalescing) replaces `||` (logical OR) — correct for empty string defaults
+- `parseInt()` wraps integer params — Pi passes all params as strings
+- Optional chaining `params?.name` for optional params
+- `ctx` passed directly (not destructured object) — Gleam code accesses ctx via FFI
+- Double quotes for StringConst — consistent JS style
+- Tool errors use `ctx_notify` (toast for humans) + return value (for S-bot) — both channels needed
+- Hook errors use `pi.sendMessage` (persistent, no return value alternative)
+
+### Generator Integrity
+- **Zero hand-written JS strings** in the entire generator pipeline
+- All JS is mechanically generated from structured Gleam types
+- `generate()` output verified identical before/after migration
+- No `CustomJs` escape hatch exists — impossible to inject arbitrary JS
 
 ## Architecture
-- A-agentbot: event-driven, reads hooks, writes DB/messages
-- S-agentbot: prompt-driven, reads system prompt, produces events
-- Alternating current: each one's output = other's input
+- **Generator**: Gleam types → JS text → extension.js (via `generate()` in ppi.mjs)
+- **A-bot**: event-driven, reads hooks, writes DB/messages
+- **S-bot**: prompt-driven, reads system prompt, produces events
+- **Alternating current**: each one's output = other's input
+- **Debounce timer**: A-bot only fires after S-bot idle for continuous debounce period
 
-## Next Steps
-1. Test psypi-consult-autonomic
-2. Test agent_end wake-up behavior
-3. Verify no infinite loops
+## Build & Deploy
+```bash
+gleam clean && gleam build
+gleam test  # 109 tests
+./bin/ppi.mjs  # generates extension.js and starts Pi
+```
+
+## Open Issues
+- `monitor_ai.gleam:92` — TODO: housekeeping (archive old versions, clean stale config)

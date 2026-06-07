@@ -1,801 +1,285 @@
-# AGENTS.md — psypi Quick Guide
+# AGENTS.md — psypi Agent Guide
 
-## Project Overview
-
-**psypi** = Pi TUI + Gleam extension. Two AI agents (A-bot and S-bot) working together inside your terminal. All functionality via Pi tools — never run from shell, only inside the TUI.
-
-## First Run / Fresh Setup
+## Quick Start
 
 ```bash
-make setup          # full first-time setup (deps, DB, build, migrate, seed)
-# or step by step:
-gleam deps download
-gleam clean && gleam build
-gleam run -m simple_migrate
-gleam run -m seed
-node bin/ppi.mjs    # start Pi with psypi loaded
+make setup                      # first-time setup (deps, DB, build, migrate, seed)
+gleam clean && gleam build      # after any Gleam source change
+gleam run -m simple_migrate     # run DB migrations
+gleam run -m seed               # seed agent souls and jobs
+node bin/ppi.mjs                # start Pi with psypi loaded
 ```
 
-After any Gleam source change:
-```bash
-gleam clean && gleam build
-node bin/ppi.mjs --generate-only   # or: gleam run -m extension_generator
-```
+After source changes: `gleam clean && gleam build && node bin/ppi.mjs --generate-only`
 
-Restart Pi:
-```bash
-pkill -f pi-coding-agent 2>/dev/null; cd /Users/jk/gits/hub/tools_ai/psypi && node bin/ppi.mjs
-```
-
-Inside Pi TUI, use `/psypi-my-id` to verify identity.
-
-## Database
-
-**PostgreSQL** is the source of truth. All state lives here: tasks, issues, skills, meetings, agent identity, memory, directives.
-
-| Key              | Value                                                      |
-| ---------------- | ---------------------------------------------------------- |
-| **Host**         | `localhost`                                                |
-| **Port**         | `5432`                                                     |
-| **Database**     | `psypi`                                                    |
-| **User**         | `postgres`                                                 |
-| **Driver**       | `node_pg` (Gleam FFI to Node.js `pg`)                      |
-| **Access layer** | `src/db.gleam` — all DB ops go through `with_connection()` |
-
-Connect manually: `psql -d psypi`
-
-### ⚠️ CRITICAL: Always use `-d psypi`
-
-**NEVER run `psql` without `-d psypi`.** The default `psql` connects to a database named after your OS user (e.g. `jk`), which has many of the same tables but is a DIFFERENT database. Running queries without `-d psypi` will silently read/write the wrong data.
-
-```bash
-# CORRECT — always specify the database
-psql -d psypi -c "SELECT COUNT(*) FROM review_findings;"
-
-# WRONG — connects to `jk` database by default
-psql -c "SELECT COUNT(*) FROM review_findings;"
-```
-
-The Gleam app (`db.gleam`) correctly defaults to `psypi` when `DATABASE_URL` is not set. The danger is only with manual `psql` commands — or if `DATABASE_URL` is set to the wrong database.
-
-### Key Tables
-
-| Table                 | Purpose                                                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `agent_souls`         | Agent identity. `id_prefix` = `'A'` or `'S'`                                                                              |
-| `agent_jobs`          | Prioritized work items per agent soul (NOT the same as user-facing `tasks` table!)                                        |
-| `agent_identities`    | Agent identity records                                                                                                    |
-| `agent_prefixes`      | Valid prefixes: A, S, G                                                                                                   |
-| `tasks`               | Task queue (PENDING/RUNNING/COMPLETED/FAILED)                                                                             |
-| `issues`              | Bug tracker                                                                                                               |
-| `skills`              | Skill registry (name, status, safety_score, content)                                                                      |
-| `meetings`            | Cross-project AI communication — shared bulletin board across projects                                                   |
-| `memory`              | Stored agent memories                                                                                                     |
-| `learning_insights`   | Learned knowledge                                                                                                         |
-| `code_versions`       | File version history (auto-backup before edits)                                                                           |
-| `psypi_config`        | Key-value config (`monitor_debounce_ms` default 300000)                                                                   |
-| `system_directives`   | ~~A→S injected directives~~ (DEPRECATED — anti-pattern, use sendMessage instead)                                          |
-| `system_config`       | Legacy config table                                                                                                       |
-| `compaction_history`  | Context compaction summaries                                                                                              |
-| `event_hooks`         | Hook registry                                                                                                             |
-| `table_documentation` | Meta-table documenting schema (outdated, 24 rows)                                                                         |
-| `system_reviews`      | System review records (code quality audits, architecture reviews)                                                         |
-| `review_findings`     | Individual findings from system reviews (severity, category, evidence, impact)                                            |
-| `review_comments`     | Comments on review findings                                                                                               |
-| `review_labels`       | Labels/tags for review findings                                                                                           |
-| `inter_reviews`       | A-bot's PDCA **Check** — inter-review of S's work between S sessions (code, docs, data, decisions). Not gated on commits. |
-
-> The "inter-review" is A's *turn to speak* in the PDCA conversation, not a formal review submission. A is a chat participant, not a process artifact generator. See [`docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md` § Conversational Frame](./docs/DESIGN-A-BOT-NO-TOOLS-2026-06-02.md#conversational-frame-added-2026-06-02-after-user-feedback) for the framing, and [`docs/A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md`](./docs/A-CONVERSATIONAL-FRAME-FINDINGS-2026-06-02.md) for the rationale (锵锵三人行 / 圆桌派 analogy).
-
-### Append-Only Pattern for `agent_souls` / `agent_jobs`
-
-Both tables now use an append-only pattern. Never UPDATE in place — always INSERT a new row.
-
-**Two flags:**
-- `is_active` (default true) — marks the current version. Only one row per `id_prefix` / `(soul_id, job_key)` may be active. Enforced by partial unique indexes: `WHERE is_active = true`.
-- `is_archived` (default false) — visibility flag. If true, the row is hidden from app queries but preserved for history. App-managed.
-
-**Read path:** `WHERE is_active = true AND is_archived = false`
-
-**Write path:** ALWAYS use `save_soul_version()` / `save_job_version()` SQL functions (defined in migration 046). These atomically deactivate the old row and insert the new one. NEVER use `UPDATE agent_souls SET content = ...` or `UPDATE agent_jobs SET job = ...`.
-
-**Gleam wrapper:** `src/soul_version_writer.gleam` provides `save_soul_version()` and `save_job_version()`.
-
-**Deprecation note:** Migrations 038, 040, 041, 042, 043, 044 use the old UPDATE-in-place pattern. They are kept for historical accuracy but should NOT be followed as examples.
-
-### `id_prefix`
-
-Field in `agent_souls` table (`text UNIQUE NOT NULL`):
-- `'A'` — Autonomic Agentbot (quality guardian: performs PDCA **Check** between S sessions — inter-review, behavior compliance, anti-stupidity)
-- `'S'` — Somatic Agentbot (Plan, Do, Act: prompt-driven task execution. Like a patient who can self-check but has a doctor — S can check own work, but Check is A's professional responsibility. S plans before doing, executes code, addresses A findings, and iterates. **S MUST wait for A's inter-review before resolving issues or completing tasks.** The PDCA cycle requires Check before Act: S does Plan+Do, then A does Check, then S Acts on A's findings. S must not resolve issues or mark tasks as completed before A has had a chance to review.)
-
-A and S work like **alternating current** — never active simultaneously. When S finishes and goes idle, A wakes up and reviews. When A finishes, S may be woken. They alternate, never overlap. See README.md "The A/S Dialogue Model" for full details.
-
-Used throughout hooks, seed, and directives to look up agent identity.
-
-### Key Responsibility Split (READ THIS FIRST)
-
-This is the most-confused area in psypi docs. Memorize it before reading anything else.
-
-| Concern                                                                   | A-bot              | S-bot                    | External AI (user-invited) |
-| ------------------------------------------------------------------------- | ------------------ | ------------------------ | -------------------------- |
-| **Inter-review** (PDCA Check)                                             | ✅ Owns it (doctor) | ❌ Never as primary role  | ❌ NEVER                    |
-| **System-review** (full audit)                                            | ❌ NEVER            | ✅ Owns it (on request)   | ✅ Can do (on user request) |
-| **Who decides when system-review is needed**                              | A may suggest to S | S does not self-initiate | User decides               |
-| **Who initiates system-review**                                           | A prompts S        | Only when A or user asks | On user request            |
-| **Behavior compliance, code quality, DB quality, doc quality, follow-up** | ✅ Owns it          | —                        | —                          |
-| **Code execution, file edits, git commits, system-reviews on demand**     | —                  | ✅ Owns it                | ✅ Owns it                  |
-
-**In one sentence**: A is the doctor whose primary professional role is Check; S is the patient who can also self-check. System-review belongs to S (or an external AI invited by the user); A never does system-review. A can *prompt* S to do a system-review; A does not *do* the system-review itself. S can check own work, but inter-review is A's professional responsibility — like a doctor examining the patient.
-
-Canonical sources of truth (in this priority order):
-1. **`agent_souls.content` in DB** — the soul each agent reads every cycle
-2. **`agent_jobs` in DB** — the prioritized work items per soul
-3. **`src/migrations/008_agent_soul.sql` and `009_agent_jobs.sql`** — canonical seed
-4. **`src/seed.gleam`** — first-run seed (idempotent)
-5. **This file (AGENTS.md)** — human-readable summary
-6. **`docs/DESIGN-inter-review-PDCA.md`** — design rationale
-
-If you find any conflict, the DB is right. Update the docs.
-
-## Identity System
-
-One pure function: `get_resolved_identity(ctx)`. The A/S prefix emerges from `ctx.isIdle()` at call time.
-
-**NEVER CACHE THE ID.** It must be computed fresh every time.
-
-ID format: `(G-)(A|S)-<project>-<source>-<model>[-<thinking_level>]`
-- Example: `S-psypi-openrouter/owl-alpha`
-- `G-` prefix when no `.git` found in cwd
-
-Fields from live Pi runtime:
-- `is_idle` ← `ctx.isIdle()` → determines A/S
-- `model` ← `ctx.model.id`
-- `source` ← `ctx.model.provider`
-- `thinking_level` ← `ctx.model.thinkingLevel`
-- `project` ← `ctx.cwd` directory name
-
-Use `psypi-my-id` to get your current identity.
-
-## Pi Tools (complete list)
-
-All tools are defined as `PiToolCall` values in Gleam source. Source of truth: grep for `pub fn.*tool()` in `src/`.
-
-### Agent Identity
-| Tool           | Module           | Description                                        |
-| -------------- | ---------------- | -------------------------------------------------- |
-| `psypi-my-id`  | `agent_identity` | Get calling agent's full identity (ID, role, jobs) |
-| `psypi-agents` | `agents`         | List all registered agents                         |
-
-### Tasks
-| Tool                  | Module | Description                               |
-| --------------------- | ------ | ----------------------------------------- |
-| `psypi-task-add`      | `task` | Create a task (title required)            |
-| `psypi-tasks`         | `task` | List tasks (filter by status, project_id) |
-| `psypi-task-complete` | `task` | Mark task completed by UUID               |
-
-### Issues
-| Tool                  | Module        | Description                                       |
-| --------------------- | ------------- | ------------------------------------------------- |
-| `psypi-issue-add`     | `issue_tools` | Create issue (title, description, severity, type) |
-| `psypi-issues`        | `issue_tools` | List issues (filter by status, severity, type)    |
-| `psypi-issue-count`   | `issue_tools` | Count issues matching filters                     |
-| `psypi-issue-get`     | `issue_tools` | Get single issue by ID                            |
-| `psypi-issue-resolve` | `issue_tools` | Resolve issue by ID                               |
-
-### Skills
-| Tool                 | Module  | Description                               |
-| -------------------- | ------- | ----------------------------------------- |
-| `psypi-skill-list`   | `skill` | List skills (filter by status)            |
-| `psypi-skill-get`    | `skill` | Get skill by name                         |
-| `psypi-skill-search` | `skill` | Search skills by name/description (ILIKE) |
-
-Skills are stored in the `skills` table. Key fields: `name`, `status` (pending/approved/rejected/blocked/installed/uninstalled), `source` (clawhub/local/generated/imported), `safety_score`, `content` (jsonb with markdown body).
-
-To load a skill at runtime: `read path="ppi_skills/[skill-name]/SKILL.md"`
-
-### Meetings (cross-project AI communication)
-| Tool                     | Module    | Description                        |
-| ------------------------ | --------- | ---------------------------------- |
-| `psypi-meeting-add`      | `meeting` | Create meeting (topic, created_by) |
-| `psypi-meetings`         | `meeting` | List meetings (filter by status)   |
-| `psypi-meeting-get`      | `meeting` | Get meeting by ID                  |
-| `psypi-meeting-say`      | `meeting` | Add opinion to meeting             |
-| `psypi-meeting-opinions` | `meeting` | List opinions for meeting          |
-
-**Cross-project communication channel.** Multiple projects (psypi, traenupi, etc.) share the same database. Meetings act as a shared bulletin board where different AI agents across projects can see and respond to each other. Any agent can add opinions — meetings are not private to S.
-
-**⚠️ S-only tools.** A has NO meeting tools. A↔S communication within a project uses the 对讲机 (alternating work-speak) cycle: S works → A checks and speaks → S acts → repeat. Do NOT use meetings to try to talk to A.
-
-### Memory & Learning
-| Tool                  | Module     | Description                                         |
-| --------------------- | ---------- | --------------------------------------------------- |
-| `psypi-learn-save`    | `learning` | Save learning to memory (content, tags, importance) |
-| `psypi-memory-search` | `memory`   | Search memories by keyword                          |
-
-### Code Versioning
-| Tool             | Module         | Description                                     |
-| ---------------- | -------------- | ----------------------------------------------- |
-| `psypi-doc-save` | `code_version` | Save file version (auto-backup before AI edits) |
-| `psypi-doc-list` | `code_version` | List version history for a file                 |
-
-### Commit
-| Tool           | Module   | Description                               |
-| -------------- | -------- | ----------------------------------------- |
-| `psypi-commit` | `commit` | Commit with agent ID tagging (S-bot only) |
-
-### Reflection
-| Tool             | Module     | Description                                                               |
-| ---------------- | ---------- | ------------------------------------------------------------------------- |
-| `psypi-areflect` | `areflect` | Parse [LEARN], [ISSUE], [TASK], [ISSUELIST] markers from text, save to DB |
-
-### Broadcast
-| Tool                   | Module      | Description                                            |
-| ---------------------- | ----------- | ------------------------------------------------------ |
-| `psypi-broadcast-send` | `broadcast` | Send broadcast message (message, priority, project_id) |
-| `psypi-broadcasts`     | `broadcast` | List recent broadcasts                                 |
-
-### Monitor / Autonomic
-| Tool                      | Module       | Description                                                 |
-| ------------------------- | ------------ | ----------------------------------------------------------- |
-| `psypi-autonomic-status`  | `monitor_ai` | Monitor status and capabilities                             |
-| `psypi-autonomic-health`  | `monitor_ai` | System health (failed tasks, open issues, activity)         |
-| `psypi-autonomic-alerts`  | `monitor_ai` | Active alerts                                               |
-| `psypi-autonomic-stats`   | `monitor_ai` | Statistics (review scores, response times, failure rate)    |
-| `psypi-autonomic-suggest` | `monitor_ai` | Work suggestions (open issues, stale tasks, pending skills) |
-
-### Directives (REMOVED — anti-pattern)
-~~`psypi-direct-agentbot` and `psypi-clear-directives`~~ have been removed. A communicates with S via `sendMessage()` — S is an LLM that reads and understands natural language. No database intermediary needed. See "Lessons Learned" below.
-
-### Consult
-| Tool                      | Module         | Description         |
-| ------------------------- | -------------- | ------------------- |
-| `psypi-consult-autonomic` | `tool_consult` | S asks A for advice |
-
-### Event Hooks
-| Tool                 | Module        | Description               |
-| -------------------- | ------------- | ------------------------- |
-| `psypi-hooks-list`   | `event_hooks` | List all hooks and status |
-| `psypi-hooks-active` | `event_hooks` | List only active hooks    |
-
-### Stats
-| Tool               | Module  | Description                                                 |
-| ------------------ | ------- | ----------------------------------------------------------- |
-| `psypi-stats-show` | `stats` | Project statistics (tasks, issues, skills, meetings counts) |
-
-## Commit Workflow
-
-`psypi-commit` is simple: it commits immediately with the agent ID appended.
-
-**Flow:** S makes changes → S calls `psypi-commit("message")` → commit lands with `[AI:<agent-id>]` tag. No review gate. No two-phase flow. No `review_id` parameter.
-
-After commit, S goes idle → A wakes → A performs inter-review (PDCA Check) → A saves findings to `inter_reviews` table → A sends results to S for the next cycle.
-
-**☠️ S MUST wait for A's inter-review before resolving issues or completing tasks.** The PDCA cycle is strict: Plan → Do → Check → Act. S does Plan+Do, A does Check, then S Acts. S must NOT call `psypi-issue-resolve` or `psypi-task-complete` before A has completed the inter-review for that cycle. Resolving or completing early skips the Check phase and breaks the closed loop.
-
-**What waiting looks like in practice:** After S commits work and goes idle, A's inter-review arrives as a message in S's Pi session (via `pi.sendMessage` with `customType: 'autonomic-wakeup'`). That message is the signal — S reads A's findings, evaluates them critically, and only then resolves issues or completes tasks. If A's inter-review does not arrive within a reasonable time (debounce period + margin), S holds and does NOT resolve/complete unilaterally. Note: this depends on the debounce hook working reliably — if the infrastructure is broken, S should flag it rather than bypassing the wait.
-
-**Note:** S MUST use `psypi-commit` for all commits (not raw `git commit`). The agent ID tag is how we track who did what.
-
-**⚠️ NEVER restart psypi by yourself.** Never run `pkill`, `node bin/ppi.mjs`, `npx`, or any Pi restart commands. That is A-bot's job or the human's job. S-bot dies when Pi restarts — that is normal. Do not try to resurrect yourself.
-
-## A/S Dual-Agent Model — Core Design
-
-### Biological Analogy
-
-A and S borrow from the autonomic and somatic nervous systems. Like alternating current, they **never work simultaneously** — when one is active, the other is idle. They look like two bots but are actually the same Pi extension instance, differentiated only by `id_prefix` in the `agent_souls` table, which gives them different roles and jobs.
-
-- **S (Somatic)**: The doer. Executes tasks, writes code, uses tools. Active when the user is interacting. Like a patient — can self-check, but relies on the doctor for professional examination.
-- **A (Autonomic)**: The doctor-checker. Owns PDCA's **Check** phase — comprehensive review of S's work across all PDCA dimensions (see "A-bot's Check Scope" below). Active only when S is idle.
-
-### A-bot's Two Modes: Waiting and Working
-
-A-bot has exactly two modes:
-
-1. **Waiting mode** — S is working or has not been idle long enough. The debounce timer in extension.js counts down. Any S activity resets the timer.
-
-2. **Working mode** — Triggered when the debounce timer fires (after `monitor_debounce_ms` of continuous S inactivity). A reads soul/jobs from DB, calls LLM via `call_monitor()`, and sends results to S.
-
-**The debounce timer is the only technically non-trivial part of the entire A/S system.** Everything else uses Pi's built-in support (`pi.on()`, `pi.sendMessage()`, `ctx.ui.notify()`).
-
-### Debounce Timer Logic (CRITICAL — read this until you understand it)
-
-```
-In extension.js, on each agent_end event:
-  → CLEAR previous timer (if any)
-  → SET new timer: setTimeout(callback, monitor_debounce_ms)
-
-When timer fires (after monitor_debounce_ms of no new agent_end events):
-  → CALL hook_on_agent_end.on_agent_end(ctx, pi)
-  → Gleam code checks ctx_is_idle(ctx):
-      → True:  run_a_bot() — read soul/jobs, call LLM, send result
-      → False: do nothing (S became active during debounce period)
-
-Key invariant: The timer only fires if S has been continuously idle
-for the full debounce period. Any S activity (new agent_end event)
-resets the timer. This guarantees A never interrupts S.
-```
-
-**Why this works**: Pi fires `agent_end` each time S finishes a turn. While S is working (multiple turns), each `agent_end` resets the timer. When S truly stops, no more `agent_end` events fire, and after `monitor_debounce_ms` of silence the timer fires. The `ctx_is_idle()` check at timer fire time is a safety net — if S somehow became active again during the debounce period (edge case), the hook silently does nothing.
-
-### A-bot's Check Scope
-
-A's primary job is **Check** across all PDCA dimensions, not just inter-review:
-
-1. **Behavior compliance** — Did S follow the PDCA cycle? Was Plan done before Do? Did Check lead to Act? Because of the alternating-current model, A always has enough time to deeply inspect S's behavior patterns from the previous turn.
-
-2. **Code quality & standards** — Code conventions, database conventions, Gleam type safety, FFI policy compliance, no fake Gleam patterns.
-
-3. **Database quality** — Schema correctness, data integrity, type coverage (are all DB enum columns backed by Gleam types?), query patterns (no N+1, no missing indexes).
-
-4. **Documentation quality** — Are skill docs up to date? Are ADRs recorded? Is the README current? Is the `table_documentation` accurate and complete?
-
-5. **Inter-review** — The core of A's Check: A reviews whatever S just produced (code, docs, data, decisions) during A's autonomous time between S sessions. The "inter-" prefix is literal — it happens *between* S turns, not gated on commits or tied to specific tasks. Results MUST be saved to the `inter_reviews` database table. The message to S MUST reference the review ID so S can look it up, and SHOULD include a brief summary of key findings.
-
-   PDCA cycle:
-   | Phase     | Agent             | What                                                                    |
-   | --------- | ----------------- | ----------------------------------------------------------------------- |
-   | **Plan**  | S (or A suggests) | Decide what to do next                                                  |
-   | **Do**    | S                 | Write code, commit, use tools                                           |
-   | **Check** | A (primary)       | Inter-review between S sessions — A is the doctor examining the patient |
-   | **Act**   | S                 | Address A's findings, improve                                           |
-
-   ```
-   S plans & does → A checks (inter-review) → S acts → S plans & does → A checks → ...
-   ```
-
-   *Doctor-patient analogy: S can self-check (like a patient monitoring own health), but Check is A's professional responsibility.*
-
-6. **Follow-up enforcement** — In the next alternating cycle, A MUST verify whether S responded to the previous round's check findings. Unaddressed findings are NOT allowed to slip through — A must escalate or re-raise them.
-
-**Inter-review is the most structured and visible part of Check, but not the whole of Check.** A also reviews behavior compliance, database quality, documentation quality, and follows up on prior findings. Inter-review is simply the component with the clearest input (S's latest work) and the most structured output (`inter_reviews` table).
-
-### Inter-Review vs System-Review
-
-These are fundamentally different types of quality control, performed by different agents, at different times. **Confusing them is one of the most common mistakes in psypi.**
-
-**The split in one sentence**: A does inter-review (PDCA Check between S sessions); S does system-review (comprehensive audit), **only when A or the user asks**.
-
-**The non-negotiable rules** (also enforced in `agent_souls.content` and by migration `037_clarify_agent_roles.sql`):
-
-1. **Inter-review = A ONLY as primary role.** S can self-check own work (like a patient monitoring own health), but inter-review is A's professional responsibility — like a doctor examining the patient. External AI NEVER does inter-review.
-2. **System-review = S ONLY (or external AI on user request).** A NEVER does system-review. A *can prompt* S to do a system-review; A does not *do* the system-review itself.
-3. **S NEVER self-initiates a system-review.** S only runs a system-review when A or the user explicitly asks. S is not allowed to decide that "a system-review would be useful right now" on its own.
-4. **A CAN prompt S to do a system-review.** When A's inter-review surfaces patterns that need a deep audit (duplication across many files, tech debt accumulation, etc.), A's job is to *tell S* to do a system-review, not to do it.
-5. **External AI agents (invited by the user) can also do system-reviews** — but only when the user invites them, not on A's or S's request.
-
-Details:
-
-- **Inter-review** = A's **Check** in the PDCA cycle. A autonomously reviews whatever S just produced (code, docs, data, decisions) during the "inter" space between S sessions. The "inter-" prefix is literal — between S turns, not gated on commits, not 1:1 with tasks. Narrow in scope, immediate and actionable. This is A's primary job. Results go to the `inter_reviews` table.
-
-  PDCA cycle:
-  | Phase     | Agent             | What                                                       |
-  | --------- | ----------------- | ---------------------------------------------------------- |
-  | **Plan**  | S (or A suggests) | Decide what to do next                                     |
-  | **Do**    | S                 | Write code, commit, use tools                              |
-  | **Check** | A (primary)       | Inter-review between S sessions — doctor examining patient |
-  | **Act**   | S                 | Address A's findings, improve                              |
-
-  ```
-  S plans & does → A checks (inter-review) → S acts → S plans & does → A checks → ...
-  ```
-
-- **System-review** = **End-of-line QC** (delayed, comprehensive). A thorough examination of the **entire system** across all dimensions — codebase architecture, database schema integrity, type coverage, documentation completeness, code duplication patterns, missing Gleam types, stale data, and accumulated technical debt. Like an annual audit that looks at the whole factory, not just one unit. Broad in scope but infrequent and deep. This is **S's job** (or an external AI invited by the user), NOT A's job. A is an added mechanism, not Pi's native component — complex tasks like system-review should be done by S, which has full Pi capabilities. A can, however, prompt S to do a system-review when A judges it is needed. Results go to `system_reviews` + `review_findings` tables.
-
-| Aspect                    | Inter-Review                                       | System-Review                                        |
-| ------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
-| Nature                    | A's **Check** between S sessions (PDCA)            | Comprehensive audit of entire system                 |
-| Scope                     | What S just produced (code, docs, data, decisions) | Entire codebase + DB schema + docs + config          |
-| Timing                    | Between S sessions (every A cycle)                 | Periodic / on-demand — only when A or user asks      |
-| **Who initiates**         | A (autonomous)                                     | S only when A or user asks; never self-initiated     |
-| **Who can do it**         | A ONLY                                             | S, or external AI on user request                    |
-| **Who can prompt for it** | n/a (A does it)                                    | A can prompt S; user can prompt S or external AI     |
-| Inputs                    | S's recent work                                    | All source files, DB schema, docs, configs           |
-| Focus                     | Correctness, behavior, data quality                | Architecture, type coverage, tech debt, completeness |
-| Output                    | `inter_reviews` table                              | `system_reviews` + `review_findings` tables          |
-| PDCA role                 | **Check**                                          | S doing a deep self-assessment                       |
-| Analogy                   | Doctor checking vitals between shifts              | Annual full-body scan                                |
-
-### A-bot Communication Rules
-
-**`pi.sendMessage()` — the complete picture:**
-
-A uses `pi.sendMessage()` to deliver messages to S. The `options` parameter controls *how* the message is delivered:
-
-| Option                                      | Effect                                                      | Use case                                                                  |
-| ------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `triggerTurn: true`                         | Triggers a new S turn                                       | Wake-up — S must process A's review findings                              |
-| `triggerTurn: false, deliverAs: "followUp"` | Queues into current/next streaming turn, no separate S turn | Errors — S sees the message when streaming, without wasting a full S turn |
-| `deliverAs: "nextTurn"`                     | Appends to next turn's input                                | Deferred messages                                                         |
-| No options                                  | Silent append to session                                    | Logging only                                                              |
-
-**Critical rule: Errors MUST use `sendMessage()` (never `ctx.ui.notify()`)**
-
-- `ctx.ui.notify()` → visible in TUI only, **S cannot see it**. If A uses notify for errors, S has no idea something went wrong.
-- `pi.sendMessage()` → delivered to S's session, **S reads it and can act on it**. This is the ONLY way A can communicate with S.
-
-**So the full A→S communication pattern is:**
-
-- **A's thinking/progress** → `ctx.ui.notify()` — visible in TUI only, does NOT trigger S (human watches, S ignores)
-- **A's errors** → `pi.sendMessage({customType: 'autonomic-error', content: msg}, {triggerTurn: false, deliverAs: 'followUp'})` — S sees the error without wasting a full turn
-- **A's wake-up** → `pi.sendMessage({customType: 'autonomic-wakeup', content: msg}, {triggerTurn: true})` — triggers a new S turn so S can act on review findings
-- Both A and S can see each other's messages, forming a **dialogue pattern**
-- **A MUST report tool results back to S** — When A calls tools during Check and gets unexpected results (empty, errors, mismatches), A must use `pi.sendMessage()` to report those findings. Never silently absorb tool results. If something looks wrong, treat it like a bug and report it.
-
-### Why A-bot Must Work
-
-Without A-bot, psypi has no autonomous capability. All tools are passive — they only fire when S calls them. A-bot is the only component that proactively observes, reviews, and suggests. Without it, psypi is just a Pi extension with tools, not an autonomous system.
-
-## Issues → Tasks: The Derivation Principle
-
-**Issues (Plans) → Tasks.** This is the simple formula.
-
-1. **Every plan starts from something new or something wrong** — that is an issue. Issues are the natural starting point for all work.
-
-2. **Issues accept discussion through comments** — investigations, analysis, and plans live as comments on the issue. A database-backed issue with comments supports threaded discussion; a file-system plan does not.
-
-3. **When the plan in an issue is discussed or felt sound enough, then comes the task.** Tasks are deduced from issues (plans). This is a logical and behavioral relationship, not a programmatic one — there is no foreign key from tasks to issues, and there should not be. The derivation is a matter of discipline, not schema.
-
-**How agents should work**: When you (S or A) identify something new or something wrong, create an issue first. Use issue comments to investigate, analyze, and plan. When the plan is sound enough, create a task from it. This is how PDCA's Plan phase works — the issue IS the plan, and the task IS the do. A checks that S follows this flow: issues before tasks, discussion before action.
-
-## The Review → Issue → Task Closed Loop
-
-Review findings do not stay buried in `review_findings` — they flow into issues, which flow into tasks, which are reviewed again. This is the complete PDCA closed loop:
-
-```
-A-bot inter-review (PDCA Check between S sessions)
-  → findings saved to inter_reviews table
-  → significant findings also become issues
-    → issue comments: root cause analysis, solution discussion, action plan
-      → when plan is sound: tasks created from the issue
-        → task execution (S does the work)
-          → next A cycle: inter-review checks S's work + follow-up on prior findings
-            → new findings → new issues → new tasks → ...
-
-S-bot system-review (periodic, on-demand)
-  → comprehensive audit of entire system
-  → findings saved to system_reviews + review_findings tables
-  → significant findings become issues → same loop as above
-```
-
-**Critical rule**: Every significant finding from a review should become an issue. This is an agent behavior guideline, not a programmatic constraint — no new FK needed, just reference IDs in comments and descriptions. A finding without a corresponding issue is an orphan — it was observed but never acted upon.
-
-**How agents should work**: After inter-review, A creates issues for significant findings. After system-review, S does the same. In the issue, analyze root cause, discuss solutions, and plan actions. When the plan is sound, derive tasks. During task execution, A's next inter-review checks progress and follows up on prior findings. The loop never breaks — every problem is tracked from discovery to resolution.
-
-### Jobs Over Code
-
-The closed loop is enforced through **jobs**, not programmatic constraints. A's jobs are loaded every time A activates. Each job is a behavioral guideline that A follows naturally.
-
-The DB (`agent_jobs` joined to `agent_souls`) is the source of truth for the current job list. The table below is a snapshot — run `psql -d psypi -c "SELECT s.id_prefix, j.job, j.priority, j.category FROM agent_jobs j JOIN agent_souls s ON j.soul_id = s.id WHERE j.is_active = true ORDER BY s.id_prefix, j.priority, j.category;"` to see the live list.
-
-**A-bot jobs (PDCA Check, snapshot — 24 rows in DB as of 2026-06-03):**
-
-| Priority | Category     | Job                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| -------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1        | review       | Schema Discipline: NEVER emit any string matching [inter-review id: <uuid>], [review id: <uuid>], or any other ID-format in your response text. The hook appends the canonical review ID automatically after your response is saved. Before outputting, scan your response for any UUID-like patterns or bracket-ID patterns and remove them.                                                                                                                                                         |
-| 1        | review       | Inter-review: PDCA Check between S sessions. Review whatever S produced this cycle — code, docs, data, decisions. Not gated on commits, not 1:1 with tasks. Check: Gleam files are real (no JS strings), decoders match DB types, queries are parameterized, S followed PDCA. Results MUST go to inter_reviews table with review_id referenced in message to S.                                                                                                                                       |
-| 1        | self_monitor | Self-monitor: when call_monitor() returns no data, when inter_review.save() fails, when ctx state looks weird (no entries, no cwd, missing callbacks), or when you find you cannot do something you expected to do — report the anomaly to S via pi.sendMessage(..., triggerTurn: true) so S can investigate. Be specific: what you tried, what you expected, what you got. Do NOT wait for the human. S is the fix-it agent. The /autonomic-listen tool is debug-only.                               |
-| 1        | self_monitor | Self-monitor: when call_monitor() returns no data, when inter_review.save() fails, when ctx state looks weird (no entries, no cwd, missing callbacks), or when you find you cannot do something you expected to do — report the anomaly to S via pi.sendMessage(..., triggerTurn: true) so S can investigate. Be specific: what you tried, what you expected, what you got. Do NOT wait for the human. S is the fix-it agent. The human is not in the loop. The /autonomic-listen tool is debug-only. |
-| 2        | behavior     | Review S behavior: did S report issues before fixing? did S plan before acting? did S update docs, skills, table_documentation after changes? Did S follow the closed loop (findings→issues→plans→tasks)?                                                                                                                                                                                                                                                                                             |
-| 2        | unblock      | Unblock stuck S jobs with specific information                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 3        | continue     | Help S continue current work with next logical steps                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 3        | safety       | Anti-stupidity: catch S deleting code before committing, using sqlite3, restarting Pi, creating fake Gleam files, bypassing psypi-commit                                                                                                                                                                                                                                                                                                                                                              |
-| 4        | new_job      | Suggest new jobs only when S has no in-progress work                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 4        | unblock      | Unblock stuck S tasks with specific information from conversation history                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| 5        | maintenance  | Identify and suggest cleanup of stale jobs (>7 days)                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 5        | suggestion   | Suggest doer-jobs to S when context is right: research competitors, business proposals, learning. A decides whether to suggest; S decides how to execute                                                                                                                                                                                                                                                                                                                                              |
-| 6        | maintenance  | Check docs match code, suggest updates                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| 6        | maintenance  | Identify stale S tasks (>7 days inactive), suggest cleanup or reprioritization                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 7        | definition   | Review own soul, responsibilities, and jobs definitions — do they still match reality? Update if stale or wrong                                                                                                                                                                                                                                                                                                                                                                                       |
-| 7        | quality      | Find modules >100 lines that should be split                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 8        | closed_loop  | Check review findings have corresponding issues: every significant finding should become an issue with root cause analysis                                                                                                                                                                                                                                                                                                                                                                            |
-| 8        | research     | Research competitors (openclaw, lobehub, etc.)                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 9        | closed_loop  | Check issues have discussion and plan: issues should have comments with investigation and action plan. If missing, add analysis or suggest plan                                                                                                                                                                                                                                                                                                                                                       |
-| 9        | learning     | Read user files, save knowledge to memory                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| 10       | business     | Research business opportunities, draft proposals                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 10       | closed_loop  | Check planned issues have tasks: when an issue has a sound plan, verify tasks exist. If not, create tasks or prompt S to create them                                                                                                                                                                                                                                                                                                                                                                  |
-| 11       | closed_loop  | Check task execution follow-up: verify S addressed previous review findings. If not acted upon, escalate. No unaddressed findings should slip through                                                                                                                                                                                                                                                                                                                                                 |
-| 12       | closed_loop  | Check if issue discussion needs ongoing dialogue: when an issue has conflicting views or needs structured back-and-forth, note it in inter-review. S decides whether to convene a meeting (S-only tool). A does not suggest meetings — A only checks and reports findings.                                                                                                                                                              |
-
-**S-bot jobs (PDA self-C, snapshot — 20 rows in DB as of 2026-06-03):**
-
-| Priority | Category    | Job                                                                                                                                                                                                                                                                                                 |
-| -------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1        | behavior    | Address A inter-review findings: read A feedback from inter_reviews, act on suggestions, improve code quality                                                                                                                                                                                       |
-| 1        | quality     | CRITICAL: Never create pi_*.gleam modules. Never write JS code as Gleam string literals. If you need JS interop, use .mjs files with @external FFI. Violating this rule causes 99% of all bugs in this codebase.                                                                                    |
-| 1        | reminder    | Reminder: check your own jobs and pick the most suitable one to work on. A general nudge is enough — S is a self-sufficient agent.                                                                                                                                                                  |
-| 1        | review      | System-review (terminal monitoring): when directed by A or user, perform comprehensive review of entire system — codebase architecture, DB schema integrity, type coverage, doc completeness, code duplication, missing Gleam types, tech debt. Results to system_reviews + review_findings tables. |
-| 2        | behavior    | Report issues before attempting fixes. Plan before taking actions. Update docs, skills, and table_documentation after changes.                                                                                                                                                                      |
-| 2        | unblock     | Execute unblock actions when stuck                                                                                                                                                                                                                                                                  |
-| 3        | continue    | Continue current job with A's guidance                                                                                                                                                                                                                                                              |
-| 4        | continue    | Continue current task with A guidance                                                                                                                                                                                                                                                               |
-| 4        | new_job     | Accept new jobs when no in-progress work                                                                                                                                                                                                                                                            |
-| 5        | maintenance | Close or re-prioritize stale jobs                                                                                                                                                                                                                                                                   |
-| 5        | new_task    | Accept new tasks when no in-progress work                                                                                                                                                                                                                                                           |
-| 6        | maintenance | Update documentation to match code                                                                                                                                                                                                                                                                  |
-| 6        | maintenance | Close or re-prioritize stale tasks                                                                                                                                                                                                                                                                  |
-| 7        | quality     | Refactor large modules into smaller ones                                                                                                                                                                                                                                                            |
-| 8        | research    | Execute competitive research jobs                                                                                                                                                                                                                                                                   |
-| 9        | learning    | Save user knowledge to memory                                                                                                                                                                                                                                                                       |
-| 9        | research    | Execute competitive research tasks when suggested by A                                                                                                                                                                                                                                              |
-| 10       | business    | Review and implement business proposals                                                                                                                                                                                                                                                             |
-| 11       | business    | Implement business proposals when suggested by A                                                                                                                                                                                                                                                    |
-| 12       | definition  | Review own soul, responsibilities, and jobs definitions - do they still match reality? Update if stale or wrong                                                                                                                                                                                     |
-
-**Principle**: What you want to program, make a job instead. Jobs load every cycle, A reads them, A decides what to do. No FK constraints, no triggers, no stored procedures — just behavioral guidelines that A follows because they are in A's job list.
-
-**Cleanliness invariants** (enforced by migration `037_clarify_agent_roles.sql`):
-- A NEVER has a job that mentions "system review" / "system-review".
-- S NEVER has a job that says "perform inter-review" / "perform interreview" (the legitimate "Address A inter-review findings" stays).
-- S's job list has no duplicates.
-
-**Known doc/DB drift** — RESOLVED by migration 046 (2026-06-04):
-- A's older self_monitor (`d9d45795...`, "Do NOT wait for the human") was superseded by `450a12db...` ("The human is not in the loop"). Migration 046 deactivated the older one. No more drift.
-
-## agent_end Workflow (A-bot Activation)
-
-When S finishes a turn, Pi fires `agent_end`:
-
-1. **extension.js debounce** — `setTimeout(callback, debounceMs)` with timer dedup (clear previous timer before starting new one). Debounce value read from `psypi_config.monitor_debounce_ms` (cached after first read).
-2. **After debounce timer fires** — `hook_on_agent_end.on_agent_end(ctx, pi)` checks `ctx_is_idle(ctx)`. If idle, calls `run_a_bot()`.
-3. **run_a_bot()** reads soul+jobs+state from DB, builds prompts, calls `call_monitor()`, sends result via `pi_send_message()` with `triggerTurn: true`.
-
-Changes to debounce take effect after restart (cached at module level in extension.js).
-
-## Skills System
-
-Skills are discoverable capability extensions. Stored in `skills` table, also available as markdown files in `ppi_skills/*/SKILL.md`.
-
-**psypi-managed skills** (in `ppi_skills/`):
-- `psypi-basics` — full cheat sheet for using psypi from TUI
-- `psypi-dev` — developer guide
-- `getting-started` — first-time user guide
-
-**Other skill categories:** code-review, debugging, documentation, git-workflow, gleam-language, planning, security, testing, and more.
-
-Skill statuses: `pending → approved → installed` (or `rejected`/`blocked`). Sources: `local`, `clawhub`, `generated`, `imported`.
+Verify: inside Pi TUI, use `/psypi-my-id` to check identity.
 
 ## Architecture
 
 ```
 Gleam source (src/*.gleam)
-  ↓ gleam build
-Compiled JS (build/dev/javascript/psypi/*.mjs)
-  ↓ extension_generator.gleam composes text
-extension.js (auto-generated, never hand-edit)
-  ↓ Pi TUI loads it
-Pi runtime (tools, hooks, commands)
+  → gleam build → Compiled JS (build/dev/javascript/psypi/*.mjs)
+  → extension_generator → extension.js (auto-generated, never hand-edit)
+  → Pi TUI loads extension.js → 44 tools, 7 hooks, 2 commands
 ```
 
-- `bin/ppi.mjs` — bootstrapper, spawns Pi with psypi loaded
-- `extension.js` — auto-generated, **never hand-edit**
-- `src/extension_generator.gleam` — collects all PiToolCall values, generates extension.js
-- `src/pi_tool_call.gleam` — PiToolCall, PiEventHook, PiCommandReg types
-- `src/db.gleam` — database access layer (all DB ops)
+**Zero hand-written JS in Gleam code.** See [docs/ZERO-HANDWRITTEN-JS.md](docs/ZERO-HANDWRITTEN-JS.md).
 
-## FFI Files
+## Database
 
-Hand-written JS files (only these 4):
-- `src/pi_extension_ffi.mjs` — ctx.ui.notify, ctx.isIdle, pi_send_message, call_monitor, etc.
-- `src/agent_identity_ffi.mjs` — check_git_exists
-- `src/node_ffi.mjs` — get_env, get_project_id_env
-- `src/time_utils_ffi.mjs` — date/time helpers
+| Key | Value |
+|-----|-------|
+| **Host** | `localhost:5432` |
+| **Database** | `psypi` |
+| **User** | `postgres` |
+| **Driver** | `node_pg` (Gleam FFI to Node.js `pg`) |
+| **Access** | `src/db.gleam` — all DB ops via `with_connection()` |
+
+### CRITICAL: Always `psql -d psypi`
+
+Default `psql` connects to the OS user database (e.g. `jk`), which has different data. Always specify `-d psypi`.
+
+### Key Tables
+
+| Table | Purpose |
+|-------|---------|
+| `agent_souls` | Agent identity. `id_prefix` = `'A'` or `'S'`. **Append-only** — use `save_soul_version()` |
+| `agent_jobs` | Prioritized work items per soul. **Append-only** — use `save_job_version()` |
+| `tasks` | Task queue (PENDING/RUNNING/COMPLETED/FAILED) |
+| `issues` | Bug/feature tracker |
+| `skills` | Skill registry (name, status, safety_score, content) |
+| `meetings` | Cross-project AI communication (shared bulletin board) |
+| `memory` | Stored agent memories |
+| `learning_insights` | Learned knowledge |
+| `code_versions` | File version history (auto-backup before edits) |
+| `psypi_config` | Key-value config (`monitor_debounce_ms` default 300000) |
+| `system_reviews` | System review records |
+| `review_findings` | Individual findings from system reviews |
+| `inter_reviews` | A-bot's inter-review of S's work between sessions |
+
+### Append-Only Pattern
+
+`agent_souls` and `agent_jobs` use append-only. Never UPDATE in place — always INSERT via `save_soul_version()` / `save_job_version()` (migration 046). Two flags:
+- `is_active` (default true) — marks current version. Partial unique index: `WHERE is_active = true`
+- `is_archived` (default false) — visibility flag. App-managed.
+
+Read path: `WHERE is_active = true AND is_archived = false`
+
+**NEVER** use `UPDATE agent_souls SET content = ...` — use `save_soul_version()`.
+
+## Identity System
+
+One pure function: `get_resolved_identity(ctx)`. A/S prefix from `ctx.isIdle()` at call time.
+
+**NEVER CACHE THE ID.** Compute fresh every time.
+
+Format: `(G-)(A|S)-<project>-<source>-<model>[-<thinking_level>]`
+- `G-` prefix when no `.git` found
+- Fields from live Pi runtime: `is_idle`, `model`, `source`, `thinking_level`, `project`
+
+## A/S Dual-Agent Model
+
+A and S are like **alternating current** — never active simultaneously. One Pi extension instance, differentiated by `id_prefix`.
+
+| Phase | Agent | What |
+|-------|-------|------|
+| **Plan** | S (or A suggests) | Decide what to do next |
+| **Do** | S | Write code, commit, use tools |
+| **Check** | A | Inter-review between S sessions |
+| **Act** | S | Address A's findings, improve |
+
+### A-bot (Autonomic) — The Doctor
+
+- Owns PDCA **Check** phase
+- Activates after debounce timer fires (S continuously idle for `monitor_debounce_ms`)
+- Check scope: behavior compliance, code quality, DB quality, doc quality, inter-review, follow-up enforcement
+- Communicates with S via `pi.sendMessage()` — never `ctx.ui.notify()` for errors
+- **NEVER does system-review** — can prompt S to do one
+
+### S-bot (Somatic) — The Patient
+
+- Owns Plan, Do, Act phases
+- Executes tasks, writes code, uses tools
+- Can self-check, but Check is A's professional responsibility
+- Does system-review **only when A or user asks** — never self-initiates
+- **MUST wait for A's inter-review** before resolving issues or completing tasks
+
+### Responsibility Split
+
+| Concern | A-bot | S-bot |
+|---------|-------|-------|
+| Inter-review (PDCA Check) | Owns it | Never as primary |
+| System-review (full audit) | Never | Owns it (on request) |
+| Behavior/code/DB/doc quality | Owns it | — |
+| Code execution, file edits, git | — | Owns it |
+
+### Debounce Timer Logic
+
+```
+agent_end event → CLEAR previous timer → SET setTimeout(callback, debounce_ms)
+agent_start/input → CLEAR timer (cancel A's pending activation)
+
+When timer fires (after continuous idle):
+  → on_agent_end(ctx, pi) → ctx_is_idle()? run_a_bot() : skip
+```
+
+Key invariant: timer ONLY fires after **continuous** idle. Any S activity cancels it. Never reduce debounce as a "fix".
+
+### A-bot Communication
+
+| Method | Effect | Use case |
+|--------|--------|----------|
+| `ctx.ui.notify()` | TUI only, S cannot see | A's thinking/progress |
+| `sendMessage(triggerTurn: false, deliverAs: "followUp")` | S sees in stream | Errors |
+| `sendMessage(triggerTurn: true)` | Triggers new S turn | Wake-up with review findings |
+
+## Pi Tools (44)
+
+All tools defined as `PiToolCall` values in Gleam. Source of truth: grep `pub fn.*tool()` in `src/`.
+
+### Identity & Tasks & Issues
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-my-id` | `agent_identity` | Get calling agent's full identity |
+| `psypi-agents` | `agents` | List all registered agents |
+| `psypi-task-add` | `task` | Create a task |
+| `psypi-tasks` | `task` | List tasks (filter by status, project) |
+| `psypi-task-complete` | `task` | Mark task completed by UUID |
+| `psypi-issue-add` | `issue_tools` | Create issue |
+| `psypi-issues` | `issue_tools` | List issues |
+| `psypi-issue-count` | `issue_tools` | Count issues |
+| `psypi-issue-get` | `issue_tools` | Get issue by ID |
+| `psypi-issue-resolve` | `issue_tools` | Resolve issue by ID |
+
+### Skills & Meetings & Memory
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-skill-list` | `skill` | List skills |
+| `psypi-skill-get` | `skill` | Get skill by name |
+| `psypi-skill-search` | `skill` | Search skills |
+| `psypi-meeting-add` | `meeting` | Create meeting |
+| `psypi-meetings` | `meeting` | List meetings |
+| `psypi-meeting-get` | `meeting` | Get meeting by ID |
+| `psypi-meeting-say` | `meeting` | Add opinion |
+| `psypi-meeting-opinions` | `meeting` | List opinions |
+| `psypi-learn-save` | `learning` | Save learning |
+| `psypi-memory-search` | `memory` | Search memories |
+
+### Code & Commit & Reflection
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-doc-save` | `code_version` | Save file version |
+| `psypi-doc-list` | `code_version` | List version history |
+| `psypi-commit` | `commit` | Commit with agent ID tag (S only) |
+| `psypi-areflect` | `areflect` | Parse [LEARN]/[ISSUE]/[TASK] markers |
+
+### Monitor & Review & Stats
+| Tool | Module | Description |
+|------|--------|-------------|
+| `psypi-autonomic-status` | `monitor_ai` | Monitor status |
+| `psypi-autonomic-health` | `monitor_ai` | System health |
+| `psypi-autonomic-alerts` | `monitor_ai` | Active alerts |
+| `psypi-autonomic-stats` | `monitor_ai` | Statistics |
+| `psypi-autonomic-suggest` | `monitor_ai` | Work suggestions |
+| `psypi-review-create` | `system_review_tools` | Create system review |
+| `psypi-review-get` | `system_review_tools` | Get review |
+| `psypi-reviews` | `system_review_tools` | List reviews |
+| `psypi-review-complete` | `system_review_tools` | Complete review |
+| `psypi-review-severity` | `system_review_tools` | Update finding severity |
+| `psypi-finding-add` | `system_review_tools` | Add finding |
+| `psypi-findings` | `system_review_tools` | List findings |
+| `psypi-finding-count` | `system_review_tools` | Count findings |
+| `psypi-finding-update` | `system_review_tools` | Update finding |
+| `psypi-hooks-list` | `event_hooks` | List all hooks |
+| `psypi-hooks-active` | `event_hooks` | List active hooks |
+| `psypi-stats-show` | `stats` | Project statistics |
+| `psypi-consult-autonomic` | `tool_consult` | S asks A for advice |
+| `psypi-broadcast-send` | `broadcast` | Send broadcast |
+| `psypi-broadcasts` | `broadcast` | List broadcasts |
+
+## Commit Workflow
+
+S makes changes → `psypi-commit("message")` → commit with `[AI:<agent-id>]` tag → S goes idle → A wakes → inter-review → A sends findings to S.
+
+**S MUST wait for A's inter-review before resolving issues or completing tasks.** PDCA: Plan→Do→Check→Act. S does Plan+Do, A does Check, then S Acts.
+
+**S MUST use `psypi-commit`** for all commits (not raw `git commit`).
+
+**NEVER restart psypi from a tool.** That is A-bot's or the human's job.
+
+## Issues → Tasks: The Derivation Principle
+
+Issues (Plans) → Tasks. Every plan starts from something new or wrong — that is an issue. Issues accept discussion through comments. When the plan is sound, tasks are deduced. This is behavioral, not programmatic — no FK needed.
+
+**Review → Issue → Task closed loop:**
+```
+A inter-review → findings → significant findings become issues
+  → issue comments (root cause, plan) → tasks → execution
+  → next A cycle: check + follow-up → new findings → ...
+```
+
+Every significant finding should become an issue. A finding without an issue is an orphan.
+
+## Jobs Over Code
+
+What you want to program, make a job instead. A's jobs load every cycle via `a_db_reader.read_a_jobs_from_db()`. A reads them, A decides what to do. No FK constraints, no triggers — just behavioral guidelines.
 
 ## Critical Rules
 
-0. **☠️ NEVER delete data without explicit human confirmation** — No DELETE, DROP, or TRUNCATE on the database without the human explicitly asking for it. Even if the instruction seems to imply cleanup, ASK FIRST. Even one table. Even if it looks like obvious cleanup. When in doubt, ask. Data loss is permanent. PostgreSQL does not have an undo button.
+0. **NEVER delete data without explicit human confirmation** — No DELETE/DROP/TRUNCATE without asking. Data loss is permanent.
+1. **NEVER use `psql` to modify DB directly** — All changes through migrations and Gleam code.
+2. **Always `pwd` first** — Never assume project root path.
+3. **Use Pi tools, not shell commands** — `/psypi-task-add`, not `psql`.
+4. **Use `psypi-commit`** for commits — not `git commit`.
+5. **Read files first** — `read` then `edit` with exact match.
+6. **Never spawn Pi from Pi tools** — infinite loop crash.
+7. **Gleam types** — Enums are source of truth. Validate at boundary via `string_to_*()` → `Result`.
+8. **Clean build** — Always `gleam clean && gleam build`.
+9. **pnpm** — Not npm.
+10. **NO FAKE GLEAM** — Never create `pi_*.gleam` modules. Never write JS as Gleam string literals.
 
-1. **☠️ NEVER use `psql` to modify database tables directly** — All database changes MUST go through migrations (`src/migrations/*.sql`) and Gleam code. Using `psql` to INSERT, UPDATE, or DELETE data bypasses the append-only pattern, breaks version history, and can corrupt the database. This has happened before and caused significant damage. If you need to change data, create a migration file and use `save_*_version()` functions.
-
-2. **Always run `pwd` first** — Before searching for files or exploring the project, run `pwd` to know your current working directory. Never assume the project root path. The project may be at a different location than expected (e.g., `/Users/jk/gits/hub/tools_ai/psypi`, not `/Users/jk/gits/hub/psypi`). Use `pwd` + `find` to locate files, never hardcoded paths.
-
-3. **Use Pi tools, not shell commands** — `/psypi-task-add`, not `psql` or CLI
-4. **Use `psypi-commit`** for commits (not `git commit`) — commits immediately with agent ID tag. Inter-review happens after, during A's autonomous time.
-5. **Read files first** — `read` then `edit` with exact match
-6. **Never spawn Pi from Pi tools** — infinite loop crash
-7. **Gleam types** — Enums are source of truth. Validate at boundary via `string_to_*()` → `Result`, never pass raw strings to SQL
-8. **Clean build** — Always `gleam clean && gleam build` before building
-9. **pnpm** — Not npm
-10. **☠️ NO FAKE GLEAM** — Never create `pi_*.gleam` modules. Never write JS code as Gleam string literals. Use `.mjs` + `@external` FFI instead. This is the #1 source of bugs.
-
-## ⚠️ GOLDEN RULE: No Hand-Written JS in Gleam Code
-
-**NEVER write JavaScript code as Gleam string literals in non-generator modules.**
+## No Hand-Written JS in Gleam Code
 
 Three valid patterns:
-1. **Gleam FFI (`@external`)** — `src/<module>_ffi.mjs` + `@external(javascript, "./<module>_ffi.mjs", "fn_name")`
-2. **Gleam generator functions** — return JS text strings, compose in `extension_generator.gleam`
-3. **Pi type constructors** — `lit()`, `from_param()`, `event_hook()`, `template()`
+1. **Gleam FFI (`@external`)** — `src/<module>_ffi.mjs` + `@external(javascript, ...)`
+2. **Gleam generator** — `pi_tool_call.gleam` composes JS text from structured types
+3. **Pi type constructors** — `param()`, `opt_param()`, `str()`, `int_val()`, `ctx()`, `pi()`, `event_hook()`, `template()`
 
-The ONLY hand-written JS files are the 4 `*_ffi.mjs` files. Everything else is auto-generated or uses proper FFI.
+Only 4 hand-written JS files exist: `pi_extension_ffi.mjs`, `agent_identity_ffi.mjs`, `node_ffi.mjs`, `time_utils_ffi.mjs`.
 
-## Reference Materials (`../refers/`)
+**Deleted types (do NOT reintroduce):** `JsLiteral(String)`, `FromParam(String)`, `CustomJs(String)`, `FnArg`, `lit()`, `from_param()`, `custom_js()`.
 
-The sibling directory `../refers/` contains a curated collection of reference resources:
+See [docs/ZERO-HANDWRITTEN-JS.md](docs/ZERO-HANDWRITTEN-JS.md) for the full guide.
 
-| Directory                          | Content                              |
-| ---------------------------------- | ------------------------------------ |
-| `pi/`                              | Pi project resources                 |
-| `gleam-language/`                  | Gleam language references            |
-| `otp/`                             | OTP/Elixir design patterns           |
-| `langchain/`                       | LangChain patterns and examples      |
-| `lively4-core/`                    | Lively4 self-programming environment |
-| `everything-claude-code/`          | Claude Code usage resources          |
-| `Flowise/`                         | Flowise workflow builder             |
-| `opencode/`                        | OpenCode resources                   |
-| `repomix/`                         | Repomix code packaging               |
-| `vercel-ai-sdk/`                   | Vercel AI SDK                        |
-| `nodejs-cli-apps-best-practices/`  | Node.js CLI best practices           |
-| `json/`                            | JSON format references               |
-| `agent-skills/`                    | Agent skill resources                |
-| `awesome-opensource-boilerplates/` | Open source boilerplates             |
-| `self_reports/`                    | Self-reporting resources             |
-| `taches-cc-resources/`             | Taches CC resources                  |
-| `puter/`                           | Puter resources                      |
-| `some_others/`                     | Miscellaneous references             |
+## FFI Files
 
-**Use `read` to explore these when relevant.** They are valuable references for architecture patterns, language features, and design inspiration.
+| File | Purpose |
+|------|---------|
+| `src/pi_extension_ffi.mjs` | ctx.ui.notify, ctx.isIdle, pi_send_message, call_monitor |
+| `src/agent_identity_ffi.mjs` | check_git_exists |
+| `src/node_ffi.mjs` | get_env, get_project_id_env |
+| `src/time_utils_ffi.mjs` | date/time helpers |
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/extension_generator.gleam` | Collects tools/hooks/commands, generates extension.js |
+| `src/pi_tool_call.gleam` | PiToolCall, PiEventHook, FnArgument, ParamSrc, HookGuard types |
+| `src/db.gleam` | Database access layer |
+| `src/agent_identity.gleam` | Identity resolution + enrichment from DB |
+| `src/hook_on_agent_end.gleam` | A-bot trigger: debounce + idle detection |
+| `src/simple_migrate.gleam` | DB migration runner |
+| `src/seed.gleam` | Initial data seeder |
 
 ## Lessons Learned
 
 ### The `system_directives` Anti-Pattern
 
-**Mistake:** Building a database table + Pi tools + hook injection pipeline for A→S communication, when `sendMessage()` already exists.
+Built DB table + tools + hook injection for A→S communication, when `sendMessage()` already exists. S is an LLM that reads messages directly — no database intermediary needed. **Correct pattern:** A→S communication = `sendMessage()`.
 
-The `system_directives` table, `psypi-direct-agentbot` tool, `psypi-clear-directives` tool, and the `before_agent_start` directive-reading logic were all built to let A "inject directives into S's system prompt." This is over-engineering: S is an LLM that can read and understand messages from A directly via `sendMessage()`. No database intermediary, no special injection pipeline, no custom tool needed.
+### Append-Only for `agent_souls` / `agent_jobs`
 
-**Why it happened:** An AI confused "system prompt injection" (a Pi mechanism) with "communication" (a natural language act). A doesn't need to modify S's system prompt — A just needs to talk to S.
+Direct UPDATE destroyed history. Append-only preserves full evolution. Use `save_soul_version()` / `save_job_version()`. Partial unique indexes MUST use `WHERE is_active = true` (not `WHERE is_archived = false` — that was Bug B.1).
 
-**Correct pattern:** A→S communication = `sendMessage()`. S reads A's message and decides what to do. Both bots read their own soul/jobs from DB via `id_prefix` for their identity, not for inter-agent communication.
-
-### The Append-Only Pattern for `agent_souls` and `agent_jobs`
-
-**Why this pattern:** These two tables historically used direct UPDATE-in-place to
-change content. The result: every prior version of a soul or job is gone forever.
-If a change was wrong or a regression was introduced, there is no history to
-review, no git-equivalent for DB content, and no audit trail of how the agent
-evolved.
-
-**The pattern:** Every change inserts a NEW row and flips the old row's
-`is_active` to `false`. The old row is never deleted. The full evolution
-is preserved.
-
-#### Two flags, two purposes
-
-| Flag          | Purpose                                                                                 | Managed by                                                |
-| ------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `is_active`   | Marks the current/active version. The partial unique index lives on this flag.          | Database (index enforces at most one active row per key)  |
-| `is_archived` | Marks whether the row is "in use" / visible to the app. Application-managed visibility. | Application / reading code (Gleam readers filter on this) |
-
-The two flags are **independent**. A row can be any of 4 states:
-`(is_active=true, is_archived=false)` = current + visible (the live row)
-`(is_active=false, is_archived=false)` = historical but still visible (recent)
-`(is_active=true, is_archived=true)` = current but hidden (rare, transitional)
-`(is_active=false, is_archived=true)` = historical, hidden (old, archived)
-
-#### Partial unique indexes: condition matters
-
-For the pattern to allow MULTIPLE historical rows with the same business key
-(id_prefix, role, soul_id+job_key) while preventing multiple ACTIVE rows, the
-partial unique index MUST use `WHERE is_active = true`:
-
-```sql
--- CORRECT: only one active row per key, history is unlimited
-CREATE UNIQUE INDEX uq_agent_souls_active_id_prefix
-  ON agent_souls (id_prefix) WHERE is_active = true;
-
--- WRONG: this fails on the first save_soul_version call because the
--- deactivation UPDATE leaves the old row with is_archived=false.
--- Both old and new rows match the index and the INSERT is rejected.
-CREATE UNIQUE INDEX uq_agent_souls_active_id_prefix
-  ON agent_souls (id_prefix) WHERE is_archived = false;
-```
-
-This was Bug B.1 in
-[`docs/REVIEW-2026-06-04-append-only-verification.md`](./docs/REVIEW-2026-06-04-append-only-verification.md).
-SQL-verified. Never use `WHERE is_archived = false` for these indexes.
-
-#### The `save_*_version()` function pattern
-
-To make version bumps atomic and consistent, wrap the deactivation + insert
-in a plpgsql function:
-
-```sql
-CREATE OR REPLACE FUNCTION save_soul_version(
-  p_id_prefix text,
-  p_content   text
-) RETURNS uuid AS $$
-DECLARE v_new_id uuid;
-BEGIN
-  -- 1. Deactivate current active row
-  UPDATE agent_souls SET is_active = false
-   WHERE id_prefix = p_id_prefix AND is_active = true;
-
-  -- 2. Insert new row, copying stable fields from the most recent row
-  INSERT INTO agent_souls (
-    id_prefix, name, role, domain, responsibility,
-    trigger_type, drive_mode, activation, content,
-    is_active, is_archived
-  )
-  SELECT p_id_prefix, name, role, domain, responsibility,
-         trigger_type, drive_mode, activation, p_content,
-         true, false
-  FROM agent_souls
-  WHERE id_prefix = p_id_prefix
-  ORDER BY created_at DESC
-  LIMIT 1
-  RETURNING id INTO v_new_id;
-
-  RETURN v_new_id;
-END;
-$$ LANGUAGE plpgsql;
-```
-
-The pattern: UPDATE-then-INSERT in one transaction, copy the stable
-business fields, return the new id. Idempotent: re-running yields a new
-row each time (which is fine for append-only).
-
-#### Gleam read paths must filter on `is_archived = false`
-
-The reading code (`a_db_reader.gleam`, `s_db_reader.gleam`,
-`agent_identity.gleam`) must add `AND is_archived = false` to every read
-of `agent_souls` and `agent_jobs`. Without this filter, A/S would see
-historical rows alongside active ones and could pick up the wrong job.
-
-```gleam
-// CORRECT
-let query = "
-  SELECT id, content, ... FROM agent_souls
-  WHERE id_prefix = $1 AND is_archived = false
-  ORDER BY created_at DESC LIMIT 1
-"
-```
-
-#### NEVER do this
-
-```sql
--- WRONG: overwrites history, no record of the change
-UPDATE agent_souls SET content = 'new content'
- WHERE id_prefix = 'A' AND is_active = true;
-```
-
-If you find yourself wanting to write an UPDATE on these tables outside the
-`save_*_version()` functions, stop. Open an issue. The pattern exists for a
-reason.
-
-#### When to apply this pattern to a new table
-
-Use append-only when:
-- The table holds agent identity, configuration, or evolving business rules
-- You need to know how the value changed over time
-- Mistakes in UPDATE are hard to recover from
-- The table is read more often than written (typical of config-like tables)
-
-Do NOT use append-only when:
-- The table is a write-once log (e.g. `inter_reviews`, `memory`,
-  `review_findings`) — those are already append-only by design
-- The table is transactional and not configuration (e.g. `tasks` with
-  status transitions — UPDATE-in-place is correct there)
-
-## Key Files
-
-| File                                  | Purpose                                                   |
-| ------------------------------------- | --------------------------------------------------------- |
-| `src/extension_generator.gleam`       | Collects all tools/hooks/commands, generates extension.js |
-| `src/pi_tool_call.gleam`              | PiToolCall, PiEventHook, PiCommandReg types               |
-| `src/db.gleam`                        | Database access layer                                     |
-| `src/agent_identity.gleam`            | Identity resolution + enrichment from DB                  |
-| `src/skill.gleam`                     | Skill CRUD + Pi tools                                     |
-| `src/task.gleam`                      | Task CRUD + Pi tools                                      |
-| `src/issue_tools.gleam`               | Issue CRUD + Pi tools                                     |
-| `src/meeting.gleam`                   | Meeting CRUD + Pi tools                                   |
-| `src/monitor_ai.gleam`                | Autonomic monitoring tools                                |
-| `src/commit.gleam`                    | Simple commit with agent ID tagging                       |
-| `src/simple_migrate.gleam`            | DB migration runner                                       |
-| `src/seed.gleam`                      | Initial data seeder                                       |
-| `AGENTS.md`                           | This file — agent quick guide                             |
-| `ppi_skills/psypi-basics/SKILL.md`    | Full psypi cheat sheet                                    |
-| `ppi_skills/getting-started/SKILL.md` | First-time user guide                                     |
-| `docs/MONITOR-DEBOUNCE.md`            | Debounce configuration                                    |
-| `Makefile`                            | Convenience targets                                       |
-| `bin/setup.sh`                        | First-time setup script                                   |
+Apply append-only when: table holds evolving config/identity, you need change history, read-heavy. Do NOT apply when: write-once log (already append-only), transactional status transitions (UPDATE is correct).

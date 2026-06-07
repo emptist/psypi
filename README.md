@@ -15,6 +15,8 @@ node bin/ppi.mjs                 # start Pi with psypi
 
 ## Architecture
 
+**Zero hand-written JS.** All JavaScript is either compiled from Gleam, generated from structured types, or in FFI bridge files. See [Zero Hand-Written JS](docs/ZERO-HANDWRITTEN-JS.md) for the full guide.
+
 ```
 Gleam source (src/*.gleam)
   → gleam build
@@ -92,3 +94,14 @@ gleam run -m seed                # seed agent souls and jobs
 gleam run -m extension_generator # regenerate extension.js
 node bin/ppi.mjs                 # start Pi with psypi loaded
 ```
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [AGENTS.md](AGENTS.md) | Quick guide for AI agents — project structure, tools, DB, identity |
+| [Zero Hand-Written JS](docs/ZERO-HANDWRITTEN-JS.md) | How to run a Node.js project without writing any JS — type-driven code generation with Gleam |
+| [REFACTOR-NOTES.md](REFACTOR-NOTES.md) | Refactoring history and migration records |
+| [CURRENT-STATE.md](CURRENT-STATE.md) | Current project state and recent changes |
+| [HANDOVER.md](HANDOVER.md) | Session handover notes |
+| [docs/](docs/) | Design docs, system reviews, ADRs |
