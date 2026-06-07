@@ -85,14 +85,32 @@ BEGIN
 END $$;
 
 -- ═══════════════════════════════════════════════════════════════════
--- 4. Fix responsibility fields
+-- 4. Fix responsibility fields (via save_soul_version — append-only)
 -- ═══════════════════════════════════════════════════════════════════
+-- save_soul_version() copies all fields from old row to new row,
+-- then we update the new row's responsibility. This is append-only:
+-- old row gets is_active=false, new row gets is_active=true.
 
-UPDATE agent_souls SET responsibility = 'PDCA Check via dialogue — ask S for data, evaluate evidence, inter-review, behavior compliance, anti-stupidity, follow-up enforcement'
-WHERE id_prefix = 'A' AND is_active = true;
+DO $$
+DECLARE
+  v_a_soul_id uuid;
+  v_s_soul_id uuid;
+  v_a_content text;
+  v_s_content text;
+  v_new_a_id uuid;
+  v_new_s_id uuid;
+BEGIN
+  -- A: save_soul_version already ran in step 1, creating a new active row
+  -- Now update the NEW row's responsibility (the one created by step 1)
+  SELECT id INTO v_a_soul_id FROM agent_souls WHERE id_prefix = 'A' AND is_active = true LIMIT 1;
+  UPDATE agent_souls SET responsibility = 'PDCA Check via dialogue — ask S for data, evaluate evidence, inter-review, behavior compliance, anti-stupidity, follow-up enforcement'
+  WHERE id = v_a_soul_id;
 
-UPDATE agent_souls SET responsibility = 'PDA with self-C and dialogue-based data provision — planning, execution, addressing findings, providing raw evidence when A asks, limited self-checking (primary Check is A)'
-WHERE id_prefix = 'S' AND is_active = true;
+  -- S: save_soul_version already ran in step 2, creating a new active row
+  SELECT id INTO v_s_soul_id FROM agent_souls WHERE id_prefix = 'S' AND is_active = true LIMIT 1;
+  UPDATE agent_souls SET responsibility = 'PDA with self-C and dialogue-based data provision — planning, execution, addressing findings, providing raw evidence when A asks, limited self-checking (primary Check is A)'
+  WHERE id = v_s_soul_id;
+END $$;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- Verification: no walkie-talkie references remain
