@@ -23,17 +23,14 @@ import gleam/string
 pub type ResultFormat {
   RawJson
   Template(String)
-  CustomJs(String)
 }
 
 pub type PiParam {
   PiParam(name: String, param_type: String, required: Bool)
 }
 
-// OLD FnArg — removed after migration to FnArgument
-
 // -------------------------------------------------------------------
-// FnArgument + ParamSrc (replace old FnArg + JsLiteral + FromParam)
+// FnArgument + ParamSrc
 // -------------------------------------------------------------------
 
 /// Structured parameter source — describes WHERE to get a value.
@@ -57,7 +54,7 @@ pub type ParamSrc {
   ArgsField
 }
 
-/// Structured function argument — replaces JsLiteral + FromParam(String).
+/// Structured function argument — describes WHAT to pass to the handler.
 /// Each variant describes WHAT to pass, not HOW (that's extension.js's job).
 pub type FnArgument {
   /// Extract value from Pi callback params/event/ctx
@@ -96,13 +93,24 @@ pub type HookErrorAction {
   NotifyError
 }
 
+/// Structured guard condition — replaces guard: Option(String).
+/// Describes WHEN a hook should execute, without hand-written JS expressions.
+pub type HookGuard {
+  /// Execute only if ctx.field is truthy (e.g. ctx.model)
+  CtxFieldExists(String)
+  /// Execute only if event.field is truthy (e.g. event.model)
+  EventFieldExists(String)
+  /// No guard — always execute
+  NoGuard
+}
+
 pub type PiEventHook {
   PiEventHook(
     event_name: String,
     module: String,
     fn_name: String,
     args: List(FnArgument),
-    guard: Option(String),
+    guard: HookGuard,
     on_success: HookSuccessAction,
     on_error: HookErrorAction,
   )
@@ -114,7 +122,7 @@ pub type PiEventHook {
     debounce_ms_module: String,
     debounce_ms_fn: String,
     cancel_on: List(String),
-    guard: Option(String),
+    guard: HookGuard,
     on_success: HookSuccessAction,
     on_error: HookErrorAction,
   )
@@ -239,10 +247,6 @@ pub fn template(tpl: String) -> ResultFormat {
   Template(tpl)
 }
 
-pub fn custom_js(expr: String) -> ResultFormat {
-  CustomJs(expr)
-}
-
 // -------------------------------------------------------------------
 // PiToolCall → JS text
 // -------------------------------------------------------------------
@@ -328,7 +332,6 @@ pub fn result_to_js(format: ResultFormat) -> String {
   case format {
     RawJson -> "JSON.stringify(gleamValueToJson(r.value))"
     Template(tpl) -> "`" <> tpl <> "`"
-    CustomJs(expr) -> expr
   }
 }
 
@@ -480,12 +483,13 @@ pub fn event_hook_to_js(hook: PiEventHook) -> String {
       let call = hook_call_expr(module, fn_name, args)
 
       let guard_prefix = case guard {
-        Some(g) -> "    if (" <> g <> ") {\n"
-        None -> ""
+        CtxFieldExists(field) -> "    if (ctx." <> field <> ") {\n"
+        EventFieldExists(field) -> "    if (event." <> field <> ") {\n"
+        NoGuard -> ""
       }
       let guard_suffix = case guard {
-        Some(_) -> "    }\n"
-        None -> ""
+        NoGuard -> ""
+        _ -> "    }\n"
       }
       let success_js = success_action_to_js(on_success)
       let error_catch = case on_error {
@@ -696,7 +700,7 @@ pub fn event_hook(
   module: String,
   fn_name: String,
   args: List(FnArgument),
-  guard: Option(String),
+  guard: HookGuard,
   on_success: HookSuccessAction,
   on_error: HookErrorAction,
 ) -> PiEventHook {
@@ -719,7 +723,7 @@ pub fn debounced_hook(
   debounce_ms_module: String,
   debounce_ms_fn: String,
   cancel_on: List(String),
-  guard: Option(String),
+  guard: HookGuard,
   on_success: HookSuccessAction,
   on_error: HookErrorAction,
 ) -> PiEventHook {

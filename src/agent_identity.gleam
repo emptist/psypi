@@ -185,7 +185,7 @@ fn fetch_jobs_by_prefix(prefix: String) -> promise.Promise(Result(List(String), 
 
 /// Get enriched identity from Pi ctx object.
 /// Uses FFI functions to extract ctx properties (is_idle, source, model, etc.)
-/// instead of constructing a JS object literal via JsLiteral.
+/// instead of constructing a JS object literal.
 pub fn get_enriched_identity(
   ctx: a,
 ) -> promise.Promise(Result(EnrichedIdentity, IdentityError)) {

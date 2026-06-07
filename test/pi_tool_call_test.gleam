@@ -8,6 +8,7 @@ import pi_tool_call.{
   system_prompt_hook, template, to_import_line, to_js_text, Warning,
   param, ctx, pi, str, int_val, null_val, args_field, event_field,
   event_json_field, event_file_path, ctx_field, opt_param, int_param,
+  CtxFieldExists, EventFieldExists, NoGuard,
 }
 import gleam/option.{None, Some}
 import gleam/string
@@ -165,7 +166,7 @@ pub fn event_hook_to_js_basic_test() {
     "hook_on_agent_start",
     "on_agent_start",
     [],
-    None,
+    NoGuard,
     pi_tool_call.SilentSuccess,
     pi_tool_call.NotifyError,
   )
@@ -182,12 +183,26 @@ pub fn event_hook_to_js_with_guard_test() {
     "hook_mod",
     "handler",
     [],
-    Some("ctx.isIdle"),
+    CtxFieldExists("isIdle"),
     pi_tool_call.SilentSuccess,
     pi_tool_call.NotifyError,
   )
   let js = event_hook_to_js(hook)
   should.be_true(string.contains(js, "if (ctx.isIdle)"))
+}
+
+pub fn event_hook_to_js_with_event_guard_test() {
+  let hook = event_hook(
+    "model_select",
+    "hook_mod",
+    "handler",
+    [],
+    EventFieldExists("model"),
+    pi_tool_call.SilentSuccess,
+    pi_tool_call.NotifyError,
+  )
+  let js = event_hook_to_js(hook)
+  should.be_true(string.contains(js, "if (event.model)"))
 }
 
 pub fn system_prompt_hook_to_js_test() {
@@ -213,7 +228,7 @@ pub fn debounced_hook_to_js_test() {
     "psypi_config",
     "get_debounce_ms",
     ["agent_start", "input"],
-    None,
+    NoGuard,
     pi_tool_call.SilentSuccess,
     pi_tool_call.NotifyError,
   )
@@ -236,7 +251,7 @@ pub fn debounced_hook_timer_dedup_test() {
     "psypi_config",
     "get_debounce_ms",
     [],
-    None,
+    NoGuard,
     pi_tool_call.SilentSuccess,
     pi_tool_call.NotifyError,
   )
@@ -254,7 +269,7 @@ pub fn debounced_hook_debounce_caching_test() {
     "psypi_config",
     "get_debounce_ms",
     [],
-    None,
+    NoGuard,
     pi_tool_call.SilentSuccess,
     pi_tool_call.NotifyError,
   )
@@ -298,7 +313,7 @@ pub fn event_hook_notify_success_test() {
     "mod",
     "handler",
     [],
-    None,
+    NoGuard,
     pi_tool_call.NotifySuccess("Done!"),
     pi_tool_call.NotifyError,
   )
@@ -312,7 +327,7 @@ pub fn event_hook_set_status_test() {
     "mod",
     "handler",
     [],
-    None,
+    NoGuard,
     pi_tool_call.SetStatus("phase", "reviewing"),
     pi_tool_call.NotifyError,
   )
